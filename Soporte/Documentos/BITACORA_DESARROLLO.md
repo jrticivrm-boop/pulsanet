@@ -20,6 +20,19 @@ Documento **vivo**: cada cambio, mejora, corrección, despliegue o decisión rel
 
 ---
 
+## 2026-08-22 — Plan escalonado 1→4 (validación · Git · APK · deploy)
+
+- **Tipo:** ops | docs
+- **Área:** ops | docs | mobile
+- **Qué:**
+  - Escalón 1: PC/API/web OK; checklist Pedro actualizado (voz/GPS pendientes humano).
+  - Escalón 2: `git init` + commit `027fb0d` (287 archivos, sin secretos).
+  - Escalón 3: rebuild APK 1.8.1+5 en curso/pendiente salida.
+  - Escalón 4: Docker/Play documentados, **no** ejecutados aún.
+- **Archivos / refs:** `VALIDACION_CAMPO_1_8_0.md`, `PLAN_ESCALONADO_1_8.md`, `.gitignore`, `docs/DOCKER_PROD.md`, `docs/PLAY_STORE.md`
+
+---
+
 ## 2026-08-22 — Iconos en menú de módulos
 
 - **Tipo:** ux
