@@ -1,0 +1,13 @@
+# LiveKit para compose de producción (claves deben coincidir con API)
+port: 7880
+bind_addresses:
+  - "0.0.0.0"
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+keys:
+  pulsanetkey: pulsanetsecret_cambiar_en_produccion_minimo_32
+logging:
+  level: info

@@ -1,0 +1,20 @@
+# LiveKit — desarrollo local (LAN + Tailscale / baja latencia PTT)
+# Usar con: livekit-server --config infra/livekit.dev.yaml --dev
+# start-services.ps1 reinicia el proceso en cada LEVANTAR.
+
+port: 7880
+bind_addresses:
+  - "0.0.0.0"
+
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  # Sin forzar una sola IP: ICE anuncia interfaces locales (Wi‑Fi 192.168.x y Tailscale 100.x).
+  # Si start-services.ps1 pasa --node-ip, esa IP gana (solo LAN o solo Tailscale).
+  use_external_ip: false
+  congestion_control:
+    enabled: true
+    allow_pause: false
+
+logging:
+  level: info

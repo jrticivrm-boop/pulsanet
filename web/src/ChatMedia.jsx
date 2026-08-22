@@ -1,0 +1,321 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { fetchMediaBlobUrl } from './api';
+
+/** Pausa otras notas de voz del chat cuando una empieza a sonar. */
+const voiceBus = typeof window !== 'undefined' ? new EventTarget() : null;
+
+function formatDuration(sec) {
+  if (!Number.isFinite(sec) || sec < 0) return '0:00';
+  const s = Math.floor(sec);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+function VoiceNotePlayer({ src, label }) {
+  const audioRef = useRef(null);
+  const trackRef = useRef(null);
+  const idRef = useRef(`vn-${Math.random().toString(36).slice(2)}`);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const bars = useMemo(
+    () =>
+      Array.from({ length: 28 }, (_, i) => {
+        const n = Math.sin(i * 0.55) * 0.35 + Math.cos(i * 1.1) * 0.25 + 0.55;
+        return Math.round(22 + n * 58);
+      }),
+    []
+  );
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !src) return undefined;
+
+    const onMeta = () => {
+      const d = audio.duration;
+      if (Number.isFinite(d) && d > 0) {
+        setDuration(d);
+        setReady(true);
+      }
+    };
+    const onTime = () => {
+      setCurrent(audio.currentTime || 0);
+      if ((!Number.isFinite(audio.duration) || audio.duration === Infinity) && audio.seekable?.length) {
+        const end = audio.seekable.end(audio.seekable.length - 1);
+        if (Number.isFinite(end) && end > 0) {
+          setDuration(end);
+          setReady(true);
+        }
+      } else {
+        onMeta();
+      }
+    };
+    const onEnded = () => {
+      setPlaying(false);
+      setCurrent(0);
+    };
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    const onErr = () => setFailed(true);
+    const onForeignPlay = (ev) => {
+      if (ev.detail?.id !== idRef.current) {
+        audio.pause();
+      }
+    };
+
+    audio.addEventListener('loadedmetadata', onMeta);
+    audio.addEventListener('durationchange', onMeta);
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+    audio.addEventListener('error', onErr);
+    voiceBus?.addEventListener('voice-play', onForeignPlay);
+
+    audio.load();
+
+    return () => {
+      audio.removeEventListener('loadedmetadata', onMeta);
+      audio.removeEventListener('durationchange', onMeta);
+      audio.removeEventListener('timeupdate', onTime);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('error', onErr);
+      voiceBus?.removeEventListener('voice-play', onForeignPlay);
+      audio.pause();
+    };
+  }, [src]);
+
+  async function togglePlay() {
+    const audio = audioRef.current;
+    if (!audio || failed) return;
+    if (playing) {
+      audio.pause();
+      return;
+    }
+    voiceBus?.dispatchEvent(new CustomEvent('voice-play', { detail: { id: idRef.current } }));
+    try {
+      await audio.play();
+    } catch {
+      setFailed(true);
+    }
+  }
+
+  function seekFromPointer(clientX) {
+    const audio = audioRef.current;
+    const track = trackRef.current;
+    if (!audio || !track || !duration) return;
+    const rect = track.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const next = ratio * duration;
+    audio.currentTime = next;
+    setCurrent(next);
+  }
+
+  if (failed) {
+    return <p className="wa-voice-error">No se pudo reproducir el audio</p>;
+  }
+
+  const progress = duration > 0 ? (current / duration) * 100 : 0;
+  const shown = playing || current > 0.05 ? current : duration;
+
+  return (
+    <div className={`wa-voice${playing ? ' is-playing' : ''}`} role="group" aria-label={label || 'Nota de voz'}>
+      <audio ref={audioRef} src={src} preload="metadata" />
+
+      <button
+        type="button"
+        className="wa-voice-play"
+        onClick={togglePlay}
+        disabled={!src}
+        aria-label={playing ? 'Pausar' : 'Reproducir'}
+      >
+        {playing ? (
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
+            <rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M8.2 5.6v12.8c0 .7.8 1.1 1.4.7l9.2-6.4c.5-.4.5-1.1 0-1.4L9.6 4.9c-.6-.4-1.4 0-1.4.7z" fill="currentColor" />
+          </svg>
+        )}
+      </button>
+
+      <div className="wa-voice-body">
+        <button
+          type="button"
+          className="wa-voice-track"
+          ref={trackRef}
+          disabled={!duration}
+          aria-label="Posición del audio"
+          onClick={(e) => seekFromPointer(e.clientX)}
+          onKeyDown={(e) => {
+            if (!audioRef.current || !duration) return;
+            const step = duration * 0.05;
+            if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              const next = Math.min(duration, current + step);
+              audioRef.current.currentTime = next;
+              setCurrent(next);
+            } else if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              const next = Math.max(0, current - step);
+              audioRef.current.currentTime = next;
+              setCurrent(next);
+            }
+          }}
+        >
+          <span className="wa-voice-wave" aria-hidden="true">
+            {bars.map((h, i) => {
+              const active = progress >= ((i + 0.5) / bars.length) * 100;
+              return <i key={i} className={active ? 'on' : undefined} style={{ height: `${h}%` }} />;
+            })}
+          </span>
+          <span className="wa-voice-thumb" style={{ left: `${progress}%` }} aria-hidden="true" />
+        </button>
+
+        <div className="wa-voice-meta">
+          <span className="wa-voice-time">{ready ? formatDuration(shown) : '—:—'}</span>
+          <span className="wa-voice-chip">Audio</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Imagen / archivo / audio de chat con Authorization Bearer. */
+export default function ChatMedia({ token, message }) {
+  const [url, setUrl] = useState(null);
+  const [err, setErr] = useState('');
+  const [lightbox, setLightbox] = useState(false);
+
+  useEffect(() => {
+    if (!message?.mediaUrl || !token) return undefined;
+    let revoked = false;
+    let objectUrl = null;
+    fetchMediaBlobUrl(token, message.mediaUrl)
+      .then((u) => {
+        if (revoked) {
+          URL.revokeObjectURL(u);
+          return;
+        }
+        objectUrl = u;
+        setUrl(u);
+      })
+      .catch((e) => {
+        if (!revoked) setErr(e.message);
+      });
+    return () => {
+      revoked = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [token, message?.mediaUrl, message?.id]);
+
+  useEffect(() => {
+    if (!lightbox) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setLightbox(false);
+    };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [lightbox]);
+
+  if (err) return <span className="muted">[{err}]</span>;
+  if (!message.mediaUrl) return null;
+
+  const name = message.mediaName || '';
+  const mime = (message.mediaMime || '').toLowerCase();
+  const isImage =
+    message.type === 'image' ||
+    mime.startsWith('image/') ||
+    /\.(jpe?g|png|gif|webp|jfif|bmp)$/i.test(name);
+
+  if (isImage) {
+    if (!url) {
+      return (
+        <div className="wa-image is-loading" aria-busy="true">
+          <span className="muted">Cargando imagen…</span>
+        </div>
+      );
+    }
+    return (
+      <>
+        <button
+          type="button"
+          className="wa-image"
+          onClick={() => setLightbox(true)}
+          title="Ver imagen"
+        >
+          <img src={url} alt={name || 'imagen'} className="wa-image-thumb" />
+          <span className="wa-image-hint" aria-hidden="true">
+            Ampliar
+          </span>
+        </button>
+        {lightbox && (
+          <div
+            className="wa-lightbox"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Vista de imagen"
+            onClick={() => setLightbox(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setLightbox(false);
+            }}
+          >
+            <button
+              type="button"
+              className="wa-lightbox-close"
+              aria-label="Cerrar"
+              onClick={() => setLightbox(false)}
+            >
+              ×
+            </button>
+            <img
+              src={url}
+              alt={name || 'imagen'}
+              className="wa-lightbox-img"
+              onClick={(e) => e.stopPropagation()}
+            />
+            {name ? <p className="wa-lightbox-caption">{name}</p> : null}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  if (message.type === 'audio') {
+    if (!url) {
+      return (
+        <div className="wa-voice is-loading">
+          <div className="wa-voice-play is-skeleton" aria-hidden="true" />
+          <div className="wa-voice-body">
+            <div className="wa-voice-track is-skeleton" aria-hidden="true" />
+            <div className="wa-voice-meta">
+              <span className="wa-voice-time">Cargando…</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return <VoiceNotePlayer src={url} label={message.mediaName || 'Nota de voz'} />;
+  }
+
+  if (!url) return <span className="muted">Cargando archivo…</span>;
+  return (
+    <a href={url} download={message.mediaName || 'archivo'} className="chat-file-link">
+      📎 {message.mediaName || 'Archivo'}
+      {message.mediaSize ? ` (${Math.round(message.mediaSize / 1024)} KB)` : ''}
+    </a>
+  );
+}

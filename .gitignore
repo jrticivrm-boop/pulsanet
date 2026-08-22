@@ -1,0 +1,53 @@
+.env
+**/.env
+**/.env.local
+**/.env.prod
+**/.env.*.local
+!.env.example
+!**/.env.example
+!**/.env.prod.example
+node_modules/
+**/node_modules/
+dist/
+build/
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.bak
+*.pem
+*.p12
+
+# Cursor (versionar solo rules del proyecto)
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+
+# LiveKit binary local (descargar con releases)
+infra/livekit/livekit-server.exe
+infra/livekit/*.zip
+
+# Flutter
+mobile/**/build/
+mobile/**/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/**/Generated.xcconfig
+mobile/**/flutter_export_environment.sh
+
+# Secrets
+**/firebase-adminsdk*.json
+**/google-services.json
+!**/google-services.json.example
+**/upload-keystore.jks
+**/key.properties
+backend/uploads/
+backend/**/*.sqlite
+
+# Soporte local (secretos, APK, respaldos) — no versionar
+Soporte/Secrets/
+Soporte/APK/
+Soporte/Respaldos/
+Soporte/**/*.apk
+Soporte/**/*firebase-adminsdk*.json

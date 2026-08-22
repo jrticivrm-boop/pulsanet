@@ -1,0 +1,253 @@
+import crypto from 'crypto';
+import bcrypt from 'bcrypt';
+import { Router } from 'express';
+import { query } from '../db.js';
+import { config } from '../config.js';
+import { authMiddleware, signAccessToken } from '../middleware/auth.js';
+import { logActivity } from '../services/activity.js';
+import { normalizeUsername } from '../services/rfcUsername.js';
+import { validateNewPassword } from '../services/tempPassword.js';
+
+export const authRouter = Router();
+
+function hashToken(raw) {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+function parseDurationToMs(spec) {
+  const m = String(spec || '7d').match(/^(\d+)([smhd])$/i);
+  if (!m) return 7 * 24 * 60 * 60 * 1000;
+  const n = parseInt(m[1], 10);
+  const u = m[2].toLowerCase();
+  const mult = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+  return n * (mult[u] || mult.d);
+}
+
+async function issueRefreshToken(userId) {
+  const raw = crypto.randomBytes(48).toString('hex');
+  const tokenHash = hashToken(raw);
+  const expiresAt = new Date(Date.now() + parseDurationToMs(config.jwtRefreshExpiresIn));
+  await query(
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+    [userId, tokenHash, expiresAt]
+  );
+  return raw;
+}
+
+function mapPublicUser(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    displayName: user.display_name,
+    role: user.role,
+    organizationId: user.organization_id,
+    canReceivePanic: Boolean(user.can_receive_panic),
+    mustChangePassword: Boolean(user.must_change_password),
+  };
+}
+
+const USER_SELECT =
+  'id, organization_id, username, email, password_hash, display_name, role, is_active, can_receive_panic, must_change_password';
+
+authRouter.post('/login', async (req, res) => {
+  const { password } = req.body || {};
+  const rawLogin = req.body?.username ?? req.body?.login ?? req.body?.email;
+  if (!rawLogin || !password) {
+    return res.status(400).json({ ok: false, error: 'Usuario y contraseña requeridos' });
+  }
+
+  const loginRaw = String(rawLogin).trim();
+  const isEmail = loginRaw.includes('@');
+  const username = normalizeUsername(loginRaw);
+
+  const { rows } = await query(
+    isEmail
+      ? `SELECT ${USER_SELECT} FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`
+      : `SELECT ${USER_SELECT} FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
+    [isEmail ? loginRaw.toLowerCase() : username]
+  );
+
+  const user = rows[0];
+  if (!user || !user.is_active) {
+    return res.status(401).json({ ok: false, error: 'Credenciales inválidas' });
+  }
+
+  const match = await bcrypt.compare(password, user.password_hash);
+  if (!match) {
+    return res.status(401).json({ ok: false, error: 'Credenciales inválidas' });
+  }
+
+  await query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [user.id]);
+  await logActivity({
+    organizationId: user.organization_id,
+    actorId: user.id,
+    action: 'auth.login',
+    entityType: 'user',
+    entityId: user.id,
+    meta: { username: user.username, mustChangePassword: Boolean(user.must_change_password) },
+  });
+
+  const token = signAccessToken(user);
+  const refreshToken = await issueRefreshToken(user.id);
+  res.json({
+    ok: true,
+    token,
+    refreshToken,
+    expiresIn: config.jwtExpiresIn,
+    user: mapPublicUser(user),
+  });
+});
+
+authRouter.post('/refresh', async (req, res) => {
+  const raw = req.body?.refreshToken;
+  if (!raw || typeof raw !== 'string') {
+    return res.status(400).json({ ok: false, error: 'refreshToken requerido' });
+  }
+
+  const tokenHash = hashToken(raw);
+  const { rows } = await query(
+    `SELECT rt.id, rt.user_id, rt.expires_at,
+            u.id AS uid, u.organization_id, u.username, u.email, u.display_name, u.role, u.is_active,
+            u.can_receive_panic, u.must_change_password, u.password_hash
+     FROM refresh_tokens rt
+     INNER JOIN users u ON u.id = rt.user_id
+     WHERE rt.token_hash = $1`,
+    [tokenHash]
+  );
+
+  const row = rows[0];
+  if (!row || !row.is_active) {
+    return res.status(401).json({ ok: false, error: 'Refresh inválido' });
+  }
+  if (new Date(row.expires_at) < new Date()) {
+    await query('DELETE FROM refresh_tokens WHERE id = $1', [row.id]);
+    return res.status(401).json({ ok: false, error: 'Refresh expirado' });
+  }
+
+  await query('DELETE FROM refresh_tokens WHERE id = $1', [row.id]);
+
+  const user = {
+    id: row.uid,
+    organization_id: row.organization_id,
+    username: row.username,
+    email: row.email,
+    display_name: row.display_name,
+    role: row.role,
+    can_receive_panic: row.can_receive_panic,
+    must_change_password: row.must_change_password,
+  };
+  const token = signAccessToken(user);
+  const refreshToken = await issueRefreshToken(user.id);
+
+  res.json({
+    ok: true,
+    token,
+    refreshToken,
+    expiresIn: config.jwtExpiresIn,
+    user: mapPublicUser(user),
+  });
+});
+
+authRouter.post('/logout', authMiddleware, async (req, res) => {
+  const raw = req.body?.refreshToken;
+  if (raw) {
+    await query('DELETE FROM refresh_tokens WHERE token_hash = $1', [hashToken(raw)]);
+  } else {
+    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.user.sub]);
+  }
+  res.json({ ok: true });
+});
+
+authRouter.get('/me', authMiddleware, async (req, res) => {
+  const { rows } = await query(
+    `SELECT id, username, email, display_name, role, organization_id, last_seen_at,
+            can_receive_panic, must_change_password
+     FROM users WHERE id = $1`,
+    [req.user.sub]
+  );
+  if (!rows[0]) {
+    return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+  }
+  const u = rows[0];
+  res.json({
+    ok: true,
+    user: {
+      ...mapPublicUser(u),
+      lastSeenAt: u.last_seen_at,
+    },
+  });
+});
+
+/** Cambio de contraseña (obligatorio en primer ingreso). */
+authRouter.post('/change-password', authMiddleware, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Contraseña actual y nueva son requeridas',
+    });
+  }
+
+  const errMsg = validateNewPassword(newPassword);
+  if (errMsg) {
+    return res.status(400).json({ ok: false, error: errMsg });
+  }
+  if (String(currentPassword) === String(newPassword)) {
+    return res.status(400).json({
+      ok: false,
+      error: 'La nueva contraseña debe ser distinta a la actual',
+    });
+  }
+
+  const { rows } = await query(
+    `SELECT id, organization_id, username, email, password_hash, display_name, role,
+            is_active, can_receive_panic, must_change_password
+     FROM users WHERE id = $1`,
+    [req.user.sub]
+  );
+  const user = rows[0];
+  if (!user || !user.is_active) {
+    return res.status(401).json({ ok: false, error: 'Usuario no válido' });
+  }
+
+  const match = await bcrypt.compare(String(currentPassword), user.password_hash);
+  if (!match) {
+    return res.status(401).json({ ok: false, error: 'Contraseña actual incorrecta' });
+  }
+
+  const hash = await bcrypt.hash(String(newPassword), 12);
+  await query(
+    `UPDATE users SET
+       password_hash = $2,
+       must_change_password = FALSE,
+       updated_at = NOW()
+     WHERE id = $1`,
+    [user.id, hash]
+  );
+  await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [user.id]);
+
+  await logActivity({
+    organizationId: user.organization_id,
+    actorId: user.id,
+    action: 'auth.change_password',
+    entityType: 'user',
+    entityId: user.id,
+    meta: { firstLogin: Boolean(user.must_change_password) },
+  });
+
+  const refreshed = {
+    ...user,
+    must_change_password: false,
+  };
+  const token = signAccessToken(refreshed);
+  const refreshToken = await issueRefreshToken(user.id);
+
+  res.json({
+    ok: true,
+    token,
+    refreshToken,
+    expiresIn: config.jwtExpiresIn,
+    user: mapPublicUser(refreshed),
+  });
+});

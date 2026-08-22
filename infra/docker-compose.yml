@@ -1,0 +1,12 @@
+# LiveKit local para demo PTT (Mes 1)
+# Uso: docker compose -f infra/docker-compose.yml up -d
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    restart: unless-stopped

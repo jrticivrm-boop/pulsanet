@@ -1,0 +1,41 @@
+---
+description: Documentar siempre cambios en bitácora y CHANGELOG de PulsaNet
+alwaysApply: true
+---
+
+# Documentar cambios PulsaNet
+
+Al terminar cualquier trabajo que implique **código, infra, docs de producto, UX, fixes u operaciones** (no hace falta si solo respondiste una pregunta sin cambiar nada):
+
+## Obligatorio
+
+1. Añadir una entrada **al inicio** (después del encabezado) de:
+   - `D:\pulsanet\Soporte\Documentos\BITACORA_DESARROLLO.md`
+   - y sincronizar la misma entrada en `D:\pulsanet\docs\BITACORA_DESARROLLO.md`
+
+   (Compat: `D:\PulsaNet_Soporte\…` es unión → `D:\pulsanet\Soporte\…`)
+
+2. Si el cambio es de producto/versión (feature, breaking, release), actualizar también:
+   - `D:\pulsanet\docs\CHANGELOG.md` (sección `[Unreleased]` o versión nueva)
+
+## Formato bitácora
+
+```markdown
+## YYYY-MM-DD — Título corto
+
+- **Tipo:** feature | fix | mejora | docs | infra | ux | security | otro
+- **Área:** backend | web | mobile | database | infra | docs | ops
+- **Qué:** (1–3 viñetas claras)
+- **Por qué / notas:** (opcional)
+- **Archivos / refs:** (rutas clave)
+```
+
+## No documentar
+
+- Preguntas sin cambios en el repo
+- Exploración de solo lectura sin decisión operativa
+- Secretos, passwords, contenidos de `.env` / service accounts
+
+## Idioma
+
+Español, conciso, orientado a “qué cambió para el proyecto”.
