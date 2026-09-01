@@ -1,23 +1,29 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom';
 import { ThemeToggle } from '../theme';
-import { fetchGroups } from '../api';
+import { fetchGroups, fetchAuthMe, persistSession, canManageUsers } from '../api';
 import { usePtt } from '../usePtt';
 import { useGpsReporter } from '../useGpsReporter';
 import { useDispatchListen } from '../useDispatchListen';
 import { unlockPanicAudio } from '../panicSound';
 import { unlockAppNotifyAudio } from '../appNotify';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
+import DispatchPanicHost from './DispatchPanicHost.jsx';
+import RadioPage from '../pages/RadioPage.jsx';
 import './command-center.css';
 import '../institutional.css';
+import '../theme-contrast.css';
 
 const ROLE_LABEL = {
   root: 'Superadministrador',
-  admin: 'Administrador',
+  admin: 'Administrador (Región)',
+  zone_admin: 'Admin de zona',
+  unit_admin: 'Admin de unidad',
   dispatcher: 'Despacho',
   operator: 'Operador',
 };
 
+const LISTEN_KEY = 'tacticalptx_listen_groups';
 const GROUP_KEY = 'tacticalptx_dispatch_group';
 const RAIL_MINI_KEY = 'tacticalptx_mod_rail_hidden';
 
@@ -115,17 +121,32 @@ const NAV = [
 ];
 
 const CATALOG_LINKS = [
+  { to: '/despacho/catalogos/grados-empleos', label: 'Grados y empleos', icon: 'users' },
+  { to: '/despacho/catalogos/dependencias', label: 'Dependencias', icon: 'groups' },
   { to: '/despacho/catalogos/usuarios', label: 'Usuarios', icon: 'users' },
   { to: '/despacho/catalogos/grupos', label: 'Grupos', icon: 'groups' },
-  { to: '/despacho/catalogos/geocercas', label: 'Geocercas', icon: 'geofence' },
 ];
 
-export default function DispatchLayout({ session, onLogout }) {
+const CONFIG_LINKS = [
+  { to: '/despacho/configuracion/canales', label: 'Canales', icon: 'radio', allRoles: true },
+  { to: '/despacho/configuracion/respaldos', label: 'Respaldos', icon: 'catalog', adminOnly: true },
+  {
+    to: '/despacho/configuracion/auditoria',
+    label: 'Historial / Auditoría',
+    icon: 'catalog',
+    adminOnly: true,
+  },
+];
+
+export default function DispatchLayout({ session, onLogout, onSession }) {
   const role = session.user.role;
   const roleLabel = ROLE_LABEL[role] || role;
   const location = useLocation();
+  const onRadioPage = location.pathname.startsWith('/despacho/radio');
+  const showSalir = canManageUsers(session.user);
   const [groups, setGroups] = useState([]);
   const [group, setGroup] = useState(null);
+  const [listenIds, setListenIds] = useState([]);
   const [railMini, setRailMini] = useState(() => {
     try {
       return localStorage.getItem(RAIL_MINI_KEY) === '1';
@@ -136,9 +157,11 @@ export default function DispatchLayout({ session, onLogout }) {
 
   const ptt = usePtt({ token: session.token, user: session.user, group });
   useGpsReporter(session.token);
+
+  const listenGroups = groups.filter((g) => listenIds.includes(g.id));
   useDispatchListen({
     token: session.token,
-    groups,
+    groups: listenGroups,
     skipGroupId: group?.id,
     muted: ptt.listenMuted,
   });
@@ -147,6 +170,11 @@ export default function DispatchLayout({ session, onLogout }) {
     location.pathname.startsWith('/despacho/catalogos') ||
     location.pathname.startsWith('/despacho/usuarios') ||
     location.pathname.startsWith('/despacho/grupos');
+  const configOpen = location.pathname.startsWith('/despacho/configuracion');
+  const showConfig = true;
+  const configLinks = CONFIG_LINKS.filter(
+    (l) => l.allRoles || (l.adminOnly && ['root', 'admin'].includes(role))
+  );
 
   function toggleRail() {
     setRailMini((prev) => {
@@ -159,6 +187,29 @@ export default function DispatchLayout({ session, onLogout }) {
       return next;
     });
   }
+
+  useEffect(() => {
+    if (!session?.token || !onSession) return undefined;
+    if (session.crypto?.wireKey && session.avatarTicket) return undefined;
+    let cancelled = false;
+    fetchAuthMe(session.token)
+      .then((data) => {
+        if (cancelled || !data) return;
+        const next = {
+          ...session,
+          user: data.user || session.user,
+          crypto: data.crypto || session.crypto,
+          avatarTicket: data.avatarTicket || session.avatarTicket,
+        };
+        persistSession(next);
+        onSession(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambiar token
+  }, [session?.token, onSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,7 +226,23 @@ export default function DispatchLayout({ session, onLogout }) {
         }
         const savedGroup = list.find((g) => g.id === saved);
         const ops = list.find((g) => !/^general$/i.test(g.name || ''));
-        setGroup(savedGroup || ops || list[0] || null);
+        const nextGroup = savedGroup || ops || list[0] || null;
+        setGroup(nextGroup);
+
+        let savedListen = null;
+        try {
+          savedListen = JSON.parse(localStorage.getItem(LISTEN_KEY) || 'null');
+        } catch {
+          savedListen = null;
+        }
+        const allIds = list.map((x) => x.id);
+        const nextListen = Array.isArray(savedListen)
+          ? savedListen.filter((id) => allIds.includes(id))
+          : allIds;
+        if (nextGroup?.id && !nextListen.includes(nextGroup.id)) {
+          nextListen.push(nextGroup.id);
+        }
+        setListenIds(nextListen.length ? nextListen : allIds);
       })
       .catch((e) => {
         if (/token|autoriz/i.test(e.message)) onLogout();
@@ -207,6 +274,22 @@ export default function DispatchLayout({ session, onLogout }) {
     };
   }, [ptt.unlockAudio]);
 
+  /* Espacio = PTT toggle en todas las pestañas del despacho */
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.code !== 'Space' || e.repeat) return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      ptt.toggle();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [ptt.toggle]);
+
   function onGroupChange(id) {
     const next = groups.find((g) => g.id === id) || null;
     setGroup(next);
@@ -215,23 +298,49 @@ export default function DispatchLayout({ session, onLogout }) {
     } catch {
       /* ignore */
     }
+    if (next?.id && !listenIds.includes(next.id)) {
+      onListenChange([...listenIds, next.id]);
+    }
+  }
+
+  function onListenChange(ids) {
+    setListenIds(ids);
+    try {
+      localStorage.setItem(LISTEN_KEY, JSON.stringify(ids));
+    } catch {
+      /* ignore */
+    }
   }
 
   const speakingGroupName = ptt.speaking?.groupId
     ? groups.find((g) => g.id === ptt.speaking.groupId)?.name
     : null;
-  const speaker = ptt.holding
-    ? 'Tú al aire'
-    : ptt.speaking
-      ? speakingGroupName && speakingGroupName !== group?.name
-        ? `${ptt.speaking.displayName} · ${speakingGroupName}`
-        : `${ptt.speaking.displayName} habla`
-      : ptt.livekitReady
-        ? 'Canal libre'
-        : 'Conectando…';
+  const speaker = ptt.listenMuted
+    ? 'Radio silenciada'
+    : ptt.holding
+      ? 'Tú al aire'
+      : ptt.speaking
+        ? speakingGroupName
+          ? `${ptt.speaking.displayName}, ${speakingGroupName}`
+          : `${ptt.speaking.displayName} habla`
+        : ptt.livekitReady
+          ? 'Canal libre'
+          : 'Conectando…';
+
+  const outletContext = {
+    session,
+    embeddedInDispatch: true,
+    ptt,
+    groups,
+    group,
+    listenIds,
+    onGroupChange,
+    onListenChange,
+  };
 
   return (
     <div className={`cc-shell cc-shell--inst${railMini ? ' is-rail-mini' : ''}`}>
+      <DispatchPanicHost session={session} />
       <header className="cc-topbar cc-topbar--inst">
         <div className="cc-top-left">
           <div>
@@ -249,10 +358,12 @@ export default function DispatchLayout({ session, onLogout }) {
             <ThemeToggle className="cc-theme-toggle" />
           </div>
           <nav className="cc-topnav-inst" aria-label="Accesos rápidos">
-            <Link to="/radio">Radio</Link>
-            <button type="button" className="nav-out" onClick={onLogout}>
-              Salir
-            </button>
+            <Link to="/despacho/radio">Radio</Link>
+            {showSalir && (
+              <button type="button" className="nav-out" onClick={onLogout}>
+                Salir
+              </button>
+            )}
           </nav>
         </div>
       </header>
@@ -296,6 +407,20 @@ export default function DispatchLayout({ session, onLogout }) {
               </NavLink>
             ))}
 
+            <NavLink
+              to="/despacho/radio"
+              title="Radio PTT"
+              className={({ isActive }) => `cc-mod-link${isActive ? ' active' : ''}`}
+            >
+              <span className="cc-mod-link-icon">
+                <ModIcon name="radio" />
+              </span>
+              <span className="cc-mod-link-text">
+                <span className="cc-mod-link-title">Radio PTT</span>
+                <span className="cc-mod-link-hint">Hablar y chat</span>
+              </span>
+            </NavLink>
+
             <details className="cc-mod-group" open={catalogsOpen}>
               <summary title="Catálogos">
                 <span className="cc-mod-link-icon">
@@ -321,72 +446,144 @@ export default function DispatchLayout({ session, onLogout }) {
               </div>
             </details>
 
-            <Link to="/radio" className="cc-mod-link" title="Radio PTT">
-              <span className="cc-mod-link-icon">
-                <ModIcon name="radio" />
-              </span>
-              <span className="cc-mod-link-text">
-                <span className="cc-mod-link-title">Radio PTT</span>
-                <span className="cc-mod-link-hint">Hablar y chat</span>
-              </span>
-            </Link>
+            {showConfig && (
+              <details className="cc-mod-group" open={configOpen}>
+                <summary title="Configuración">
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name="ops" />
+                  </span>
+                  <span className="cc-mod-group-label">Configuración</span>
+                  <span className="cc-mod-group-chevron" aria-hidden="true" />
+                </summary>
+                <div className="cc-mod-sub">
+                  {configLinks.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      title={item.label}
+                      className={({ isActive }) => (isActive ? 'active' : undefined)}
+                    >
+                      <span className="cc-mod-link-icon">
+                        <ModIcon name={item.icon} />
+                      </span>
+                      <span className="cc-mod-sub-label">{item.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              </details>
+            )}
           </nav>
 
           <div className="cc-mod-rail-foot">
             <p className="cc-mod-link-hint cc-mod-rail-user">{session.user.displayName}</p>
-            <button type="button" className="cc-btn ghost cc-mod-logout" onClick={onLogout} title="Cerrar sesión">
-              <span className="cc-mod-link-icon">
-                <ModIcon name="logout" />
-              </span>
-              <span className="cc-mod-logout-label">Cerrar sesión</span>
-            </button>
+            {showSalir && (
+              <button type="button" className="cc-btn ghost cc-mod-logout" onClick={onLogout} title="Salir">
+                <span className="cc-mod-link-icon">
+                  <ModIcon name="logout" />
+                </span>
+                <span className="cc-mod-logout-label">Salir</span>
+              </button>
+            )}
           </div>
         </aside>
 
         <div className="cc-body">
           <div
             className={`cc-radio-strip${ptt.speaking || ptt.holding ? ' live' : ''}${ptt.listenMuted ? ' is-muted' : ''}`}
-            title="Oyes todos los canales. El selector es el canal por el que TÚ hablas."
+            title="Canal de habla y escucha. Cámbialos en Configuración → Canales."
           >
             <div
               className={`cc-radio-dock${ptt.speaking || ptt.holding ? ' live' : ''}${ptt.listenMuted ? ' is-muted' : ''}`}
             >
               <span className="cc-radio-dock-dot" aria-hidden="true" />
-              {groups.length > 1 && group ? (
-                <select
-                  className="cc-radio-dock-select"
-                  value={group.id}
-                  onChange={(e) => onGroupChange(e.target.value)}
-                  aria-label="Canal de radio"
+              {group ? (
+                <Link
+                  to="/despacho/configuracion/canales"
+                  className="cc-radio-dock-ch-link"
+                  title="Elegir canales a oír y canal de PTT"
                 >
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
+                  <span className="cc-radio-dock-ch">{group.name}</span>
+                  <span className="cc-radio-dock-listen">
+                    Oye {listenIds.length || 0}
+                    {groups.length ? `/${groups.length}` : ''}
+                  </span>
+                </Link>
               ) : (
-                <span className="cc-radio-dock-ch">{group?.name || 'Sin canal'}</span>
+                <span className="cc-radio-dock-ch">Sin canal</span>
               )}
               <span className="cc-radio-dock-status">{speaker}</span>
             </div>
             <button
               type="button"
-              className="cc-radio-mute"
-              onClick={() => {
+              className={`cc-ptt-mini${ptt.holding ? ' holding' : ''}`}
+              disabled={!group || !ptt.livekitReady}
+              onClick={(e) => {
+                e.preventDefault();
                 ptt.unlockAudio?.().catch(() => {});
-                ptt.setListenMuted(!ptt.listenMuted);
+                ptt.toggle();
               }}
-              disabled={!group}
-              aria-pressed={ptt.listenMuted}
-              title={ptt.listenMuted ? 'Activar altavoz de radio' : 'Silenciar radio'}
+              onContextMenu={(e) => e.preventDefault()}
+              aria-pressed={ptt.holding}
+              title={
+                !group
+                  ? 'Sin canal'
+                  : !ptt.livekitReady
+                    ? 'Conectando radio…'
+                    : ptt.holding
+                      ? 'Toca o Espacio para soltar'
+                      : 'Toca o Espacio para hablar'
+              }
             >
-              {ptt.listenMuted ? 'Silenciada' : 'En altavoz'}
+              <span className="cc-ptt-mini-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
+              <span className="cc-ptt-mini-hint">
+                {ptt.livekitReady ? (ptt.holding ? 'soltar' : 'tocar') : '…'}
+              </span>
             </button>
+            {!onRadioPage && (
+              <button
+                type="button"
+                className="cc-radio-mute"
+                onClick={() => {
+                  ptt.unlockAudio?.().catch(() => {});
+                  ptt.setListenMuted(!ptt.listenMuted);
+                }}
+                disabled={!group}
+                aria-pressed={ptt.listenMuted}
+                title={ptt.listenMuted ? 'Activar altavoz de radio' : 'Silenciar radio'}
+              >
+                {ptt.listenMuted ? 'MUTE' : 'Altavoz'}
+              </button>
+            )}
+            {(ptt.denied || ptt.error) && (
+              <span className="cc-ptt-mini-err" role="status">
+                {ptt.denied?.reason === 'busy'
+                  ? 'Canal ocupado'
+                  : ptt.denied
+                    ? 'Sin permiso'
+                    : 'Error de audio'}
+              </span>
+            )}
           </div>
 
           <main className="cc-main">
-            <Outlet />
+            {/* Radio PTT se mantiene montado al cambiar de módulo (Seguimiento, etc.)
+                para no perder conversación, draft ni posición de scroll. */}
+            <div
+              className={`cc-radio-keepalive${onRadioPage ? '' : ' is-parked'}`}
+              aria-hidden={!onRadioPage}
+            >
+              <RadioPage
+                session={session}
+                onLogout={onLogout}
+                dispatchEmbed={outletContext}
+              />
+            </div>
+            <div
+              className={`cc-outlet-panel${onRadioPage ? ' is-parked' : ''}`}
+              aria-hidden={onRadioPage}
+            >
+              <Outlet context={outletContext} />
+            </div>
           </main>
         </div>
       </div>

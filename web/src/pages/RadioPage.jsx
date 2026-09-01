@@ -1,32 +1,47 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { canDispatch, fetchGroups, fetchLiveKitStatus } from '../api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Link, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
+import { canDispatch, canManageUsers, fetchGroups, fetchLiveKitStatus } from '../api';
 import { ThemeToggle } from '../theme';
 import { usePtt } from '../usePtt';
 import { useGpsReporter } from '../useGpsReporter';
-import WhatsAppChat from '../WhatsAppChat';
-import DirectChat from '../DirectChat';
+import ChatInbox from '../ChatInbox';
+import ChannelMultiSelect from '../ChannelMultiSelect';
 import { unlockPanicAudio } from '../panicSound';
+import { openPanicLocation } from '../panicMaps';
 import { unlockAppNotifyAudio } from '../appNotify';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
+import { useDispatchListen } from '../useDispatchListen';
 import BrandName from '../BrandName.jsx';
+import { esDeniedReason, esMsg } from '../esMsg';
 
-export default function RadioPage({ session, onLogout }) {
-  const [groups, setGroups] = useState([]);
-  const [group, setGroup] = useState(null);
+const LISTEN_KEY = 'tacticalptx_listen_groups';
+
+export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
+  const outletCtx = useOutletContext() || {};
+  const dispatchCtx = dispatchEmbed || outletCtx;
+  const embedded = Boolean(dispatchCtx.embeddedInDispatch && dispatchCtx.ptt);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const onRadioPage = embedded ? location.pathname.startsWith('/despacho/radio') : true;
+
+  const [localGroups, setLocalGroups] = useState([]);
+  const [localGroup, setLocalGroup] = useState(null);
+  const [localListenIds, setLocalListenIds] = useState([]);
   const [lkStatus, setLkStatus] = useState(null);
   const [err, setErr] = useState('');
   const [gpsOk, setGpsOk] = useState(false);
   const [panicFlash, setPanicFlash] = useState('');
-  const [panicArmed, setPanicArmed] = useState(false);
-  const [dmToast, setDmToast] = useState(null);
-  const [dmPulse, setDmPulse] = useState(false);
-  const panicArmTimer = useRef(null);
-  const dmToastTimer = useRef(null);
-  const dmPanelRef = useRef(null);
+  const [focusPeerId, setFocusPeerId] = useState(null);
+  const [focusGroupId, setFocusGroupId] = useState(null);
   const gpsRef = useGpsReporter(session.token, setGpsOk);
 
+  const groups = embedded ? dispatchCtx.groups || [] : localGroups;
+  const group = embedded ? dispatchCtx.group : localGroup;
+  const listenIds = embedded ? dispatchCtx.listenIds || groups.map((g) => g.id) : localListenIds;
+
   useEffect(() => {
+    if (embedded) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -35,9 +50,22 @@ export default function RadioPage({ session, onLogout }) {
           fetchLiveKitStatus(session.token),
         ]);
         if (cancelled) return;
-        setGroups(g.groups || []);
-        setGroup(g.groups?.[0] || null);
+        const list = g.groups || [];
+        setLocalGroups(list);
+        setLocalGroup(list[0] || null);
         setLkStatus(lk);
+        let savedListen = null;
+        try {
+          savedListen = JSON.parse(localStorage.getItem(LISTEN_KEY) || 'null');
+        } catch {
+          savedListen = null;
+        }
+        const allIds = list.map((x) => x.id);
+        const next = Array.isArray(savedListen)
+          ? savedListen.filter((id) => allIds.includes(id))
+          : allIds;
+        if (list[0] && !next.includes(list[0].id)) next.push(list[0].id);
+        setLocalListenIds(next.length ? next : allIds);
       } catch (e) {
         if (!cancelled) {
           setErr(e.message);
@@ -48,17 +76,63 @@ export default function RadioPage({ session, onLogout }) {
     return () => {
       cancelled = true;
     };
-  }, [session.token, onLogout]);
+  }, [session.token, onLogout, embedded]);
+
+  function persistLocalListen(ids) {
+    setLocalListenIds(ids);
+    try {
+      localStorage.setItem(LISTEN_KEY, JSON.stringify(ids));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function setGroupFromSelect(id) {
+    setFocusPeerId(null);
+    if (embedded) {
+      dispatchCtx.onGroupChange?.(id);
+      return;
+    }
+    onGroupPick(localGroups, id, setLocalGroup);
+  }
+
+  const scopeGroupIds = useMemo(() => {
+    const ids = new Set();
+    if (group?.id) ids.add(group.id);
+    for (const id of listenIds || []) {
+      if (id) ids.add(id);
+    }
+    return [...ids];
+  }, [group?.id, listenIds]);
+
+  /* Si está embebido en despacho, no abrir segundo PTT/LiveKit */
+  const localPtt = usePtt({
+    token: embedded ? '' : session.token,
+    user: session.user,
+    group: embedded ? null : localGroup,
+    suppressChatNotify: !embedded,
+  });
+  const ptt = embedded ? dispatchCtx.ptt : localPtt;
+
+  const listenGroups = groups.filter((g) => listenIds.includes(g.id));
+  useDispatchListen({
+    token: embedded ? '' : session.token,
+    groups: embedded ? [] : listenGroups,
+    skipGroupId: embedded ? null : group?.id,
+    muted: ptt.listenMuted,
+  });
 
   useEffect(() => {
+    if (embedded) return undefined;
     if (!group?.name && !group?.id) return undefined;
     startBackgroundKeepalive({ channelName: group?.name || 'Canal' }).catch(() => {});
     return () => {
       stopBackgroundKeepalive();
     };
-  }, [group?.id, group?.name]);
+  }, [group?.id, group?.name, embedded]);
 
   useEffect(() => {
+    if (embedded) return undefined;
     const unlock = () => {
       unlockPanicAudio().catch(() => {});
       unlockAppNotifyAudio().catch(() => {});
@@ -69,56 +143,50 @@ export default function RadioPage({ session, onLogout }) {
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
     };
-  }, []);
-
-  function focusDirectos() {
-    setDmToast(null);
-    setDmPulse(true);
-    dmPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    window.setTimeout(() => setDmPulse(false), 1600);
-  }
-
-  function onDmToast(payload) {
-    setDmToast(payload);
-    if (dmToastTimer.current) clearTimeout(dmToastTimer.current);
-    dmToastTimer.current = setTimeout(() => setDmToast(null), 6000);
-  }
-
-  const ptt = usePtt({ token: session.token, user: session.user, group });
+  }, [embedded]);
 
   useEffect(() => {
+    const st = location.state;
+    if (!st?.focusPeerId && !st?.focusGroupId) return;
+    if (st.focusPeerId) setFocusPeerId(st.focusPeerId);
+    if (st.focusGroupId) {
+      setFocusGroupId(st.focusGroupId);
+      setGroupFromSelect(st.focusGroupId);
+    }
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location.pathname, location.state, navigate]);
+
+  useEffect(() => {
+    /* En despacho el Espacio lo maneja DispatchLayout (todas las pestañas) */
+    if (embedded) return undefined;
     const onKeyDown = (e) => {
       if (e.code !== 'Space' || e.repeat) return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       e.preventDefault();
-      ptt.press();
-    };
-    const onKeyUp = (e) => {
-      if (e.code !== 'Space') return;
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      e.preventDefault();
-      ptt.release();
+      ptt.toggle();
     };
     window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
     };
-  }, [ptt.press, ptt.release]);
+  }, [embedded, ptt.toggle]);
 
-  const speakerLabel = ptt.holding
-    ? 'Tú estás al aire'
-    : ptt.speaking
-      ? `${ptt.speaking.displayName} habla`
-      : 'Canal libre';
+  const speakerLabel = ptt.listenMuted
+    ? 'Radio silenciada'
+    : ptt.holding
+      ? 'Tú estás al aire'
+      : ptt.speaking
+        ? group?.name
+          ? `${ptt.speaking.displayName}, ${group.name}`
+          : `${ptt.speaking.displayName} habla`
+        : 'Canal libre';
 
   const ready = ptt.livekitReady && ptt.connected;
 
   useEffect(() => {
     if (ptt.incomingPanic) {
       setPanicFlash(
-        `🚨 PÁNICO — ${ptt.incomingPanic.displayName}. Pulsa Enterado para silenciar.`
+        `🚨 PÁNICO — ${ptt.incomingPanic.displayName}. Pulsa Enterado para silenciar en este equipo.`
       );
     }
   }, [ptt.incomingPanic]);
@@ -127,19 +195,6 @@ export default function RadioPage({ session, onLogout }) {
     if (!group?.id || ptt.panicSending) return;
     unlockPanicAudio().catch(() => {});
 
-    if (!panicArmed) {
-      setPanicArmed(true);
-      setPanicFlash('Pulsa PÁNICO otra vez para confirmar');
-      if (panicArmTimer.current) clearTimeout(panicArmTimer.current);
-      panicArmTimer.current = setTimeout(() => {
-        setPanicArmed(false);
-        setPanicFlash('');
-      }, 4000);
-      return;
-    }
-
-    if (panicArmTimer.current) clearTimeout(panicArmTimer.current);
-    setPanicArmed(false);
     const event = await ptt.sendPanic({
       latitude: gpsRef.current.latitude,
       longitude: gpsRef.current.longitude,
@@ -152,55 +207,67 @@ export default function RadioPage({ session, onLogout }) {
   }
 
   return (
-    <div className={`shell channel-shell radio-ops radio-ops--inst ${ptt.holding ? 'on-air' : ''}`}>
-      <div className="atmosphere" aria-hidden="true" />
+    <div
+      className={`shell channel-shell radio-ops radio-ops--inst${embedded ? ' radio-ops--embedded' : ''} ${ptt.holding ? 'on-air' : ''}`}
+    >
+      {!embedded && <div className="atmosphere" aria-hidden="true" />}
 
-      <header className="topbar radio-topbar">
-        <div>
-          <p className="cc-product" style={{ margin: 0 }}>
-            Radio PTT
-          </p>
-          <BrandName className="brand radio-brand" withLogo size="md" />
-          <p className="user-line">{session.user.displayName}</p>
-        </div>
-        <div className="topbar-actions">
-          <span className={`gps-pill ${gpsOk ? 'ok' : ''}`}>{gpsOk ? 'GPS activo' : 'GPS…'}</span>
-          <ThemeToggle />
-          {canDispatch(session.user) && (
-            <Link to="/despacho" className="btn ghost">
-              Despacho
-            </Link>
-          )}
-          <button type="button" className="btn ghost" onClick={onLogout}>
-            Salir
-          </button>
-        </div>
-      </header>
-
-      {dmToast && (
-        <button type="button" className="dm-toast" onClick={focusDirectos}>
-          <strong>{dmToast.peerName || 'Mensaje'}</strong>
-          <span>{dmToast.preview}</span>
-        </button>
+      {!embedded && (
+        <header className="topbar radio-topbar">
+          <div>
+            <p className="cc-product" style={{ margin: 0 }}>
+              Radio PTT
+            </p>
+            <BrandName className="brand radio-brand" withLogo size="md" />
+            <p className="user-line">{session.user.displayName}</p>
+          </div>
+          <div className="topbar-actions">
+            <span className={`gps-pill ${gpsOk ? 'ok' : ''}`}>{gpsOk ? 'GPS activo' : 'GPS…'}</span>
+            <ThemeToggle />
+            {canDispatch(session.user) && (
+              <Link to="/despacho" className="btn ghost">
+                Despacho
+              </Link>
+            )}
+            {canManageUsers(session.user) && (
+              <button type="button" className="btn ghost" onClick={onLogout}>
+                Salir
+              </button>
+            )}
+          </div>
+        </header>
       )}
 
-      <div className="radio-ops-grid">
+      <div className="radio-ops-grid radio-ops-grid--inbox">
         <section className="radio-ops-deck" aria-label="Control de radio">
           <div className="radio-ops-meta">
             <div className="radio-ops-meta-row">
-              <label className="group-select">
-                Canal
-                <select
-                  value={group?.id || ''}
-                  onChange={(e) => onGroupPick(groups, e.target.value, setGroup)}
-                >
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {embedded ? (
+                <label className="group-select">
+                  Hablar en
+                  <select
+                    value={group?.id || ''}
+                    onChange={(e) => setGroupFromSelect(e.target.value)}
+                  >
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <ChannelMultiSelect
+                  groups={groups}
+                  talkGroupId={group?.id}
+                  listenIds={listenIds}
+                  onTalkChange={setGroupFromSelect}
+                  onListenChange={
+                    embedded ? dispatchCtx.onListenChange : persistLocalListen
+                  }
+                  label="Canales"
+                />
+              )}
               <ul className="status-list">
                 <li className={ptt.connected ? 'ok' : ''}>
                   {ptt.connected ? 'Enlace ok' : 'Enlace…'}
@@ -212,6 +279,9 @@ export default function RadioPage({ session, onLogout }) {
                       ? 'Sin audio'
                       : 'Audio…'}
                 </li>
+                {embedded && (
+                  <li className={gpsOk ? 'ok' : ''}>{gpsOk ? 'GPS ok' : 'GPS…'}</li>
+                )}
               </ul>
             </div>
 
@@ -225,9 +295,24 @@ export default function RadioPage({ session, onLogout }) {
                 {ptt.online.length === 0 && <li className="muted">Nadie en el canal</li>}
                 {ptt.online.slice(0, 8).map((m) => (
                   <li key={m.userId} className={m.userId === session.user.id ? 'me' : ''}>
-                    <span className="dot" />
-                    {m.displayName}
-                    {m.userId === session.user.id ? ' (tú)' : ''}
+                    <span
+                      className={`dot ${m.focus === 'background' ? 'away' : 'active'}`}
+                      title={m.focus === 'background' ? 'En segundo plano' : 'En la app'}
+                    />
+                    {m.userId === session.user.id ? (
+                      <span>
+                        {m.displayName} (tú)
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="online-peer-btn"
+                        title="Mensaje o llamada personal"
+                        onClick={() => setFocusPeerId(m.userId)}
+                      >
+                        {m.displayName}
+                      </button>
+                    )}
                   </li>
                 ))}
                 {ptt.online.length > 8 && (
@@ -236,29 +321,10 @@ export default function RadioPage({ session, onLogout }) {
               </ul>
             </div>
 
-            {ptt.incomingPanic && (
-              <div className="panic-ack-bar" role="alert">
-                <p>
-                  🚨 <strong>{ptt.incomingPanic.displayName}</strong> — alerta activa
-                </p>
-                <button
-                  type="button"
-                  className="panic-ack-btn"
-                  disabled={ptt.panicAcking}
-                  onClick={() => ptt.ackPanic()}
-                >
-                  {ptt.panicAcking ? '…' : 'Enterado'}
-                </button>
-              </div>
-            )}
             {panicFlash && <p className="panic-flash">{panicFlash}</p>}
             {(ptt.denied || ptt.error || err) && (
               <p className="error">
-                {ptt.denied
-                  ? ptt.denied.reason === 'solo escucha (sin PTT)'
-                    ? 'Solo escucha — sin PTT'
-                    : 'Canal ocupado — suelta y espera'
-                  : ptt.error || err}
+                {ptt.denied ? esDeniedReason(ptt.denied.reason) : esMsg(ptt.error || err)}
               </p>
             )}
           </div>
@@ -268,78 +334,139 @@ export default function RadioPage({ session, onLogout }) {
               type="button"
               className={`ptt-btn radio-ptt ${ptt.holding ? 'holding' : ''}`}
               disabled={!ready}
-              onPointerDown={(e) => {
+              onClick={(e) => {
                 e.preventDefault();
-                e.currentTarget.setPointerCapture(e.pointerId);
-                ptt.press();
+                ptt.toggle();
               }}
-              onPointerUp={() => ptt.release()}
-              onPointerCancel={() => ptt.release()}
               onContextMenu={(e) => e.preventDefault()}
               aria-pressed={ptt.holding}
+              title={ptt.holding ? 'Toca o Espacio para soltar' : 'Toca o Espacio para hablar'}
             >
               <span className="ptt-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
-              <span className="ptt-sub">{ready ? 'Espacio' : '…'}</span>
+              <span className="ptt-sub">{ready ? (ptt.holding ? 'soltar' : 'tocar') : '…'}</span>
             </button>
 
             <button
               type="button"
-              className={`panic-btn radio-panic${panicArmed ? ' armed' : ''}`}
+              className="panic-btn radio-panic"
               disabled={!group?.id || ptt.panicSending}
               onPointerDown={() => {
                 unlockPanicAudio().catch(() => {});
               }}
               onClick={onPanic}
-              title="Alerta de pánico — pulsa dos veces para confirmar"
+              title="Alerta de pánico — un clic envía la alerta"
             >
               <span className="panic-ico" aria-hidden="true">
                 ⚠
               </span>
-              <span>
-                {ptt.panicSending ? '…' : panicArmed ? 'CONFIRMAR' : 'PÁNICO'}
-              </span>
+              <span>{ptt.panicSending ? '…' : 'PÁNICO'}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`radio-listen-mute${ptt.listenMuted ? ' is-muted' : ''}`}
+              onClick={() => {
+                ptt.unlockAudio?.().catch(() => {});
+                ptt.setListenMuted(!ptt.listenMuted);
+              }}
+              disabled={!group}
+              aria-pressed={ptt.listenMuted}
+              title={
+                ptt.listenMuted
+                  ? 'Activar audio del radio'
+                  : 'Silenciar radio — no oír a quien habla'
+              }
+            >
+              <span aria-hidden="true">{ptt.listenMuted ? '🔇' : '🔊'}</span>
+              <span>{ptt.listenMuted ? 'MUTE' : 'Silenciar'}</span>
             </button>
           </div>
         </section>
 
-        <section className="radio-ops-group" aria-label="Chat grupal">
-          <header className="radio-ops-section-head">
-            <h2>Chat grupal</h2>
-            <span className="muted">{group?.name || 'Canal'}</span>
-          </header>
-          <WhatsAppChat
-            token={session.token}
-            userId={session.user.id}
-            userRole={session.user.role}
-            groupName={group?.name}
-            onlineCount={ptt.online.length}
-            typingLabel={ptt.typingLabel}
-            messages={ptt.messages}
-            chatError={ptt.chatError}
-            onSend={(text, opts) => ptt.postChat(text, opts)}
-            onSendMedia={(file, opts) => ptt.postMedia(file, opts)}
-            onEdit={(id, text) => ptt.editChat(id, text)}
-            onDelete={(id) => ptt.deleteChat(id)}
-            onReact={(id, emoji) => ptt.reactChat(id, emoji)}
-            onSendSticker={(stickerId, opts) => ptt.postSticker(stickerId, opts)}
-            onMarkRead={(upToId) => ptt.markRead(upToId)}
-            onTyping={ptt.setTyping}
+        <section className="radio-ops-inbox" aria-label="Chats">
+          <ChatInbox
+            session={session}
+            groups={groups}
+            group={group}
+            onSelectGroup={setGroupFromSelect}
+            ptt={ptt}
+            focusPeerId={focusPeerId}
+            focusGroupId={focusGroupId}
+            chatPanelVisible={onRadioPage}
+            scopeGroupIds={scopeGroupIds}
           />
         </section>
-
-        <section
-          ref={dmPanelRef}
-          className={`radio-ops-dm${dmPulse ? ' pulse' : ''}`}
-          id="radio-directos"
-          aria-label="Mensajes directos"
-        >
-          <header className="radio-ops-section-head">
-            <h2>Directos</h2>
-            <span className="muted">Mensajes y llamadas</span>
-          </header>
-          <DirectChat session={session} active embedded onDmToast={onDmToast} />
-        </section>
       </div>
+
+      {!embedded &&
+        ptt.incomingPanic &&
+        createPortal(
+          <div
+            className="radio-panic-overlay"
+            role="alertdialog"
+            aria-modal="true"
+            aria-label="Alerta de pánico"
+          >
+            <div className="radio-panic-modal">
+              <h2>ALERTA DE PÁNICO</h2>
+              <p>
+                <strong>{ptt.incomingPanic.displayName}</strong> necesita ayuda en este canal.
+                <br />
+                La alarma suena hasta pulsar Enterado.
+              </p>
+              {ptt.incomingPanic.latitude != null && ptt.incomingPanic.longitude != null ? (
+                <>
+                  <p className="radio-panic-meta">
+                    {ptt.incomingPanic.accuracyM != null
+                      ? `Ubicación registrada (±${Math.round(Number(ptt.incomingPanic.accuracyM))} m)`
+                      : 'Ubicación registrada'}
+                  </p>
+                  <div className="radio-panic-actions">
+                    <button
+                      type="button"
+                      className="btn ghost"
+                      onClick={() => {
+                        ptt.silencePanicAlarm();
+                        openPanicLocation({
+                          latitude: ptt.incomingPanic.latitude,
+                          longitude: ptt.incomingPanic.longitude,
+                          navigate: false,
+                        });
+                      }}
+                    >
+                      Ver ubicación
+                    </button>
+                    <button
+                      type="button"
+                      className="btn ghost"
+                      onClick={() => {
+                        ptt.silencePanicAlarm();
+                        openPanicLocation({
+                          latitude: ptt.incomingPanic.latitude,
+                          longitude: ptt.incomingPanic.longitude,
+                          navigate: true,
+                        });
+                      }}
+                    >
+                      Cómo llegar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="radio-panic-meta">Sin ubicación GPS del emisor.</p>
+              )}
+              <button
+                type="button"
+                className="btn danger radio-panic-ack"
+                disabled={ptt.panicAcking}
+                onClick={() => ptt.ackPanic()}
+              >
+                {ptt.panicAcking ? '…' : 'Enterado'}
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

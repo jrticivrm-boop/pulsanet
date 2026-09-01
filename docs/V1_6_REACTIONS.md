@@ -1,4 +1,4 @@
-# PulsaNet v1.6 — Reacciones en chat
+# TacticalPtx v1.6 — Reacciones en chat
 
 ## Incluido (web Radio)
 

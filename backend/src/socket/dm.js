@@ -78,6 +78,8 @@ export function registerDmHandlers(io) {
         if (clientMsgId) msg.clientMsgId = String(clientMsgId);
         const room = dmSocketRoom(user.sub, peer.id);
         io.to(room).emit('dm:message', msg);
+        // Eco al emisor aunque aún no haya hecho dm:join (race al abrir el chat).
+        socket.emit('dm:message', msg);
         io.to(`user:${peer.id}`).emit('dm:notify', {
           peerId: user.sub,
           peerName: user.displayName,
@@ -86,8 +88,13 @@ export function registerDmHandlers(io) {
         notifyUserDevices({
           userId: peer.id,
           title: user.displayName || 'TacticalPtx',
-          body: text.slice(0, 120),
-          data: { type: 'dm', peerId: user.sub },
+          body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
+          data: {
+            type: 'dm',
+            peerId: user.sub,
+            title: user.displayName || 'TacticalPtx',
+            body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
+          },
         }).catch(() => {});
       } catch (e) {
         socket.emit('dm:error', { error: e.message || 'Error', clientMsgId });

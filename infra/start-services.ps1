@@ -38,20 +38,56 @@ function Stop-LiveKit {
 
 $lanIp = Get-LanIPv4
 $tsIp = Get-TailscaleIPv4
-# Una sola node-ip (Tailscale) deja sin audio a teléfonos en Wi‑Fi.
-# Con LAN + Tailscale dejamos que LiveKit anuncie ambas en ICE.
-$nodeIp = $null
-if ($tsIp -and $lanIp) {
-  $nodeIp = $null
-} elseif ($tsIp) {
-  $nodeIp = $tsIp
-} elseif ($lanIp) {
-  $nodeIp = $lanIp
+
+# Mantener LIVEKIT_LAN_HOST alineado con la IP Wi‑Fi actual (PTT en LAN).
+if ($lanIp) {
+  $envFile = Join-Path $root 'backend\.env'
+  if (Test-Path $envFile) {
+    $lines = @(Get-Content $envFile)
+    $found = $false
+    $out = foreach ($line in $lines) {
+      if ($line -match '^LIVEKIT_LAN_HOST=') {
+        $found = $true
+        "LIVEKIT_LAN_HOST=$lanIp"
+      } else { $line }
+    }
+    if (-not $found) { $out += "LIVEKIT_LAN_HOST=$lanIp" }
+    Set-Content $envFile $out -Encoding UTF8
+    Write-Host "LiveKit LAN host: $lanIp" -ForegroundColor Cyan
+  }
 }
 
-# Redis (Laragon)
-$redis = 'C:\laragon\bin\redis\redis-x64-5.0.14.1\redis-server.exe'
-if (Test-Path $redis) {
+# IP pública (UPnP / 4G): referencia STUN/TURN en logs.
+$publicIp = $null
+try {
+  $envLine = Get-Content (Join-Path $root 'backend\.env') -ErrorAction SilentlyContinue |
+    Where-Object { $_ -match '^LIVEKIT_PUBLIC_HOST=' } |
+    Select-Object -First 1
+  if ($envLine -match '^LIVEKIT_PUBLIC_HOST=(.+)$') {
+    $publicIp = $Matches[1].Trim().Trim('"').Trim("'")
+  }
+} catch { }
+if (-not $publicIp) {
+  try {
+    $publicIp = (Invoke-RestMethod -Uri 'https://api.ipify.org' -TimeoutSec 4).Trim()
+  } catch { $publicIp = $null }
+}
+
+# Redis (Laragon u otras rutas comunes)
+$redisCandidates = @(
+  'C:\laragon\bin\redis\redis-x64-5.0.14.1\redis-server.exe',
+  'C:\laragon\bin\redis\redis-x64-5.0.14\redis-server.exe',
+  'C:\Program Files\Redis\redis-server.exe'
+)
+$redis = $null
+foreach ($c in $redisCandidates) {
+  if (Test-Path $c) { $redis = $c; break }
+}
+if (-not $redis) {
+  $found = Get-ChildItem 'C:\laragon\bin\redis' -Filter 'redis-server.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($found) { $redis = $found.FullName }
+}
+if ($redis) {
   if (Get-Process -Name redis-server -ErrorAction SilentlyContinue) {
     Write-Host 'Redis: ya corria'
   } else {
@@ -62,7 +98,7 @@ if (Test-Path $redis) {
   Write-Host 'Redis: no encontrado en Laragon' -ForegroundColor Yellow
 }
 
-# LiveKit — reiniciar siempre para alinear ICE (Wi‑Fi + Tailscale)
+# LiveKit — reiniciar siempre para alinear ICE (Wi‑Fi + 4G)
 $lk = Join-Path $root 'infra\livekit\livekit-server.exe'
 if (-not (Test-Path $lk)) {
   Write-Host "LiveKit: falta $lk" -ForegroundColor Yellow
@@ -71,15 +107,15 @@ if (-not (Test-Path $lk)) {
   $lkArgs = @('--dev', '--bind', '0.0.0.0', '--udp-port', '7882')
   $lkCfg = Join-Path $root 'infra\livekit.dev.yaml'
   if (Test-Path $lkCfg) {
-    $lkArgs = @('--config', $lkCfg, '--dev')
+    $lkArgs = @('--config', $lkCfg, '--dev', '--udp-port', '7882')
   }
-  if ($tsIp -and $lanIp) {
-    Write-Host "LiveKit: ICE dual LAN $lanIp + Tailscale $tsIp (sin --node-ip)" -ForegroundColor Cyan
-  } elseif ($nodeIp) {
-    $lkArgs += @('--node-ip', $nodeIp)
-    Write-Host "LiveKit: node-ip=$nodeIp udp=7882" -ForegroundColor Cyan
+  # Sin --node-ip: STUN (use_external_ip) anuncia IP pública + candidatos host LAN.
+  if ($publicIp) {
+    Write-Host "LiveKit: STUN public=$publicIp udp=7882 tcp=7881 turn=3478" -ForegroundColor Cyan
+  } elseif ($lanIp) {
+    Write-Host "LiveKit: solo LAN $lanIp (sin IP publica)" -ForegroundColor Yellow
   } else {
-    Write-Host 'LiveKit: sin IP anunciable — audio a moviles puede fallar' -ForegroundColor Yellow
+    Write-Host 'LiveKit: sin IP anunciable — 4G puede fallar' -ForegroundColor Yellow
   }
   Start-Process -FilePath $lk -ArgumentList $lkArgs -WorkingDirectory (Split-Path $lk) -WindowStyle Hidden
   Start-Sleep -Milliseconds 500
@@ -90,17 +126,17 @@ if (-not (Test-Path $lk)) {
   }
 }
 
-# Firewall (TCP API/señal + UDP RTC) — silencioso si ya existen
-foreach ($rule in @(
-  @{ Name = 'TacticalPtx API TCP 4000'; Proto = 'TCP'; Port = 4000 },
-  @{ Name = 'TacticalPtx LiveKit TCP 7880'; Proto = 'TCP'; Port = 7880 },
-  @{ Name = 'TacticalPtx LiveKit TCP 7881'; Proto = 'TCP'; Port = 7881 },
-  @{ Name = 'TacticalPtx LiveKit UDP 7882'; Proto = 'UDP'; Port = 7882 }
-)) {
-  netsh advfirewall firewall show rule name="$($rule.Name)" 2>$null | Out-Null
-  if ($LASTEXITCODE -ne 0) {
-    netsh advfirewall firewall add rule name="$($rule.Name)" dir=in action=allow protocol=$($rule.Proto) localport=$($rule.Port) | Out-Null
+# Firewall canónico (sin variantes de nombre) — API + Web LAN + LiveKit
+try {
+  . (Join-Path $PSScriptRoot 'Ensure-Firewall.ps1')
+  $fw = Ensure-TacticalPtxFirewall -Quiet -DisableLegacy
+  if ($fw.Fail -gt 0) {
+    Write-Host "Firewall: $($fw.Fail) regla(s) no aplicadas (prueba como Administrador)" -ForegroundColor Yellow
+  } else {
+    Write-Host 'Firewall: reglas canonicas TacticalPtx-* OK'
   }
+} catch {
+  Write-Host "Firewall: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
 if ($tsIp) {

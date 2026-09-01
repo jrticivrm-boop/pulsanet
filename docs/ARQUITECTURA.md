@@ -1,50 +1,50 @@
-# PulsaNet — Arquitectura del sistema
+# TacticalPtx — Arquitectura del sistema
 
 ## Diagrama general
 
 ```mermaid
 flowchart TB
-    subgraph clientes [Clientes]
-        MA[App Android - Flutter]
-        MI[App iOS - Flutter]
-        WD[Web Despacho - React]
-    end
+ subgraph clientes [Clientes]
+ MA[App Android - Flutter]
+ MI[App iOS - Flutter]
+ WD[Web Despacho - React]
+ end
 
-    subgraph api [Backend PulsaNet]
-        REST[API REST]
-        WS[Socket.IO]
-        AUTH[Auth JWT]
-        PTT[PTT Floor Controller]
-        LOC[Location Service]
-    end
+ subgraph api [Backend TacticalPtx]
+ REST[API REST]
+ WS[Socket.IO]
+ AUTH[Auth JWT]
+ PTT[PTT Floor Controller]
+ LOC[Location Service]
+ end
 
-    subgraph datos [Datos]
-        PG[(PostgreSQL)]
-        RD[(Redis)]
-    end
+ subgraph datos [Datos]
+ PG[(PostgreSQL)]
+ RD[(Redis)]
+ end
 
-    subgraph externo [Servicios externos]
-        LK[LiveKit SFU]
-        FCM[Firebase Push]
-        OSM[OpenStreetMap tiles]
-    end
+ subgraph externo [Servicios externos]
+ LK[LiveKit SFU]
+ FCM[Firebase Push]
+ OSM[OpenStreetMap tiles]
+ end
 
-    MA --> REST
-    MI --> REST
-    WD --> REST
-    MA --> WS
-    MI --> WS
-    WD --> WS
-    MA --> LK
-    MI --> LK
-    REST --> AUTH
-    REST --> PG
-    WS --> PTT
-    WS --> RD
-    PTT --> RD
-    LOC --> PG
-    REST --> FCM
-    WD --> OSM
+ MA --> REST
+ MI --> REST
+ WD --> REST
+ MA --> WS
+ MI --> WS
+ WD --> WS
+ MA --> LK
+ MI --> LK
+ REST --> AUTH
+ REST --> PG
+ WS --> PTT
+ WS --> RD
+ PTT --> RD
+ LOC --> PG
+ REST --> FCM
+ WD --> OSM
 ```
 
 ---
@@ -54,8 +54,8 @@ flowchart TB
 1. Usuario **presiona** botón PTT en app.
 2. App envía `ptt:request` por Socket.IO al grupo.
 3. Backend verifica: ¿hay otro speaker activo?
-   - **No** → concede floor, emite `ptt:granted` al usuario.
-   - **Sí** → emite `ptt:denied` (ocupado).
+ - **No** → concede floor, emite `ptt:granted` al usuario.
+ - **Sí** → emite `ptt:denied` (ocupado).
 4. Usuario con floor **publica audio** a LiveKit room del grupo.
 5. Resto del grupo **recibe audio** vía LiveKit subscribe.
 6. Usuario **suelta** botón → `ptt:release` → libera floor.
@@ -82,13 +82,13 @@ Ver `database/schema.sql` para DDL completo.
 ## Estructura del repositorio
 
 ```
-pulsanet/
-├── backend/          API Node.js + Socket.IO
-├── mobile/           App Flutter (Android + iOS)
-├── web/              Panel despacho React
-├── database/         SQL schema y migraciones
-├── docs/             Documentación
-└── infra/            Docker, nginx (futuro)
+tacticalptx/
+├── backend/ API Node.js + Socket.IO
+├── mobile/ App Flutter (Android + iOS)
+├── web/ Panel despacho React
+├── database/ SQL schema y migraciones
+├── docs/ Documentación
+└── infra/ Docker, nginx (futuro)
 ```
 
 ---
@@ -118,4 +118,4 @@ pulsanet/
 
 ---
 
-*PulsaNet — Arquitectura v1 — 2026*
+*TacticalPtx — Arquitectura v1 — 2026*

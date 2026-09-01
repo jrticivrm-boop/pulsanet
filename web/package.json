@@ -1,6 +1,6 @@
 {
-  "version": "1.8.0",
-  "name": "pulsanet-web",
+  "version": "1.8.20",
+  "name": "tacticalptx-web",
   "type": "module",
   "scripts": {
     "dev": "vite",

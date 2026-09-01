@@ -1,4 +1,4 @@
-# PulsaNet — Piloto y carga (Mes 5)
+# TacticalPtx — Piloto y carga (Mes 5)
 
 ## Objetivo
 
@@ -21,7 +21,7 @@ flutter build apk --debug --dart-define=API_BASE=http://192.168.1.66:4000
 adb install -r build\app\outputs\flutter-apk\app-debug.apk
 ```
 
-O USB: `flutter run --dart-define=API_BASE=http://192.168.1.66:4000`  
+O USB: `flutter run --dart-define=API_BASE=http://192.168.1.66:4000` 
 (Actualiza la IP Wi‑Fi si cambia; firewall TCP **4000** y **7880**.)
 
 Ver [ANDROID_ALPHA_MES3.md](ANDROID_ALPHA_MES3.md).
@@ -30,8 +30,8 @@ Ver [ANDROID_ALPHA_MES3.md](ANDROID_ALPHA_MES3.md).
 
 ```powershell
 cd D:\pulsanet\backend
-npm run seed          # demo base
-npm run seed:load     # loaduser001…100
+npm run seed # demo base
+npm run seed:load # loaduser001…100
 ```
 
 Password: `demo1234`
@@ -48,10 +48,10 @@ npm run loadtest
 
 El script:
 
-1. Login de N usuarios  
-2. Conexión Socket.IO + `ptt:join`  
-3. Ráfaga de chat  
-4. Varias rondas PTT (contendientes → granted/denied)  
+1. Login de N usuarios 
+2. Conexión Socket.IO + `ptt:join` 
+3. Ráfaga de chat 
+4. Varias rondas PTT (contendientes → granted/denied) 
 5. Imprime stats + `/api/metrics`
 
 Umbral OK: ≥90% sockets conectados, ≥1 grant, sin errores de login/connect.
@@ -67,7 +67,7 @@ Rate limit: `RATE_LIMIT_MAX=5000` en `.env` para no cortar el piloto.
 ## Checklist piloto de campo
 
 - [ ] 5–10 móviles reales en la misma Wi‑Fi / 4G
-- [ ] Despacho web abierto (`despacho@pulsanet.local`)
+- [ ] Despacho web abierto (`despacho@tacticalptx.local`)
 - [ ] PTT: un hablante; denegado si ocupado
 - [ ] Chat visible en todos los del canal
 - [ ] Presencia “en línea” coherente

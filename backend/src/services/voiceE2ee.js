@@ -13,18 +13,21 @@ function resolveVoiceSecret() {
 }
 
 export function isVoiceE2eeReady() {
-  return Boolean(
-    process.env.LIVEKIT_E2EE_SECRET?.trim() ||
-      config.livekit.apiSecret ||
-      !config.isProd
-  );
+  if (config.isProd) {
+    return Boolean(process.env.LIVEKIT_E2EE_SECRET?.trim()?.length >= 32);
+  }
+  // Dev: requiere secreto dedicado o al menos API secret LiveKit (nunca "siempre true").
+  const dedicated = process.env.LIVEKIT_E2EE_SECRET?.trim();
+  if (dedicated && dedicated.length >= 16) return true;
+  return Boolean(config.livekit.apiSecret && String(config.livekit.apiSecret).length >= 4);
 }
 
-/** Clave base64url estable por room (32 bytes). */
+/** Clave base64url estable por room (32 bytes) vía HMAC-SHA256. */
 export function voiceE2eeKeyForRoom(roomName) {
   if (!roomName || !isVoiceE2eeReady()) return null;
+  if (config.isProd && !process.env.LIVEKIT_E2EE_SECRET?.trim()) return null;
   return crypto
     .createHmac('sha256', resolveVoiceSecret())
-    .update(`lk-e2ee-v1:${String(roomName)}`)
+    .update(`lk-e2ee-v2:${String(roomName)}`)
     .digest('base64url');
 }

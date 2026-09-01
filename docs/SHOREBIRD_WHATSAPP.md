@@ -1,8 +1,8 @@
-# Shorebird + WhatsApp (PulsaNet móvil)
+# Shorebird + WhatsApp (TacticalPtx móvil)
 
 > **2026-08-17:** los `.cmd` de Shorebird se eliminaron del repo (nunca hubo `shorebird.yaml`). Para APK usa `mobile/scripts/BUILD-APK-WHATSAPP.cmd`.
 
-Actualizaciones **OTA de código Dart** sin reinstalar.  
+Actualizaciones **OTA de código Dart** sin reinstalar. 
 La APK base se reparte **una vez por WhatsApp**; los siguientes cambios van por Shorebird.
 
 ## Flujo
@@ -24,7 +24,7 @@ La APK base se reparte **una vez por WhatsApp**; los siguientes cambios van por 
 
 ```powershell
 # Opción A (recomendada en este PC): doble clic / Ejecutar como administrador
-#   D:\pulsanet\mobile\scripts\install-shorebird-windows.cmd
+# D:\pulsanet\mobile\scripts\install-shorebird-windows.cmd
 
 # Opción B: PowerShell Admin
 powershell -ExecutionPolicy Bypass -File D:\pulsanet\mobile\scripts\install-shorebird-windows.ps1
@@ -49,7 +49,7 @@ shorebird login
 
 ```powershell
 cd D:\pulsanet\mobile
-shorebird init   # nombre: pulsanet_mobile
+shorebird init # nombre: tacticalptx_mobile
 flutter pub get
 ```
 
@@ -67,7 +67,7 @@ Eso crea `shorebird.yaml` (con `app_id`) y lo añade a assets en `pubspec.yaml`.
 | 6 | Enviar APK por WhatsApp |
 | 7 | Después: `powershell -File scripts\shorebird-patch.ps1` |
 
-**Todo-en-uno (después de que el paso 1 funcione):**  
+**Todo-en-uno (después de que el paso 1 funcione):** 
 `D:\pulsanet\mobile\scripts\shorebird-whatsapp-setup.cmd`
 
 > El `.cmd` **ya no pide Admin**. Si Defender molesta, ejecuta PowerShell como Admin solo para añadir exclusiones, o usa el log para ver el error exacto.
@@ -96,7 +96,7 @@ cd D:\pulsanet\mobile
 powershell -File scripts\shorebird-patch.ps1
 ```
 
-En el teléfono: cerrar PulsaNet por completo y volver a abrir (a veces 2 veces).
+En el teléfono: cerrar TacticalPtx por completo y volver a abrir (a veces 2 veces).
 
 ## App
 

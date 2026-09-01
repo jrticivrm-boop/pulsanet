@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapContainer,
   TileLayer,
-  Marker,
   Popup,
   Polyline,
   Circle,
@@ -23,7 +22,20 @@ import {
   createGeofence,
   deleteGeofence,
 } from '../api';
+import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
 import { socketIoOptions, socketUrl } from '../socketConfig';
+import {
+  LOCATION_POLL_MS,
+  TRACK_POLL_MS,
+  mergeLocations,
+  upsertLocation,
+} from './liveTiming.js';
+import AppDialog from '../AppDialog';
+import { mapAvatarIcon } from './mapAvatarIcon.js';
+import { MapCoordsLink } from './MapCoordsLink.jsx';
+import { CursorZoom, MapCursorFix, MapSizeFix, SmoothMarker } from './mapLeafletUtils.jsx';
+import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
+import { MAP_TILE_LAYERS } from './mapTiles.js';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -35,23 +47,7 @@ L.Icon.Default.mergeOptions({
 const GDL = [20.6736, -103.344];
 const SOCKET_URL = socketUrl();
 
-const MAP_LAYERS = {
-  natural: {
-    label: 'Natural',
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; OSM &copy; CARTO',
-  },
-  satelite: {
-    label: 'Satélite',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: '&copy; Esri',
-  },
-  claro: {
-    label: 'Claro',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap',
-  },
-};
+const MAP_LAYERS = MAP_TILE_LAYERS;
 
 function FitBounds({ positions }) {
   const map = useMap();
@@ -76,8 +72,28 @@ function MapClickPicker({ enabled, onPick }) {
   return null;
 }
 
+function InvalidateOnLayout({ tick }) {
+  const map = useMap();
+  useEffect(() => {
+    const id = window.setTimeout(() => map.invalidateSize({ animate: false }), 80);
+    return () => clearTimeout(id);
+  }, [map, tick]);
+  useEffect(() => {
+    const onFs = () => map.invalidateSize({ animate: false });
+    document.addEventListener('fullscreenchange', onFs);
+    window.addEventListener('resize', onFs);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFs);
+      window.removeEventListener('resize', onFs);
+    };
+  }, [map]);
+  return null;
+}
+
 export default function DispatchMap({ session }) {
+  const pageRef = useRef(null);
   const [locations, setLocations] = useState([]);
+  const { markerPhoto } = useMapAvatarPhotos(locations, session.token);
   const [onlineIds, setOnlineIds] = useState(new Set());
   const [trackUserId, setTrackUserId] = useState('');
   const [trackHours, setTrackHours] = useState(8);
@@ -89,7 +105,49 @@ export default function DispatchMap({ session }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [layer, setLayer] = useState('natural');
+  const [pendingDeleteId, setPendingDeleteId] = useState('');
+  const [maximized, setMaximized] = useState(false);
   const tile = MAP_LAYERS[layer] || MAP_LAYERS.natural;
+
+  const exitMaximize = useCallback(() => {
+    setMaximized(false);
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, []);
+
+  const enterMaximize = useCallback(async () => {
+    setMaximized(true);
+    const el = pageRef.current;
+    if (el?.requestFullscreen) {
+      try {
+        await el.requestFullscreen();
+      } catch {
+        /* CSS fixed fallback */
+      }
+    }
+  }, []);
+
+  const toggleMaximize = useCallback(() => {
+    if (maximized) exitMaximize();
+    else enterMaximize();
+  }, [maximized, enterMaximize, exitMaximize]);
+
+  useEffect(() => {
+    const onFs = () => {
+      if (!document.fullscreenElement) setMaximized(false);
+    };
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+
+  useEffect(() => {
+    const el = pageRef.current;
+    if (!el || !maximized) return undefined;
+    const onEscClose = () => exitMaximize();
+    el.addEventListener('tacticalptx:esc-close', onEscClose);
+    return () => el.removeEventListener('tacticalptx:esc-close', onEscClose);
+  }, [maximized, exitMaximize]);
 
   async function reloadFences() {
     const data = await fetchGeofences(session.token);
@@ -99,6 +157,7 @@ export default function DispatchMap({ session }) {
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      if (document.hidden) return;
       try {
         const [loc, ov, gf] = await Promise.all([
           fetchLocations(session.token),
@@ -106,7 +165,7 @@ export default function DispatchMap({ session }) {
           fetchGeofences(session.token),
         ]);
         if (cancelled) return;
-        setLocations(loc.locations || []);
+        setLocations((prev) => mergeLocations(prev, loc.locations || []));
         const ids = new Set();
         (ov.overview?.channels || []).forEach((c) => {
           c.online.forEach((m) => ids.add(m.userId));
@@ -119,10 +178,15 @@ export default function DispatchMap({ session }) {
       }
     }
     load();
-    const t = setInterval(load, 10000);
+    const t = setInterval(load, LOCATION_POLL_MS);
+    const onVis = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       cancelled = true;
       clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, [session.token]);
 
@@ -131,55 +195,63 @@ export default function DispatchMap({ session }) {
       auth: { token: session.token },
       ...socketIoOptions,
     });
-    socket.emit('dispatch:join');
+    const join = () => socket.emit('dispatch:join');
+    socket.on('connect', join);
+    socket.on('reconnect', join);
     socket.on('dispatch:location', (payload) => {
-      setLocations((prev) => {
-        const rest = prev.filter((l) => l.userId !== payload.userId);
-        return [
-          ...rest,
-          {
-            userId: payload.userId,
-            displayName: payload.displayName || payload.userId,
-            latitude: payload.latitude,
-            longitude: payload.longitude,
-            accuracyM: payload.accuracyM,
-            recordedAt: payload.recordedAt,
-          },
-        ];
-      });
+      void (async () => {
+        const loc = await unwrapDispatchPayload(payload, sessionWireKey(session));
+        if (!loc?.userId) return;
+        setLocations((prev) => upsertLocation(prev, loc));
+      })();
     });
     socket.on('dispatch:geofence', (payload) => {
-      setAlerts((prev) =>
-        [
-          {
-            id: `${payload.geofenceId}-${payload.userId}-${payload.at}`,
-            ...payload,
-          },
-          ...prev,
-        ].slice(0, 12)
-      );
+      void (async () => {
+        const g = await unwrapDispatchPayload(payload, sessionWireKey(session));
+        if (!g) return;
+        setAlerts((prev) =>
+          [
+            {
+              id: `${g.geofenceId}-${g.userId}-${g.at}`,
+              ...g,
+            },
+            ...prev,
+          ].slice(0, 12)
+        );
+      })();
     });
     return () => {
       socket.emit('dispatch:leave');
       socket.disconnect();
     };
-  }, [session.token]);
+  }, [session.token, session.crypto?.wireKey]);
 
   useEffect(() => {
     if (!trackUserId) {
       setTrackPoints([]);
-      return;
+      return undefined;
     }
     let cancelled = false;
-    fetchUserTrack(session.token, trackUserId, trackHours)
-      .then((data) => {
-        if (!cancelled) setTrackPoints(data.points || []);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e.message);
-      });
+    const loadTrack = () => {
+      if (cancelled || document.hidden) return;
+      fetchUserTrack(session.token, trackUserId, trackHours)
+        .then((data) => {
+          if (!cancelled) setTrackPoints(data.points || []);
+        })
+        .catch((e) => {
+          if (!cancelled) setError(e.message);
+        });
+    };
+    loadTrack();
+    const t = setInterval(loadTrack, TRACK_POLL_MS);
+    const onVis = () => {
+      if (!document.hidden) loadTrack();
+    };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       cancelled = true;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, [session.token, trackUserId, trackHours]);
 
@@ -214,20 +286,31 @@ export default function DispatchMap({ session }) {
   }
 
   async function handleDeleteFence(id) {
-    if (!window.confirm('¿Eliminar esta geocerca?')) return;
+    setPendingDeleteId(id);
+  }
+
+  async function confirmDeleteFence() {
+    const id = pendingDeleteId;
+    if (!id) return;
     setBusy(true);
     try {
       await deleteGeofence(session.token, id);
       await reloadFences();
+      setPendingDeleteId('');
     } catch (err) {
       setError(err.message);
+      setPendingDeleteId('');
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="dispatch-page map-page map-page--fill">
+    <div
+      ref={pageRef}
+      className={`dispatch-page map-page map-page--fill${maximized ? ' map-page--maximized' : ''}`}
+      data-esc-close={maximized ? '' : undefined}
+    >
       <header className="dispatch-header map-page-head">
         <div>
           <h1>Mapa en vivo</h1>
@@ -239,6 +322,16 @@ export default function DispatchMap({ session }) {
           {trackUserId ? (
             <span className="map-kpi">{trackPoints.length} pts ruta</span>
           ) : null}
+          <button
+            type="button"
+            className="lt-max-btn"
+            onClick={toggleMaximize}
+            title={maximized ? 'Reducir (Esc)' : 'Pantalla completa'}
+            aria-label={maximized ? 'Reducir mapa' : 'Maximizar mapa a pantalla completa'}
+            data-esc-close-btn={maximized ? '' : undefined}
+          >
+            {maximized ? '⛶ Reducir' : '⛶ Maximizar'}
+          </button>
         </div>
       </header>
 
@@ -357,8 +450,27 @@ export default function DispatchMap({ session }) {
 
       {error && <p className="error">{error}</p>}
       <div className={`map-frame${pickMode ? ' pick-mode' : ''}`}>
-        <MapContainer center={GDL} zoom={12} style={{ height: '100%', width: '100%' }}>
+        <div className="map-frame-chrome">
+          <button
+            type="button"
+            className="lt-max-btn lt-max-btn--map"
+            onClick={toggleMaximize}
+            title={maximized ? 'Reducir (Esc)' : 'Pantalla completa'}
+            aria-label={maximized ? 'Reducir mapa' : 'Maximizar mapa a pantalla completa'}
+            data-esc-close-btn={maximized ? '' : undefined}
+          >
+            {maximized ? '⛶ Reducir' : '⛶ Maximizar'}
+          </button>
+          {maximized ? (
+            <span className="lt-max-hint">Esc o Reducir para salir</span>
+          ) : null}
+        </div>
+        <MapContainer center={GDL} zoom={12} scrollWheelZoom={false} style={{ height: '100%', width: '100%' }}>
           <TileLayer attribution={tile.attribution} url={tile.url} key={layer} />
+          <CursorZoom />
+          <MapCursorFix />
+          <MapSizeFix />
+          <InvalidateOnLayout tick={maximized ? 1 : 0} />
           <MapClickPicker
             enabled={pickMode}
             onPick={(lat, lng) => {
@@ -392,21 +504,37 @@ export default function DispatchMap({ session }) {
               }}
             />
           )}
-          {locations.map((loc) => (
-            <Marker key={loc.userId} position={[loc.latitude, loc.longitude]}>
+          {locations.map((loc) => {
+            const photo = markerPhoto(loc);
+            const isLive = onlineIds.has(loc.userId);
+            return (
+            <SmoothMarker
+              key={loc.userId}
+              position={[loc.latitude, loc.longitude]}
+              icon={mapAvatarIcon({
+                name: loc.displayName,
+                live: isLive,
+                selected: false,
+                photoSrc: photo,
+              })}
+              zIndexOffset={isLive ? 100 : 0}
+            >
               <Popup>
                 <strong>{loc.displayName}</strong>
                 <br />
-                {onlineIds.has(loc.userId) ? 'En línea' : 'Offline'}
+                {onlineIds.has(loc.userId) ? 'En línea' : 'Fuera de línea'}
                 <br />
                 <small>{new Date(loc.recordedAt).toLocaleString()}</small>
+                <br />
+                <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
                 <br />
                 <button type="button" onClick={() => setTrackUserId(loc.userId)}>
                   Ver ruta
                 </button>
               </Popup>
-            </Marker>
-          ))}
+            </SmoothMarker>
+            );
+          })}
           {polyline.length > 0 && (
             <>
               <Polyline positions={polyline} pathOptions={{ color: '#243d20', weight: 4 }} />
@@ -415,6 +543,19 @@ export default function DispatchMap({ session }) {
           )}
         </MapContainer>
       </div>
+
+      <AppDialog
+        open={Boolean(pendingDeleteId)}
+        title="Eliminar geocerca"
+        message="¿Eliminar esta geocerca?"
+        confirmLabel="Eliminar"
+        danger
+        busy={busy}
+        onCancel={() => {
+          if (!busy) setPendingDeleteId('');
+        }}
+        onConfirm={confirmDeleteFence}
+      />
     </div>
   );
 }

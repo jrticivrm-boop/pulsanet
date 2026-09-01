@@ -1,4 +1,4 @@
-# Cómo correr PulsaNet en el teléfono (USB)
+# Cómo correr TacticalPtx en el teléfono (USB)
 
 ## Qué significa
 
@@ -14,16 +14,16 @@ El cable USB solo sirve para **instalar y depurar** la app Flutter en el Android
 
 ```mermaid
 flowchart LR
-  Phone[Telefono_Android] -->|WiFi_HTTP| API[PC_API_4000]
-  Phone -->|WiFi_WebSocket_audio| LK[PC_LiveKit_7880]
-  USB[Cable_USB] -.->|solo_instalar_app| Phone
+ Phone[Telefono_Android] -->|WiFi_HTTP| API[PC_API_4000]
+ Phone -->|WiFi_WebSocket_audio| LK[PC_LiveKit_7880]
+ USB[Cable_USB] -.->|solo_instalar_app| Phone
 ```
 
 ## Pasos
 
 1. PC: Redis + LiveKit + `cd backend && npm run dev`
 2. Teléfono y PC en **la misma Wi‑Fi**
-3. Teléfono: Opciones de desarrollador → **Depuración USB** ON  
+3. Teléfono: Opciones de desarrollador → **Depuración USB** ON 
 4. Conecta USB y acepta “¿Permitir depuración?”
 5. En el PC:
 

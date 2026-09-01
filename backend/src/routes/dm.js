@@ -2,7 +2,7 @@ import fs from 'fs';
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { query } from '../db.js';
-import { uploadMedia, classifyMedia } from '../services/uploads.js';
+import { uploadMedia, classifyMedia, mediaPreviewLabel, sizeLimitError, LIMITS, prepareDmUploadDir, storedUploadRel } from '../services/uploads.js';
 import {
   assertSameOrgPeer,
   listOrgContacts,
@@ -10,6 +10,9 @@ import {
   listDmMessages,
   insertDmMessage,
   dmSocketRoom,
+  softDeleteDmMessage,
+  clearDmThread,
+  toggleDmReaction,
 } from '../services/dm.js';
 import { getStickerById } from '../data/stickers.js';
 import { notifyUserDevices } from '../services/fcm.js';
@@ -114,12 +117,12 @@ export function createDmRouter(io) {
   });
 
   /** Media DM */
-  router.post('/:userId/messages/media', (req, res) => {
+  router.post('/:userId/messages/media', prepareDmUploadDir, (req, res) => {
     uploadMedia(req, res, async (err) => {
       if (err) {
         const msg =
           err.code === 'LIMIT_FILE_SIZE'
-            ? 'Archivo demasiado grande (máx 25 MB)'
+            ? `Archivo demasiado grande (máx ${Math.round(LIMITS.multer / (1024 * 1024))} MB)`
             : err.message;
         return res.status(400).json({ ok: false, error: msg });
       }
@@ -144,15 +147,16 @@ export function createDmRouter(io) {
         }
         if (req.file.size > classified.maxBytes) {
           fs.unlink(req.file.path, () => {});
-          return res.status(400).json({ ok: false, error: 'Archivo demasiado grande' });
+          return res.status(400).json({ ok: false, error: sizeLimitError(classified) });
         }
         const caption = String(req.body?.body || '').trim().slice(0, MAX_BODY) || null;
+        const mediaUrl = storedUploadRel(req) || req.file.filename;
         const msg = await insertDmMessage({
           senderId: req.user.sub,
           recipientId: peer.id,
           body: caption,
           type: classified.type,
-          mediaUrl: req.file.filename,
+          mediaUrl,
           mediaMime: req.file.mimetype,
           mediaName: req.file.originalname || req.file.filename,
           mediaSize: req.file.size,
@@ -166,14 +170,7 @@ export function createDmRouter(io) {
           peerName: req.user.displayName,
           message: msg,
         });
-        const preview =
-          classified.type === 'image'
-            ? '📷 Imagen'
-            : classified.type === 'audio'
-              ? '🎤 Audio'
-              : classified.type === 'video'
-                ? '🎬 Video'
-                : caption || '📎 Archivo';
+        const preview = mediaPreviewLabel(classified, msg.mediaName, caption);
         notifyUserDevices({
           userId: peer.id,
           title: req.user.displayName || 'TacticalPtx',
@@ -215,6 +212,64 @@ export function createDmRouter(io) {
       messageIds: rows.map((r) => r.id),
     });
     res.json({ ok: true, read: rows.length });
+  });
+
+  /** Vaciar hilo DM (ambos lados) */
+  router.post('/:userId/messages/clear', async (req, res) => {
+    try {
+      const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);
+      if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+      const deleted = await clearDmThread(req.user.sub, peer.id);
+      const room = dmSocketRoom(req.user.sub, peer.id);
+      io.to(room).emit('dm:cleared', {
+        peerId: peer.id,
+        byUserId: req.user.sub,
+        deleted,
+      });
+      res.json({ ok: true, deleted });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message });
+    }
+  });
+
+  /** Soft-delete DM */
+  router.delete('/:userId/messages/:messageId', async (req, res) => {
+    try {
+      const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);
+      if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+      const msg = await softDeleteDmMessage({
+        peerId: peer.id,
+        messageId: req.params.messageId,
+        userId: req.user.sub,
+        userRole: req.user.role,
+      });
+      const room = dmSocketRoom(req.user.sub, peer.id);
+      io.to(room).emit('dm:deleted', msg);
+      res.json({ ok: true, message: msg });
+    } catch (err) {
+      const notFound = /no encontrado/i.test(err.message);
+      res.status(notFound ? 404 : 400).json({ ok: false, error: err.message });
+    }
+  });
+
+  /** Reacción DM */
+  router.post('/:userId/messages/:messageId/reactions', async (req, res) => {
+    try {
+      const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);
+      if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+      const payload = await toggleDmReaction({
+        peerId: peer.id,
+        messageId: req.params.messageId,
+        userId: req.user.sub,
+        emoji: req.body?.emoji,
+      });
+      const room = dmSocketRoom(req.user.sub, peer.id);
+      io.to(room).emit('dm:reaction', payload);
+      res.json({ ok: true, ...payload });
+    } catch (err) {
+      const notFound = /no encontrado/i.test(err.message);
+      res.status(notFound ? 404 : 400).json({ ok: false, error: err.message });
+    }
   });
 
   return router;

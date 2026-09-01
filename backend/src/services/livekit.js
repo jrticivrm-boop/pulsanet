@@ -6,25 +6,11 @@ export function isLiveKitConfigured() {
   return Boolean(url && apiKey && apiSecret);
 }
 
-/**
- * URL que debe usar el cliente (móvil / otro PC).
- * Misma IP con la que el cliente llegó a la API (LAN o Tailscale).
- * LIVEKIT_PUBLIC_URL no se fuerza: si no, un teléfono en Wi‑Fi recibe 100.x y el audio no llega.
- */
-export function resolveLiveKitUrl(req) {
-  const configured = config.livekit.url || '';
-  const override = process.env.LIVEKIT_PUBLIC_URL?.trim();
-  const source = override || configured;
-
-  const rawHost =
-    (typeof req?.headers?.['x-forwarded-host'] === 'string'
-      ? req.headers['x-forwarded-host'].split(',')[0]
-      : null) ||
-    (typeof req?.headers?.host === 'string' ? req.headers.host : null) ||
-    '';
-  const host = rawHost.split(':')[0].trim();
-
+function pickProtoAndPort(source) {
   let proto = source.startsWith('wss') ? 'wss' : 'ws';
+  // No forzar wss://:7880 solo porque la API tenga TLS: LiveKit en este stack
+  // escucha ws en claro; el web HTTPS usa proxy Vite (ver web/src/livekitUrl.js).
+  if (process.env.LIVEKIT_FORCE_WSS === '1') proto = 'wss';
   let port = '7880';
   try {
     const u = new URL(source.replace(/^ws/i, 'http'));
@@ -32,12 +18,72 @@ export function resolveLiveKitUrl(req) {
   } catch {
     /* defaults */
   }
+  return { proto, port };
+}
 
-  if (host && host !== 'localhost' && host !== '127.0.0.1') {
-    return `${proto}://${host}:${port}`;
+function clientIp(req) {
+  const xf = req?.headers?.['x-forwarded-for'];
+  if (typeof xf === 'string' && xf.trim()) return xf.split(',')[0].trim();
+  const ip = req?.ip || req?.socket?.remoteAddress || '';
+  return String(ip).replace(/^::ffff:/, '');
+}
+
+function isPrivateIp(ip) {
+  if (!ip) return false;
+  return /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(ip);
+}
+
+/**
+ * URL LiveKit para el cliente (móvil / web / referencia).
+ *
+ * Preferencia:
+ * 1) LIVEKIT_PUBLIC_URL — override (p. ej. wss://dominio.sslip.io)
+ * 2) Cliente en LAN → ws://LIVEKIT_LAN_HOST:7880 (ICE local, sin hairpin)
+ * 3) PUBLIC_DOMAIN → wss://dominio (4G / otra red, Caddy /rtc :443)
+ * 4) LIVEKIT_PUBLIC_HOST → ws://IP:7880
+ *
+ * ICE remoto: UDP 7882 + TCP 7881 + TURN 3478 (UPnP).
+ */
+export function resolveLiveKitUrl(req) {
+  const configured = config.livekit.url || '';
+  const override = process.env.LIVEKIT_PUBLIC_URL?.trim();
+  const lanHost = (process.env.LIVEKIT_LAN_HOST || '').trim() || '192.168.1.66';
+  const publicHost = (process.env.LIVEKIT_PUBLIC_HOST || '').trim();
+  const publicDomain = (process.env.PUBLIC_DOMAIN || '').trim();
+  const source = override || configured || `ws://${lanHost}:7880`;
+  const { proto, port } = pickProtoAndPort(source);
+
+  if (override && /^wss?:\/\//i.test(override)) {
+    return override.replace(/\/$/, '');
   }
 
-  return configured || override || '';
+  const onLan = isPrivateIp(clientIp(req));
+
+  if (onLan && lanHost) {
+    return `${proto}://${lanHost}:${port}`;
+  }
+
+  if (publicDomain) {
+    return `wss://${publicDomain.split(':')[0]}`;
+  }
+
+  if (publicHost) {
+    return `${proto}://${publicHost}:${port}`;
+  }
+
+  const rawHost =
+    (typeof req?.headers?.['x-forwarded-host'] === 'string'
+      ? req.headers['x-forwarded-host'].split(',')[0]
+      : null) ||
+    (typeof req?.headers?.host === 'string' ? req.headers.host : null) ||
+    '';
+  let host = rawHost.split(':')[0].trim();
+
+  if (!host || host === 'localhost' || host === '127.0.0.1') {
+    host = lanHost;
+  }
+
+  return `${proto}://${host}:${port}`;
 }
 
 /**

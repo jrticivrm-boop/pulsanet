@@ -3,7 +3,7 @@
 ## Estado
 
 - **Proyecto único:** `D:\pulsanet` (código + `Soporte\`)
-- **Compat:** `D:\PulsaNet_Soporte` = unión → `D:\pulsanet\Soporte`
+- **Compat:** `D:\Soporte` = unión → `D:\pulsanet\Soporte`
 - Android SDK / Gradle home: `D:\Android\...`
 - Respaldo pre-cambio: `D:\pulsanet\Soporte\Respaldos\pulsanet_pre_cambio_C_20260810_104316`
 

@@ -1,4 +1,4 @@
-# PulsaNet — Demo Mes 2 (presencia, chat, PTT)
+# TacticalPtx — Demo Mes 2 (presencia, chat, PTT)
 
 Extiende la demo Mes 1 con **Redis** (floor + online), **chat de texto** y reconexión Socket/LiveKit.
 
@@ -9,15 +9,15 @@ Extiende la demo Mes 1 con **Redis** (floor + online), **chat de texto** y recon
 powershell -File infra/start-services.ps1
 
 cd backend
-npm run seed   # si aún no
+npm run seed # si aún no
 npm run dev
 
 cd ../web
 npm run dev
 ```
 
-- Demo: http://localhost:5173  
-- API: http://localhost:4000  
+- Demo: http://localhost:5173 
+- API: http://localhost:4000 
 
 ## Qué probar
 

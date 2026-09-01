@@ -1,48 +1,123 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { emitDispatch } from '../socket/dispatch.js';
+import { emitDispatchTrack } from '../socket/dispatch.js';
 import { evaluateGeofences } from '../services/geofences.js';
+import { isDispatch } from '../services/roles.js';
+import {
+  getUserUnitId,
+  loadTrackScope,
+  listVisibleGroups,
+  unitInTrackScope,
+} from '../services/orgUnits.js';
+
+
+function toIsoUtc(value) {
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString();
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
 
 export function createLocationsRouter(io) {
   const router = Router();
   router.use(authMiddleware);
 
-  /** Última ubicación de usuarios de la org (mapa despacho) */
+  /** Última ubicación: solo usuarios en el alcance (Región / zona / unidad). */
   router.get('/', async (req, res) => {
+    if (!isDispatch(req.user.role)) {
+      return res.status(403).json({ ok: false, error: 'Sin permiso' });
+    }
+    const scope = await loadTrackScope(req.user);
+    if (!scope.orgWide && !scope.unitIds?.length) {
+      return res.json({ ok: true, locations: [], scope: { level: scope.level } });
+    }
+
+    const rawGroupIds = String(req.query.groupIds || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    let groupMemberFilter = '';
+    const params = [req.user.orgId];
+
+    if (rawGroupIds.length) {
+      const visible = await listVisibleGroups(req.user);
+      const allowed = new Set(visible.map((g) => g.id));
+      const groupIds = rawGroupIds.filter((id) => allowed.has(id));
+      if (!groupIds.length) {
+        return res.json({
+          ok: true,
+          locations: [],
+          scope: { level: scope.level, groupIds: [] },
+        });
+      }
+      params.push(groupIds);
+      groupMemberFilter = `AND u.id IN (
+        SELECT gm.user_id FROM group_members gm
+        WHERE gm.group_id = ANY($${params.length}::uuid[])
+      )`;
+    }
+
+    let unitFilter = '';
+    if (!scope.orgWide) {
+      params.push(scope.unitIds);
+      unitFilter = `AND u.unit_id = ANY($${params.length}::uuid[])`;
+    }
+
     const { rows } = await query(
-      `SELECT u.id AS user_id, u.display_name, u.role, u.is_active,
+      `SELECT u.id AS user_id, u.display_name, u.role, u.is_active, u.avatar_url, u.unit_id,
               l.latitude, l.longitude, l.accuracy_m, l.recorded_at
        FROM users u
        INNER JOIN user_last_location l ON l.user_id = u.id
        WHERE u.organization_id = $1 AND u.is_active = TRUE
+       ${unitFilter}
+       ${groupMemberFilter}
        ORDER BY u.display_name`,
-      [req.user.orgId]
+      params
     );
     res.json({
       ok: true,
+      scope: {
+        level: scope.level,
+        orgWide: Boolean(scope.orgWide),
+        unitCount: scope.orgWide ? null : scope.unitIds.length,
+        groupIds: rawGroupIds.length ? rawGroupIds.filter(Boolean) : null,
+      },
       locations: rows.map((r) => ({
         userId: r.user_id,
         displayName: r.display_name,
         role: r.role,
+        unitId: r.unit_id || null,
+        avatarUrl: r.avatar_url
+          ? `/api/avatars/file/${encodeURIComponent(r.avatar_url)}`
+          : null,
         latitude: r.latitude,
         longitude: r.longitude,
         accuracyM: r.accuracy_m,
-        recordedAt: r.recorded_at,
+        recordedAt: toIsoUtc(r.recorded_at),
       })),
     });
   });
 
-  /** Historial de ruta de un usuario (mismo org) */
+  /** Historial de ruta — solo si el usuario está en el alcance de seguimiento. */
   router.get('/:userId/track', async (req, res) => {
+    if (!isDispatch(req.user.role)) {
+      return res.status(403).json({ ok: false, error: 'Sin permiso' });
+    }
     const hours = Math.min(Math.max(parseInt(req.query.hours || '8', 10) || 8, 1), 72);
     const { rows: users } = await query(
-      `SELECT id, display_name FROM users
+      `SELECT id, display_name, unit_id FROM users
        WHERE id = $1 AND organization_id = $2 AND is_active = TRUE`,
       [req.params.userId, req.user.orgId]
     );
     if (!users[0]) {
       return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    }
+
+    const scope = await loadTrackScope(req.user);
+    if (!unitInTrackScope(scope, users[0].unit_id)) {
+      return res.status(403).json({ ok: false, error: 'Fuera de tu alcance de seguimiento' });
     }
 
     const { rows } = await query(
@@ -62,7 +137,7 @@ export function createLocationsRouter(io) {
         latitude: r.latitude,
         longitude: r.longitude,
         accuracyM: r.accuracy_m,
-        recordedAt: r.recorded_at,
+        recordedAt: toIsoUtc(r.recorded_at),
       })),
     });
   });
@@ -84,15 +159,30 @@ export function createLocationsRouter(io) {
       [req.user.sub, latitude, longitude, accuracyM ?? null]
     );
 
+    const { rows: me } = await query(`SELECT avatar_url, unit_id FROM users WHERE id = $1`, [
+      req.user.sub,
+    ]);
+    const avatarUrl = me[0]?.avatar_url
+      ? `/api/avatars/file/${encodeURIComponent(me[0].avatar_url)}`
+      : null;
+    const unitId = me[0]?.unit_id || (await getUserUnitId(req.user.sub));
+
     const loc = rows[0];
-    emitDispatch(io, 'dispatch:location', {
-      userId: req.user.sub,
-      displayName: req.user.displayName || null,
-      latitude: loc.latitude,
-      longitude: loc.longitude,
-      accuracyM: loc.accuracy_m,
-      recordedAt: loc.recorded_at,
-    });
+    emitDispatchTrack(
+      io,
+      'dispatch:location',
+      {
+        userId: req.user.sub,
+        displayName: req.user.displayName || null,
+        unitId: unitId || null,
+        avatarUrl,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        accuracyM: loc.accuracy_m,
+        recordedAt: toIsoUtc(loc.recorded_at),
+      },
+      { unitId }
+    );
 
     let geofenceEvents = [];
     try {
@@ -102,6 +192,7 @@ export function createLocationsRouter(io) {
         displayName: req.user.displayName || null,
         latitude: loc.latitude,
         longitude: loc.longitude,
+        unitId: unitId || null,
       });
     } catch (err) {
       console.error('geofence eval:', err.message);

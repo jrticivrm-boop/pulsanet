@@ -76,11 +76,28 @@ export async function notifyGroupMembers({
   const payload = {
     notification: { title, body },
     data: Object.fromEntries(
-      Object.entries({ ...data, groupId }).map(([k, v]) => [k, String(v ?? '')])
+      Object.entries({ ...data, groupId, title, body }).map(([k, v]) => [
+        k,
+        String(v ?? ''),
+      ])
     ),
     android: {
       priority: 'high',
-      notification: { channelId: 'tacticalptx_alerts', sound: 'default' },
+      // Misma conversación reemplaza la notificación anterior (estilo WhatsApp).
+      collapseKey: `g:${groupId}`,
+      notification: {
+        channelId: 'tacticalptx_alerts_radio',
+        sound: 'tactical_msg',
+        tag: `g:${groupId}`,
+        defaultVibrateTimings: true,
+      },
+    },
+    apns: {
+      payload: {
+        aps: {
+          sound: 'tactical_msg.wav',
+        },
+      },
     },
   };
 
@@ -135,27 +152,48 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
   const tokens = [...new Set(rows.map((r) => r.fcm_token).filter(Boolean))];
   if (!tokens.length) return { sent: 0, error: 'Sin dispositivos registrados' };
 
+  const isCallPush =
+    data?.type === 'private_call' || data?.type === 'private_radio';
+
+  const notifTag =
+    data?.type === 'dm' && data?.peerId
+      ? `dm:${data.peerId}`
+      : isCallPush
+        ? `call:${data.callId || data.peerId || userId}`
+        : data?.groupId
+          ? `g:${data.groupId}`
+          : undefined;
+
   const payload = {
     notification: { title, body },
     data: Object.fromEntries(
-      Object.entries(data).map(([k, v]) => [k, String(v ?? '')])
+      Object.entries({ ...data, title, body }).map(([k, v]) => [
+        k,
+        String(v ?? ''),
+      ])
     ),
     android: {
       priority: 'high',
+      ...(notifTag ? { collapseKey: notifTag } : {}),
       notification: {
-        channelId:
-          data?.type === 'private_call' ? 'tacticalptx_calls' : 'tacticalptx_alerts',
-        sound: 'default',
-        ...(data?.type === 'private_call'
-          ? { priority: 'max', defaultSound: true, defaultVibrateTimings: true }
-          : {}),
+        channelId: isCallPush ? 'tacticalptx_calls' : 'tacticalptx_alerts_radio',
+        sound: isCallPush ? 'default' : 'tactical_msg',
+        ...(notifTag ? { tag: notifTag } : {}),
+        ...(isCallPush
+          ? {
+              priority: 'max',
+              visibility: 'public',
+              defaultSound: true,
+              defaultVibrateTimings: true,
+            }
+          : { defaultVibrateTimings: true }),
       },
     },
     apns: {
       payload: {
         aps: {
-          sound: 'default',
-          ...(data?.type === 'private_call' ? { interruptionLevel: 'time-sensitive' } : {}),
+          sound: isCallPush ? 'default' : 'tactical_msg.wav',
+          ...(isCallPush ? { interruptionLevel: 'time-sensitive' } : {}),
         },
       },
     },

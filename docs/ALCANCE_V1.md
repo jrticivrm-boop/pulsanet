@@ -1,10 +1,10 @@
-# PulsaNet — Alcance v1.0
+# TacticalPtx — Alcance v1.0
 
-**Producto:** Comunicación Push-to-Talk (PTT) por internet  
-**Usuarios objetivo:** 1,000  
-**Plataformas:** Web (despacho), Android, iOS  
-**Plazo:** 6 meses  
-**Presupuesto referencia:** ~$500,000 MXN  
+**Producto:** Comunicación Push-to-Talk (PTT) por internet 
+**Usuarios objetivo:** 1,000 
+**Plataformas:** Web (despacho), Android, iOS 
+**Plazo:** 6 meses 
+**Presupuesto referencia:** ~$500,000 MXN 
 
 ---
 
@@ -122,4 +122,4 @@ Sistema propio de comunicación instantánea por grupos, vía celular o Wi‑Fi,
 
 ---
 
-*Documento v1 — PulsaNet — 2026*
+*Documento v1 — TacticalPtx — 2026*

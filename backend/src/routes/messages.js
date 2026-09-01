@@ -9,6 +9,7 @@ import {
   formatMessage,
   editGroupMessage,
   softDeleteGroupMessage,
+  clearGroupMessages,
   toggleMessageReaction,
   loadReactionsSummary,
   markGroupMessagesRead,
@@ -21,6 +22,11 @@ import {
   uploadMedia,
   classifyMedia,
   mediaDiskPath,
+  mediaPreviewLabel,
+  sizeLimitError,
+  LIMITS,
+  prepareGroupUploadDir,
+  storedUploadRel,
 } from '../services/uploads.js';
 import { inc } from '../services/metrics.js';
 import { notifyGroupMembers } from '../services/fcm.js';
@@ -31,7 +37,7 @@ export function createMessagesRouter(io) {
 
   router.get('/', async (req, res) => {
     const groupId = req.params.id;
-    const limit = Math.min(parseInt(req.query.limit || '50', 10) || 50, 100);
+    const limit = Math.min(parseInt(req.query.limit || '100', 10) || 100, 200);
 
     const ok = await assertGroupMember(groupId, req.user.sub);
     if (!ok) {
@@ -97,10 +103,10 @@ export function createMessagesRouter(io) {
     const replyToId = req.body?.replyToId || null;
 
     if (!text) {
-      return res.status(400).json({ ok: false, error: 'Mensaje vacío' });
+      return res.status(400).json({ ok: false, error: 'Mensaje vacÃ­o' });
     }
     if (text.length > MAX_BODY) {
-      return res.status(400).json({ ok: false, error: `Máximo ${MAX_BODY} caracteres` });
+      return res.status(400).json({ ok: false, error: `MÃ¡ximo ${MAX_BODY} caracteres` });
     }
 
     const ok = await assertGroupMember(groupId, req.user.sub);
@@ -129,7 +135,7 @@ export function createMessagesRouter(io) {
     res.status(201).json({ ok: true, message: msg });
   });
 
-  /** Marcar mensajes como leídos (hasta un id) */
+  /** Marcar mensajes como leÃ­dos (hasta un id) */
   router.post('/read', async (req, res) => {
     try {
       const payload = await markGroupMessagesRead({
@@ -185,14 +191,34 @@ export function createMessagesRouter(io) {
     } catch (err) {
       const code = /no encontrado/i.test(err.message)
         ? 404
-        : /no puedes|no eres|solo se|eliminado|vacío|Máximo/i.test(err.message)
+        : /no puedes|no eres|solo se|eliminado|vacÃ­o|MÃ¡ximo/i.test(err.message)
           ? 400
           : 400;
       res.status(code === 404 ? 404 : 400).json({ ok: false, error: err.message });
     }
   });
 
-  /** Soft-delete (todos ven “eliminado”) */
+  /** Vaciar chat del grupo (todos los miembros) */
+  router.post('/clear', async (req, res) => {
+    try {
+      const deleted = await clearGroupMessages(
+        req.params.id,
+        req.user.sub,
+        req.user.role,
+      );
+      io.to(`group:${req.params.id}`).emit('chat:cleared', {
+        groupId: req.params.id,
+        byUserId: req.user.sub,
+        deleted,
+      });
+      res.json({ ok: true, deleted });
+    } catch (err) {
+      const forbidden = /no eres/i.test(err.message);
+      res.status(forbidden ? 403 : 400).json({ ok: false, error: err.message });
+    }
+  });
+
+  /** Soft-delete (todos ven â€œeliminadoâ€) */
   router.delete('/:messageId', async (req, res) => {
     try {
       const msg = await softDeleteGroupMessage({
@@ -209,7 +235,7 @@ export function createMessagesRouter(io) {
     }
   });
 
-  /** Toggle reacción */
+  /** Toggle reacciÃ³n */
   router.post('/:messageId/reactions', async (req, res) => {
     try {
       const payload = await toggleMessageReaction({
@@ -226,13 +252,13 @@ export function createMessagesRouter(io) {
     }
   });
 
-  /** Multipart: file + optional body (caption) + type=image|file */
-  router.post('/media', (req, res) => {
+  /** Multipart: file + optional body (caption) + type=image|file|audio|video */
+  router.post('/media', prepareGroupUploadDir('id'), (req, res) => {
     uploadMedia(req, res, async (err) => {
       if (err) {
         const msg =
           err.code === 'LIMIT_FILE_SIZE'
-            ? 'Archivo demasiado grande (máx 25 MB)'
+            ? `Archivo demasiado grande (máx ${Math.round(LIMITS.multer / (1024 * 1024))} MB)`
             : err.message;
         return res.status(400).json({ ok: false, error: msg });
       }
@@ -262,21 +288,19 @@ export function createMessagesRouter(io) {
           fs.unlink(req.file.path, () => {});
           return res.status(400).json({
             ok: false,
-            error:
-              classified.type === 'image'
-                ? 'Imagen demasiado grande (máx 10 MB)'
-                : 'Archivo demasiado grande (máx 25 MB)',
+            error: sizeLimitError(classified),
           });
         }
 
         const caption = String(req.body?.body || '').trim().slice(0, MAX_BODY) || null;
         const replyToId = req.body?.replyToId || null;
+        const mediaUrl = storedUploadRel(req) || req.file.filename;
         const msg = await insertGroupMessage({
           groupId,
           senderId: req.user.sub,
           body: caption,
           type: classified.type,
-          mediaUrl: req.file.filename,
+          mediaUrl,
           mediaMime: req.file.mimetype,
           mediaName: req.file.originalname || req.file.filename,
           mediaSize: req.file.size,
@@ -286,12 +310,7 @@ export function createMessagesRouter(io) {
 
         inc('chatSent');
         io.to(`group:${groupId}`).emit('chat:message', msg);
-        const preview =
-          classified.type === 'image'
-            ? '📷 Imagen'
-            : classified.type === 'audio'
-              ? '🎤 Audio'
-              : `📎 ${msg.mediaName || 'Archivo'}`;
+        const preview = mediaPreviewLabel(classified, msg.mediaName, null);
         notifyGroupMembers({
           groupId,
           excludeUserId: req.user.sub,
@@ -311,7 +330,7 @@ export function createMessagesRouter(io) {
   return router;
 }
 
-/** GET /api/media/:messageId — miembro del grupo o participante DM */
+/** GET /api/media/:messageId â€” miembro del grupo o participante DM */
 export function createMediaRouter() {
   const router = Router();
   router.use(authMiddleware);

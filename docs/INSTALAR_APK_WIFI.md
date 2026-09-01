@@ -1,4 +1,4 @@
-# Instalar PulsaNet en el teléfono (misma Wi‑Fi)
+# Instalar TacticalPtx en el teléfono (misma Wi‑Fi)
 
 No hace falta `flutter run` cada vez. El **APK** es la app instalable.
 
@@ -25,12 +25,12 @@ Teléfono y PC en la **misma Wi‑Fi**.
 
 Archivo:
 
-`D:\PulsaNet_Soporte\APK\PulsaNet-192.168.1.66.apk`
+`D:\Soporte\APK\TacticalPtx-LAN.apk`
 
 ### Opción A — USB (rápido)
 
 ```powershell
-adb install -r "D:\PulsaNet_Soporte\APK\PulsaNet-192.168.1.66.apk"
+adb install -r "D:\Soporte\APK\TacticalPtx-LAN.apk"
 ```
 
 ### Opción B — sin cable de depuración
@@ -41,7 +41,7 @@ adb install -r "D:\PulsaNet_Soporte\APK\PulsaNet-192.168.1.66.apk"
 
 ## Cuentas demo
 
-`op1@pulsanet.local` … `op4` / `demo1234`
+`op1@tacticalptx.local` … `op4` / `demo1234`
 
 ## Si no conecta
 

@@ -1,4 +1,5 @@
 import http from 'http';
+import https from 'https';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -20,32 +21,57 @@ import { createMetricsRouter } from './routes/metrics.js';
 import { devicesRouter } from './routes/devices.js';
 import { stickersRouter } from './routes/stickers.js';
 import { createPanicRouter } from './routes/panic.js';
+import { securityRouter } from './routes/security.js';
+import { lockdownGuard, bindIntrusionIo, isLockdownActive } from './services/intrusion.js';
 import { registerPttHandlers } from './socket/ptt.js';
 import { registerChatHandlers } from './socket/chat.js';
 import { registerDispatchHandlers } from './socket/dispatch.js';
 import { registerDmHandlers } from './socket/dm.js';
 import { createDmRouter } from './routes/dm.js';
 import { createCallsRouter } from './routes/calls.js';
+import { createMeRouter, createAvatarsRouter } from './routes/me.js';
+import { createAppUpdateRouter } from './routes/appUpdate.js';
+import { catalogsRouter } from './routes/catalogs.js';
+import { backupsRouter } from './routes/backups.js';
 import { isLiveKitConfigured } from './services/livekit.js';
+import { startBackupScheduler } from './services/backup.js';
+
 import { connectRedis, isRedisReady } from './redis.js';
 import { inc } from './services/metrics.js';
 import { initFcm, isFcmReady } from './services/fcm.js';
+import { loadTlsOptions } from './tls.js';
+import { bindLiveUser } from './services/userProfile.js';
+import { isWireEncryptionEnabled } from './services/wireCrypto.js';
+import { isContentEncryptionReady } from './services/contentCrypto.js';
+import { isVoiceE2eeReady } from './services/voiceE2ee.js';
 
 const app = express();
-const server = http.createServer(app);
+const tlsOptions = loadTlsOptions();
+const server = tlsOptions
+  ? https.createServer(tlsOptions, app)
+  : http.createServer(app);
 
 if (config.trustProxy) {
   app.set('trust proxy', 1);
 }
 
 const io = new Server(server, {
+  path: '/socket.io',
   cors: { origin: config.corsOrigins, credentials: true },
+  transports: ['websocket', 'polling'],
+  allowUpgrades: true,
   maxHttpBufferSize: 1e6,
   pingTimeout: 20000,
   pingInterval: 10000,
 });
 
-app.use(helmet());
+app.use(
+  helmet({
+    hsts: tlsOptions
+      ? { maxAge: 15552000, includeSubDomains: false, preload: false }
+      : false,
+  })
+);
 app.use(cors({ origin: config.corsOrigins, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(
@@ -56,6 +82,13 @@ app.use(
     legacyHeaders: false,
   })
 );
+app.use(lockdownGuard);
+
+/** Raíz API → consola web (evita JSON "Ruta no encontrada" al abrir :4000 en el móvil). */
+app.get('/', (_req, res) => {
+  const dest = config.webPublicUrl || 'https://127.0.0.1:5173';
+  res.redirect(302, dest);
+});
 
 const messagesRouter = wrapRouterAsync(createMessagesRouter(io));
 const metricsRouter = wrapRouterAsync(createMetricsRouter(io));
@@ -66,8 +99,13 @@ const dmRouter = wrapRouterAsync(createDmRouter(io));
 const callsRouter = wrapRouterAsync(createCallsRouter(io));
 
 app.use('/api/health', wrapRouterAsync(healthRouter));
+app.use('/api/app', wrapRouterAsync(createAppUpdateRouter()));
+app.use('/api/security', wrapRouterAsync(securityRouter));
+
 app.use('/api/metrics', metricsRouter);
 app.use('/api/auth', wrapRouterAsync(authRouter));
+app.use('/api/me', wrapRouterAsync(createMeRouter()));
+app.use('/api/avatars', wrapRouterAsync(createAvatarsRouter()));
 app.use('/api/groups', wrapRouterAsync(groupsRouter));
 app.use('/api/groups/:id/messages', messagesRouter);
 app.use('/api/dm', dmRouter);
@@ -75,6 +113,8 @@ app.use('/api/calls', callsRouter);
 app.use('/api/media', mediaRouter);
 app.use('/api/livekit', wrapRouterAsync(livekitRouter));
 app.use('/api/admin', wrapRouterAsync(adminRouter));
+app.use('/api/catalogs', wrapRouterAsync(catalogsRouter));
+app.use('/api/backups', wrapRouterAsync(backupsRouter));
 app.use('/api/locations', locationsRouter);
 app.use('/api/geofences', wrapRouterAsync(geofencesRouter));
 app.use('/api/recordings', recordingsRouter);
@@ -85,18 +125,35 @@ app.use('/api/panic', wrapRouterAsync(createPanicRouter(io)));
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('No autorizado'));
+  let payload;
   try {
-    const payload = jwt.verify(token, config.jwtSecret);
-    socket.data.user = {
-      sub: payload.sub,
-      role: payload.role,
-      displayName: payload.displayName || 'Usuario',
-      orgId: payload.orgId,
-    };
-    next();
+    payload = jwt.verify(token, config.jwtSecret);
   } catch {
-    next(new Error('Token inválido'));
+    return next(new Error('Token inválido'));
   }
+  isLockdownActive()
+    .then((locked) => {
+      if (locked) {
+        next(new Error('Servicio bloqueado por seguridad'));
+        return null;
+      }
+      return bindLiveUser(payload);
+    })
+    .then((user) => {
+      if (user === null) return;
+      if (!user) return next(new Error('No autorizado'));
+      socket.data.user = {
+        sub: user.sub,
+        role: user.role,
+        displayName: user.displayName || 'Usuario',
+        orgId: user.orgId,
+      };
+      next();
+    })
+    .catch((err) => {
+      console.error('socket auth profile:', err.message);
+      next(new Error('No autorizado'));
+    });
 });
 
 io.on('connection', (socket) => {
@@ -113,10 +170,11 @@ app.use((_req, res) => {
   res.status(404).json({ ok: false, error: 'Ruta no encontrada' });
 });
 
-app.use((err, _req, res, _next) => {
-  console.error('API error:', err);
+app.use((err, req, res, _next) => {
+  console.error('API error:', req.method, req.originalUrl || req.url, err?.message || err);
   if (res.headersSent) return;
-  res.status(500).json({ ok: false, error: 'Error interno' });
+  const msg = config.isProd ? 'Error interno' : (err?.message || 'Error interno');
+  res.status(err.status || 500).json({ ok: false, error: msg });
 });
 
 async function start() {
@@ -129,15 +187,25 @@ async function start() {
     process.exit(1);
   }
 
+  const scheme = tlsOptions ? 'https' : 'http';
+  bindIntrusionIo(io);
   server.listen(config.port, () => {
-    console.log(`TacticalPtx API v${config.version} [${config.nodeEnv}] → http://localhost:${config.port}`);
+    console.log(
+      `TacticalPtx API v${config.version} [${config.nodeEnv}] → ${scheme}://localhost:${config.port}`
+    );
     console.log(`  Health: GET /api/health`);
+    console.log(`  Root →  ${config.webPublicUrl}`);
     console.log(`  Login:  POST /api/auth/login`);
     console.log(`  Redis:  ${isRedisReady() ? 'ok' : 'fail'}`);
     console.log(`  LiveKit: ${isLiveKitConfigured() ? config.livekit.url : 'NO CONFIGURADO'}`);
     console.log(`  FCM:    ${isFcmReady() ? 'ok' : 'off'}`);
+    console.log(`  TLS:    ${tlsOptions ? 'on' : 'off'}`);
+    console.log(`  Wire:   ${isWireEncryptionEnabled() ? 'on' : 'off'} (GPS socket)`);
+    console.log(`  Content AES: ${isContentEncryptionReady() ? 'on' : 'off'}`);
+    console.log(`  Voice E2EE: ${isVoiceE2eeReady() ? 'on' : 'off'}`);
   });
 }
 
 initFcm();
+startBackupScheduler();
 start();

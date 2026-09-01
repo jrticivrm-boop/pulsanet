@@ -1,16 +1,20 @@
 {
   "name": "tacticalptx-api",
-  "version": "1.8.0",
-  "description": "PulsaNet — API PTT Push-to-Talk",
+  "version": "1.8.21",
+  "description": "TacticalPtx — API PTT Push-to-Talk",
   "main": "src/server.js",
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node src/scripts/seed.js",
+    "seed:units": "node src/scripts/seed-units.js",
+    "import:pv-dependencias": "node src/scripts/import-pv-dependencias.js",
     "seed:purge-demo": "node src/scripts/purge-demo-users.js",
     "seed:load": "node src/scripts/seed-load.js",
-    "loadtest": "node src/scripts/loadtest.js"
+    "rebuild:callsigns": "node src/scripts/rebuild-callsigns.js",
+    "loadtest": "node src/scripts/loadtest.js",
+    "certs:lan": "node ../infra/generate-lan-certs.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -33,6 +37,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "selfsigned": "^5.5.0",
     "socket.io-client": "^4.8.3"
   }
 }

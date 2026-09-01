@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.8.1+5
+version: 1.8.50+59
 
 environment:
   sdk: ^3.11.5
@@ -42,9 +42,14 @@ dependencies:
   # 13.x tira permission_handler_android 14.0.0 (AGP 9 / Kotlin DSL roto con Flutter 8.11)
   permission_handler: ^12.0.0
   image_picker: ^1.1.2
+  image_cropper: ^8.0.2
+  http_parser: ^4.1.2
   file_picker: ^8.1.7
   geolocator: ^13.0.2
   path: ^1.9.1
+  url_launcher: ^6.3.1
+  open_filex: ^4.7.0
+  video_player: ^2.9.5
   firebase_core: ^3.12.1
   firebase_messaging: ^15.2.4
   flutter_local_notifications: ^18.0.1
@@ -52,7 +57,12 @@ dependencies:
   record: ^6.2.1
   audioplayers: ^6.7.1
   path_provider: ^2.1.6
+  package_info_plus: ^8.3.0
+  crypto: ^3.0.6
   flutter_foreground_task: ^10.0.0
+  audio_session: ^0.1.25
+  vibration: 3.2.0
+  google_fonts: ^8.2.1
 
 dev_dependencies:
   flutter_test:
@@ -68,7 +78,8 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: true
-  ios: false
+  ios: true
+  remove_alpha_ios: true
   image_path: assets/brand/tacticalptx.png
   adaptive_icon_background: "#243D20"
   adaptive_icon_foreground: assets/brand/tacticalptx.png
@@ -88,6 +99,9 @@ flutter:
 
   assets:
     - assets/brand/tacticalptx.png
+    - assets/certs/lan-cert.pem
+    - assets/sounds/panic_siren.wav
+    - assets/sounds/tactical_msg.wav
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -4,7 +4,7 @@ import { query } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { assertGroupMember } from '../services/presence.js';
 import { isDispatch } from '../services/roles.js';
-import { uploadAudio, mediaDiskPath } from '../services/uploads.js';
+import { uploadAudio, mediaDiskPath, prepareGroupUploadDir, storedUploadRel } from '../services/uploads.js';
 import { emitDispatch } from '../socket/dispatch.js';
 
 function mapRec(r) {
@@ -92,7 +92,7 @@ export function createRecordingsRouter(io) {
     fs.createReadStream(disk).pipe(res);
   });
 
-  router.post('/groups/:groupId', (req, res) => {
+  router.post('/groups/:groupId', prepareGroupUploadDir('groupId'), (req, res) => {
     uploadAudio(req, res, async (err) => {
       if (err) {
         return res.status(400).json({ ok: false, error: err.message || 'Upload inválido' });
@@ -123,6 +123,7 @@ export function createRecordingsRouter(io) {
           return res.status(404).json({ ok: false, error: 'Grupo no encontrado' });
         }
 
+        const filePath = storedUploadRel(req) || req.file.filename;
         const { rows } = await query(
           `INSERT INTO ptt_recordings
              (organization_id, group_id, user_id, file_path, mime_type, byte_size, duration_ms)
@@ -132,7 +133,7 @@ export function createRecordingsRouter(io) {
             orgRows[0].organization_id,
             groupId,
             req.user.sub,
-            req.file.filename,
+            filePath,
             mime,
             req.file.size,
             durationMs || null,

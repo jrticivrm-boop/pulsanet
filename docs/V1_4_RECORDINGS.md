@@ -1,4 +1,4 @@
-# PulsaNet v1.4 — Grabación PTT
+# TacticalPtx v1.4 — Grabación PTT
 
 Al **soltar el PTT** en la Radio web, se sube un audio (webm/ogg) al servidor.
 

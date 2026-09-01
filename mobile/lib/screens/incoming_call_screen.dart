@@ -1,18 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Pantalla de llamada entrante estilo WhatsApp / teléfono.
+import '../api_client.dart';
+import '../theme.dart';
+import '../widgets/user_avatar.dart';
+
+/// Pantalla de llamada entrante — colores institucionales (oliva / oro).
 class IncomingCallScreen extends StatefulWidget {
   const IncomingCallScreen({
     super.key,
     required this.callerName,
     required this.onAccept,
     required this.onReject,
+    this.mode = 'call',
+    this.api,
+    this.callerId,
   });
 
   final String callerName;
   final Future<void> Function() onAccept;
   final Future<void> Function() onReject;
+  /// `call` | `radio`
+  final String mode;
+  final ApiClient? api;
+  final String? callerId;
 
   @override
   State<IncomingCallScreen> createState() => _IncomingCallScreenState();
@@ -48,15 +59,6 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
     super.dispose();
   }
 
-  String get _initials {
-    final parts = widget.callerName.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return '?';
-    if (parts.length == 1) {
-      return parts.first.substring(0, parts.first.length.clamp(1, 2)).toUpperCase();
-    }
-    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
-  }
-
   Future<void> _run(Future<void> Function() action) async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -67,10 +69,37 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
     }
   }
 
+  Widget _avatarFace({required double radius}) {
+    final api = widget.api;
+    final id = widget.callerId;
+    if (api != null && id != null && id.isNotEmpty) {
+      return UserAvatar(
+        name: widget.callerName,
+        userId: id,
+        avatarUrl: api.peerAvatarNetworkUrl(id),
+        headers: api.avatarAuthHeaders(),
+        radius: radius,
+      );
+    }
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: kInstOlive,
+      child: Text(
+        userAvatarInitials(widget.callerName),
+        style: TextStyle(
+          color: kInstOnPrimary,
+          fontSize: radius * 0.72,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isRadio = widget.mode == 'radio';
     return Material(
-      color: const Color(0xFF0B141A),
+      color: kInstCallBg,
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
@@ -78,11 +107,12 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
             children: [
               const SizedBox(height: 12),
               Text(
-                'Llamada de voz entrante',
+                isRadio ? 'Radio personal entrante' : 'Llamada de voz entrante',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.72),
+                  color: kInstGoldSoft.withValues(alpha: 0.9),
                   fontSize: 15,
                   letterSpacing: 0.2,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const Spacer(flex: 2),
@@ -107,7 +137,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                    color: const Color(0xFF25D366),
+                                    color: kInstGold,
                                     width: 2,
                                   ),
                                 ),
@@ -123,22 +153,18 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
                   width: 118,
                   height: 118,
                   alignment: Alignment.center,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFF3B82F6), Color(0xFF1D4ED8)],
-                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: kInstOlive.withValues(alpha: 0.45),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                      ),
+                    ],
                   ),
-                  child: Text(
-                    _initials,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 40,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: _avatarFace(radius: 59),
                 ),
               ),
               const SizedBox(height: 28),
@@ -146,34 +172,36 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
                 widget.callerName,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: kInstOnPrimary,
                   fontSize: 28,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 10),
               Text(
-                _busy ? 'Conectando…' : 'Pulsa para contestar',
+                _busy
+                    ? 'Conectando…'
+                    : (isRadio ? 'Invitación a radio 1:1' : 'Te está llamando…'),
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.55),
-                  fontSize: 15,
+                  color: kInstOnPrimary.withValues(alpha: 0.55),
+                  fontSize: 16,
                 ),
               ),
               const Spacer(flex: 3),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _CallActionButton(
-                    color: const Color(0xFFE11D48),
+                  _ActionCircle(
+                    color: kInstDanger,
                     icon: Icons.call_end,
                     label: 'Rechazar',
                     enabled: !_busy,
                     onTap: () => _run(widget.onReject),
                   ),
-                  _CallActionButton(
-                    color: const Color(0xFF25D366),
-                    icon: Icons.call,
-                    label: 'Contestar',
+                  _ActionCircle(
+                    color: kInstOlive,
+                    icon: isRadio ? Icons.podcasts : Icons.call,
+                    label: isRadio ? 'Unirse' : 'Contestar',
                     enabled: !_busy,
                     onTap: () => _run(widget.onAccept),
                   ),
@@ -188,13 +216,13 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
   }
 }
 
-class _CallActionButton extends StatelessWidget {
-  const _CallActionButton({
+class _ActionCircle extends StatelessWidget {
+  const _ActionCircle({
     required this.color,
     required this.icon,
     required this.label,
     required this.onTap,
-    required this.enabled,
+    this.enabled = true,
   });
 
   final Color color;
@@ -208,16 +236,15 @@ class _CallActionButton extends StatelessWidget {
     return Column(
       children: [
         Material(
-          color: enabled ? color : color.withValues(alpha: 0.45),
+          color: enabled ? color : color.withValues(alpha: 0.4),
           shape: const CircleBorder(),
-          elevation: 0,
           child: InkWell(
             customBorder: const CircleBorder(),
             onTap: enabled ? onTap : null,
             child: SizedBox(
               width: 72,
               height: 72,
-              child: Icon(icon, color: Colors.white, size: 32),
+              child: Icon(icon, color: kInstOnPrimary, size: 32),
             ),
           ),
         ),
@@ -225,9 +252,8 @@ class _CallActionButton extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.8),
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
+            color: kInstOnPrimary.withValues(alpha: 0.85),
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],

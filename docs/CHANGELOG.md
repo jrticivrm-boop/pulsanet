@@ -1,6 +1,6 @@
 # Changelog — TacticalPtx
 
-Registro de versiones y cambios relevantes del producto (antes PulsaNet).  
+Registro de versiones y cambios relevantes del producto (TacticalPtx). 
 Bitácora narrativa (día a día): [BITACORA_DESARROLLO.md](BITACORA_DESARROLLO.md)
 
 Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
@@ -10,20 +10,242 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Mapa despacho:** coordenadas en detalles del marcador (clic → Google Maps).
+
 ### Changed
+- **Tono de mensajes:** chirp radio táctico (doble pip) en lugar de Nokia SMS; web + APK + FCM.
+
+## [1.8.50] — 2026-09-01
+
+### Mobile (APK 1.8.50+59)
+- Rollback visual: tema claro oliva/oro restaurado (equivalente a 1.8.48); retira el rediseño oscuro/camo de 1.8.49.
+
+## [1.8.49] — 2026-08-31
+
+### Mobile (APK 1.8.49+58)
+- UI táctica oscura (camo digital + burbujas olive) en chat, inbox, DM, canales, login y Configuración.
+- Seguridad: bloqueo de capturas de pantalla (`FLAG_SECURE`) con interruptor en Configuración (activo por defecto).
+
+## [1.8.48] — 2026-08-31
+
+### Mobile (APK 1.8.48+57)
+- Nuevo sonido `tactical_msg` y canal Android `tacticalptx_alerts_radio`.
+
+## [1.8.47] — 2026-08-31
+
+### Mobile (APK 1.8.47+56)
+- Canales visibles únicamente donde el usuario es miembro (`/api/groups?membersOnly=1`).
+- Pitido al liberar canal PTT (otro operador, no al soltar el propio botón).
+
+### Added
+- **APK 1.8.47+56:** lista de canales solo con membresía real; pitido breve cuando otro operador suelta el PTT.
+
+### Changed
+- **Web despacho:** chat y seguimiento en vivo filtrados al canal «Hablar en» + escucha; pánico «Ver en mapa» con zoom suave.
+
+---
+
+### Added (backlog)
+- **APK pánico:** en la alerta, **Ver ubicación** y **Cómo llegar** (Google/Apple Maps) con coords del emisor (**1.8.39+48**).
+- **Chat web — pegar imágenes (estilo WhatsApp):** Ctrl+V abre compositor con preview, caption, multi-imagen y herramientas (recortar/rotar, dibujar, texto, formas, mosaico, emoji, HD, deshacer). Grupo y DM.
+- **Galería de imagen:** Copiar / Descargar en la vista ampliada (toolbar + clic derecho).
+
+### Changed
+- **Web chat grupal:** avatares de perfil en burbujas ajenas (estilo APK); banner de mensaje visible también durante llamada privada.
+- **Seguimiento mapa:** etiqueta bajo marcador solo al seleccionar operador; mapa más limpio por defecto.
+- **APK UI:** tipografía Oswald + Source Sans 3; Login/Radio/nav más profesionales. **1.8.39+48** (pánico con mapa/ruta).
+- **APK UI:** tipografía Oswald + Source Sans 3; Login/Radio/nav más profesionales. **1.8.38+47** (fix historial inactivo).
+- **APK UI:** tipografía Oswald + Source Sans 3; Login/Radio/nav más profesionales. **1.8.37+46** (fix envío mensajes DM/grupo).
+- **APK UI:** tipografía Oswald + Source Sans 3; Login/Radio/nav más profesionales. **1.8.36+45** (MEJORAS.txt: globo chat, pánico en Seguimiento, scroll estable, avatares, PTT en pantalla completa, audio menos invasivo).
+- **APK UI:** tipografía Oswald + Source Sans 3; Login/Radio/nav más profesionales. **1.8.35+44**.
+- **PTT radio grupal:** toque para hablar / toque para soltar (app + web; Espacio = toggle). APK **1.8.34+43**.
+- **Radio 1:1:** PTT por toque (abre / libera), conexión más rápida (LiveKit + mic en paralelo) y barra rediseñada (tarjeta + mic circular). APK **1.8.33+42**.
+- **Seguimiento:** delimitación NL / Tamaulipas / SLP con frontera detallada (sin cortes falsos en ciudades).
+- **Pánico acotado al grupo:** alertas (socket/FCM/consola/listado) solo a miembros del canal activo; sin escalada org-wide a admins o `canReceivePanic`.
+- Consola: selector multi-canal en **Configuración → Canales**; barra superior muestra canal PTT + enlace.
+
+### Fixed
+- **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
+- **APK llamadas:** foto de perfil en UI de llamada; al tocar el push se abre Contestar (antes se perdía la llamada) (**1.8.44+53**).
+- **APK chat recibido:** burbujas ya no se recortan en el borde izquierdo; hora visible en mensajes cortos (DM + grupo, **1.8.43+52**).
+- **Chat abierto:** tono suave tipo WhatsApp al leer el hilo; sin notificación fuerte duplicada (web + APK **1.8.42+51**).
+- **Error 500 consola/APK:** API caída por bucle Watch-Stack vs `--watch`; BAT y watchdog reforzados (no matar :4000 si escucha, cooldown, log `levantar-*.log`).
+- **Pánico mapa/ruta:** sirena no se detenía al pulsar Ver ubicación / Cómo llegar (web + APK **1.8.41+50**).
+- **APK Ubicación GPS:** panel transparente se montaba sobre Radio; fondo opaco en overlay (**1.8.40+49**).
+- **APK mensajes inactivo:** historial DM traía los más viejos; sync al volver/abrir chat; push con preview (**1.8.38+47**).
+- **APK mensajes:** envío DM/grupo se confirmaba mal (join socket perdido + sin eco); corrección + optimistas (**1.8.37+46**).
+- **APK MEJORAS.txt:** globo de mensajes en llamada y otras pestañas; pánico visible en Seguimiento; atrás minimiza llamada; scroll estable al volver a Radio; avatares en chat; indicativo en cabecera DM; PTT visible al maximizar radio 1:1; audio menos invasivo (**1.8.36+45**).
+- **Web globo de chat:** banner global estilo WhatsApp en cualquier módulo (Despacho, Seguimiento, etc.); clic abre el chat correspondiente.
+- **Web notificaciones:** con permiso activo, avisos del SO vía service worker (`sw-notify.js`); banner in-app de respaldo al volver a la pestaña.
+- **Web chat DM:** palomitas de leído se actualizan en vivo (`markDmRead` + `dm:receipts`); banner de mensaje visible (no solo sonido) al recibir en otro chat.
+- **Radio 1:1:** franja superior compacta (PTT); ya no invade el composer/teclado; chat usable en paralelo.
+- **Foto de perfil APK:** el círculo verde era fallo de carga con `Image.network` + auth; ahora descarga con Bearer y muestra la imagen (1.8.31+40).
+- **PTT al maximizar:** botón visible en Radio (layout) y flotante en Seguimiento a pantalla completa; PTT mini en la franja del despacho.
+- **Despacho:** al volver de Seguimiento (u otro módulo) a Radio PTT, la conversación ya no salta de scroll; Radio queda montado en segundo plano.
+- **Mensajes en llamada:** banner emergente visible encima de la UI de llamada (web + app); no se silencia por tener el chat abierto detrás.
+- **Llamada / radio 1:1:** atrás (app) y ← / Esc (web) **minimizan** en lugar de colgar; solo Colgar corta.
+- **API 500 vía borde público (Caddy):** `trust proxy` en dev cuando `PUBLIC_DOMAIN` o `TRUST_PROXY=1`; evita crash de rate-limit con `X-Forwarded-For`.
+- **PTT móvil sin audio (LiveKit ICE):** UDP 7882 no escuchaba (rango 50000+ sin UPnP); config simplificada + rutas LAN/4G.
+
+### Added
+- **Configuración → Historial / Auditoría:** quién / qué / cuándo (solo admins); filtros y paginación sobre `activity_logs`.
+- **Seguimiento:** delimitación tenue de NL, Tamaulipas y SLP sobre el mapa (fondo visible).
+- **Indicativo al aire editable:** formato `SGTO GOMEZ`, `B.O. LINARES`, `S.O. IV R.M. (SALA…)`; login separado; grados SGTO/B.O./S.O./C.G.
+- **Icono de grupo/canal:** foto en Catálogos → Grupos; visible en lista de chats y cabecera (web + APK).
+- **Codemagic iOS:** `codemagic.yaml` (TestFlight + build IPA), checklist `IOS_TESTFLIGHT_CHECKLIST.md`, build sin Mac local.
+- **Emojis y stickers** estilo WhatsApp en chat grupal y personal (web + APK): panel con categorías/búsqueda; APK alterna teclado ↔ panel.
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
+- **Radio personal 1:1** entre usuarios (PTT mantener-para-hablar), además de mensaje y llamada de voz; web + móvil + API `mode: radio`.
+- Móvil: controles de llamada estilo WhatsApp/teléfono (altavoz, silenciar, teclado, mensaje en llamada, más).
+- Consola Catálogos: **Grados y empleos** y **Dependencias** (forma ParqueVehicular; CRUD admin).
+- Catálogo **Dependencias** importado idéntico a ParqueVehicular live: 6 RR.MM. / 15 ZZ.MM. / 48 organismos (`npm run import:pv-dependencias`).
+- Consola **Configuración → Respaldos**: programados, manuales, descarga/restauración ZIP SQL.
+
+### Changed
+- **Uploads en disco:** organizados por org → jerarquía (región/zona/unidad) → carpeta de grupo; DM y avatares por org. Legado plano sigue sirviendo.
+- Móvil: APK **1.8.32+41** — radio 1:1 arriba (PTT) sin tapar chat; OTA force.
+- Móvil: APK **1.8.31+40** — fix avatar perfil (Bearer/`Image.memory`); OTA force.
+- Móvil: APK **1.8.30+39** — emojis/stickers WhatsApp (grupal + DM); OTA force BanjeCel.
+- Móvil: APK **1.8.26+35** — radio personal 1:1 + controles llamada WhatsApp; OTA force.
+- UI Dependencias: misma jerarquía y copy que PV (`Región Militar → Zona Militar → Organismos`, chips).
+- Móvil: APK **1.8.25+34** — mute de radio (Silenciar) para no oír el canal; OTA force.
+- Web chats: notificaciones estilo WhatsApp (tono, banner, título `(N)`, aviso SO al minimizar).
+
+### Fixed
+- **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
+- Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
+- App: WebSocket Socket.IO fallaba con `…sslip.io:0/socket.io` (Dart `Uri.port == 0`); `AppConfig.socketUrl` fuerza `:443`.
+- Web mapas: watermark CARTO «API KEY REQUIRED» — tiles sin key sustituidos por Esri Street / OSM (`mapTiles.js`).
+
+### Security
+- **Integridad host:** raíz canónica `C:\pulsanet`; health con TLS real + wire/content/voice; FCM path en C:; firewall `TacticalPtx-*` (9 reglas); `infra/check-integrity.ps1`. Despacho no degrada sealed→claro; voz E2EE no cae en silencio a SRTP-only.
+- **HTTPS publico:** borde Caddy + Let's Encrypt (`*.sslip.io` o dominio propio) vía `infra/START-PUBLIC-EDGE.ps1`; guía `Soporte/Documentos/DOMINIO_Y_CERTIFICADO.md`.
+- **Endurecimiento:** OTA con `APP_UPDATE_SECRET` + token HMAC; rate-limit login/OTA; Redis SCAN (no KEYS); LiveKit TURN UDP 3478; `ALLOW_HOST_LOCKDOWN=1`; script `infra/HARDEN.ps1`; guía `Soporte/Documentos/SEGURIDAD_HARDENING.md`.
+- **Lockdown ante intrusión:** tras N fallos de login (IP/usuario) el servicio queda fuera de servicio, revoca sesiones, avisa por FCM y puede cerrar firewall/UPnP (`infra/LOCKDOWN.ps1`).
+- `/api/metrics` deja de ser público (requiere rol despacho).
+- Wire AES-GCM ampliado a pánico; GPS REST solo despacho; sin `contentKey` en cliente; `wireKey` solo en memoria; FCM de chat genérico; prod rechaza secretos de ejemplo; health sin detalle crypto en production; TLS móvil solo host API.
+
+### Changed
+- Móvil: APK **1.8.26+35** — radio personal 1:1 + controles llamada WhatsApp; OTA force.
+- Móvil: APK **1.8.21+30** — vaciar/borrar chats, miniatura imagen DM, burbujas WhatsApp; OTA `versionCode` 30.
+- Móvil: APK **1.8.20+29** — chat personal (palomas, hora, swipe reply, envío optimista, atrás al inbox); presencia multi-dispositivo; OTA `versionCode` 29.
+- Móvil: APK **1.8.19+28** — galería swipe de imágenes + links clicables en chat; OTA `versionCode` 28.
+- Móvil: APK **1.8.18+27** — mute radio, adjuntos video/docs, colgado bilateral, icono verde, arranque más rápido; OTA `versionCode` 27.
+- Móvil: APK **1.8.17+26** — chat/DM no queda tapado por el teclado; OTA activa (`versionCode` 26).
+- Web **Seguimiento en vivo**: layout redistribuido (KPIs, capas sobre mapa, scroll interno en lista) y mapa acotado al viewport con borde inferior visible.
+- Web mapas (Seguimiento / Mapa en vivo): marcadores muestran **foto de perfil** del operador en lugar de solo la inicial.
+- Móvil: navegación en **2 pestañas** — **Chats** (inbox WhatsApp: Todos / No leídos / Favoritos / Grupos, favoritos locales, badges) y **Radio** (PTT, pánico, canales); Mapa y selector de canales en menú ⋮ del radio; pestaña inicial **Chats**; APK **1.8.16+25**.
+- Web despacho — alta de usuario: **Especialidad** (tras grado) y **Cargo** (al final); columna `cargo` en BD; indicativo con cargo.
+- Móvil: barra inferior con etiquetas (Mensajes, Mapa, Directos, Canales); cámara quitada del menú; adjuntos unificados en chat (+ → Galería/Cámara/Archivo); APK **1.8.15+24**.
+- Web despacho — panel Usuarios: lista principal con skeleton, búsqueda/filtros, refresh suave y alta en modal.
+
+### Fixed
+- **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
+- Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
+- Mapa seguimiento: «Hace X h» aclara GPS desactualizado (última señal al servidor); timestamps ISO UTC.
+- Llamada personal: al colgar en un lado, la UI se cierra también en el otro (app y web); señal `call:ended` + desconexión LiveKit.
+- Web despacho — **Usuarios** dejaba pantalla en blanco: faltaba `roleLabel()` al renderizar la tabla.
+- Web DM: palomitas de lectura y iconos (favorito, enviar, llamada) ya no muestran `âœ"` por mojibake UTF-8.
+- Móvil: tap en notificación de mensaje abre el chat de grupo o el DM correspondiente para responder (cold start tras bootstrap); APK **1.8.14+23**.
+- Móvil/API: rechazo de avatar por MIME HEIC/`octet-stream`/vacío; multer + sniff magic bytes y `Content-Type: image/jpeg` en cliente; errores en español sin prefijo `Exception:`.
+- Móvil: notificaciones de chat/DM se limpian al abrir/leer la conversación (estilo WhatsApp); APK **1.8.10+19**.
+- Móvil: **Enterado** en alerta de pánico ya no cierra la app (doble `Navigator.pop` + stop de sirena seguro); APK **1.8.6+15**.
+
+### Added
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
+- Móvil: burbujas de chat (DM/grupo) más estéticas estilo WhatsApp.
+- Inbox móvil: vaciar/borrar chats y vaciar grupos (estilo WhatsApp); miniaturas de imagen en chat personal (DM).
+- Chat (web + app): galería de imágenes estilo WhatsApp — en vista ampliada, swipe / flechas entre todas las fotos del mismo chat (grupo y DM), con contador.
+- App Radio: **mute de escucha** (botón altavoz) — silencia el audio del canal hasta desactivar; PTT propio no se afecta.
+- Chat (web + app): envío de **videos**, **documentos** (PDF/Office) y **archivos** (ZIP/RAR/7z…) en grupos y DM; menú Foto/Video/Documento; reproductor de video y abrir/descargar archivo. Límites 10/15/25/50 MB (imagen/audio/docs/video).
+- Web chat (Radio PTT): menú contextual estilo WhatsApp en mensajes (copiar, copiar imagen, descargar, responder, reaccionar) y barra de acciones en visor de imagen.
+- Móvil: vibración fuerte nativa en pánico (sirena + patrón 500/200 en bucle hasta Enterado; ráfaga al pulsar PÁNICO); APK **1.8.13+22**.
+- Móvil/web: puntos de presencia tipo Skype en la fila del canal — **verde** (en la app), **amarillo** (segundo plano / pantalla bloqueada), **rojo** reservado (offline; v1 quita el chip al desconectar). Backend `focus` en presence Redis + ping/join; APK **1.8.12+21**.
+- Móvil: botón Pánico con `CircleBorder` + clip (sin highlight Material cuadrado); APK **1.8.12+21**.
+- Móvil: recorte circular de foto de perfil (estilo WhatsApp: mover/zoom → JPEG) antes de subir; APK **1.8.11+20**.
+- **Actualización APK en la app** (sin Google Play): al abrir muestra «Cargando configuración…», consulta `GET /api/app/android`, descarga e instala; ops con `PUBLISH-APK-UPDATE.cmd` y `Soporte/Documentos/ACTUALIZACION_APK_EN_APP.md`.
+- Jerarquía operativa: **Región** (admin maestro) → **Zonas / C.G.** (unidades subordinadas) → **Unidades** (servicios desplegados / usuarios); rol `unit_admin`.
+- Privilegios de usuario **Ver Región / Zonas / Unidades** (`can_see_*`); canales y **seguimiento GPS** filtrados por privilegio/alcance.
+- Multi-selección de canales en radio y despacho (escuchar varios; PTT en uno).
+- Chat radio estilo WhatsApp: inbox unificado con pestañas **Todos / No leídos / Favoritos / Grupos**, favoritos locales y badges de no leídos.
+- Banner de notificación in-app (arriba) al recibir DM o mensaje de grupo fuera del chat abierto.
+- Organigrama **IV R.M.**: Región → zonas (C.G. + 4 Z.M. + apoyo) → 70 unidades; rol `zone_admin`; catálogo Unidades; `npm run seed:units`.
+- **TLS opcional** en la API (`TLS_CERT` / `TLS_KEY`) + generador `infra/generate-lan-certs.mjs` / `npm run certs:lan`.
+- **Cifrado wire** AES-256-GCM de eventos socket GPS/geocerca/pánico (`WIRE_ENCRYPTION_KEY`); login entrega `crypto.wireKey` (solo memoria).
+- Sonido de **pánico**: tono hi-lo centrado (~780/980 Hz), menos agudo que la sirena wail.
+- Alta de usuarios: **Grado** en desplegable con grados del Ejército Mexicano (Art. 129 LOEFAM).
+- Alta de usuarios con **Grado, Especialidad, Nombre(s), Apellidos y Matrícula**; al aire figura indicativo (ej. Cap. Gomez) + nombre de canal.
+- App móvil: con **pantalla bloqueada** sigue el radio (audio), notificaciones de mensajes y difusión GPS.
+- Icono de perfil en app móvil; aparece en Seguimiento (mapa).
+
+### Security
+- **Lockdown ante intrusión:** tras N fallos de login (IP/usuario) el servicio queda fuera de servicio, revoca sesiones, avisa por FCM y puede cerrar firewall/UPnP (`infra/LOCKDOWN.ps1`).
+- `/api/metrics` deja de ser público (requiere rol despacho).
+- Wire AES-GCM ampliado a pánico; GPS REST solo despacho; sin `contentKey` en cliente; `wireKey` solo en memoria; FCM de chat genérico; prod rechaza secretos de ejemplo; health sin detalle crypto en production; TLS móvil solo host API.
+
+### Fixed
+- **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
+- Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
+- Consola HTTPS remota: banner **xhr poll error** (Socket.IO) — mismo origen `/socket.io` vía Vite, WebSocket primero, limpia error al reconectar; mensaje en español si falla el transporte.
+- Consola HTTPS remota: PTT LiveKit ya no falla por **mixed content** (`ws://:7880`); señal vía `wss://mismo-origen` + proxy Vite `/rtc`, media en 7881/7882 con `LIVEKIT_PUBLIC_HOST` / `--node-ip`.
+- Rol `zone_admin` puede entrar a despacho/usuarios (`canDispatch` / `canManageUsers`).
+- Pánico: **Enterado** silencia solo el dispositivo local; ya no cancela la alarma en todos los equipos.
+
+### Changed
+- Móvil: APK **1.8.26+35** — radio personal 1:1 + controles llamada WhatsApp; OTA force.
+- APK **1.8.9+18**: chat móvil estilo WhatsApp (burbujas/compositor/sin huecos); `API_BASE` sslip.io.
+- APK **1.8.8+17**: `API_BASE=https://189.152.200.238.sslip.io` (cert LE, sin aviso de cert).
+- APK **1.8.7+16**: OTA con secreto + endurecimiento; `API_BASE` 4G; `Soporte/APK/` + OTA `versionCode` 16.
+- API / package **1.8.6** (alineado con línea móvil).
+- APK **1.8.6+15**: fix Enterado en pánico; config 4G `https://189.175.38.29:4000`; `Soporte/APK/TacticalPtx-1.8.6+15.apk` + OTA `backend/app-updates/` (`versionCode` 15).
+- APK **1.8.5+14**: config 4G `https://189.175.38.29:4000`; copia `Soporte/APK/TacticalPtx-1.8.5+14-4G.apk` + OTA `backend/app-updates/` (`versionCode` 14).
+- APK **1.8.4+13**: config 4G `https://189.175.38.29:4000`; copia `Soporte/APK/TacticalPtx-1.8.4+13-4G.apk` + OTA `backend/app-updates/`.
+- Confirmaciones web con modal in-app (`AppDialog` / `sys-modal`) en lugar de `window.confirm` / `alert` (grupos, chat, geocercas).
+- Radio móvil: PTT **circular** oliva/oro más táctil; pánico rojo urgente **sin confirmación** (primer toque).
+- Radio web: mismo criterio de pánico al primer clic; PTT institucional circular.
+- Marca unificada **TacticalPtx**; BD `tacticalptx_db`.
+- Seguimiento: zoom con rueda **hacia el cursor** (estilo Google Maps).
+- APK **1.8.3+12**: logo oliva/oro; API 4G `https://189.175.38.29:4000`; copia `Soporte/APK/TacticalPtx-1.8.3+12-4G-logo.apk`.
+- Logo `tacticalptx.png`: acentos rojos → oliva/oro institucional (web + móvil).
+- Composer DM con botón circular de envío y ticks de lectura; tono de aviso tipo WhatsApp.
+- Despacho: **PTT mini** en la franja superior (Seguimiento, mapa, catálogos…) + Espacio para contestar sin ir a Radio.
+- Chat radio: 2.ª corrección de scroll — anula `min-height:100dvh` del `.shell` embebido y fija la consola a viewport (`overflow` interno en `.wa-log`).
+- APK **1.8.3+11**: fix PTT móvil (`setMicrophoneEnabled`) + API 4G; copia `Soporte/APK/TacticalPtx-1.8.3+11-4G-voicefix.apk`.
+- LiveKit: `LIVEKIT_PUBLIC_HOST` unifica señal/ICE para web LAN y móvil 4G (evita “oigo pero no me oyen”).
+- Chat de radio (grupo y DM): altura fija al viewport con **scroll interno** del historial (como WhatsApp); ya no alarga la página.
+- LiveKit: bajo HTTPS web la señal va por proxy Vite (`wss` same-origin); `LIVEKIT_FORCE_WSS=1` solo si LiveKit termina TLS en :7880.
+- Producción exige `CONTENT_ENCRYPTION_KEY`, `LIVEKIT_E2EE_SECRET` y `WIRE_ENCRYPTION_KEY` (≥32 chars).
+- Catálogos: solo Usuarios y Grupos (Geocercas se gestionan en Mapa en vivo).
+- Quitadas frases tipo “como WhatsApp” de la interfaz (Seguimiento, perfil).
+- Login web/móvil más presentable: marca hero, atmósfera oliva/oro y tarjeta con acento dorado.
+- Colores de la **app móvil** y de Seguimiento/llamadas web alineados a la paleta institucional (oliva `#243D20` / oro `#9A7B2F`).
+- Seguimiento: botón **Maximizar** (pantalla completa); **Esc** o **Reducir** para salir. Esc también cierra lightbox y pantallas de llamada.
+- Seguimiento en vivo: ubicaciones y rastro se actualizan solos cada **5 s** (alineado al GPS de la app); merge socket/poll y refresh al volver a la pestaña.
+- APK **1.8.3+10**: 4G/5G vía IP pública `https://189.175.38.29:4000` (UPnP + firewall; sin Tailscale en el móvil).
+- APK **1.8.3+9**: trust del certificado LAN en Dart (`LanTls`); corrige `CERTIFICATE_VERIFY_FAILED` al login HTTPS.
+- APK **1.8.3+8**: `API_BASE` HTTPS LAN + trust cert autofirmado; TLS API activo.
+- APK **1.8.3+7**: build LAN (`http://192.168.1.66:4000`); copia en `Soporte/APK/`.
+- APK **1.8.2+6**: radio/GPS/mensajes en segundo plano reforzados.
 - Interfaz web **institucional** (oliva/oro, Oswald, topbar + rail derecho) alineada a Reclutamiento IV R.M.
 - Notificaciones móviles: **sin push/local en cada PTT**; solo mensajes y llamadas (pánico/geocerca se mantienen).
 - Chat web/móvil: menú y controles **fuera** del texto de burbuja; DM con ancho máximo; toast DM no tapa el compositor.
-- Seguimiento: bolitas **Live Location** (estilo WhatsApp), rastro continuo y “seguir” operador; GPS stream en APK.
-- **Cifrado:** AES-256-GCM de chat/DM en reposo; E2EE LiveKit de voz (PTT/llamadas) por room.
+- Seguimiento: bolitas de ubicación en vivo, rastro continuo y “seguir” operador; GPS stream en APK.
+- **Cifrado:** AES-256-GCM de chat/DM en reposo; E2EE LiveKit de voz (PTT/llamadas) por room; wire GPS + TLS entre hosts.
 - APK **1.8.1+5**: secure storage de sesión, tema institucional claro, HTTP con timeouts.
 ### Fixed
+- **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
+- Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
+- Voz PTT de regreso: LiveKit ICE/URL (LAN + IP externa); el proxy Vite ya no devolvía mal la IP de audio.
+- Indicativo/`displayName` en PTT, sockets y GPS ya no queda congelado en el JWT: se lee de BD en cada request/conexión.
+- Índice único de matrícula alineado en `schema.sql` (migración 014).
+- Contraste en **tema oscuro** en toda la web (selects, botones, chat, tablas, pánico, popups del mapa).
 
 ---
 
 ## [1.8.0] — 2026-08-22
 
 ### Added
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Vista **Seguimiento** en vivo (lista + mapa natural/satélite, avatares, precisión, ruta 2 h)
 - Sección **Catálogos** (Usuarios, Grupos, Geocercas) en despacho
 - Pruebas **4G/5G** vía Tailscale (API/LiveKit en `100.x`, APK con esa `API_BASE`)
@@ -41,6 +263,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Chat Android: reply, reacciones, stickers, ticks, editar/borrar, typing (paridad parcial con web)
 
 ### Changed
+- Móvil: APK **1.8.26+35** — radio personal 1:1 + controles llamada WhatsApp; OTA force.
 - Despacho: interfaz con **menú izquierdo**, catálogos y mapa de seguimiento en vivo (estilo WhatsApp)
 - GPS a despacho cada **5 s** (antes ~20 s) en app móvil, Radio web y Consola
 - LiveKit: ICE dual Wi‑Fi + Tailscale (sin forzar una sola `node-ip` / `LIVEKIT_PUBLIC_URL`)
@@ -62,6 +285,8 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Usuarios de prueba/seed/loadtest del entorno; seed solo deja un root de arranque
 
 ### Fixed
+- **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
+- Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
 - Consola: identidad LiveKit duplicada al escuchar varios canales (expulsaba la sesión y cortaba el audio)
 - Consola: no se oía a operadores de otro canal (p. ej. Pedro en «Jfa. T.I.C.» con el dock en General). Despacho escucha todos los canales.
 - LiveKit: la URL Tailscale ya no se fuerza a teléfonos en Wi‑Fi (el audio PTT no llegaba)
@@ -78,11 +303,13 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.7.1] — 2026-08-11
 
 ### Added
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Ticks de lectura en chat Radio (✓✓ enviado / leído / leído por todos)
 - Tabla `message_reads`, socket `chat:read` / `chat:receipts`
 - Doc `V1_7_1_READ_RECEIPTS.md`
 
 ### Changed
+- Móvil: APK **1.8.26+35** — radio personal 1:1 + controles llamada WhatsApp; OTA force.
 - Botón de pánico también en Radio web (bajo PTT)
 
 ---
@@ -90,6 +317,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.7.0] — 2026-08-11
 
 ### Added
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Botón de pánico en app móvil (canal)
 - Tabla `panic_events` + flag `users.can_receive_panic`
 - Notifica grupo + admin/despacho + usuarios con permiso
@@ -101,6 +329,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.6.0] — 2026-08-11
 
 ### Added
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Reacciones y stickers en chat
 - Docs `V1_6_REACTIONS.md`, `V1_6_STICKERS.md`
 
@@ -109,11 +338,13 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.5.0] — 2026-08-11
 
 ### Added
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Chat Radio estilo WhatsApp: burbujas, reply, búsqueda, emojis, adjuntos, notas de voz, typing
 - Tipo de mensaje `audio` + `reply_to_id`
 - Doc `V1_5_CHAT_WHATSAPP.md`
 
 ### Changed
+- Móvil: APK **1.8.26+35** — radio personal 1:1 + controles llamada WhatsApp; OTA force.
 - UI chat sustituye el panel plano anterior en Radio
 
 ---
@@ -121,6 +352,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.4.0] — 2026-08-11
 
 ### Added
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Grabación PTT desde Radio web (MediaRecorder → `POST /api/recordings/groups/:id`)
 - Listado y reproducción en Consola de despacho
 - Tabla `ptt_recordings` (migración `004`)
@@ -128,6 +360,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Bitácora de desarrollo y este CHANGELOG
 
 ### Changed
+- Móvil: APK **1.8.26+35** — radio personal 1:1 + controles llamada WhatsApp; OTA force.
 - Radio: layout con tarjeta PTT y copy de estados más claro
 - Consola despacho: respeta tema claro/oscuro
 
@@ -136,12 +369,15 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.3.0] — 2026-08-11
 
 ### Added
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Geocercas circulares (CRUD + evaluación enter/exit en GPS)
 - Consola Command (mapa, canales, actividad, detalle)
 - Login rediseñado (split marca / formulario)
 - Mejoras FCM app: canal Android, foreground, token refresh
 
 ### Fixed
+- **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
+- Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
 - Script `start-services.ps1` (encoding PowerShell)
 - Socket.IO web: URL directa a API + polling primero
 
@@ -150,6 +386,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.2.0] — 2026-08-10
 
 ### Added
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Pipeline FCM (Firebase Admin + registro devices + push en chat/PTT)
 - Documentación `FCM_PUSH.md`
 
@@ -158,6 +395,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.1.0] — 2026-08-10
 
 ### Added
+- Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Chat multimedia (imagen/archivo)
 - GPS live + historial de rutas en mapa despacho
 - Migración `002_media_fields`

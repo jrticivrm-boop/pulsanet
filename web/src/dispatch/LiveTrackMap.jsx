@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   MapContainer,
   TileLayer,
-  Marker,
   Circle,
+  CircleMarker,
   Polyline,
   Popup,
+  GeoJSON,
   useMap,
 } from 'react-leaflet';
 import { io } from 'socket.io-client';
@@ -14,8 +17,24 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import 'leaflet/dist/leaflet.css';
-import { fetchLocations, fetchOverview, fetchUserTrack } from '../api';
+import { fetchLocations, fetchOverview, fetchUserTrack, fetchGroupMembers } from '../api';
 import { socketIoOptions, socketUrl } from '../socketConfig';
+import {
+  LOCATION_POLL_MS,
+  TRACK_POLL_MS,
+  gpsStatusLine,
+  isFresh,
+  mergeLocations,
+  recordedAtLocal,
+  upsertLocation,
+} from './liveTiming.js';
+import { mapAvatarIcon } from './mapAvatarIcon.js';
+import { MapCoordsLink } from './MapCoordsLink.jsx';
+import { CursorZoom, MapCursorFix, MapSizeFix, SmoothMarker, smoothMapFocus, focusFromSearchParams } from './mapLeafletUtils.jsx';
+import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
+import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
+import { MAP_TILE_LAYERS } from './mapTiles.js';
+import ivRmStates from './data/ivRmStates.json';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -24,70 +43,25 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-const GDL = [20.6736, -103.344];
+/** Centro aproximado IV R.M. (NL / Tamaulipas / SLP). */
+const IV_RM_CENTER = [24.15, -99.55];
 const SOCKET_URL = socketUrl();
-/** Consideramos “en vivo” como WhatsApp (señal reciente). */
-const LIVE_MS = 20_000;
 const TRAIL_MAX = 180;
 
-const LAYERS = {
-  natural: {
-    label: 'Natural',
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; OSM &copy; CARTO',
-  },
-  satelite: {
-    label: 'Satélite',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: '&copy; Esri',
-  },
-  claro: {
-    label: 'Claro',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap',
-  },
+const LAYERS = MAP_TILE_LAYERS;
+
+const STATE_STYLE = {
+  NL: { color: '#2f6fed', fillColor: '#2f6fed', fillOpacity: 0.18, weight: 1.6, opacity: 0.55 },
+  TM: { color: '#b85c5c', fillColor: '#c97070', fillOpacity: 0.18, weight: 1.6, opacity: 0.55 },
+  SLP: { color: '#1f8a4c', fillColor: '#1f8a4c', fillOpacity: 0.18, weight: 1.6, opacity: 0.55 },
 };
 
-function escapeHtml(s) {
-  return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/** Bolita estilo ubicación en vivo de WhatsApp. */
-function avatarIcon(name, live, selected) {
-  const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
-  const label = escapeHtml((name || '').trim().split(/\s+/)[0] || 'Operador');
-  const html = `
-    <div class="lt-wa${live ? ' is-live' : ''}${selected ? ' is-selected' : ''}">
-      ${live ? '<span class="lt-wa-ring"></span><span class="lt-wa-ring lt-wa-ring--late"></span>' : ''}
-      <span class="lt-wa-bubble"><span>${escapeHtml(initial)}</span></span>
-      <span class="lt-wa-name">${label}</span>
-    </div>`;
-  return L.divIcon({
-    className: 'lt-div-icon',
-    html,
-    iconSize: [72, 78],
-    iconAnchor: [36, 36],
-    popupAnchor: [0, -28],
-  });
-}
-
-function ageLabel(iso, now = Date.now()) {
-  if (!iso) return 'Sin señal';
-  const ms = now - new Date(iso).getTime();
-  if (Number.isNaN(ms) || ms < 0) return 'Ahora';
-  if (ms < 8_000) return 'En vivo';
-  if (ms < 60_000) return `Hace ${Math.round(ms / 1000)} s`;
-  if (ms < 3_600_000) return `Hace ${Math.round(ms / 60_000)} min`;
-  return `Hace ${Math.round(ms / 3_600_000)} h`;
-}
-
-function isFresh(iso, now = Date.now()) {
-  if (!iso) return false;
-  return now - new Date(iso).getTime() < LIVE_MS;
+function stateStyle(feature) {
+  const id = feature?.properties?.id;
+  return {
+    interactive: false,
+    ...STATE_STYLE[id] || { color: '#355c2e', fillColor: '#355c2e', fillOpacity: 0.15, weight: 1.4, opacity: 0.5 },
+  };
 }
 
 function samePoint(a, b, eps = 0.00001) {
@@ -113,9 +87,66 @@ function FollowSelected({ target, enabled }) {
   return null;
 }
 
-function FitPeople({ positions, locked }) {
+/** Acerca suave al punto de pánico (sin arco agresivo de flyTo). */
+function FlyToFocus({ target }) {
+  const map = useMap();
+  const doneKey = useRef('');
+  const cancelAnim = useRef(null);
+
+  useEffect(() => {
+    if (!target) return;
+    const key = `${target.lat},${target.lng},${target.zoom},${target.token || ''}`;
+    if (doneKey.current === key) return;
+    doneKey.current = key;
+
+    const zoom = Number.isFinite(target.zoom) ? target.zoom : 17;
+    const lat = target.lat;
+    const lng = target.lng;
+
+    const start = window.setTimeout(() => {
+      map.invalidateSize({ animate: false });
+      cancelAnim.current?.();
+      cancelAnim.current = smoothMapFocus(
+        map,
+        { lat, lng, zoom },
+        { durationMs: 2200 }
+      );
+    }, 320);
+
+    return () => {
+      clearTimeout(start);
+      cancelAnim.current?.();
+      cancelAnim.current = null;
+    };
+  }, [map, target?.lat, target?.lng, target?.zoom, target?.token]);
+
+  return null;
+}
+
+function InvalidateOnLayout({ tick }) {
+  const map = useMap();
+  useEffect(() => {
+    const id = window.setTimeout(() => map.invalidateSize({ animate: false }), 80);
+    return () => clearTimeout(id);
+  }, [map, tick]);
+  useEffect(() => {
+    const onFs = () => map.invalidateSize({ animate: false });
+    document.addEventListener('fullscreenchange', onFs);
+    window.addEventListener('resize', onFs);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFs);
+      window.removeEventListener('resize', onFs);
+    };
+  }, [map]);
+  return null;
+}
+
+function FitPeople({ positions, locked, scopeKey }) {
   const map = useMap();
   const done = useRef(false);
+  useEffect(() => {
+    done.current = false;
+  }, [scopeKey]);
   useEffect(() => {
     if (locked || done.current || !positions?.length) return;
     done.current = true;
@@ -124,66 +155,50 @@ function FitPeople({ positions, locked }) {
       return;
     }
     map.fitBounds(L.latLngBounds(positions), { padding: [56, 56], maxZoom: 15 });
-  }, [map, positions, locked]);
+  }, [map, positions, locked, scopeKey]);
   return null;
 }
 
-/** Marker que se desliza al actualizar (como WhatsApp). */
-function SmoothMarker({ position, icon, eventHandlers, children }) {
-  const markerRef = useRef(null);
-  const fromRef = useRef(position);
-  const rafRef = useRef(0);
-
+/** Encuadre inicial a los 3 estados IV R.M. si aún no hay gente con GPS. */
+function FitIvRmStates({ enabled }) {
+  const map = useMap();
+  const done = useRef(false);
   useEffect(() => {
-    const marker = markerRef.current;
-    if (!marker) {
-      fromRef.current = position;
-      return undefined;
-    }
-    const from = fromRef.current || position;
-    const to = position;
-    if (samePoint(from, to, 0.000001)) {
-      marker.setLatLng(to);
-      fromRef.current = to;
-      return undefined;
-    }
-
-    const start = performance.now();
-    const duration = 700;
-    cancelAnimationFrame(rafRef.current);
-
-    const step = (now) => {
-      const t = Math.min(1, (now - start) / duration);
-      const ease = 1 - (1 - t) ** 2;
-      const lat = from[0] + (to[0] - from[0]) * ease;
-      const lng = from[1] + (to[1] - from[1]) * ease;
-      marker.setLatLng([lat, lng]);
-      if (t < 1) {
-        rafRef.current = requestAnimationFrame(step);
+    if (!enabled || done.current || !ivRmStates?.features?.length) return;
+    done.current = true;
+    try {
+      const layer = L.geoJSON(ivRmStates);
+      const b = layer.getBounds();
+      if (b?.isValid?.()) {
+        map.fitBounds(b, { padding: [36, 36], maxZoom: 8 });
       } else {
-        fromRef.current = to;
+        map.setView(IV_RM_CENTER, 7);
       }
-    };
-    rafRef.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [position[0], position[1]]);
-
-  return (
-    <Marker
-      ref={markerRef}
-      position={position}
-      icon={icon}
-      eventHandlers={eventHandlers}
-    >
-      {children}
-    </Marker>
-  );
+    } catch {
+      map.setView(IV_RM_CENTER, 7);
+    }
+  }, [map, enabled]);
+  return null;
 }
 
 export default function LiveTrackMap({ session }) {
+  const dispatchCtx = useOutletContext() || {};
+  const ptt = dispatchCtx.ptt;
+  const scopeGroupIds = useMemo(() => {
+    const ids = new Set();
+    if (dispatchCtx.group?.id) ids.add(dispatchCtx.group.id);
+    for (const id of dispatchCtx.listenIds || []) {
+      if (id) ids.add(id);
+    }
+    return ids.size ? [...ids] : null;
+  }, [dispatchCtx.group?.id, dispatchCtx.listenIds]);
+  const scopeKey = scopeGroupIds?.join(',') || 'all';
+  const scopeMemberIdsRef = useRef(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialFocus = focusFromSearchParams(searchParams);
   const [locations, setLocations] = useState([]);
   const [onlineIds, setOnlineIds] = useState(new Set());
-  const [selectedId, setSelectedId] = useState('');
+  const [selectedId, setSelectedId] = useState(() => initialFocus?.userId || '');
   const [follow, setFollow] = useState(true);
   const [trails, setTrails] = useState({});
   const [historyTrack, setHistoryTrack] = useState([]);
@@ -192,29 +207,163 @@ export default function LiveTrackMap({ session }) {
   const [error, setError] = useState('');
   const [live, setLive] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [maximized, setMaximized] = useState(false);
+  const [trackScope, setTrackScope] = useState(null);
+  const [sheetOpen, setSheetOpen] = useState(() => {
+    try {
+      return localStorage.getItem('tacticalptx_lt_sheet') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  /** Punto forzado desde alerta de pánico (coords del evento, no solo GPS en vivo). */
+  const [focusPin, setFocusPin] = useState(() =>
+    initialFocus
+      ? {
+          lat: initialFocus.lat,
+          lng: initialFocus.lng,
+          zoom: initialFocus.zoom,
+          token: initialFocus.token,
+          userId: initialFocus.userId,
+        }
+      : null
+  );
+  /** Evita que «Seguir» pelee con el acercamiento inicial. */
+  const [focusLock, setFocusLock] = useState(() => Boolean(initialFocus));
+  const pageRef = useRef(null);
+  const appliedFocusKey = useRef(initialFocus?.key || '');
+  const { markerPhoto, listPhoto } = useMapAvatarPhotos(locations, session.token);
+
+  // Miembros de los canales seleccionados (filtra GPS en tiempo real).
+  useEffect(() => {
+    if (!scopeGroupIds?.length) {
+      scopeMemberIdsRef.current = null;
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const parts = await Promise.all(
+          scopeGroupIds.map((gid) => fetchGroupMembers(session.token, gid))
+        );
+        if (cancelled) return;
+        const ids = new Set();
+        parts.forEach((data) => {
+          (data.members || []).forEach((m) => ids.add(m.id));
+        });
+        scopeMemberIdsRef.current = ids;
+        setSelectedId((cur) => (cur && ids.has(cur) ? cur : ''));
+        setLocations((prev) => prev.filter((l) => ids.has(l.userId)));
+        setTrails((prev) =>
+          Object.fromEntries(Object.entries(prev).filter(([uid]) => ids.has(uid)))
+        );
+      } catch {
+        /* reload aplica filtro API */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scopeGroupIds, session.token]);
+
+  // Deep-link desde «Ver en mapa» en alerta de pánico.
+  useEffect(() => {
+    const focus = focusFromSearchParams(searchParams);
+    if (!focus) return;
+
+    if (appliedFocusKey.current === focus.key) return;
+    appliedFocusKey.current = focus.key;
+
+    setFocusPin({
+      lat: focus.lat,
+      lng: focus.lng,
+      zoom: focus.zoom,
+      token: focus.token,
+      userId: focus.userId,
+    });
+    setFocusLock(true);
+    if (focus.userId) {
+      setSelectedId(focus.userId);
+      setFollow(true);
+    }
+
+    const next = new URLSearchParams(searchParams);
+    ['lat', 'lng', 'zoom', 'user', 'panic', 't'].forEach((k) => next.delete(k));
+    setSearchParams(next, { replace: true });
+
+    window.setTimeout(() => setFocusLock(false), 2500);
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
 
+  const exitMaximize = useCallback(() => {
+    setMaximized(false);
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, []);
+
+  const enterMaximize = useCallback(async () => {
+    setMaximized(true);
+    const el = pageRef.current;
+    if (el?.requestFullscreen) {
+      try {
+        await el.requestFullscreen();
+      } catch {
+        /* CSS fixed fallback */
+      }
+    }
+  }, []);
+
+  const toggleMaximize = useCallback(() => {
+    if (maximized) exitMaximize();
+    else enterMaximize();
+  }, [maximized, enterMaximize, exitMaximize]);
+
+  useEffect(() => {
+    const onFs = () => {
+      if (!document.fullscreenElement) setMaximized(false);
+    };
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+
+  useEffect(() => {
+    const el = pageRef.current;
+    if (!el || !maximized) return undefined;
+    const onEscClose = () => exitMaximize();
+    el.addEventListener('tacticalptx:esc-close', onEscClose);
+    return () => el.removeEventListener('tacticalptx:esc-close', onEscClose);
+  }, [maximized, exitMaximize]);
+
   const reload = useCallback(async () => {
     try {
       const [loc, ov] = await Promise.all([
-        fetchLocations(session.token),
+        fetchLocations(session.token, { groupIds: scopeGroupIds || undefined }),
         fetchOverview(session.token),
       ]);
       const list = loc.locations || [];
+      if (loc.scope) setTrackScope(loc.scope);
       setLocations(list);
       setTrails((prev) => {
-        let next = prev;
+        const allowed = new Set(list.map((p) => p.userId));
+        let next = Object.fromEntries(
+          Object.entries(prev).filter(([uid]) => allowed.has(uid))
+        );
         list.forEach((p) => {
           next = appendTrail(next, p.userId, Number(p.latitude), Number(p.longitude));
         });
         return next;
       });
       const ids = new Set();
-      (ov.overview?.channels || []).forEach((c) => {
+      const channels = ov.overview?.channels || [];
+      const scopedChannels = scopeGroupIds?.length
+        ? channels.filter((c) => scopeGroupIds.includes(c.id))
+        : channels;
+      scopedChannels.forEach((c) => {
         (c.online || []).forEach((m) => ids.add(m.userId));
       });
       setOnlineIds(ids);
@@ -222,12 +371,25 @@ export default function LiveTrackMap({ session }) {
     } catch (e) {
       setError(e.message);
     }
-  }, [session.token]);
+  }, [session.token, scopeGroupIds]);
 
+  // Lista de ubicaciones: mismo ritmo que el latido GPS de la app (~5 s).
   useEffect(() => {
-    reload();
-    const t = setInterval(reload, 5000);
-    return () => clearInterval(t);
+    let cancelled = false;
+    const tick = () => {
+      if (!cancelled && !document.hidden) reload();
+    };
+    tick();
+    const t = setInterval(tick, LOCATION_POLL_MS);
+    const onVis = () => {
+      if (!document.hidden) reload();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [reload]);
 
   useEffect(() => {
@@ -235,59 +397,66 @@ export default function LiveTrackMap({ session }) {
       auth: { token: session.token },
       ...socketIoOptions,
     });
-    socket.on('connect', () => {
+    const join = () => {
       setLive(true);
       socket.emit('dispatch:join');
-    });
+    };
+    socket.on('connect', join);
+    socket.on('reconnect', join);
     socket.on('disconnect', () => setLive(false));
     socket.on('dispatch:location', (payload) => {
-      const lat = Number(payload.latitude);
-      const lng = Number(payload.longitude);
-      setLocations((prev) => {
-        const rest = prev.filter((l) => l.userId !== payload.userId);
-        return [
-          ...rest,
-          {
-            userId: payload.userId,
-            displayName: payload.displayName || payload.userId,
-            latitude: lat,
-            longitude: lng,
-            accuracyM: payload.accuracyM,
-            recordedAt: payload.recordedAt || new Date().toISOString(),
-          },
-        ];
-      });
-      setTrails((prev) => appendTrail(prev, payload.userId, lat, lng));
+      void (async () => {
+        const loc = await unwrapDispatchPayload(payload, sessionWireKey(session));
+        if (!loc?.userId) return;
+        const allowed = scopeMemberIdsRef.current;
+        if (allowed && !allowed.has(loc.userId)) return;
+        setLocations((prev) => upsertLocation(prev, loc));
+        setTrails((prev) =>
+          appendTrail(prev, loc.userId, Number(loc.latitude), Number(loc.longitude))
+        );
+      })();
     });
     socket.on('dispatch:presence', () => reload());
     return () => {
       socket.emit('dispatch:leave');
       socket.disconnect();
     };
-  }, [session.token, reload]);
+  }, [session.token, session.crypto?.wireKey, reload]);
 
+  // Rastro del seleccionado: se refresca solo cada ~5 s (no solo al elegir).
   useEffect(() => {
     if (!selectedId) {
       setHistoryTrack([]);
       return undefined;
     }
     let cancelled = false;
-    fetchUserTrack(session.token, selectedId, 2)
-      .then((data) => {
-        if (cancelled) return;
-        const pts = (data.points || []).map((p) => [p.latitude, p.longitude]);
-        setHistoryTrack(pts);
-        setTrails((prev) => {
-          const liveTrail = prev[selectedId] || [];
-          const merged = [...pts, ...liveTrail].slice(-TRAIL_MAX);
-          return { ...prev, [selectedId]: merged };
+    const loadTrack = () => {
+      if (cancelled || document.hidden) return;
+      fetchUserTrack(session.token, selectedId, 2)
+        .then((data) => {
+          if (cancelled) return;
+          const pts = (data.points || []).map((p) => [p.latitude, p.longitude]);
+          setHistoryTrack(pts);
+          setTrails((prev) => {
+            const liveTrail = prev[selectedId] || [];
+            const merged = [...pts, ...liveTrail].slice(-TRAIL_MAX);
+            return { ...prev, [selectedId]: merged };
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setHistoryTrack([]);
         });
-      })
-      .catch(() => {
-        if (!cancelled) setHistoryTrack([]);
-      });
+    };
+    loadTrack();
+    const t = setInterval(loadTrack, TRACK_POLL_MS);
+    const onVis = () => {
+      if (!document.hidden) loadTrack();
+    };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       cancelled = true;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, [session.token, selectedId]);
 
@@ -315,6 +484,20 @@ export default function LiveTrackMap({ session }) {
 
   const selected = people.find((p) => p.userId === selectedId) || null;
   const selectedTrail = selectedId ? trails[selectedId] || historyTrack : [];
+
+  const trackScopeLabel = useMemo(() => {
+    if (scopeGroupIds?.length && dispatchCtx.groups?.length) {
+      const names = dispatchCtx.groups
+        .filter((g) => scopeGroupIds.includes(g.id))
+        .map((g) => g.name);
+      if (names.length) return names.join(' · ');
+    }
+    if (!trackScope) return '';
+    if (trackScope.orgWide || trackScope.level === 'region') return 'Región (todos)';
+    if (trackScope.level === 'zone') return 'Zona / C.G.';
+    if (trackScope.level === 'unit') return 'Unidad';
+    return '';
+  }, [scopeGroupIds, dispatchCtx.groups, trackScope]);
   const tile = LAYERS[layer] || LAYERS.natural;
 
   const followTarget = selected
@@ -328,128 +511,291 @@ export default function LiveTrackMap({ session }) {
   function focusPerson(p) {
     setSelectedId(p.userId);
     setFollow(true);
+    setFocusPin(null);
+  }
+
+  function toggleSheet() {
+    setSheetOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('tacticalptx_lt_sheet', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   }
 
   return (
-    <div className="lt-page">
-      <aside className="lt-sheet">
+    <div
+      ref={pageRef}
+      className={`lt-page${maximized ? ' lt-page--maximized' : ''}${sheetOpen ? '' : ' lt-page--sheet-collapsed'}`}
+      data-esc-close={maximized ? '' : undefined}
+    >
+      <aside className={`lt-sheet${sheetOpen ? '' : ' is-collapsed'}`} aria-label="Lista de operadores">
         <header className="lt-sheet-head">
-          <div>
+          <div className="lt-sheet-head-row">
             <h1>Seguimiento en vivo</h1>
-            <p>
-              {liveCount} en vivo · {people.length} con GPS
-              <span className={live ? 'lt-live-dot on' : 'lt-live-dot'}>
-                {live ? ' · Tiempo real' : ' · Reconectando'}
+            <button
+              type="button"
+              className="lt-sheet-toggle"
+              onClick={toggleSheet}
+              aria-expanded={sheetOpen}
+              aria-controls="lt-sheet-body"
+              title={sheetOpen ? 'Ocultar lista' : 'Mostrar lista'}
+            >
+              <span className="lt-sheet-toggle-ico" aria-hidden="true">
+                {sheetOpen ? '◂' : '▸'}
               </span>
-            </p>
+              <span className="lt-sheet-toggle-label">
+                {sheetOpen ? 'Ocultar' : 'Lista'}
+              </span>
+            </button>
           </div>
+          {sheetOpen ? (
+            <div className="lt-kpi-row" role="status" aria-live="polite">
+              <span className={`lt-kpi${liveCount > 0 ? ' lt-kpi--live' : ''}`}>
+                {liveCount} en vivo
+              </span>
+              <span className="lt-kpi">{people.length} con GPS</span>
+              <span className="lt-kpi">cada {LOCATION_POLL_MS / 1000} s</span>
+              {trackScopeLabel ? (
+                <span className="lt-kpi lt-kpi--scope">{trackScopeLabel}</span>
+              ) : null}
+              <span className={`lt-kpi lt-kpi--conn${live ? ' on' : ''}`}>
+                {live ? 'Tiempo real' : 'Reconectando'}
+              </span>
+            </div>
+          ) : (
+            <div className="lt-sheet-collapsed-meta" role="status">
+              <span className={`lt-kpi${liveCount > 0 ? ' lt-kpi--live' : ''}`}>
+                {liveCount} en vivo
+              </span>
+              <span className="lt-kpi">{people.length} GPS</span>
+            </div>
+          )}
         </header>
 
-        <div className="lt-tools">
-          <input
-            type="search"
-            placeholder="Buscar operador…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Buscar operador"
-          />
-          <div className="lt-layers" role="group" aria-label="Estilo de mapa">
-            {Object.entries(LAYERS).map(([key, meta]) => (
-              <button
-                key={key}
-                type="button"
-                className={layer === key ? 'active' : undefined}
-                onClick={() => setLayer(key)}
-              >
-                {meta.label}
-              </button>
-            ))}
+        <div
+          id="lt-sheet-body"
+          className="lt-sheet-body"
+          hidden={!sheetOpen}
+          aria-hidden={!sheetOpen}
+        >
+          <div className="lt-tools">
+            <input
+              type="search"
+              placeholder="Buscar operador…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Buscar operador"
+            />
           </div>
+
+          {error && <p className="lt-error">{error}</p>}
+
+          <ul className="lt-people">
+            {people.length === 0 && (
+              <li className="lt-empty">
+                Nadie comparte GPS aún. Abre la app móvil o Radio web con ubicación activa.
+              </li>
+            )}
+            {people.map((p) => {
+              const fresh = isFresh(p.recordedAt, now);
+              const online = onlineIds.has(p.userId);
+              const photo = listPhoto(p);
+              return (
+                <li key={p.userId}>
+                  <button
+                    type="button"
+                    className={`lt-person${selectedId === p.userId ? ' selected' : ''}`}
+                    onClick={() => focusPerson(p)}
+                  >
+                    <span className={`lt-avatar${fresh ? ' live' : ''}`}>
+                      {photo ? (
+                        <img src={photo} alt="" />
+                      ) : (
+                        (p.displayName || '?').charAt(0).toUpperCase()
+                      )}
+                      {fresh ? <i className="lt-avatar-pulse" aria-hidden="true" /> : null}
+                    </span>
+                    <span className="lt-person-meta">
+                      <strong>{p.displayName}</strong>
+                      <em>
+                        {gpsStatusLine(p.recordedAt, now)}
+                        {online ? ' · En radio' : ''}
+                        {p.accuracyM != null ? ` · ±${Math.round(p.accuracyM)} m` : ''}
+                      </em>
+                    </span>
+                    <span className={`lt-status-pill${fresh ? ' on' : ''}`}>
+                      {fresh ? 'En vivo' : 'Última'}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
           {selected && (
-            <label className="lt-follow">
-              <input
-                type="checkbox"
-                checked={follow}
-                onChange={(e) => setFollow(e.target.checked)}
-              />
-              Seguir a {selected.displayName?.split(/\s+/)[0] || 'operador'} (como WhatsApp)
-            </label>
+            <div className="lt-detail">
+              <div className="lt-detail-head">
+                <strong>{selected.displayName}</strong>
+                <label className="lt-follow">
+                  <input
+                    type="checkbox"
+                    checked={follow}
+                    onChange={(e) => setFollow(e.target.checked)}
+                  />
+                  Seguir
+                </label>
+              </div>
+              <p>
+                <MapCoordsLink lat={selected.latitude} lng={selected.longitude} />
+              </p>
+              <p>
+                {gpsStatusLine(selected.recordedAt, now)}
+                {selectedTrail.length > 1 ? ` (${selectedTrail.length} puntos)` : ''}
+              </p>
+            </div>
           )}
         </div>
-
-        {error && <p className="lt-error">{error}</p>}
-
-        <ul className="lt-people">
-          {people.length === 0 && (
-            <li className="lt-empty">
-              Nadie comparte GPS aún. Abre la app móvil o Radio web con ubicación activa.
-            </li>
-          )}
-          {people.map((p) => {
-            const fresh = isFresh(p.recordedAt, now);
-            const online = onlineIds.has(p.userId);
-            return (
-              <li key={p.userId}>
-                <button
-                  type="button"
-                  className={`lt-person${selectedId === p.userId ? ' selected' : ''}`}
-                  onClick={() => focusPerson(p)}
-                >
-                  <span className={`lt-avatar${fresh ? ' live' : ''}`}>
-                    {(p.displayName || '?').charAt(0).toUpperCase()}
-                    {fresh ? <i className="lt-avatar-pulse" aria-hidden="true" /> : null}
-                  </span>
-                  <span className="lt-person-meta">
-                    <strong>{p.displayName}</strong>
-                    <em>
-                      {ageLabel(p.recordedAt, now)}
-                      {online ? ' · En radio' : ''}
-                      {p.accuracyM != null ? ` · ±${Math.round(p.accuracyM)} m` : ''}
-                    </em>
-                  </span>
-                  <span className={`lt-status-pill${fresh ? ' on' : ''}`}>
-                    {fresh ? 'En vivo' : 'Última'}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-
-        {selected && (
-          <div className="lt-detail">
-            <strong>{selected.displayName}</strong>
-            <p>
-              {Number(selected.latitude).toFixed(5)}, {Number(selected.longitude).toFixed(5)}
-            </p>
-            <p>
-              {ageLabel(selected.recordedAt, now)} · rastro en vivo
-              {selectedTrail.length > 1 ? ` (${selectedTrail.length} puntos)` : ''}
-            </p>
-          </div>
-        )}
       </aside>
 
-      <div className="lt-map">
-        <MapContainer center={GDL} zoom={12} style={{ height: '100%', width: '100%' }}>
-          <TileLayer attribution={tile.attribution} url={tile.url} key={layer} />
-          <FollowSelected target={followTarget} enabled={Boolean(selectedId && follow)} />
-          {!selectedId && <FitPeople positions={positions} locked={Boolean(selectedId)} />}
+      <div className="lt-map-panel">
+        <div className="lt-map">
+          <div className="lt-map-chrome">
+            <div className="lt-layers" role="group" aria-label="Estilo de mapa">
+              {Object.entries(LAYERS).map(([key, meta]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={layer === key ? 'active' : undefined}
+                  onClick={() => setLayer(key)}
+                >
+                  {meta.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="lt-max-btn lt-max-btn--map"
+              onClick={toggleMaximize}
+              title={maximized ? 'Reducir (Esc)' : 'Pantalla completa'}
+              aria-label={maximized ? 'Reducir mapa' : 'Maximizar mapa a pantalla completa'}
+              data-esc-close-btn={maximized ? '' : undefined}
+            >
+              {maximized ? '⛶ Reducir' : '⛶ Maximizar'}
+            </button>
+            {maximized ? (
+              <span className="lt-max-hint">Esc o Reducir para salir</span>
+            ) : null}
+            <div className="lt-state-legend" aria-label="Estados IV R.M.">
+              <span className="lt-state-legend-item">
+                <i style={{ background: '#2f6fed' }} /> Nuevo León
+              </span>
+              <span className="lt-state-legend-item">
+                <i style={{ background: '#c97070' }} /> Tamaulipas
+              </span>
+              <span className="lt-state-legend-item">
+                <i style={{ background: '#1f8a4c' }} /> San Luis Potosí
+              </span>
+            </div>
+          </div>
+          <MapContainer
+            className="lt-map-inner"
+            center={IV_RM_CENTER}
+            zoom={7}
+            scrollWheelZoom={false}
+            doubleClickZoom
+            zoomSnap={0.25}
+            zoomDelta={0.5}
+          >
+            <TileLayer attribution={tile.attribution} url={tile.url} key={layer} />
+            <GeoJSON
+              key="iv-rm-states-v2"
+              data={ivRmStates}
+              style={stateStyle}
+              interactive={false}
+            />
+            <CursorZoom />
+            <MapCursorFix />
+            <InvalidateOnLayout tick={(maximized ? 1 : 0) + (sheetOpen ? 0 : 2)} />
+            <MapSizeFix />
+          <FlyToFocus target={focusPin} />
+          <FollowSelected
+            target={followTarget}
+            enabled={Boolean(selectedId && follow && !focusLock)}
+          />
+          {!selectedId && !focusPin && people.length > 0 && (
+            <FitPeople
+              positions={positions}
+              locked={Boolean(selectedId || focusPin)}
+              scopeKey={scopeKey}
+            />
+          )}
+          {people.length === 0 && !focusPin && <FitIvRmStates enabled />}
+          {focusPin ? (
+            <CircleMarker
+              center={[focusPin.lat, focusPin.lng]}
+              radius={14}
+              pathOptions={{
+                color: '#b42318',
+                fillColor: '#ff4d3a',
+                fillOpacity: 0.85,
+                weight: 3,
+              }}
+            >
+              <Popup>
+                <strong>Punto de pánico</strong>
+                <br />
+                <MapCoordsLink lat={focusPin.lat} lng={focusPin.lng} />
+              </Popup>
+            </CircleMarker>
+          ) : null}
+          {focusPin ? (
+            <Circle
+              center={[focusPin.lat, focusPin.lng]}
+              radius={45}
+              interactive={false}
+              pathOptions={{
+                color: '#b42318',
+                fillColor: '#b42318',
+                fillOpacity: 0.12,
+                weight: 2,
+              }}
+            />
+          ) : null}
           {people.map((p) => {
             const fresh = isFresh(p.recordedAt, now);
             const selected = p.userId === selectedId;
+            const photo = markerPhoto(p);
             return (
               <SmoothMarker
                 key={p.userId}
                 position={[Number(p.latitude), Number(p.longitude)]}
-                icon={avatarIcon(p.displayName, fresh, selected)}
+                zIndexOffset={selected ? 900 : fresh ? 100 : 0}
+                icon={mapAvatarIcon({
+                  name: p.displayName,
+                  live: fresh,
+                  selected,
+                  photoSrc: photo,
+                })}
                 eventHandlers={{ click: () => focusPerson(p) }}
               >
                 <Popup>
                   <strong>{p.displayName}</strong>
                   <br />
-                  {ageLabel(p.recordedAt, now)}
-                  {fresh ? ' · compartiendo en vivo' : ''}
+                  {gpsStatusLine(p.recordedAt, now)}
+                  {recordedAtLocal(p.recordedAt) ? (
+                    <>
+                      <br />
+                      <span style={{ opacity: 0.75, fontSize: 12 }}>
+                        {recordedAtLocal(p.recordedAt)}
+                      </span>
+                    </>
+                  ) : null}
+                  <br />
+                  <MapCoordsLink lat={p.latitude} lng={p.longitude} />
                 </Popup>
               </SmoothMarker>
             );
@@ -460,9 +806,10 @@ export default function LiveTrackMap({ session }) {
                 key={`acc-${p.userId}`}
                 center={[Number(p.latitude), Number(p.longitude)]}
                 radius={Math.min(Math.max(Number(p.accuracyM) || 20, 14), 140)}
+                interactive={false}
                 pathOptions={{
-                  color: isFresh(p.recordedAt, now) ? '#25d366' : '#9ca3af',
-                  fillColor: isFresh(p.recordedAt, now) ? '#25d366' : '#9ca3af',
+                  color: isFresh(p.recordedAt, now) ? '#1f5a2e' : '#5c6756',
+                  fillColor: isFresh(p.recordedAt, now) ? '#1f5a2e' : '#5c6756',
                   fillOpacity: isFresh(p.recordedAt, now) ? 0.14 : 0.08,
                   weight: 1,
                 }}
@@ -472,11 +819,38 @@ export default function LiveTrackMap({ session }) {
           {selectedTrail.length > 1 && (
             <Polyline
               positions={selectedTrail}
-              pathOptions={{ color: '#25d366', weight: 5, opacity: 0.9, lineCap: 'round' }}
+              pathOptions={{ color: '#243d20', weight: 5, opacity: 0.88, lineCap: 'round' }}
             />
           )}
         </MapContainer>
+        </div>
       </div>
+
+      {maximized &&
+        ptt &&
+        createPortal(
+          <div className="lt-ptt-float" role="group" aria-label="PTT en pantalla completa">
+            <button
+              type="button"
+              className={`lt-ptt-float-btn${ptt.holding ? ' holding' : ''}`}
+              disabled={!dispatchCtx.group || !ptt.livekitReady}
+              onClick={(e) => {
+                e.preventDefault();
+                ptt.unlockAudio?.().catch(() => {});
+                ptt.toggle();
+              }}
+              onContextMenu={(e) => e.preventDefault()}
+              aria-pressed={ptt.holding}
+              title={ptt.holding ? 'Toca o Espacio para soltar' : 'Toca o Espacio para hablar'}
+            >
+              <span className="lt-ptt-float-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
+              <span className="lt-ptt-float-hint">
+                {dispatchCtx.group?.name || 'Sin canal'}
+              </span>
+            </button>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

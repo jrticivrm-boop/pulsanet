@@ -1,0 +1,9 @@
+{
+  "package": "com.tacticalptx.app",
+  "versionCode": 29,
+  "versionName": "1.8.20",
+  "apkFile": "TacticalPtx.apk",
+  "force": true,
+  "message": "Actualizando...",
+  "sha256": ""
+}

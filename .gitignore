@@ -28,8 +28,17 @@ Thumbs.db
 infra/livekit/livekit-server.exe
 infra/livekit/*.zip
 
+# Caddy edge (binario + logs; certs en %AppData%\Caddy)
+infra/caddy/caddy.exe
+infra/caddy/*.zip
+infra/caddy/*.log
+infra/caddy/data/
+infra/caddy/public-ip.txt
+infra/caddy/run-edge.cmd
+
 # Flutter
 mobile/**/build/
+mobile/ios/Runner/GoogleService-Info.plist
 mobile/**/.dart_tool/
 mobile/.flutter-plugins
 mobile/.flutter-plugins-dependencies
@@ -42,8 +51,11 @@ mobile/**/flutter_export_environment.sh
 !**/google-services.json.example
 **/upload-keystore.jks
 **/key.properties
+Usuario y contra.txt
 backend/uploads/
 backend/**/*.sqlite
+backend/app-updates/files/*.apk
+backend/app-updates/android.json
 
 # Soporte local (secretos, APK, respaldos) — no versionar
 Soporte/Secrets/
@@ -51,3 +63,7 @@ Soporte/APK/
 Soporte/Respaldos/
 Soporte/**/*.apk
 Soporte/**/*firebase-adminsdk*.json
+
+# Lockdown / incident flags
+backend/data/
+

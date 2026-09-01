@@ -1,8 +1,27 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulsanet_mobile/config.dart';
+import 'package:tacticalptx_mobile/config.dart';
 
 void main() {
-  test('API base por defecto apunta al host del emulador', () {
-    expect(AppConfig.apiBaseUrl.contains('10.0.2.2') || AppConfig.apiBaseUrl.contains('http'), isTrue);
+  test('API base es HTTPS o host de emulador', () {
+    expect(
+      AppConfig.apiBaseUrl.contains('10.0.2.2') ||
+          AppConfig.apiBaseUrl.startsWith('http'),
+      isTrue,
+    );
+  });
+
+  test('socketUrl fuerza puerto 443 si HTTPS sin puerto (evita :0)', () {
+    expect(
+      AppConfig.socketUrlFor('https://189.152.200.238.sslip.io'),
+      'https://189.152.200.238.sslip.io:443',
+    );
+    expect(
+      AppConfig.socketUrlFor('https://189.152.200.238.sslip.io:443'),
+      'https://189.152.200.238.sslip.io:443',
+    );
+    expect(
+      AppConfig.socketUrlFor('http://192.168.1.66:4000'),
+      'http://192.168.1.66:4000',
+    );
   });
 }

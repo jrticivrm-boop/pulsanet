@@ -23,7 +23,10 @@ export async function createEncryptedRoom(baseOptions = {}, e2eeKey) {
       },
     });
   } catch (err) {
-    console.warn('LiveKit E2EE no disponible, conectando con SRTP solo:', err?.message || err);
-    return new Room(baseOptions);
+    // No degradar en silencio a SRTP-only si el servidor entregó clave: fallar visible.
+    console.error('LiveKit E2EE obligatorio falló:', err?.message || err);
+    throw new Error(
+      'Cifrado de voz (E2EE) no disponible. Revisa worker LiveKit / LIVEKIT_E2EE_SECRET.'
+    );
   }
 }

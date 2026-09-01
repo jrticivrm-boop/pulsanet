@@ -1,0 +1,123 @@
+# TacticalPtx — build iOS en la nube (Codemagic) sin Mac local.
+# Guia paso a paso: Soporte/Documentos/IOS_TESTFLIGHT_CHECKLIST.md
+#
+# Requisitos en Codemagic (UI):
+#   1. Integracion App Store Connect (API key .p8)
+#   2. Grupo de variables "tacticalptx_ios" (ver checklist)
+#   3. Automatic code signing: bundle com.tacticalptx.app
+
+workflows:
+  tacticalptx-ios-testflight:
+    name: TacticalPtx iOS → TestFlight
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+
+    working_directory: mobile
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.tacticalptx.app
+      groups:
+        - tacticalptx_ios
+      vars:
+        API_BASE: https://189.152.200.238.sslip.io
+        BUNDLE_ID: com.tacticalptx.app
+        XCODE_PROJECT: ios/Runner.xcworkspace
+        XCODE_SCHEME: Runner
+
+    scripts:
+      - name: Verificar entorno
+        script: |
+          set -e
+          flutter --version
+          xcodebuild -version
+          pod --version
+          echo "API_BASE=$API_BASE"
+          echo "BUNDLE_ID=$BUNDLE_ID"
+
+      - name: Firebase GoogleService-Info.plist
+        script: |
+          set -e
+          PLIST=ios/Runner/GoogleService-Info.plist
+          if [ -n "${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}" ]; then
+            echo "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 -D > "$PLIST"
+            echo "OK: $PLIST desde secreto Codemagic"
+          elif [ -f "$PLIST" ]; then
+            echo "OK: $PLIST ya existe en el repo"
+          else
+            echo "AVISO: sin GoogleService-Info.plist — la app compila pero push FCM iOS no funcionara"
+            echo "Anade GOOGLE_SERVICE_INFO_PLIST_BASE64 al grupo tacticalptx_ios (ver checklist)"
+          fi
+
+      - name: Dependencias Flutter
+        script: |
+          set -e
+          flutter pub get
+          flutter pub run flutter_launcher_icons || true
+
+      - name: CocoaPods
+        script: |
+          set -e
+          cd ios
+          pod install --repo-update
+          cd ..
+
+      - name: Build IPA
+        script: |
+          set -e
+          DEFINES=(--dart-define=API_BASE="$API_BASE")
+          if [ -n "${APP_UPDATE_SECRET:-}" ]; then
+            DEFINES+=(--dart-define=APP_UPDATE_SECRET="$APP_UPDATE_SECRET")
+          fi
+          flutter build ipa --release "${DEFINES[@]}"
+
+      - name: Resumen artefactos
+        script: |
+          ls -la build/ios/ipa/ || true
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        # beta_groups: anadir en Codemagic UI cuando existan en App Store Connect
+
+  tacticalptx-ios-build-only:
+    name: TacticalPtx iOS (solo IPA, sin TestFlight)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    working_directory: mobile
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.tacticalptx.app
+      groups:
+        - tacticalptx_ios
+      vars:
+        API_BASE: https://189.152.200.238.sslip.io
+    scripts:
+      - name: Firebase plist
+        script: |
+          if [ -n "${GOOGLE_SERVICE_INFO_PLIST_BASE64:-}" ]; then
+            echo "$GOOGLE_SERVICE_INFO_PLIST_BASE64" | base64 -D > ios/Runner/GoogleService-Info.plist
+          fi
+      - name: Build
+        script: |
+          set -e
+          flutter pub get
+          cd ios && pod install --repo-update && cd ..
+          DEFINES=(--dart-define=API_BASE="$API_BASE")
+          [ -n "${APP_UPDATE_SECRET:-}" ] && DEFINES+=(--dart-define=APP_UPDATE_SECRET="$APP_UPDATE_SECRET")
+          flutter build ipa --release "${DEFINES[@]}"
+    artifacts:
+      - build/ios/ipa/*.ipa

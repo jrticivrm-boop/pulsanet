@@ -1,5 +1,6 @@
-# Proxy frontal PulsaNet (HTTP). Para HTTPS: reemplaza :80 por tu dominio
-# y deja que Caddy gestione certificados automáticamente.
+# Proxy frontal TacticalPtx (HTTP). En DEV local la consola Vite ya
+# sirve HTTPS en :5173 con infra/certs (PTT/mic remoto). Para prod con
+# dominio: reemplaza :80 por tu host y deja que Caddy gestione ACME.
 :80 {
 	encode gzip
 
@@ -9,6 +10,11 @@
 
 	handle /socket.io* {
 		reverse_proxy api:4000
+	}
+
+	# Señal LiveKit (equivalente al proxy Vite /rtc en desarrollo)
+	handle /rtc* {
+		reverse_proxy livekit:7880
 	}
 
 	handle {

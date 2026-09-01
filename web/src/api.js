@@ -1,3 +1,5 @@
+import { esMsg } from './esMsg';
+
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const STORAGE_KEY = 'tacticalptx_session';
 
@@ -21,7 +23,7 @@ export async function api(path, { token, method = 'GET', body, _retried } = {}) 
   }
 
   if (!res.ok) {
-    throw new Error(data.error || `Error ${res.status}`);
+    throw new Error(esMsg(data.error || `Error ${res.status}`));
   }
   return data;
 }
@@ -42,13 +44,31 @@ async function tryRefreshStoredSession() {
       token: data.token,
       refreshToken: data.refreshToken,
       user: data.user,
+      crypto: data.crypto || undefined,
+      avatarTicket: data.avatarTicket || undefined,
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    persistSession(next);
     window.dispatchEvent(new CustomEvent('tacticalptx:session', { detail: next }));
     return next;
   } catch {
     return null;
   }
+}
+
+/** Guarda sesión sin claves AES en disco (wireKey solo en memoria). */
+export function persistSession(session) {
+  if (!session) {
+    localStorage.removeItem(STORAGE_KEY);
+    return;
+  }
+  const toStore = { ...session };
+  if (toStore.crypto) {
+    toStore.crypto = {
+      alg: toStore.crypto.alg,
+      wireEnabled: Boolean(toStore.crypto.wireEnabled),
+    };
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
 }
 
 export function changePassword(token, { currentPassword, newPassword }) {
@@ -61,6 +81,10 @@ export function changePassword(token, { currentPassword, newPassword }) {
 
 export function login(username, password) {
   return api('/api/auth/login', { method: 'POST', body: { username, password } });
+}
+
+export function fetchAuthMe(token) {
+  return api('/api/auth/me', { token });
 }
 
 export function refreshAuth(refreshToken) {
@@ -103,11 +127,11 @@ export function sendDmMessage(token, userId, body, { replyToId } = {}) {
   });
 }
 
-export function startPrivateCall(token, targetUserId) {
+export function startPrivateCall(token, targetUserId, { mode = 'call' } = {}) {
   return api('/api/calls/private', {
     token,
     method: 'POST',
-    body: { targetUserId },
+    body: { targetUserId, mode: mode === 'radio' ? 'radio' : 'call' },
   });
 }
 
@@ -170,8 +194,24 @@ export function sendSticker(token, groupId, stickerId, { replyToId } = {}) {
   });
 }
 
+export function sendDmSticker(token, userId, stickerId, { replyToId } = {}) {
+  return api(`/api/dm/${userId}/messages/sticker`, {
+    token,
+    method: 'POST',
+    body: { stickerId, replyToId },
+  });
+}
+
 export function markMessagesRead(token, groupId, upToMessageId) {
   return api(`/api/groups/${groupId}/messages/read`, {
+    token,
+    method: 'POST',
+    body: { upToMessageId },
+  });
+}
+
+export function markDmRead(token, userId, upToMessageId) {
+  return api(`/api/dm/${userId}/messages/read`, {
     token,
     method: 'POST',
     body: { upToMessageId },
@@ -204,6 +244,122 @@ export function deleteAdminUser(token, id) {
 
 export function fetchAdminGroups(token) {
   return api('/api/admin/groups', { token });
+}
+
+export function fetchOrgUnits(token) {
+  return api('/api/admin/org-units', { token });
+}
+
+export function fetchDependencias(token) {
+  return api('/api/admin/dependencias', { token });
+}
+
+export function createDependenciaRegion(token, body) {
+  return api('/api/admin/dependencias/region', { token, method: 'POST', body });
+}
+
+export function createDependenciaZona(token, regionId, body) {
+  return api(`/api/admin/dependencias/region/${regionId}/zona`, { token, method: 'POST', body });
+}
+
+export function createDependenciaUnidad(token, zoneId, body) {
+  return api(`/api/admin/dependencias/zona/${zoneId}/unidad`, { token, method: 'POST', body });
+}
+
+export function patchDependencia(token, id, body) {
+  return api(`/api/admin/dependencias/${id}`, { token, method: 'PATCH', body });
+}
+
+export function deleteDependencia(token, id) {
+  return api(`/api/admin/dependencias/${id}`, { token, method: 'DELETE' });
+}
+
+export function fetchGradesEmpleos(token) {
+  return api('/api/catalogs/grades-empleos', { token });
+}
+
+export function createCatalogGrade(token, body) {
+  return api('/api/catalogs/grades', { token, method: 'POST', body });
+}
+
+export function patchCatalogGrade(token, id, body) {
+  return api(`/api/catalogs/grades/${id}`, { token, method: 'PATCH', body });
+}
+
+export function deleteCatalogGrade(token, id) {
+  return api(`/api/catalogs/grades/${id}`, { token, method: 'DELETE' });
+}
+
+export function createCatalogEmpleo(token, body) {
+  return api('/api/catalogs/empleos', { token, method: 'POST', body });
+}
+
+export function patchCatalogEmpleo(token, id, body) {
+  return api(`/api/catalogs/empleos/${id}`, { token, method: 'PATCH', body });
+}
+
+export function deleteCatalogEmpleo(token, id) {
+  return api(`/api/catalogs/empleos/${id}`, { token, method: 'DELETE' });
+}
+
+export function fetchBackups(token) {
+  return api('/api/backups', { token });
+}
+
+/** Historial / auditoría (solo root/admin). */
+export function fetchAdminActivity(token, { limit = 100, offset = 0, action = '', q = '' } = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(limit));
+  params.set('offset', String(offset));
+  if (action) params.set('action', action);
+  if (q) params.set('q', q);
+  return api(`/api/admin/activity?${params}`, { token });
+}
+
+export function saveBackupConfig(token, body) {
+  return api('/api/backups/config', { token, method: 'PUT', body });
+}
+
+export function runBackupNow(token) {
+  return api('/api/backups/run', { token, method: 'POST' });
+}
+
+export function deleteBackupFile(token, filename) {
+  return api(`/api/backups/${encodeURIComponent(filename)}`, { token, method: 'DELETE' });
+}
+
+export function restoreBackupFile(token, filename) {
+  return api(`/api/backups/restore/${encodeURIComponent(filename)}`, { token, method: 'POST' });
+}
+
+export async function restoreBackupUpload(token, file) {
+  const fd = new FormData();
+  fd.append('sqlfile', file);
+  const res = await fetch(`${API_BASE}/api/backups/restore-upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Error al restaurar');
+  return data;
+}
+
+export async function downloadBackupFile(token, filename) {
+  const res = await fetch(`${API_BASE}/api/backups/download/${encodeURIComponent(filename)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'No se pudo descargar');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function createGroup(token, payload) {
@@ -245,8 +401,15 @@ export function purgeGroupMessages(token, groupId) {
   });
 }
 
-export function fetchLocations(token) {
-  return api('/api/locations', { token });
+export function fetchGroupMembers(token, groupId) {
+  return api(`/api/groups/${groupId}/members`, { token });
+}
+
+export function fetchLocations(token, { groupIds } = {}) {
+  const q = new URLSearchParams();
+  if (groupIds?.length) q.set('groupIds', groupIds.join(','));
+  const qs = q.toString();
+  return api(`/api/locations${qs ? `?${qs}` : ''}`, { token });
 }
 
 export function postLocation(token, { latitude, longitude, accuracyM }) {
@@ -259,6 +422,95 @@ export function postLocation(token, { latitude, longitude, accuracyM }) {
 
 export function fetchUserTrack(token, userId, hours = 8) {
   return api(`/api/locations/${userId}/track?hours=${hours}`, { token });
+}
+
+/** URL de icono usable en <img>. Preferir ?atk= (ticket); no poner el JWT en la query. */
+export function avatarImgUrl(avatarUrl, tokenOrTicket, maybeTicket) {
+  if (!avatarUrl) return null;
+  const base = API_BASE || '';
+  const path = avatarUrl.startsWith('http') ? avatarUrl : `${base}${avatarUrl}`;
+  const sep = path.includes('?') ? '&' : '?';
+  const ticket =
+    typeof maybeTicket === 'string'
+      ? maybeTicket
+      : tokenOrTicket && typeof tokenOrTicket === 'object'
+        ? tokenOrTicket.avatarTicket
+        : typeof tokenOrTicket === 'string' && tokenOrTicket.startsWith('v1.')
+          ? tokenOrTicket
+          : null;
+  if (ticket) return `${path}${sep}atk=${encodeURIComponent(ticket)}`;
+  return null;
+}
+
+/** Foto de perfil por userId (Bearer vía fetch/blob, o ?atk= en <img>). */
+export function avatarUserImgUrl(userId, tokenOrSession) {
+  if (!userId) return null;
+  const base = API_BASE || '';
+  const ticket =
+    tokenOrSession && typeof tokenOrSession === 'object'
+      ? tokenOrSession.avatarTicket
+      : typeof tokenOrSession === 'string' && tokenOrSession.startsWith('v1.')
+        ? tokenOrSession
+        : null;
+  if (!ticket) return null;
+  return `${base}/api/avatars/${encodeURIComponent(userId)}?atk=${encodeURIComponent(ticket)}`;
+}
+
+/** URL de avatar para lista/mapa — preferir blob cache (Bearer); fallback ticket. */
+export function mapPersonAvatarUrl(person, tokenOrSession) {
+  if (!person?.userId || !person?.avatarUrl) return null;
+  return avatarUserImgUrl(person.userId, tokenOrSession);
+}
+
+export async function uploadMyAvatar(token, file) {
+  const form = new FormData();
+  form.append('avatar', file);
+  const res = await fetch(`${API_BASE}/api/me/avatar`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(esMsg(data.error || `Error ${res.status}`));
+  return data;
+}
+
+export function deleteMyAvatar(token) {
+  return api('/api/me/avatar', { token, method: 'DELETE' });
+}
+
+export async function uploadGroupAvatar(token, groupId, file) {
+  const form = new FormData();
+  form.append('avatar', file);
+  const res = await fetch(`${API_BASE}/api/admin/groups/${encodeURIComponent(groupId)}/avatar`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(esMsg(data.error || `Error ${res.status}`));
+  return data;
+}
+
+export function deleteGroupAvatar(token, groupId) {
+  return api(`/api/admin/groups/${encodeURIComponent(groupId)}/avatar`, {
+    token,
+    method: 'DELETE',
+  });
+}
+
+/** URL de icono de grupo vía ticket corto (?atk=). */
+export function avatarGroupImgUrl(groupId, tokenOrSession) {
+  if (!groupId) return null;
+  const base = API_BASE || '';
+  const ticket =
+    tokenOrSession && typeof tokenOrSession === 'object'
+      ? tokenOrSession.avatarTicket
+      : typeof tokenOrSession === 'string' && tokenOrSession.startsWith('v1.')
+        ? tokenOrSession
+        : null;
+  if (!ticket) return null;
+  return `${base}/api/avatars/group/${encodeURIComponent(groupId)}?atk=${encodeURIComponent(ticket)}`;
 }
 
 export function fetchGeofences(token) {
@@ -310,7 +562,7 @@ export async function uploadPttRecording(token, groupId, blob, durationMs) {
     body: form,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+  if (!res.ok) throw new Error(esMsg(data.error || `Error ${res.status}`));
   return data;
 }
 
@@ -341,17 +593,49 @@ export async function uploadGroupMedia(token, groupId, file, { type, body, reply
     body: form,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+  if (!res.ok) throw new Error(esMsg(data.error || `Error ${res.status}`));
+  return data;
+}
+
+/** Media en chat directo (DM). */
+export async function uploadDmMedia(token, peerId, file, { type, body, replyToId } = {}) {
+  const form = new FormData();
+  form.append('file', file);
+  if (type) form.append('type', type);
+  if (body) form.append('body', body);
+  if (replyToId) form.append('replyToId', replyToId);
+
+  const res = await fetch(`${API_BASE}/api/dm/${peerId}/messages/media`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(esMsg(data.error || `Error ${res.status}`));
   return data;
 }
 
 /** Descarga media autenticada → blob URL (revocar con URL.revokeObjectURL). */
 export async function fetchMediaBlobUrl(token, mediaUrl) {
-  const res = await fetch(`${API_BASE}${mediaUrl}`, {
+  const path = String(mediaUrl || '');
+  if (!path) throw new Error('Sin URL de media');
+  const url = /^https?:\/\//i.test(path)
+    ? path
+    : `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+  const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error('No se pudo cargar media');
+  if (!res.ok) {
+    throw new Error(
+      res.status === 401 || res.status === 403
+        ? 'Sin permiso para ver la imagen'
+        : res.status === 404
+          ? 'Imagen no encontrada'
+          : `No se pudo cargar media (${res.status})`
+    );
+  }
   const blob = await res.blob();
+  if (!blob || blob.size < 1) throw new Error('Archivo vacío');
   return URL.createObjectURL(blob);
 }
 
@@ -360,7 +644,10 @@ export function usersCsvUrl() {
 }
 
 export function canDispatch(user) {
-  return user && ['root', 'admin', 'dispatcher'].includes(user.role);
+  return (
+    user &&
+    ['root', 'admin', 'zone_admin', 'unit_admin', 'dispatcher'].includes(user.role)
+  );
 }
 
 export function isRootUser(user) {
@@ -369,4 +656,9 @@ export function isRootUser(user) {
 
 export function isAdminUser(user) {
   return user && ['root', 'admin'].includes(user.role);
+}
+
+/** Alta/edición de usuarios (org, zona o unidad). */
+export function canManageUsers(user) {
+  return user && ['root', 'admin', 'zone_admin', 'unit_admin'].includes(user.role);
 }

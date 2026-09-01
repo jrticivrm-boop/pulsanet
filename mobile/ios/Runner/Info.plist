@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Pulsanet Mobile</string>
+	<string>TacticalPtx</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>pulsanet_mobile</string>
+	<string>TacticalPtx</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -67,9 +67,32 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>PulsaNet necesita el micrófono para Push-to-Talk.</string>
+	<string>TacticalPtx necesita el micrófono para Push-to-Talk y llamadas.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>TacticalPtx usa la cámara para fotos en el chat y el icono de perfil.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>TacticalPtx accede a tus fotos para enviarlas por chat o elegir icono de perfil.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>TacticalPtx puede guardar imágenes en tu galería cuando las descargas del chat.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>TacticalPtx puede usar auriculares Bluetooth durante radio y llamadas.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>TacticalPtx puede usar auriculares Bluetooth durante radio y llamadas.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>PulsaNet se conecta a tu servidor local de voz y API.</string>
+	<string>TacticalPtx se conecta a tu servidor de voz y API en la red local.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>TacticalPtx comparte tu ubicación con el centro de despacho mientras usas el radio.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>TacticalPtx sigue enviando tu ubicación con la pantalla bloqueada para el seguimiento en vivo.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>TacticalPtx sigue enviando tu ubicación con la pantalla bloqueada para el seguimiento en vivo.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>location</string>
+		<string>remote-notification</string>
+		<string>fetch</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

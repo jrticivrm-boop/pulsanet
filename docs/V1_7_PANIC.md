@@ -1,41 +1,38 @@
-# PulsaNet v1.7 — Botón de pánico
+# TacticalPtx v1.7 — Botón de pánico
 
 ## Qué hace
 
-Desde la **app móvil** o **Radio web** (canal activo), el operador pulsa **PÁNICO** (confirmación).
+Desde la **app móvil** o **Radio web** (canal activo), el operador pulsa **PÁNICO**.
 
-Se notifica a:
-
-1. **Todos los miembros del grupo/canal**
-2. **Admin y despachadores** de la organización (aunque no estén en el canal)
-3. **Usuarios con permiso** `canReceivePanic` (otorgado por admin en Despacho → Usuarios)
+Se notifica **únicamente a los miembros de ese grupo/canal**. No se escala al resto de la organización (ni a admins/despacho fuera del grupo, ni a usuarios con `canReceivePanic` que no sean miembros).
 
 ## Canales de alerta
 
-- Mensaje de sistema en el chat del grupo (`🚨 PÁNICO — …` + coords si hay GPS)
-- Socket `panic:alert` al grupo + `dispatch:panic` a la consola
-- Push FCM (`type=panic`) si Firebase está activo
-- **Sonido de alarma** en bucle (Radio/Despacho web y app móvil) **hasta que un operador pulse Enterado** (o Resolver en Despacho)
+- Mensaje de sistema en el chat del grupo (`🚨 PÁNICO — …`)
+- Socket `panic:alert` al room `group:{id}`
+- Socket `dispatch:panic` solo a salas `user:{id}` de miembros del mismo grupo (consola de despacho)
+- Push FCM (`type=panic`) solo a dispositivos de miembros del grupo
+- **Sonido de alarma** en bucle hasta **Enterado** / **Resolver**
 
-## Enterado
+## Enterado / Resolver
 
-- En **Radio web**: banner rojo + botón **Enterado** (miembros del canal).
-- En **Despacho**: banner de pánicos activos → **Enterado** / **Resolver**.
-- En **móvil**: diálogo modal + alarma repetida hasta **Enterado**.
-- Un Enterado notifica al resto (`panic:update` / `dispatch:panic_update`) y silencia en todos los clientes del canal.
+- Solo miembros del mismo grupo pueden ver, acusar o resolver la alerta.
+- En **Radio web**: banner rojo + **Enterado**.
+- En **Despacho**: modal si el operador de consola es miembro del grupo del pánico.
+- En **móvil**: diálogo + alarma hasta **Enterado**.
+- **Enterado** silencia en el dispositivo local; **Resolver** / **Cancelar** avisa al resto del grupo.
 
 ## API
 
 | Método | Ruta | Quién |
 |--------|------|--------|
 | `POST` | `/api/panic` `{ groupId, latitude?, longitude? }` | Miembro del canal |
-| `GET` | `/api/panic?status=active` | Admin / dispatcher / `canReceivePanic` |
-| `PATCH` | `/api/panic/:id` `{ status: acked\|resolved\|cancelled }` | Admin/dispatcher/`canReceivePanic`; miembros del canal solo `acked` |
+| `GET` | `/api/panic?status=active` | Autenticado; solo eventos de grupos donde es miembro |
+| `PATCH` | `/api/panic/:id` `{ status: acked\|resolved\|cancelled }` | Miembro del mismo grupo |
 
 ## Admin
 
-- Columna **Recibe pánico** en Usuarios
-- Botón **Dar pánico / Quitar pánico** (solo operators; admin/dispatcher ya reciben por rol)
+- La columna **Recibe pánico** (`canReceivePanic`) ya no escala alertas fuera del grupo; el alcance lo define la membresía en `group_members`.
 
 ## Migración
 

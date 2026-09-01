@@ -1,10 +1,10 @@
-# PulsaNet — Informe de desarrollo y análisis por mes
+# TacticalPtx — Informe de desarrollo y análisis por mes
 
-**Producto:** Plataforma Push-to-Talk (PTT) independiente  
-**Ubicación:** `D:\pulsanet`  
-**Soporte / respaldos:** `D:\PulsaNet_Soporte`  
-**Fecha del informe:** 11 de agosto de 2026  
-**API actual:** v1.4.0  
+**Producto:** Plataforma Push-to-Talk (PTT) independiente 
+**Ubicación:** `D:\pulsanet` 
+**Soporte / respaldos:** `D:\Soporte` 
+**Fecha del informe:** 11 de agosto de 2026 
+**API actual:** v1.4.0 
 
 Este documento resume **qué se planificó, qué se entregó y qué se analizó** en cada mes del plan v1 (6 meses) y en las iteraciones posteriores (v1.1–v1.4).
 
@@ -22,15 +22,15 @@ Este documento resume **qué se planificó, qué se entregó y qué se analizó*
 
 ```mermaid
 flowchart LR
-  M1[Mes 1 Auth + PTT web] --> M2[Mes 2 Presencia + chat]
-  M2 --> M3[Mes 3 Android alpha]
-  M3 --> M4[Mes 4 Despacho]
-  M4 --> M5[Mes 5 Piloto / carga]
-  M5 --> M6[Mes 6 Producción]
-  M6 --> V11[v1.1 Media + GPS]
-  V11 --> V12[v1.2 FCM código]
-  V12 --> V13[v1.3 Geocercas]
-  V13 --> V14[v1.4 Grabación PTT]
+ M1[Mes 1 Auth + PTT web] --> M2[Mes 2 Presencia + chat]
+ M2 --> M3[Mes 3 Android alpha]
+ M3 --> M4[Mes 4 Despacho]
+ M4 --> M5[Mes 5 Piloto / carga]
+ M5 --> M6[Mes 6 Producción]
+ M6 --> V11[v1.1 Media + GPS]
+ V11 --> V12[v1.2 FCM código]
+ V12 --> V13[v1.3 Geocercas]
+ V13 --> V14[v1.4 Grabación PTT]
 ```
 
 ---
@@ -203,9 +203,9 @@ Tras cerrar el esqueleto de 6 meses, se continuó el desarrollo incremental:
 | Qué | Detalle |
 |-----|---------|
 | Backend | Firebase Admin; push en chat/PTT; `/api/devices` |
-| Móvil | Registro token, canal `pulsanet_alerts`, foreground, refresh |
+| Móvil | Registro token, canal `tacticalptx_alerts`, foreground, refresh |
 | Bloqueo | Credenciales Firebase + `google-services.json` (**pendiente a petición del usuario**) |
-| Doc | `docs/FCM_PUSH.md`, `D:\PulsaNet_Soporte\Documentos\ACTIVAR_FCM.md` |
+| Doc | `docs/FCM_PUSH.md`, `D:\Soporte\Documentos\ACTIVAR_FCM.md` |
 
 ### v1.3 — Geocercas
 | Qué | Detalle |
@@ -252,7 +252,7 @@ Tras cerrar el esqueleto de 6 meses, se continuó el desarrollo incremental:
 3. **FCM:** cableado; valor de negocio aparece solo con proyecto Firebase real.
 4. **iOS / stores:** fuera del entorno actual (sin Mac; cuentas developer).
 5. **Docker:** archivos listos; falta runtime en la PC o un VPS.
-6. **Separación producto/soporte:** código en `D:\pulsanet`; APK, secretos, informes y respaldos en `D:\PulsaNet_Soporte`.
+6. **Separación producto/soporte:** código en `D:\pulsanet`; APK, secretos, informes y respaldos en `D:\Soporte`.
 
 ---
 
@@ -273,9 +273,9 @@ Tras cerrar el esqueleto de 6 meses, se continuó el desarrollo incremental:
 
 | Correo | Rol | Destino típico |
 |--------|-----|----------------|
-| `admin@pulsanet.local` | admin | Despacho |
-| `despacho@pulsanet.local` | dispatcher | Despacho |
-| `op1@` … `op4@pulsanet.local` | operator | Radio / móvil |
+| `admin@tacticalptx.local` | admin | Despacho |
+| `despacho@tacticalptx.local` | dispatcher | Despacho |
+| `op1@` … `op4@tacticalptx.local` | operator | Radio / móvil |
 
 Contraseña: `demo1234`
 
@@ -289,10 +289,10 @@ cd D:\pulsanet\backend; npm run dev
 cd D:\pulsanet\web; npm run dev
 ```
 
-- Web: http://localhost:5173  
-- Health: http://127.0.0.1:4000/api/health  
+- Web: http://localhost:5173 
+- Health: http://127.0.0.1:4000/api/health 
 
-APK LAN (ejemplo): `D:\PulsaNet_Soporte\APK\PulsaNet-192.168.1.66.apk`
+APK LAN (ejemplo): `D:\Soporte\APK\TacticalPtx-LAN.apk`
 
 ---
 
@@ -305,9 +305,9 @@ APK LAN (ejemplo): `D:\PulsaNet_Soporte\APK\PulsaNet-192.168.1.66.apk`
 | `docs/AUDITORIA_V1.md` | Estado real vs bugs |
 | `docs/DEMO_PTT_MES1.md` … `PRODUCCION_MES6.md` | Guías por mes |
 | `docs/V1_1_MEDIA_GPS.md` … `V1_4_RECORDINGS.md` | Incrementos |
-| `D:\PulsaNet_Soporte\Documentos\ACTIVAR_FCM.md` | Checklist Firebase |
-| `D:\PulsaNet_Soporte\Documentos\POST_CAMBIO_DISCO_C.md` | Post-migración disco |
+| `D:\Soporte\Documentos\ACTIVAR_FCM.md` | Checklist Firebase |
+| `D:\Soporte\Documentos\POST_CAMBIO_DISCO_C.md` | Post-migración disco |
 
 ---
 
-*Informe generado para seguimiento de proyecto PulsaNet. Actualizar este archivo cuando se cierre un nuevo hito mensual o versión.*
+*Informe generado para seguimiento de proyecto TacticalPtx. Actualizar este archivo cuando se cierre un nuevo hito mensual o versión.*

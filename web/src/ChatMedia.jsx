@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchMediaBlobUrl } from './api';
+import {
+  downloadFromObjectUrl,
+  friendlyMediaName,
+} from './chatMediaActions';
 
 /** Pausa otras notas de voz del chat cuando una empieza a sonar. */
 const voiceBus = typeof window !== 'undefined' ? new EventTarget() : null;
@@ -190,10 +194,25 @@ function VoiceNotePlayer({ src, label }) {
 }
 
 /** Imagen / archivo / audio de chat con Authorization Bearer. */
-export default function ChatMedia({ token, message }) {
+export default function ChatMedia({ token, message, onActionHint, onLightboxChange, onOpenImage }) {
   const [url, setUrl] = useState(null);
   const [err, setErr] = useState('');
   const [lightbox, setLightbox] = useState(false);
+
+  function openLightbox() {
+    if (typeof onOpenImage === 'function') {
+      onOpenImage(message);
+      onLightboxChange?.(true);
+      return;
+    }
+    setLightbox(true);
+    onLightboxChange?.(true);
+  }
+
+  function closeLightbox() {
+    setLightbox(false);
+    onLightboxChange?.(false);
+  }
 
   useEffect(() => {
     if (!message?.mediaUrl || !token) return undefined;
@@ -220,26 +239,33 @@ export default function ChatMedia({ token, message }) {
   useEffect(() => {
     if (!lightbox) return undefined;
     const onKey = (e) => {
-      if (e.key === 'Escape') setLightbox(false);
+      if (e.key === 'Escape' || e.code === 'Escape') {
+        window.dispatchEvent(new CustomEvent('tacticalptx:close-context-menus'));
+        closeLightbox();
+      }
     };
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     return () => {
       document.body.style.overflow = prev;
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
     };
   }, [lightbox]);
 
   if (err) return <span className="muted">[{err}]</span>;
   if (!message.mediaUrl) return null;
 
-  const name = message.mediaName || '';
+  const name = friendlyMediaName(message);
   const mime = (message.mediaMime || '').toLowerCase();
   const isImage =
     message.type === 'image' ||
     mime.startsWith('image/') ||
-    /\.(jpe?g|png|gif|webp|jfif|bmp)$/i.test(name);
+    /\.(jpe?g|png|gif|webp|jfif|bmp)$/i.test(message.mediaName || name);
+  const isVideo =
+    message.type === 'video' ||
+    mime.startsWith('video/') ||
+    /\.(mp4|mov|webm|mkv|avi|m4v|3gp)$/i.test(message.mediaName || name);
 
   if (isImage) {
     if (!url) {
@@ -254,10 +280,20 @@ export default function ChatMedia({ token, message }) {
         <button
           type="button"
           className="wa-image"
-          onClick={() => setLightbox(true)}
+          onClick={openLightbox}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            openLightbox();
+          }}
           title="Ver imagen"
         >
-          <img src={url} alt={name || 'imagen'} className="wa-image-thumb" />
+          <img
+            src={url}
+            alt={name || 'imagen'}
+            className="wa-image-thumb"
+            draggable={false}
+            onContextMenu={(e) => e.preventDefault()}
+          />
           <span className="wa-image-hint" aria-hidden="true">
             Ampliar
           </span>
@@ -268,16 +304,17 @@ export default function ChatMedia({ token, message }) {
             role="dialog"
             aria-modal="true"
             aria-label="Vista de imagen"
-            onClick={() => setLightbox(false)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') setLightbox(false);
-            }}
+            data-esc-close=""
+            onClick={closeLightbox}
+            onContextMenu={(e) => e.preventDefault()}
           >
             <button
               type="button"
               className="wa-lightbox-close"
               aria-label="Cerrar"
-              onClick={() => setLightbox(false)}
+              data-esc-close-btn=""
+              title="Cerrar (Esc)"
+              onClick={closeLightbox}
             >
               ×
             </button>
@@ -285,7 +322,9 @@ export default function ChatMedia({ token, message }) {
               src={url}
               alt={name || 'imagen'}
               className="wa-lightbox-img"
+              draggable={false}
               onClick={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
             />
             {name ? <p className="wa-lightbox-caption">{name}</p> : null}
           </div>
@@ -308,14 +347,80 @@ export default function ChatMedia({ token, message }) {
         </div>
       );
     }
-    return <VoiceNotePlayer src={url} label={message.mediaName || 'Nota de voz'} />;
+    return <VoiceNotePlayer src={url} label={name || 'Nota de voz'} />;
+  }
+
+  if (isVideo) {
+    if (!url) {
+      return (
+        <div className="wa-video is-loading" aria-busy="true">
+          <span className="muted">Cargando video…</span>
+        </div>
+      );
+    }
+    return (
+      <div className="wa-video">
+        <video
+          className="wa-video-player"
+          src={url}
+          controls
+          playsInline
+          preload="metadata"
+          title={name || 'Video'}
+        />
+        <div className="wa-video-actions">
+          <button
+            type="button"
+            className="wa-file-dl"
+            onClick={() => downloadFromObjectUrl(url, name || 'Video.mp4')}
+          >
+            Descargar
+          </button>
+          {name ? <span className="wa-file-name">{name}</span> : null}
+        </div>
+      </div>
+    );
   }
 
   if (!url) return <span className="muted">Cargando archivo…</span>;
+
+  const icon =
+    mime.includes('pdf') || /\.pdf$/i.test(name)
+      ? '📄'
+      : /\.(zip|rar|7z|gz|tar)$/i.test(name) || mime.includes('zip') || mime.includes('rar')
+        ? '🗜️'
+        : /\.(doc|docx)$/i.test(name)
+          ? '📝'
+          : /\.(xls|xlsx|csv)$/i.test(name)
+            ? '📊'
+            : '📎';
+  const sizeLabel = message.mediaSize
+    ? message.mediaSize < 1024 * 1024
+      ? `${Math.round(message.mediaSize / 1024)} KB`
+      : `${(message.mediaSize / (1024 * 1024)).toFixed(1)} MB`
+    : '';
+
   return (
-    <a href={url} download={message.mediaName || 'archivo'} className="chat-file-link">
-      📎 {message.mediaName || 'Archivo'}
-      {message.mediaSize ? ` (${Math.round(message.mediaSize / 1024)} KB)` : ''}
-    </a>
+    <div className="wa-file-card">
+      <span className="wa-file-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <div className="wa-file-meta">
+        <span className="wa-file-title">{name || 'Archivo'}</span>
+        {sizeLabel ? <span className="wa-file-size">{sizeLabel}</span> : null}
+      </div>
+      <a
+        href={url}
+        download={name || 'archivo'}
+        className="wa-file-dl"
+        onClick={(e) => {
+          e.preventDefault();
+          downloadFromObjectUrl(url, name || 'Archivo');
+          onActionHint?.('Descarga iniciada');
+        }}
+      >
+        Abrir
+      </a>
+    </div>
   );
 }

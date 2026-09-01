@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchGeofences, deleteGeofence } from '../api';
+import AppDialog from '../AppDialog';
 
 export default function GeofenceCatalog({ session }) {
   const [geofences, setGeofences] = useState([]);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState('');
+  const [pendingId, setPendingId] = useState('');
 
   async function reload() {
     try {
@@ -21,14 +23,21 @@ export default function GeofenceCatalog({ session }) {
     reload();
   }, [session.token]);
 
-  async function remove(id) {
-    if (!window.confirm('¿Eliminar esta geocerca?')) return;
+  function askRemove(id) {
+    setPendingId(id);
+  }
+
+  async function confirmRemove() {
+    const id = pendingId;
+    if (!id) return;
     setBusyId(id);
     try {
       await deleteGeofence(session.token, id);
+      setPendingId('');
       await reload();
     } catch (e) {
       setError(e.message);
+      setPendingId('');
     } finally {
       setBusyId('');
     }
@@ -58,26 +67,26 @@ export default function GeofenceCatalog({ session }) {
           <tbody>
             {geofences.length === 0 && (
               <tr>
-                <td colSpan={4} className="cc-muted">
-                  No hay geocercas. Créalas en Mapa en vivo.
+                <td colSpan={4} className="muted">
+                  Sin geocercas
                 </td>
               </tr>
             )}
             {geofences.map((g) => (
               <tr key={g.id}>
+                <td>{g.name}</td>
                 <td>
-                  <strong>{g.name}</strong>
+                  <code className="cc-mono">
+                    {Number(g.centerLat).toFixed(5)}, {Number(g.centerLng).toFixed(5)}
+                  </code>
                 </td>
-                <td>
-                  {Number(g.centerLat).toFixed(5)}, {Number(g.centerLng).toFixed(5)}
-                </td>
-                <td>{Math.round(g.radiusM)} m</td>
+                <td>{g.radiusM} m</td>
                 <td>
                   <button
                     type="button"
                     className="cc-btn ghost"
                     disabled={busyId === g.id}
-                    onClick={() => remove(g.id)}
+                    onClick={() => askRemove(g.id)}
                   >
                     Eliminar
                   </button>
@@ -87,6 +96,19 @@ export default function GeofenceCatalog({ session }) {
           </tbody>
         </table>
       </div>
+
+      <AppDialog
+        open={Boolean(pendingId)}
+        title="Eliminar geocerca"
+        message="¿Eliminar esta geocerca?"
+        confirmLabel="Eliminar"
+        danger
+        busy={Boolean(busyId)}
+        onCancel={() => {
+          if (!busyId) setPendingId('');
+        }}
+        onConfirm={confirmRemove}
+      />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-# PulsaNet v1.5 — Chat estilo WhatsApp (Radio)
+# TacticalPtx v1.5 — Chat estilo WhatsApp (Radio)
 
 ## Incluido (web Radio)
 

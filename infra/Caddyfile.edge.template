@@ -1,0 +1,40 @@
+# TacticalPtx — borde HTTPS publico (Caddy + Let's Encrypt)
+# Generado/ajustado por START-PUBLIC-EDGE.ps1 (no editar a mano en caliente).
+# Plantilla: Caddyfile.edge.template (si existe) o este archivo.
+# Host: {$PUBLIC_DOMAIN}
+
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$PUBLIC_DOMAIN} {
+	encode gzip
+
+	handle /api* {
+		reverse_proxy {$API_UPSTREAM} {
+			# PLACEHOLDER_API_TRANSPORT
+		}
+	}
+
+	handle /socket.io* {
+		reverse_proxy {$API_UPSTREAM} {
+			# PLACEHOLDER_API_TRANSPORT
+		}
+	}
+
+	handle /rtc* {
+		reverse_proxy http://127.0.0.1:7880 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle {
+		reverse_proxy {$WEB_UPSTREAM} {
+			# PLACEHOLDER_WEB_TRANSPORT
+		}
+	}
+}

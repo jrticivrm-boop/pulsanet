@@ -1,4 +1,4 @@
-# PulsaNet — Android alpha (Mes 3)
+# TacticalPtx — Android alpha (Mes 3)
 
 App Flutter en [`mobile/`](../mobile/). Proyecto en **`D:\pulsanet`**.
 
@@ -15,7 +15,7 @@ App Flutter en [`mobile/`](../mobile/). Proyecto en **`D:\pulsanet`**.
 |-------|------|
 | Proyecto | `D:\pulsanet` |
 | Android SDK | `D:\Android\Sdk` |
-| AVD | `pulsanet_api35` |
+| AVD | `tacticalptx_api35` |
 | Flutter | `C:\tools\flutter` |
 
 ## Instalar en un móvil Android (recomendado)
@@ -35,7 +35,7 @@ adb devices
 flutter run --dart-define=API_BASE=http://192.168.1.66:4000
 ```
 
-Login demo: `op1@pulsanet.local` / `demo1234`
+Login demo: `op1@tacticalptx.local` / `demo1234`
 
 ### Solo APK (sin `flutter run`)
 
@@ -50,6 +50,6 @@ Si cambia la IP del PC, hay que recompilar.
 ## Emulador
 
 ```powershell
-flutter emulators --launch pulsanet_api35
+flutter emulators --launch tacticalptx_api35
 flutter run --dart-define=API_BASE=http://10.0.2.2:4000
 ```

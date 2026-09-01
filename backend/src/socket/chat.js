@@ -8,7 +8,7 @@ import { openMessageBody, sealMessageBody } from '../services/contentCrypto.js';
 
 const MAX_BODY = 2000;
 
-/** Set fijo estilo WhatsApp (una reacción por usuario) */
+/** Set fijo de reacciones (una reacción por usuario). */
 export const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 function normalizeEmoji(emoji) {
@@ -21,6 +21,8 @@ function normalizeEmoji(emoji) {
 const REACTION_NORMALIZED = new Map(
   REACTION_EMOJIS.map((e) => [normalizeEmoji(e), e])
 );
+
+export { normalizeEmoji, REACTION_NORMALIZED };
 
 /**
  * Chat por Socket.IO: send / typing / edit / delete / react
@@ -77,12 +79,20 @@ export function registerChatHandlers(io) {
 
         inc('chatSent');
         io.to(`group:${groupId}`).emit('chat:message', msg);
+        // Eco al emisor por si aún no está en la room (race de join).
+        socket.emit('chat:message', msg);
         notifyGroupMembers({
           groupId,
           excludeUserId: user.sub,
           title: msg.displayName || 'TacticalPtx',
-          body: text.slice(0, 120),
-          data: { type: 'chat', messageId: msg.id },
+          body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
+          data: {
+            type: 'chat',
+            messageId: msg.id,
+            groupId,
+            title: msg.displayName || 'TacticalPtx',
+            body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
+          },
         }).catch(() => {});
       } catch (err) {
         socket.emit('chat:error', { error: err.message, clientMsgId });
@@ -150,8 +160,8 @@ export function registerChatHandlers(io) {
           groupId,
           excludeUserId: user.sub,
           title: msg.displayName || 'TacticalPtx',
-          body: msg.sticker?.label || 'Sticker',
-          data: { type: 'chat', messageId: msg.id },
+          body: 'Nuevo sticker',
+          data: { type: 'chat', messageId: msg.id, groupId },
         }).catch(() => {});
       } catch (err) {
         socket.emit('chat:error', { error: err.message });
@@ -330,6 +340,20 @@ export async function softDeleteGroupMessage({ groupId, messageId, userId, userR
     [messageId]
   );
   return hydrateMessage(updated[0], userId);
+}
+
+/** Vacía el chat de un grupo (borra mensajes + reacciones/lecturas). Miembro del grupo. */
+export async function clearGroupMessages(groupId, userId, userRole) {
+  const ok = await assertChatAccess(groupId, userId, userRole);
+  if (!ok) throw new Error('No eres miembro');
+
+  const { rows: ids } = await query(`SELECT id FROM messages WHERE group_id = $1`, [groupId]);
+  if (!ids.length) return 0;
+  const list = ids.map((r) => r.id);
+  await query(`DELETE FROM message_reactions WHERE message_id = ANY($1::uuid[])`, [list]);
+  await query(`DELETE FROM message_reads WHERE message_id = ANY($1::uuid[])`, [list]);
+  const { rowCount } = await query(`DELETE FROM messages WHERE group_id = $1`, [groupId]);
+  return rowCount || 0;
 }
 
 /**
@@ -589,3 +613,4 @@ export function formatFreshMessage(row, displayName, reply = null) {
 }
 
 export { MAX_BODY };
+

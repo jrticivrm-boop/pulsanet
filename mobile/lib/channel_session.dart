@@ -1,21 +1,47 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:livekit_client/livekit_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import 'api_client.dart';
 import 'app_focus.dart';
+import 'audio_session_setup.dart';
 import 'config.dart';
 import 'livekit_e2ee.dart';
 import 'location_heartbeat.dart';
+import 'chat_message_banner.dart';
+import 'message_tone.dart';
+import 'panic_vibration.dart';
 import 'push_service.dart';
 
+const _kRadioListenMuteKey = 'tacticalptx_radio_mute';
+
+enum PresenceFocus { foreground, background }
+
+/// Skype-like: active in app / away (bg) / offline (not in presence list).
+enum PresenceStatus { active, away, offline }
+
 class PresenceMember {
-  PresenceMember({required this.userId, required this.displayName});
+  PresenceMember({
+    required this.userId,
+    required this.displayName,
+    this.focus = PresenceFocus.foreground,
+  });
   final String userId;
   final String displayName;
+  final PresenceFocus focus;
+
+  PresenceStatus get status =>
+      focus == PresenceFocus.background ? PresenceStatus.away : PresenceStatus.active;
+
+  static PresenceFocus focusFromWire(dynamic raw) {
+    if (raw == 'background' || raw == true) return PresenceFocus.background;
+    return PresenceFocus.foreground;
+  }
 }
 
 class ChatReaction {
@@ -88,6 +114,8 @@ class ChatMessage {
     this.readCount = 0,
     this.peerCount = 0,
     this.readFully = false,
+    this.clientMsgId,
+    this.isLocal = false,
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) {
@@ -95,12 +123,12 @@ class ChatMessage {
     final stickerRaw = j['sticker'];
     final reactionsRaw = j['reactions'];
     return ChatMessage(
-      id: j['id'] as String,
-      groupId: j['groupId'] as String,
-      senderId: j['senderId'] as String? ?? '',
-      displayName: j['displayName'] as String? ?? 'Usuario',
+      id: j['id']?.toString() ?? '',
+      groupId: j['groupId']?.toString() ?? '',
+      senderId: j['senderId']?.toString() ?? '',
+      displayName: j['displayName']?.toString() ?? 'Usuario',
       body: j['body'] as String?,
-      type: j['type'] as String? ?? 'text',
+      type: j['type']?.toString() ?? 'text',
       mediaUrl: j['mediaUrl'] as String?,
       mediaMime: j['mediaMime'] as String?,
       mediaName: j['mediaName'] as String?,
@@ -123,6 +151,8 @@ class ChatMessage {
       readCount: (j['readCount'] as num?)?.toInt() ?? 0,
       peerCount: (j['peerCount'] as num?)?.toInt() ?? 0,
       readFully: j['readFully'] == true,
+      clientMsgId: j['clientMsgId']?.toString(),
+      isLocal: j['_local'] == true,
     );
   }
 
@@ -155,6 +185,8 @@ class ChatMessage {
         readCount: readCount ?? this.readCount,
         peerCount: peerCount ?? this.peerCount,
         readFully: readFully ?? this.readFully,
+        clientMsgId: clientMsgId,
+        isLocal: isLocal,
       );
 
   final String id;
@@ -176,11 +208,16 @@ class ChatMessage {
   final int readCount;
   final int peerCount;
   final bool readFully;
+  final String? clientMsgId;
+  final bool isLocal;
 }
 
 /// Floor PTT (Socket.IO) + audio (LiveKit) + presencia + chat.
 class ChannelSession extends ChangeNotifier {
   ChannelSession({required this.api, required this.group});
+
+  /// Sesión de canal activa (para liberar mic antes de radio/llamada 1:1).
+  static ChannelSession? current;
 
   final ApiClient api;
   final Map<String, dynamic> group;
@@ -191,11 +228,18 @@ class ChannelSession extends ChangeNotifier {
   LocalTrackPublication? _micPub;
   Timer? _ping;
   Timer? _panicAlarm;
+  AudioPlayer? _panicPlayer;
+  EventsListener<RoomEvent>? _roomEvents;
+
 
   bool connected = false;
   bool livekitReady = false;
+  /// Silencia el audio entrante del canal (sigue en el canal; PTT propio no cambia).
+  bool listenMuted = false;
   /// Llamada privada entrante (señal global, aunque no estés en Directos).
   Map<String, dynamic>? incomingPrivateCall;
+  /// Último callId finalizado remotamente (para UI que necesite reaccionar).
+  String? lastEndedPrivateCallId;
   /// Último DM entrante (SnackBar / badge). Consumir y poner null.
   Map<String, dynamic>? lastDmNotify;
   bool holding = false;
@@ -208,6 +252,10 @@ class ChannelSession extends ChangeNotifier {
   String? lastPanicId;
   String? incomingPanicLabel;
   bool incomingPanicActive = false;
+  double? incomingPanicLat;
+  double? incomingPanicLng;
+  double? incomingPanicAccuracyM;
+  String? incomingPanicUserId;
   double? lastLatitude;
   double? lastLongitude;
   double? lastAccuracyM;
@@ -222,7 +270,14 @@ class ChannelSession extends ChangeNotifier {
   String get groupName => group['name'] as String? ?? 'Canal';
 
   Future<void> start() async {
+    current = this;
     error = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      listenMuted = prefs.getBool(_kRadioListenMuteKey) ?? false;
+    } catch (_) {
+      listenMuted = false;
+    }
     try {
       final hist = await api.fetchMessages(groupId);
       messages = hist.map(ChatMessage.fromJson).toList();
@@ -248,7 +303,10 @@ class ChannelSession extends ChangeNotifier {
     _socket!
       ..onConnect((_) {
         connected = true;
-        _socket!.emit('ptt:join', {'groupId': groupId});
+        _socket!.emit('ptt:join', {
+          'groupId': groupId,
+          'focus': _presenceFocusWire,
+        });
         notifyListeners();
         _connectLiveKit();
       })
@@ -266,19 +324,25 @@ class ChannelSession extends ChangeNotifier {
         notifyListeners();
         final who = incomingPrivateCall?['callerName']?.toString() ?? 'Usuario';
         final callId = incomingPrivateCall?['callId']?.toString() ?? '';
+        final isRadio = incomingPrivateCall?['mode']?.toString() == 'radio';
         PushService.instance.showLocal(
-          title: 'Llamada privada',
-          body: '$who te está llamando',
+          title: isRadio ? 'Radio personal' : 'Llamada privada',
+          body: isRadio ? '$who te invita a radio 1:1' : '$who te está llamando',
           payload: 'call:$callId',
           isCall: true,
+          callId: callId.isNotEmpty ? callId : null,
         );
       })
       ..on('call:ended', (data) {
         if (data is! Map) return;
-        final id = data['callId'];
-        if (id != null && id == incomingPrivateCall?['callId']) {
+        final id = data['callId']?.toString();
+        if (id != null && id == incomingPrivateCall?['callId']?.toString()) {
           incomingPrivateCall = null;
-          notifyListeners();
+        }
+        lastEndedPrivateCallId = id;
+        notifyListeners();
+        if (id != null && id.isNotEmpty) {
+          PushService.instance.clearConversationNotifications(callId: id);
         }
       })
       ..on('dm:notify', (data) {
@@ -296,8 +360,14 @@ class ChannelSession extends ChangeNotifier {
             body = '🎤 Audio';
           } else if (t == 'sticker') {
             body = 'Sticker';
+          } else if (t == 'video' ||
+              (message['mediaMime']?.toString() ?? '').startsWith('video/') ||
+              RegExp(r'\.(mp4|mov|webm|mkv|avi|m4v)$', caseSensitive: false)
+                  .hasMatch(message['mediaName']?.toString() ?? '')) {
+            body = '🎬 Video';
           } else if (t == 'file') {
-            body = '📎 Archivo';
+            final name = message['mediaName']?.toString();
+            body = name != null && name.isNotEmpty ? '📎 $name' : '📎 Archivo';
           } else {
             body = (message['body']?.toString() ?? '').trim();
             if (body.isEmpty) body = 'Nuevo mensaje';
@@ -329,10 +399,14 @@ class ChannelSession extends ChangeNotifier {
         if (m['groupId'] != groupId) return;
         final list = (m['members'] as List? ?? []);
         online = list
-            .map((e) => PresenceMember(
-                  userId: (e as Map)['userId'] as String,
-                  displayName: e['displayName'] as String? ?? 'Usuario',
-                ))
+            .map((e) {
+              final row = Map<String, dynamic>.from(e as Map);
+              return PresenceMember(
+                userId: row['userId'] as String,
+                displayName: row['displayName'] as String? ?? 'Usuario',
+                focus: PresenceMember.focusFromWire(row['focus']),
+              );
+            })
             .toList();
         notifyListeners();
       })
@@ -371,28 +445,62 @@ class ChannelSession extends ChangeNotifier {
         if (holding) {
           holding = false;
           await _muteMic();
+        } else {
+          playChannelFreeTone();
         }
         notifyListeners();
       })
       ..on('chat:message', (data) {
-        final msg = ChatMessage.fromJson(Map<String, dynamic>.from(data as Map));
+        final raw = Map<String, dynamic>.from(data as Map);
+        final msg = ChatMessage.fromJson(raw);
         if (msg.groupId != groupId) return;
-        if (messages.any((m) => m.id == msg.id)) return;
-        messages = [...messages, msg];
+        final cid = msg.clientMsgId ?? raw['clientMsgId']?.toString();
+        final existingIdx = messages.indexWhere(
+          (m) =>
+              m.id == msg.id ||
+              (cid != null &&
+                  cid.isNotEmpty &&
+                  (m.id == cid || m.clientMsgId == cid)),
+        );
+        if (existingIdx >= 0) {
+          final next = [...messages];
+          next[existingIdx] = msg;
+          messages = next;
+        } else {
+          messages = [...messages, msg];
+        }
         _typingUsers.remove(msg.senderId);
         _refreshTypingLabel();
         notifyListeners();
         final me = api.user?['id']?.toString();
-        if (appInBackground && msg.senderId != me) {
-          final preview = (msg.body ?? msg.type).toString();
-          PushService.instance.showLocal(
-            title: msg.displayName.isNotEmpty ? msg.displayName : groupName,
-            body: preview.length > 120 ? '${preview.substring(0, 120)}…' : preview,
-            payload: groupId,
-          );
+        if (msg.senderId != me) {
+          if (isViewingConversation(groupId: groupId)) {
+            playInChatMessageTone();
+          } else {
+            final preview = (msg.body ?? msg.type).toString();
+            final short = preview.length > 120
+                ? '${preview.substring(0, 120)}…'
+                : preview;
+            ChatMessageBanner.instance.show(
+              kind: 'group',
+              groupId: groupId,
+              title: msg.displayName.isNotEmpty ? msg.displayName : groupName,
+              preview: short,
+              playTone: !appInBackground,
+            );
+            if (appInBackground) {
+              PushService.instance.showLocal(
+                title: msg.displayName.isNotEmpty ? msg.displayName : groupName,
+                body: short,
+                payload: groupId,
+                groupId: groupId,
+              );
+            }
+          }
         }
-        // Auto marcar leído hasta el último
-        markRead(msg.id);
+        if (!appInBackground && isViewingConversation(groupId: groupId)) {
+          markRead(msg.id);
+        }
       })
       ..on('chat:edited', (data) {
         final msg = ChatMessage.fromJson(Map<String, dynamic>.from(data as Map));
@@ -405,6 +513,11 @@ class ChannelSession extends ChangeNotifier {
         if (msg.groupId != groupId) return;
         messages = messages.map((m) => m.id == msg.id ? msg : m).toList();
         notifyListeners();
+      })
+      ..on('chat:cleared', (data) {
+        final m = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+        if (m['groupId']?.toString() != groupId) return;
+        clearLocalMessages();
       })
       ..on('chat:reaction', (data) {
         final m = Map<String, dynamic>.from(data as Map);
@@ -457,40 +570,120 @@ class ChannelSession extends ChangeNotifier {
       })
       ..on('chat:error', (data) {
         final m = Map<String, dynamic>.from(data as Map);
+        final cid = m['clientMsgId']?.toString();
+        if (cid != null && cid.isNotEmpty) {
+          messages = messages
+              .where((x) => !(x.isLocal && (x.id == cid || x.clientMsgId == cid)))
+              .toList();
+        }
         error = m['error']?.toString();
         notifyListeners();
       })
       ..on('panic:alert', (data) {
         final m = Map<String, dynamic>.from(data as Map);
         if (m['groupId']?.toString() != groupId) return;
-        final uid = m['userId']?.toString();
-        final me = api.user?['id']?.toString();
-        if (uid != null && me != null && uid == me) return;
-        lastPanicId = m['id']?.toString();
-        incomingPanicLabel = m['displayName']?.toString() ?? 'Operador';
-        incomingPanicActive = true;
-        _startPanicAlarmLoop();
-        notifyListeners();
+        applyIncomingPanic(m);
       })
       ..on('panic:update', (data) {
         final m = Map<String, dynamic>.from(data as Map);
         final status = m['status']?.toString();
         if (status == null || status == 'active') return;
+        // Enterado en otro dispositivo no apaga esta alarma
+        if (status == 'acked') return;
         final id = m['id']?.toString();
         if (id != null && lastPanicId != null && id != lastPanicId) return;
-        _stopPanicAlarmLoop();
-        incomingPanicActive = false;
-        incomingPanicLabel = null;
+        _clearIncomingPanicState();
         notifyListeners();
       });
 
     _ping = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (connected) {
-        _socket?.emit('presence:ping', {'groupId': groupId});
-      }
+      if (connected) pingPresenceFocus();
     });
 
     _attachGps();
+    // Si llegó pánico mientras la app estaba inactiva / sin socket.
+    unawaited(syncActivePanic());
+  }
+
+  static double? _toDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString());
+  }
+
+  bool get incomingPanicHasLocation =>
+      incomingPanicLat != null && incomingPanicLng != null;
+
+  /// Aplica alerta entrante (socket, FCM o sync REST).
+  void applyIncomingPanic(Map<String, dynamic> m) {
+    final uid = m['userId']?.toString();
+    final me = api.user?['id']?.toString();
+    if (uid != null && me != null && uid == me) return;
+    final gid = m['groupId']?.toString();
+    if (gid != null && gid.isNotEmpty && gid != groupId) return;
+
+    lastPanicId = m['id']?.toString() ?? m['panicId']?.toString();
+    incomingPanicLabel = m['displayName']?.toString() ?? 'Operador';
+    incomingPanicUserId = uid;
+    incomingPanicLat = _toDouble(m['latitude']);
+    incomingPanicLng = _toDouble(m['longitude']);
+    incomingPanicAccuracyM =
+        _toDouble(m['accuracyM']) ?? _toDouble(m['accuracy_m']);
+    incomingPanicActive = true;
+    _startPanicAlarmLoop();
+    notifyListeners();
+  }
+
+  void _clearIncomingPanicState() {
+    _stopPanicAlarmLoop();
+    incomingPanicActive = false;
+    incomingPanicLabel = null;
+    incomingPanicLat = null;
+    incomingPanicLng = null;
+    incomingPanicAccuracyM = null;
+    incomingPanicUserId = null;
+  }
+
+  /// Recupera pánico activo del canal (p. ej. tras abrir app por notificación).
+  Future<void> syncActivePanic() async {
+    try {
+      final events = await api.fetchPanicEvents(status: 'active', limit: 20);
+      final me = api.user?['id']?.toString();
+      for (final e in events) {
+        if (e['groupId']?.toString() != groupId) continue;
+        if (e['userId']?.toString() == me) continue;
+        if (e['status']?.toString() != 'active') continue;
+        applyIncomingPanic(e);
+        return;
+      }
+    } catch (e) {
+      debugPrint('syncActivePanic: $e');
+    }
+  }
+
+  String get _presenceFocusWire =>
+      appInBackground ? 'background' : 'foreground';
+
+  /// Heartbeat + estado foco (verde/amarillo). Llamar al cambiar lifecycle.
+  void pingPresenceFocus() {
+    if (!connected || _socket == null) return;
+    final focus = _presenceFocusWire;
+    _socket!.emit('presence:ping', {'groupId': groupId, 'focus': focus});
+    final me = api.user?['id']?.toString();
+    if (me == null) return;
+    final want =
+        focus == 'background' ? PresenceFocus.background : PresenceFocus.foreground;
+    final i = online.indexWhere((m) => m.userId == me);
+    if (i < 0) return;
+    if (online[i].focus == want) return;
+    final copy = List<PresenceMember>.from(online);
+    copy[i] = PresenceMember(
+      userId: me,
+      displayName: copy[i].displayName,
+      focus: want,
+    );
+    online = copy;
+    notifyListeners();
   }
 
   Future<void> _attachGps() async {
@@ -508,9 +701,67 @@ class ChannelSession extends ChangeNotifier {
     );
   }
 
+  /// Mute de escucha: no se oye el radio hasta desactivar.
+  Future<void> setListenMuted(bool muted) async {
+    if (listenMuted == muted) {
+      await _applyListenMute();
+      return;
+    }
+    listenMuted = muted;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kRadioListenMuteKey, muted);
+    } catch (_) {}
+    await _applyListenMute();
+  }
+
+  Future<void> toggleListenMuted() => setListenMuted(!listenMuted);
+
+  Future<void> _applyListenMute() async {
+    final room = _room;
+    if (room == null) return;
+    for (final p in room.remoteParticipants.values) {
+      for (final pub in p.audioTrackPublications) {
+        try {
+          final track = pub.track;
+          // Corta reproducción local sin dejar de recibir señal (mejor que solo disable).
+          if (track is RemoteAudioTrack) {
+            try {
+              track.mediaStreamTrack.enabled = !listenMuted;
+            } catch (_) {}
+          }
+          if (listenMuted) {
+            await pub.disable();
+          } else {
+            await pub.enable();
+          }
+        } catch (e) {
+          debugPrint('listenMute: $e');
+        }
+      }
+    }
+  }
+
+  /// Reaplica altavoz de radio / mute de escucha (p. ej. tras bloquear pantalla).
+  Future<void> ensureBackgroundAudio() async {
+    if (_room == null || !livekitReady) return;
+    await AudioSessionSetup.acquireRadio();
+    if (!listenMuted) {
+      try {
+        await AudioManager.instance.setSpeakerOutputPreferred(true);
+      } catch (_) {
+        /* desktop / unsupported */
+      }
+    }
+    await _applyListenMute();
+  }
+
   Future<void> _connectLiveKit() async {
     try {
       final lk = await api.fetchLiveKitToken(groupId);
+      await _roomEvents?.dispose();
+      _roomEvents = null;
       await _room?.disconnect();
       final e2ee = await buildVoiceE2eeOptions(lk['e2eeKey']?.toString());
       final room = Room(
@@ -529,26 +780,38 @@ class ChannelSession extends ChangeNotifier {
             // NS agresivo suma latencia y deforma la voz
             noiseSuppression: false,
             autoGainControl: true,
-            stopAudioCaptureOnMute: false,
+            // Libera el micrófono del SO cuando no hablas (cámara / otras apps).
+            stopAudioCaptureOnMute: true,
           ),
         ),
       );
       _room = room;
       room.addListener(_onRoomChanged);
+      final ev = room.createListener();
+      ev
+        ..on<TrackSubscribedEvent>((e) {
+          if (e.track is! RemoteAudioTrack) return;
+          unawaited(_applyListenMute());
+        })
+        ..on<TrackPublishedEvent>((e) {
+          if (e.publication.kind != TrackType.AUDIO) return;
+          unawaited(_applyListenMute());
+        });
+      _roomEvents = ev;
+      await AudioSessionSetup.acquireRadio();
+      final lkUrl = AppConfig.publicLiveKitUrl(lk['url'] as String);
+      if (kDebugMode) debugPrint('LiveKit connect → $lkUrl');
       await room.connect(
-        AppConfig.publicLiveKitUrl(lk['url'] as String),
+        lkUrl,
         lk['token'] as String,
+        connectOptions: const ConnectOptions(autoSubscribe: true),
       );
-      try {
-        await AudioManager.instance.setSpeakerOutputPreferred(true);
-      } catch (_) {
-        /* desktop / unsupported */
-      }
+      await ensureBackgroundAudio();
       livekitReady = true;
       error = null;
       notifyListeners();
-      // Mic muteado listo: el grant solo hace unmute
-      await _ensureMicReady();
+      // No abrir mic aquí: solo al PTT (evita pelear con cámara/volumen del móvil).
+      await _applyListenMute();
     } catch (e) {
       livekitReady = false;
       error = e.toString();
@@ -564,6 +827,7 @@ class ChannelSession extends ChangeNotifier {
   Future<void> pressPtt() async {
     if (!connected || holding) return;
     error = null;
+    await AudioSessionSetup.acquireVoice();
     // Precalentar en paralelo al request
     unawaited(_ensureMicReady());
     _socket?.emit('ptt:request', {'groupId': groupId});
@@ -574,60 +838,106 @@ class ChannelSession extends ChangeNotifier {
     holding = false;
     await _muteMic();
     _socket?.emit('ptt:release', {'groupId': groupId});
+    await AudioSessionSetup.acquireRadio();
+    try {
+      await AudioManager.instance.setSpeakerOutputPreferred(true);
+    } catch (_) {}
     notifyListeners();
   }
 
-  /// Publica el mic muteado una vez; PTT solo mute/unmute.
+  /// Toque 1 = al aire; toque 2 = liberar.
+  Future<void> togglePtt() async {
+    if (holding) {
+      await releasePtt();
+    } else {
+      await pressPtt();
+    }
+  }
+
+  /// Publica el mic solo cuando hace falta (PTT); al mutear libera hardware.
   Future<void> _ensureMicReady() async {
     if (_room == null || !livekitReady) return;
-    if (_mic != null) return;
-    final mic = await LocalAudioTrack.create(
-      const AudioCaptureOptions(
-        echoCancellation: true,
-        noiseSuppression: false,
-        autoGainControl: true,
-        stopAudioCaptureOnMute: false,
-      ),
-    );
-    await mic.mute(stopOnMute: false);
-    _mic = mic;
-    _micPub = await _room!.localParticipant?.publishAudioTrack(
-      mic,
-      publishOptions: const AudioPublishOptions(
-        dtx: false,
-        red: false,
-        encoding: AudioEncoding.presetSpeech,
-        name: 'ptt',
-      ),
-    );
+    final lp = _room!.localParticipant;
+    if (lp == null) return;
+    if (_mic != null || lp.audioTrackPublications.isNotEmpty) {
+      try {
+        await lp.setMicrophoneEnabled(false);
+      } catch (_) {}
+      return;
+    }
+    try {
+      await lp.setMicrophoneEnabled(false);
+      final pubs = lp.audioTrackPublications;
+      if (pubs.isNotEmpty) {
+        _micPub = pubs.first;
+        _mic = pubs.first.track as LocalAudioTrack?;
+      }
+    } catch (e) {
+      final mic = await LocalAudioTrack.create(
+        const AudioCaptureOptions(
+          echoCancellation: true,
+          noiseSuppression: false,
+          autoGainControl: true,
+          stopAudioCaptureOnMute: true,
+        ),
+      );
+      await mic.mute(stopOnMute: true);
+      _mic = mic;
+      _micPub = await lp.publishAudioTrack(
+        mic,
+        publishOptions: const AudioPublishOptions(
+          dtx: false,
+          red: false,
+          encoding: AudioEncoding.presetSpeech,
+          name: 'ptt',
+        ),
+      );
+    }
   }
 
   /// Al grant: solo unmute (track ya publicado).
   Future<void> _publishMic() async {
     if (_room == null) return;
-    if (_mic == null) {
-      await _ensureMicReady();
+    final lp = _room!.localParticipant;
+    if (lp == null) return;
+    try {
+      await lp.setMicrophoneEnabled(true);
+      final pubs = lp.audioTrackPublications;
+      if (pubs.isNotEmpty) {
+        _micPub = pubs.first;
+        _mic = pubs.first.track as LocalAudioTrack?;
+      }
+      await _unmuteMic();
+    } catch (_) {
+      if (_mic == null) {
+        await _ensureMicReady();
+      }
+      await _unmuteMic();
     }
-    await _unmuteMic();
   }
 
   Future<void> _muteMic() async {
-    // stopOnMute: false → no corta el track (evita huecos al volver a hablar)
     try {
-      await _mic?.mute(stopOnMute: false);
+      await _room?.localParticipant?.setMicrophoneEnabled(false);
+    } catch (_) {}
+    try {
+      await _mic?.mute(stopOnMute: true);
     } catch (_) {
       try {
-        await _micPub?.mute(stopOnMute: false);
+        await _micPub?.mute(stopOnMute: true);
       } catch (_) {}
     }
   }
 
   Future<void> _unmuteMic() async {
     try {
-      await _mic?.unmute(stopOnMute: false);
+      await _room?.localParticipant?.setMicrophoneEnabled(true);
+    } catch (_) {}
+    try {
+      await _mic?.unmute();
     } catch (_) {
       try {
-        await _micPub?.unmute(stopOnMute: false);
+        await _micPub?.unmute();
       } catch (_) {}
     }
   }
@@ -650,26 +960,116 @@ class ChannelSession extends ChangeNotifier {
     }
   }
 
+  /// Libera el micrófono del SO para que otras apps / cámara del sistema funcionen.
+  Future<void> pauseMicForSystemCamera() => _stopMic();
+
+  /// Libera el mic del canal grupal para que radio/llamada 1:1 pueda capturar audio.
+  Future<void> pauseForPersonalRadio() async {
+    if (holding) {
+      try {
+        await releasePtt();
+      } catch (_) {}
+    }
+    await _stopMic();
+  }
+
+  /// Reactiva el mic del canal tras cerrar radio/llamada 1:1.
+  Future<void> resumeAfterPersonalRadio() async {
+    if (_room == null || !livekitReady) return;
+    unawaited(_ensureMicReady());
+  }
+
+  /// Recarga historial del servidor (tras inactividad / al abrir el chat).
+  Future<void> refreshChatHistory() async {
+    try {
+      final hist = await api.fetchMessages(groupId);
+      final server = hist.map(ChatMessage.fromJson).toList();
+      final serverIds = server.map((m) => m.id).toSet();
+      final serverClientIds = server
+          .map((m) => m.clientMsgId)
+          .whereType<String>()
+          .where((c) => c.isNotEmpty)
+          .toSet();
+      final pendingLocal = messages
+          .where(
+            (m) =>
+                m.isLocal &&
+                !serverIds.contains(m.id) &&
+                (m.clientMsgId == null ||
+                    !serverClientIds.contains(m.clientMsgId)),
+          )
+          .toList();
+      messages = [...server, ...pendingLocal];
+      error = null;
+      notifyListeners();
+      if (!appInBackground &&
+          isViewingConversation(groupId: groupId) &&
+          messages.isNotEmpty) {
+        markRead(messages.last.id);
+      }
+    } catch (e) {
+      // No borrar lo que ya hay en memoria si falla la red.
+      debugPrint('refreshChatHistory: $e');
+    }
+  }
+
   void sendChat(String body) {
     final text = body.trim();
     if (text.isEmpty) return;
     final replyId = replyTo?.id;
+    final replySnap = replyTo;
     setReplyTo(null);
     setTyping(false);
+    final me = api.user?['id']?.toString() ?? '';
+    final clientMsgId = 'local-${DateTime.now().microsecondsSinceEpoch}';
+    final optimistic = ChatMessage(
+      id: clientMsgId,
+      groupId: groupId,
+      senderId: me,
+      displayName: api.user?['displayName']?.toString() ?? 'Tú',
+      body: text,
+      type: 'text',
+      createdAt: DateTime.now().toUtc().toIso8601String(),
+      reply: replySnap != null
+          ? ChatReplyPreview(
+              id: replySnap.id,
+              body: replySnap.body,
+              type: replySnap.type,
+              displayName: replySnap.displayName,
+              isDeleted: replySnap.isDeleted,
+            )
+          : null,
+      clientMsgId: clientMsgId,
+      isLocal: true,
+    );
+    messages = [...messages, optimistic];
+    notifyListeners();
+
     if (connected) {
       _socket?.emit('chat:send', {
         'groupId': groupId,
         'body': text,
+        'clientMsgId': clientMsgId,
         if (replyId != null) 'replyToId': replyId,
       });
     } else {
       api.sendMessage(groupId, text, replyToId: replyId).then((msg) {
         final m = ChatMessage.fromJson(msg);
-        if (!messages.any((x) => x.id == m.id)) {
+        final idx = messages.indexWhere(
+          (x) => x.id == clientMsgId || x.clientMsgId == clientMsgId,
+        );
+        if (idx >= 0) {
+          final next = [...messages];
+          next[idx] = m;
+          messages = next;
+        } else if (!messages.any((x) => x.id == m.id)) {
           messages = [...messages, m];
-          notifyListeners();
         }
+        notifyListeners();
       }).catchError((e) {
+        messages = messages
+            .where((x) => !(x.id == clientMsgId || x.clientMsgId == clientMsgId))
+            .toList();
         error = e.toString();
         notifyListeners();
       });
@@ -697,6 +1097,12 @@ class ChannelSession extends ChangeNotifier {
     }
   }
 
+  void clearLocalMessages() {
+    messages = [];
+    replyTo = null;
+    notifyListeners();
+  }
+
   void markRead(String upToMessageId) {
     if (upToMessageId.isEmpty) return;
     if (connected) {
@@ -706,6 +1112,10 @@ class ChannelSession extends ChangeNotifier {
       });
     } else {
       api.markMessagesRead(groupId, upToMessageId).catchError((_) {});
+    }
+    // Al leer en la app, quita avisos de bandeja de este canal (estilo WhatsApp).
+    if (!appInBackground) {
+      PushService.instance.clearConversationNotifications(groupId: groupId);
     }
   }
 
@@ -825,23 +1235,37 @@ class ChannelSession extends ChangeNotifier {
   }
 
   void clearIncomingPanic() {
-    incomingPanicLabel = null;
+    _clearIncomingPanicState();
     notifyListeners();
   }
 
+  /// Silencia sirena/vibración en este dispositivo sin cerrar el overlay.
+  void silenceIncomingPanicAlarm() {
+    _stopPanicAlarmLoop();
+  }
+
   void _beepPanicOnce() {
-    try {
-      SystemSound.play(SystemSoundType.alert);
-    } catch (_) {}
-    try {
-      HapticFeedback.heavyImpact();
-    } catch (_) {}
+    unawaited(() async {
+      try {
+        _panicPlayer ??= AudioPlayer();
+        await _panicPlayer!.stop();
+        await _panicPlayer!.play(
+          AssetSource('sounds/panic_siren.wav'),
+          volume: 1.0,
+        );
+      } catch (_) {
+        try {
+          SystemSound.play(SystemSoundType.alert);
+        } catch (_) {}
+      }
+    }());
   }
 
   void _startPanicAlarmLoop() {
     _panicAlarm?.cancel();
+    unawaited(PanicVibration.startAlarm());
     _beepPanicOnce();
-    _panicAlarm = Timer.periodic(const Duration(milliseconds: 1200), (_) {
+    _panicAlarm = Timer.periodic(const Duration(milliseconds: 3200), (_) {
       if (!incomingPanicActive) {
         _stopPanicAlarmLoop();
         return;
@@ -853,19 +1277,27 @@ class ChannelSession extends ChangeNotifier {
   void _stopPanicAlarmLoop() {
     _panicAlarm?.cancel();
     _panicAlarm = null;
+    unawaited(PanicVibration.stop());
+    final player = _panicPlayer;
+    if (player == null) return;
+    // Errores del Future no los captura try/catch síncrono; evitar crash del isolate.
+    unawaited(() async {
+      try {
+        await player.stop();
+      } catch (_) {}
+    }());
   }
 
-  /// Enterado: silencia y marca acked en servidor (también para otros clientes).
+  /// Enterado: silencia solo este dispositivo; registra acuse en servidor.
   Future<bool> ackIncomingPanic() async {
     if (panicAcking) return false;
     panicAcking = true;
-    _stopPanicAlarmLoop();
-    incomingPanicActive = false;
     final id = lastPanicId;
-    incomingPanicLabel = null;
-    notifyListeners();
+    _clearIncomingPanicState();
+    // Un solo notify al final del ack evita rebuild + pop duplicado en el shell.
     if (id == null) {
       panicAcking = false;
+      notifyListeners();
       return true;
     }
     try {
@@ -873,7 +1305,6 @@ class ChannelSession extends ChangeNotifier {
       return true;
     } catch (e) {
       error = e.toString();
-      notifyListeners();
       return false;
     } finally {
       panicAcking = false;
@@ -915,6 +1346,7 @@ class ChannelSession extends ChangeNotifier {
   }
 
   Future<void> disposeSession() async {
+    if (identical(current, this)) current = null;
     _ping?.cancel();
     _typingIdle?.cancel();
     _stopPanicAlarmLoop();
@@ -922,10 +1354,13 @@ class ChannelSession extends ChangeNotifier {
     _socket?.emit('ptt:leave', {'groupId': groupId});
     _socket?.dispose();
     _socket = null;
+    await _roomEvents?.dispose();
+    _roomEvents = null;
     await _room?.disconnect();
     _room?.removeListener(_onRoomChanged);
     await _room?.dispose();
     _room = null;
+    await AudioSessionSetup.release();
   }
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { RoomEvent, Track } from 'livekit-client';
 import { fetchLiveKitToken } from './api';
 import { createEncryptedRoom } from './livekitE2ee';
+import { publicLiveKitUrl } from './livekitUrl';
 
 function attachRemoteAudio(track, muted) {
   if (track.kind !== Track.Kind.Audio) return;
@@ -56,7 +57,7 @@ export function useDispatchListen({ token, groups, skipGroupId, muted }) {
           room.on(RoomEvent.TrackUnsubscribed, (track) => {
             track.detach().forEach((el) => el.remove());
           });
-          await room.connect(lk.url, lk.token);
+          await room.connect(publicLiveKitUrl(lk.url), lk.token);
           rooms.push(room);
         } catch (e) {
           console.warn('Dispatch listen', g.name, e.message);

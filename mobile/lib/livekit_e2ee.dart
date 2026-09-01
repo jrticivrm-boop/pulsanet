@@ -9,7 +9,7 @@ Future<E2EEOptions?> buildVoiceE2eeOptions(String? e2eeKey) async {
     await keyProvider.setKey(e2eeKey);
     return E2EEOptions(keyProvider: keyProvider);
   } catch (e) {
-    debugPrint('LiveKit E2EE omitido: $e');
-    return null;
+    debugPrint('LiveKit E2EE falló (no se omite si hay clave): $e');
+    rethrow;
   }
 }

@@ -7,8 +7,9 @@ import {
   clearFloor,
   getFloor,
   getMemberRole,
+  normalizePresenceFocus,
   refreshFloorTtl,
-  removePresence,
+  removePresenceSocket,
   tryAcquireFloor,
 } from '../services/presence.js';
 import { emitDispatch } from './dispatch.js';
@@ -20,7 +21,7 @@ export function registerPttHandlers(io) {
     const user = socket.data.user;
     if (!user) return;
 
-    socket.on('ptt:join', async ({ groupId }) => {
+    socket.on('ptt:join', async ({ groupId, focus, background }) => {
       if (!groupId) return;
       try {
         const role = await getMemberRole(groupId, user.sub);
@@ -36,7 +37,8 @@ export function registerPttHandlers(io) {
 
         socket.join(`group:${groupId}`);
         socket.data.activeGroup = groupId;
-        await addPresence(groupId, user.sub, user.displayName);
+        const focusState = normalizePresenceFocus(focus, background);
+        await addPresence(groupId, user.sub, user.displayName, focusState, socket.id);
         await broadcastPresence(io, groupId);
         emitDispatch(io, 'dispatch:presence', { groupId });
 
@@ -94,6 +96,7 @@ export function registerPttHandlers(io) {
         }
 
         inc('pttGranted');
+        socket.data.holdingFloor = true;
         // Emitir YA: no bloquear el audio esperando INSERT en Postgres
         socket.emit('ptt:granted', { groupId });
         io.to(`group:${groupId}`).emit('ptt:speaker', {
@@ -130,14 +133,25 @@ export function registerPttHandlers(io) {
       await releaseFloor(gid, user.sub, io, socket);
     });
 
-    socket.on('presence:ping', async ({ groupId }) => {
+    socket.on('presence:ping', async ({ groupId, focus, background }) => {
       const gid = groupId || socket.data.activeGroup;
       if (!gid) return;
       try {
-        await addPresence(gid, user.sub, user.displayName);
+        const focusState = normalizePresenceFocus(focus, background);
+        const { focusChanged } = await addPresence(
+          gid,
+          user.sub,
+          user.displayName,
+          focusState,
+          socket.id
+        );
         const floor = await getFloor(gid);
         if (floor?.userId === user.sub) {
           await refreshFloorTtl(gid);
+        }
+        if (focusChanged) {
+          await broadcastPresence(io, gid);
+          emitDispatch(io, 'dispatch:presence', { groupId: gid });
         }
       } catch {
         /* ignore ping errors */
@@ -157,14 +171,21 @@ async function leaveGroup(socket, io, groupId, user) {
   if (socket.data.activeGroup === groupId) {
     socket.data.activeGroup = null;
   }
-  await releaseFloor(groupId, user.sub, io, socket);
-  await removePresence(groupId, user.sub);
+
+  const { removedUser } = await removePresenceSocket(groupId, socket.id);
+
+  // Liberar floor solo si este socket tenía el PTT o el usuario ya no tiene ningún dispositivo.
+  if (socket.data.holdingFloor || removedUser) {
+    await releaseFloor(groupId, user.sub, io, socket);
+  }
+
   await broadcastPresence(io, groupId);
   emitDispatch(io, 'dispatch:presence', { groupId });
 }
 
 async function releaseFloor(groupId, userId, io, socket) {
   const cleared = await clearFloor(groupId, userId);
+  if (socket) socket.data.holdingFloor = false;
   if (cleared) {
     inc('pttReleased');
     try {

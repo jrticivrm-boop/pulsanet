@@ -1,0 +1,36 @@
+/** Semilla de grados (Art. 129 LOEFAM) — misma lista que armyGrades.js web */
+export const DEFAULT_GRADE_SEED = [
+  { category: 'Generales', abbreviation: 'Gral. Div.', name: 'General de División', sortOrder: 10 },
+  { category: 'Generales', abbreviation: 'Gral. Bgda.', name: 'General de Brigada', sortOrder: 20 },
+  { category: 'Generales', abbreviation: 'Gral. Brig.', name: 'General Brigadier', sortOrder: 30 },
+  { category: 'Jefes', abbreviation: 'Cor.', name: 'Coronel', sortOrder: 40 },
+  { category: 'Jefes', abbreviation: 'Tte. Cor.', name: 'Teniente Coronel', sortOrder: 50 },
+  { category: 'Jefes', abbreviation: 'May.', name: 'Mayor', sortOrder: 60 },
+  { category: 'Oficiales', abbreviation: 'Cap. 1/o.', name: 'Capitán Primero', sortOrder: 70 },
+  { category: 'Oficiales', abbreviation: 'Cap. 2/o.', name: 'Capitán Segundo', sortOrder: 80 },
+  { category: 'Oficiales', abbreviation: 'Tte.', name: 'Teniente', sortOrder: 90 },
+  { category: 'Oficiales', abbreviation: 'Sbtte.', name: 'Subteniente', sortOrder: 100 },
+  { category: 'Tropa', abbreviation: 'SGTO', name: 'Sargento (indicativo)', sortOrder: 105 },
+  { category: 'Tropa', abbreviation: 'Sgto. 1/o.', name: 'Sargento Primero', sortOrder: 110 },
+  { category: 'Tropa', abbreviation: 'Sgto. 2/o.', name: 'Sargento Segundo', sortOrder: 120 },
+  { category: 'Tropa', abbreviation: 'Cabo', name: 'Cabo', sortOrder: 130 },
+  { category: 'Tropa', abbreviation: 'Sld.', name: 'Soldado', sortOrder: 140 },
+  { category: 'Puestos / salas', abbreviation: 'B.O.', name: 'Base / Batallón de Operaciones', sortOrder: 200 },
+  { category: 'Puestos / salas', abbreviation: 'S.O.', name: 'Sala de Operaciones', sortOrder: 210 },
+  { category: 'Puestos / salas', abbreviation: 'C.G.', name: 'Cuartel General', sortOrder: 220 },
+];
+
+export const DEFAULT_EMPLEO_SEED = [
+  'Infantería',
+  'Caballería',
+  'Artillería',
+  'Ingenieros',
+  'Transmisiones',
+  'Materiales de Guerra',
+  'Transportes',
+  'Intendencia',
+  'Sanidad',
+  'Justicia Militar',
+  'T.I.C.',
+  'Administración',
+];

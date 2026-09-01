@@ -20,7 +20,20 @@ function getKey() {
 }
 
 export function isContentEncryptionReady() {
-  return Boolean(process.env.CONTENT_ENCRYPTION_KEY?.trim() || !config.isProd);
+  const key = process.env.CONTENT_ENCRYPTION_KEY?.trim();
+  if (config.isProd) {
+    return Boolean(key && key.length >= 32);
+  }
+  // Dev: solo “listo” si hay clave explícita (evita fingir cifrado con fallback JWT).
+  return Boolean(key && key.length >= 16);
+}
+
+/**
+ * @deprecated No exportar a clientes: el servidor abre cuerpos en reposo.
+ * Se mantiene por compat; siempre null.
+ */
+export function exportContentKeyB64() {
+  return null;
 }
 
 /**
@@ -32,7 +45,7 @@ export function encryptText(plain, { force = false } = {}) {
   const text = String(plain);
   if (!text) return text;
   if (text.startsWith(CONTENT_PREFIX)) return text;
-  if (!force && !isContentEncryptionReady()) return text;
+  if (!force && config.isProd && !isContentEncryptionReady()) return text;
 
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', getKey(), iv);

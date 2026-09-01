@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { postLocation } from './api';
 
-/** Intervalo de envío de GPS a despacho (ms) — latido continuo estilo WhatsApp. */
-export const GPS_INTERVAL_MS = 4000;
+/** Intervalo de envío de GPS a despacho (ms) — mismo latido que la app móvil (~5 s). */
+export const GPS_INTERVAL_MS = 5000;
 
 /**
  * Reporta la ubicación del operador autenticado cada ~5 s.

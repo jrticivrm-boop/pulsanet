@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { RoomEvent, Track, createLocalAudioTrack, AudioPresets } from 'livekit-client';
 import { createEncryptedRoom } from './livekitE2ee';
+import { publicLiveKitUrl } from './livekitUrl';
 import {
   fetchLiveKitToken,
   fetchMessages,
@@ -17,16 +18,18 @@ import {
   patchPanicEvent,
 } from './api';
 import { socketIoOptions, socketUrl } from './socketConfig';
-import { createVoiceRecorder, VOICE_AUDIO_CONSTRAINTS } from './voiceRecord';
+import { assertMediaDevices, createVoiceRecorder, VOICE_AUDIO_CONSTRAINTS } from './voiceRecord';
 import { playPanicAlarm, startPanicAlarm, stopPanicAlarm, unlockPanicAudio } from './panicSound';
 import { notifyBackgroundChat, notifyBackgroundPtt } from './backgroundKeepalive';
+import { playChannelFreeTone } from './appNotify';
+import { esMsg } from './esMsg';
 
 const SOCKET_URL = socketUrl();
 
 /**
  * Socket.IO (floor + presencia + chat) + LiveKit (audio).
  */
-export function usePtt({ token, user, group }) {
+export function usePtt({ token, user, group, suppressChatNotify = false }) {
   const [connected, setConnected] = useState(false);
   const [livekitReady, setLivekitReady] = useState(false);
   const [speaking, setSpeaking] = useState(null);
@@ -201,21 +204,27 @@ export function usePtt({ token, user, group }) {
     const room = roomRef.current;
     if (!room || room.state !== 'connected') return;
     if (micRef.current) return;
-    const mic = await createLocalAudioTrack({
-      echoCancellation: VOICE_AUDIO_CONSTRAINTS.echoCancellation,
-      noiseSuppression: VOICE_AUDIO_CONSTRAINTS.noiseSuppression,
-      autoGainControl: VOICE_AUDIO_CONSTRAINTS.autoGainControl,
-      channelCount: VOICE_AUDIO_CONSTRAINTS.channelCount,
-    });
-    await mic.mute();
-    micRef.current = mic;
-    await room.localParticipant.publishTrack(mic, {
-      source: Track.Source.Microphone,
-      dtx: false,
-      red: false,
-      audioPreset: AudioPresets.speech,
-      stopMicTrackOnMute: false,
-    });
+    try {
+      assertMediaDevices();
+      const mic = await createLocalAudioTrack({
+        echoCancellation: VOICE_AUDIO_CONSTRAINTS.echoCancellation,
+        noiseSuppression: VOICE_AUDIO_CONSTRAINTS.noiseSuppression,
+        autoGainControl: VOICE_AUDIO_CONSTRAINTS.autoGainControl,
+        channelCount: VOICE_AUDIO_CONSTRAINTS.channelCount,
+      });
+      await mic.mute();
+      micRef.current = mic;
+      await room.localParticipant.publishTrack(mic, {
+        source: Track.Source.Microphone,
+        dtx: false,
+        red: false,
+        audioPreset: AudioPresets.speech,
+        stopMicTrackOnMute: false,
+      });
+    } catch (err) {
+      setError(esMsg(err.message || err.name, 'No se pudo activar el micrófono'));
+      throw err;
+    }
   }, []);
 
   const startPublishing = useCallback(async () => {
@@ -240,7 +249,11 @@ export function usePtt({ token, user, group }) {
     if (!gid || !tok) return;
     if (roomRef.current?.state === 'connected') {
       setLivekitReady(true);
-      await ensureMicReady();
+      try {
+        await ensureMicReady();
+      } catch {
+        /* mic bloqueado: se oye; PTT pedirá permiso al hablar */
+      }
       return;
     }
     const lk = await fetchLiveKitToken(tok, gid);
@@ -292,14 +305,28 @@ export function usePtt({ token, user, group }) {
       document.body.appendChild(el);
       if (!muted) el.play().catch(() => {});
     };
+    const kickRemoteAudio = () => {
+      document.querySelectorAll('[data-lk-audio]').forEach((el) => {
+        if (listenMutedRef.current) return;
+        el.muted = false;
+        el.volume = 1;
+        el.play().catch(() => {});
+      });
+      try {
+        room.startAudio().catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    };
     room.on(RoomEvent.TrackSubscribed, attachRemote);
+    room.on(RoomEvent.TrackUnmuted, kickRemoteAudio);
     room.on(RoomEvent.TrackUnsubscribed, (track) => {
       track.detach().forEach((el) => el.remove());
     });
     room.on(RoomEvent.Disconnected, () => {
       setLivekitReady(false);
     });
-    await room.connect(lk.url, lk.token);
+    await room.connect(publicLiveKitUrl(lk.url), lk.token);
     setLivekitReady(true);
     setStatus((s) => (s === 'talking' ? s : 'ready'));
     try {
@@ -313,7 +340,12 @@ export function usePtt({ token, user, group }) {
       });
     });
     applyListenMute(listenMutedRef.current);
-    await ensureMicReady();
+    kickRemoteAudio();
+    try {
+      await ensureMicReady();
+    } catch {
+      /* mic bloqueado: canal listo para escuchar */
+    }
   }, [ensureMicReady, applyListenMute]);
 
   useEffect(() => {
@@ -331,7 +363,7 @@ export function usePtt({ token, user, group }) {
         if (!cancelled) setMessages(data.messages || []);
       })
       .catch((err) => {
-        if (!cancelled) setChatError(err.message);
+        if (!cancelled) setChatError(esMsg(err.message));
       });
 
     const socket = io(SOCKET_URL, {
@@ -340,15 +372,27 @@ export function usePtt({ token, user, group }) {
     });
     socketRef.current = socket;
 
+    const presenceFocus = () =>
+      typeof document !== 'undefined' && document.hidden ? 'background' : 'foreground';
+
     const joinChannel = () => {
-      socket.emit('ptt:join', { groupId: group.id });
-      if (['root', 'admin', 'dispatcher'].includes(user?.role)) {
+      socket.emit('ptt:join', { groupId: group.id, focus: presenceFocus() });
+      if (['root', 'admin', 'zone_admin', 'unit_admin', 'dispatcher'].includes(user?.role)) {
         socket.emit('dispatch:join');
       }
     };
 
+    const onVisibility = () => {
+      if (socket.connected) {
+        socket.emit('presence:ping', { groupId: group.id, focus: presenceFocus() });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
     socket.on('connect', async () => {
       setConnected(true);
+      // Limpia banners residuales (p. ej. "xhr poll error" tras reconectar)
+      setError(null);
       joinChannel();
       if (holdingRef.current) {
         holdingRef.current = false;
@@ -359,7 +403,7 @@ export function usePtt({ token, user, group }) {
         await ensureLiveKit();
       } catch (err) {
         if (!cancelled) {
-          setError(err.message || 'Error LiveKit');
+          setError(esMsg(err.message || 'Error de audio'));
           setStatus('error');
         }
       }
@@ -369,7 +413,14 @@ export function usePtt({ token, user, group }) {
       setConnected(false);
       setStatus((s) => (s === 'talking' ? 'reconnecting' : s));
     });
-    socket.on('connect_error', (err) => setError(err.message));
+    socket.on('connect_error', (err) => {
+      if (cancelled) return;
+      // Solo mostrar si aún no hay enlace (evita flash rojo al reconectar)
+      setError((prev) => {
+        if (socket.connected) return prev;
+        return esMsg(err.message, 'Error de conexión');
+      });
+    });
 
     socket.on('ptt:state', ({ groupId, speaker }) => {
       if (groupId !== group.id) return;
@@ -395,7 +446,7 @@ export function usePtt({ token, user, group }) {
         // Mic ya debería estar publicado muteado; solo unmute
         await startPublishing();
       } catch (err) {
-        setError(err.message || 'No se pudo publicar audio');
+        setError(esMsg(err.message || 'No se pudo publicar audio'));
         socket.emit('ptt:release', { groupId: group.id });
       }
     });
@@ -438,16 +489,19 @@ export function usePtt({ token, user, group }) {
 
     socket.on('ptt:released', async ({ groupId }) => {
       if (groupId !== group.id) return;
+      const wasMe = holdingRef.current;
       setSpeaking(null);
-      if (holdingRef.current) {
+      if (wasMe) {
         holdingRef.current = false;
         setHolding(false);
         await muteMic();
+      } else {
+        playChannelFreeTone({ soft: !document.hidden });
       }
       setStatus('ready');
     });
 
-    socket.on('ptt:error', ({ error: msg }) => setError(msg));
+    socket.on('ptt:error', ({ error: msg }) => setError(esMsg(msg)));
 
     socket.on('chat:message', (msg) => {
       if (msg.groupId !== group.id) return;
@@ -468,7 +522,7 @@ export function usePtt({ token, user, group }) {
         delete next[msg.senderId];
         return next;
       });
-      if (msg.senderId !== user?.id) {
+      if (msg.senderId !== user?.id && !suppressChatNotify) {
         notifyBackgroundChat({
           title: msg.displayName || group.name || 'Canal',
           body: msg.body || msg.type || 'Nuevo mensaje',
@@ -505,6 +559,9 @@ export function usePtt({ token, user, group }) {
         id: event.id,
         displayName: event.displayName || 'Operador',
         createdAt: event.createdAt,
+        latitude: event.latitude,
+        longitude: event.longitude,
+        accuracyM: event.accuracyM,
       });
       startPanicAlarm();
     });
@@ -512,6 +569,9 @@ export function usePtt({ token, user, group }) {
     socket.on('panic:update', (event) => {
       if (event.groupId && event.groupId !== group.id) return;
       if (!event?.status || event.status === 'active') return;
+      // «acked» = otro dispositivo se dio por enterado: no silenciar aquí.
+      // Solo resolved/cancelled cierran la alerta en todos.
+      if (event.status === 'acked') return;
       setIncomingPanic((prev) => {
         if (!prev || prev.id !== event.id) return prev;
         stopPanicAlarm();
@@ -546,7 +606,7 @@ export function usePtt({ token, user, group }) {
     });
 
     socket.on('chat:error', ({ error: msg, clientMsgId }) => {
-      setChatError(msg);
+      setChatError(esMsg(msg));
       if (clientMsgId) {
         setMessages((prev) =>
           prev.filter((m) => !(m._local && (m.clientMsgId === clientMsgId || m.id === clientMsgId)))
@@ -556,13 +616,17 @@ export function usePtt({ token, user, group }) {
 
     const ping = setInterval(() => {
       if (socket.connected) {
-        socket.emit('presence:ping', { groupId: group.id });
+        socket.emit('presence:ping', {
+          groupId: group.id,
+          focus: typeof document !== 'undefined' && document.hidden ? 'background' : 'foreground',
+        });
       }
     }, 30000);
 
     return () => {
       cancelled = true;
       clearInterval(ping);
+      document.removeEventListener('visibilitychange', onVisibility);
       holdingRef.current = false;
       socket.emit('ptt:leave', { groupId: group.id });
       socket.disconnect();
@@ -587,7 +651,9 @@ export function usePtt({ token, user, group }) {
     unlockPanicAudio();
     setDenied(null);
     // Precalentar mic en paralelo al request de floor (no await)
-    void ensureMicReady();
+    void ensureMicReady().catch(() => {
+      /* error ya en setError vía ensureMicReady */
+    });
     socketRef.current.emit('ptt:request', { groupId: group.id });
   }, [group?.id, ensureMicReady]);
 
@@ -601,6 +667,15 @@ export function usePtt({ token, user, group }) {
       setStatus('ready');
     }
   }, [group?.id, muteMic]);
+
+  /** Toque / Espacio: 1.º al aire, 2.º libera. */
+  const toggle = useCallback(() => {
+    if (holdingRef.current) {
+      void release();
+    } else {
+      press();
+    }
+  }, [press, release]);
 
   const postChat = useCallback(
     async (body, { replyToId } = {}) => {
@@ -646,7 +721,7 @@ export function usePtt({ token, user, group }) {
           });
         }
       } catch (err) {
-        setChatError(err.message);
+        setChatError(esMsg(err.message));
       }
     },
     [token, group?.id, user?.id, user?.displayName]
@@ -674,7 +749,7 @@ export function usePtt({ token, user, group }) {
           return [...prev, data.message];
         });
       } catch (err) {
-        setChatError(err.message);
+        setChatError(esMsg(err.message));
       }
     },
     [token, group?.id]
@@ -704,7 +779,7 @@ export function usePtt({ token, user, group }) {
           setMessages((prev) => prev.map((m) => (m.id === data.message.id ? data.message : m)));
         }
       } catch (err) {
-        setChatError(err.message);
+        setChatError(esMsg(err.message));
       }
     },
     [token, group?.id]
@@ -722,7 +797,7 @@ export function usePtt({ token, user, group }) {
           setMessages((prev) => prev.map((m) => (m.id === data.message.id ? data.message : m)));
         }
       } catch (err) {
-        setChatError(err.message);
+        setChatError(esMsg(err.message));
       }
     },
     [token, group?.id]
@@ -744,7 +819,7 @@ export function usePtt({ token, user, group }) {
           );
         }
       } catch (err) {
-        setChatError(err.message);
+        setChatError(esMsg(err.message));
       }
     },
     [token, group?.id]
@@ -769,7 +844,7 @@ export function usePtt({ token, user, group }) {
           });
         }
       } catch (err) {
-        setChatError(err.message);
+        setChatError(esMsg(err.message));
       }
     },
     [token, group?.id]
@@ -799,7 +874,7 @@ export function usePtt({ token, user, group }) {
         }
         return data.event;
       } catch (err) {
-        setChatError(err.message);
+        setChatError(esMsg(err.message));
         return null;
       } finally {
         setPanicSending(false);
@@ -837,15 +912,16 @@ export function usePtt({ token, user, group }) {
   const ackPanic = useCallback(async () => {
     if (!token || !incomingPanic?.id || panicAcking) return false;
     setPanicAcking(true);
+    const panicId = incomingPanic.id;
+    // Silencio solo en este dispositivo / pestaña
     stopPanicAlarm();
+    setIncomingPanic(null);
     try {
-      await patchPanicEvent(token, incomingPanic.id, 'acked');
-      setIncomingPanic(null);
+      // Auditoría en servidor; no debe apagar la sirena de los demás
+      await patchPanicEvent(token, panicId, 'acked');
       return true;
     } catch (err) {
-      // Aunque falle la API, silenciar localmente
-      setIncomingPanic(null);
-      setChatError(err.message);
+      setChatError(esMsg(err.message));
       return false;
     } finally {
       setPanicAcking(false);
@@ -855,6 +931,10 @@ export function usePtt({ token, user, group }) {
   const dismissPanicLocal = useCallback(() => {
     stopPanicAlarm();
     setIncomingPanic(null);
+  }, []);
+
+  const silencePanicAlarm = useCallback(() => {
+    stopPanicAlarm();
   }, []);
 
   const typingLabel = Object.values(typingUsers).length
@@ -875,6 +955,7 @@ export function usePtt({ token, user, group }) {
     typingLabel,
     press,
     release,
+    toggle,
     postChat,
     postMedia,
     postSticker,
@@ -884,6 +965,7 @@ export function usePtt({ token, user, group }) {
     incomingPanic,
     ackPanic,
     dismissPanicLocal,
+    silencePanicAlarm,
     panicAcking,
     markRead,
     editChat,

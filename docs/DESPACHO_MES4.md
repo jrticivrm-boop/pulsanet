@@ -1,4 +1,4 @@
-# PulsaNet — Panel despacho Mes 4
+# TacticalPtx — Panel despacho Mes 4
 
 Panel web para admin/despachador: resumen PTT en vivo, mapa OSM, usuarios y grupos.
 
@@ -14,8 +14,8 @@ http://localhost:5173
 
 | Cuenta | Rol | Destino |
 |--------|-----|---------|
-| `despacho@pulsanet.local` | dispatcher | `/despacho` |
-| `admin@pulsanet.local` | admin | `/despacho` (+ crear usuarios) |
+| `despacho@tacticalptx.local` | dispatcher | `/despacho` |
+| `admin@tacticalptx.local` | admin | `/despacho` (+ crear usuarios) |
 | `op1@…` | operator | `/radio` PTT |
 
 Pass: `demo1234`

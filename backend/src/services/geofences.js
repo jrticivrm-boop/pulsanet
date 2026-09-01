@@ -1,5 +1,5 @@
 import { query } from '../db.js';
-import { emitDispatch } from '../socket/dispatch.js';
+import { emitDispatchTrack } from '../socket/dispatch.js';
 
 const EARTH_M = 6371000;
 
@@ -24,6 +24,7 @@ export async function evaluateGeofences(io, {
   displayName,
   latitude,
   longitude,
+  unitId = null,
 }) {
   const { rows: fences } = await query(
     `SELECT id, name, center_lat, center_lng, radius_m
@@ -74,7 +75,7 @@ export async function evaluateGeofences(io, {
       at: new Date().toISOString(),
     };
     events.push(payload);
-    emitDispatch(io, 'dispatch:geofence', payload);
+    emitDispatchTrack(io, 'dispatch:geofence', payload, { unitId });
   }
   return events;
 }

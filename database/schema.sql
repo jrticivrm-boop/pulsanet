@@ -1,5 +1,5 @@
--- PulsaNet — Esquema PostgreSQL v1
--- Ejecutar: psql -U postgres -d pulsanet_db -f schema.sql
+-- TacticalPtx — Esquema PostgreSQL v1
+-- Ejecutar: psql -U postgres -d tacticalptx_db -f schema.sql
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -8,36 +8,50 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Organización (v1: una sola; v2 multi-tenant)
 -- ---------------------------------------------------------------------------
 CREATE TABLE organizations (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        VARCHAR(200) NOT NULL,
-    slug        VARCHAR(80)  NOT NULL UNIQUE,
-    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ name VARCHAR(200) NOT NULL,
+ slug VARCHAR(80) NOT NULL UNIQUE,
+ is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ---------------------------------------------------------------------------
 -- Usuarios
 -- ---------------------------------------------------------------------------
-CREATE TYPE user_role AS ENUM ('root', 'admin', 'dispatcher', 'operator');
+CREATE TYPE user_role AS ENUM (
+ 'root', 'admin', 'zone_admin', 'unit_admin', 'dispatcher', 'operator'
+);
 
 CREATE TABLE users (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    username        VARCHAR(20) NOT NULL,
-    email           VARCHAR(255),
-    password_hash   VARCHAR(255) NOT NULL,
-    display_name    VARCHAR(120) NOT NULL,
-    role            user_role NOT NULL DEFAULT 'operator',
-    avatar_url      TEXT,
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    can_receive_panic BOOLEAN NOT NULL DEFAULT FALSE,
-    must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
-    last_seen_at    TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (organization_id, username),
-    UNIQUE (organization_id, email)
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+ username VARCHAR(20) NOT NULL,
+ email VARCHAR(255),
+ password_hash VARCHAR(255) NOT NULL,
+ display_name VARCHAR(120) NOT NULL,
+ grade VARCHAR(40),
+ specialty VARCHAR(120),
+ cargo VARCHAR(120),
+ given_names VARCHAR(120),
+ paternal_surname VARCHAR(80),
+ maternal_surname VARCHAR(80),
+ matricula VARCHAR(40),
+ role user_role NOT NULL DEFAULT 'operator',
+ unit_id UUID,
+ admin_scope_unit_id UUID,
+ can_see_region BOOLEAN NOT NULL DEFAULT FALSE,
+ can_see_zones BOOLEAN NOT NULL DEFAULT FALSE,
+ can_see_units BOOLEAN NOT NULL DEFAULT FALSE,
+ avatar_url TEXT,
+ is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ can_receive_panic BOOLEAN NOT NULL DEFAULT FALSE,
+ must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+ last_seen_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE (organization_id, username),
+ UNIQUE (organization_id, email)
 );
 
 CREATE INDEX idx_users_username ON users (username);
@@ -45,20 +59,26 @@ CREATE INDEX idx_users_username ON users (username);
 CREATE INDEX idx_users_org ON users (organization_id);
 CREATE INDEX idx_users_active ON users (organization_id, is_active);
 
+CREATE UNIQUE INDEX idx_users_org_matricula
+ ON users (organization_id, LOWER(matricula))
+ WHERE matricula IS NOT NULL AND TRIM(matricula) <> '';
+
 -- ---------------------------------------------------------------------------
 -- Grupos (canales PTT)
 -- ---------------------------------------------------------------------------
 CREATE TABLE groups (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name            VARCHAR(120) NOT NULL,
-    description     TEXT,
-    livekit_room    VARCHAR(120) NOT NULL UNIQUE,
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    max_members     INT NOT NULL DEFAULT 500,
-    created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+ name VARCHAR(120) NOT NULL,
+ description TEXT,
+ livekit_room VARCHAR(120) NOT NULL UNIQUE,
+ is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ max_members INT NOT NULL DEFAULT 500,
+ unit_id UUID,
+ avatar_url TEXT,
+ created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_groups_org ON groups (organization_id);
@@ -69,12 +89,12 @@ CREATE INDEX idx_groups_org ON groups (organization_id);
 CREATE TYPE group_member_role AS ENUM ('leader', 'member', 'listen_only');
 
 CREATE TABLE group_members (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    group_id    UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role        group_member_role NOT NULL DEFAULT 'member',
-    joined_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (group_id, user_id)
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ role group_member_role NOT NULL DEFAULT 'member',
+ joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE (group_id, user_id)
 );
 
 CREATE INDEX idx_group_members_user ON group_members (user_id);
@@ -85,15 +105,15 @@ CREATE INDEX idx_group_members_user ON group_members (user_id);
 CREATE TYPE device_platform AS ENUM ('android', 'ios', 'web');
 
 CREATE TABLE devices (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    platform    device_platform NOT NULL,
-    fcm_token   TEXT NOT NULL,
-    device_name VARCHAR(120),
-    is_active   BOOLEAN NOT NULL DEFAULT TRUE,
-    last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (user_id, fcm_token)
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ platform device_platform NOT NULL,
+ fcm_token TEXT NOT NULL,
+ device_name VARCHAR(120),
+ is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE (user_id, fcm_token)
 );
 
 -- ---------------------------------------------------------------------------
@@ -102,26 +122,26 @@ CREATE TABLE devices (
 CREATE TYPE message_type AS ENUM ('text', 'image', 'file', 'audio', 'sticker', 'location', 'system');
 
 CREATE TABLE messages (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    group_id    UUID REFERENCES groups(id) ON DELETE CASCADE,
-    sender_id   UUID REFERENCES users(id) ON DELETE SET NULL,
-    recipient_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    type        message_type NOT NULL DEFAULT 'text',
-    body        TEXT,
-    media_url   TEXT,
-    media_mime  VARCHAR(120),
-    media_name  VARCHAR(255),
-    media_size  INT,
-    reply_to_id UUID REFERENCES messages(id) ON DELETE SET NULL,
-    latitude    DOUBLE PRECISION,
-    longitude   DOUBLE PRECISION,
-    edited_at   TIMESTAMPTZ,
-    deleted_at  TIMESTAMPTZ,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT messages_target CHECK (
-        (group_id IS NOT NULL AND recipient_id IS NULL)
-        OR (group_id IS NULL AND recipient_id IS NOT NULL AND sender_id IS NOT NULL)
-    )
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ group_id UUID REFERENCES groups(id) ON DELETE CASCADE,
+ sender_id UUID REFERENCES users(id) ON DELETE SET NULL,
+ recipient_id UUID REFERENCES users(id) ON DELETE CASCADE,
+ type message_type NOT NULL DEFAULT 'text',
+ body TEXT,
+ media_url TEXT,
+ media_mime VARCHAR(120),
+ media_name VARCHAR(255),
+ media_size INT,
+ reply_to_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+ latitude DOUBLE PRECISION,
+ longitude DOUBLE PRECISION,
+ edited_at TIMESTAMPTZ,
+ deleted_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ CONSTRAINT messages_target CHECK (
+ (group_id IS NOT NULL AND recipient_id IS NULL)
+ OR (group_id IS NULL AND recipient_id IS NOT NULL AND sender_id IS NOT NULL)
+ )
 );
 
 CREATE INDEX idx_messages_group ON messages (group_id, created_at DESC);
@@ -131,11 +151,11 @@ CREATE INDEX idx_messages_dm ON messages (sender_id, recipient_id, created_at DE
 -- Reacciones a mensajes
 -- ---------------------------------------------------------------------------
 CREATE TABLE message_reactions (
-    message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    emoji      TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (message_id, user_id)
+ message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ emoji TEXT NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ PRIMARY KEY (message_id, user_id)
 );
 
 CREATE INDEX idx_message_reactions_msg ON message_reactions (message_id);
@@ -144,10 +164,10 @@ CREATE INDEX idx_message_reactions_msg ON message_reactions (message_id);
 -- Lecturas de mensajes (ticks)
 -- ---------------------------------------------------------------------------
 CREATE TABLE message_reads (
-    message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    read_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (message_id, user_id)
+ message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ PRIMARY KEY (message_id, user_id)
 );
 
 CREATE INDEX idx_message_reads_user ON message_reads (user_id, read_at DESC);
@@ -156,12 +176,12 @@ CREATE INDEX idx_message_reads_user ON message_reads (user_id, read_at DESC);
 -- Ubicaciones (tracking)
 -- ---------------------------------------------------------------------------
 CREATE TABLE locations (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    latitude    DOUBLE PRECISION NOT NULL,
-    longitude   DOUBLE PRECISION NOT NULL,
-    accuracy_m  REAL,
-    recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ latitude DOUBLE PRECISION NOT NULL,
+ longitude DOUBLE PRECISION NOT NULL,
+ accuracy_m REAL,
+ recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_locations_user_time ON locations (user_id, recorded_at DESC);
@@ -169,7 +189,7 @@ CREATE INDEX idx_locations_user_time ON locations (user_id, recorded_at DESC);
 -- Vista: última ubicación por usuario
 CREATE OR REPLACE VIEW user_last_location AS
 SELECT DISTINCT ON (user_id)
-    user_id, latitude, longitude, accuracy_m, recorded_at
+ user_id, latitude, longitude, accuracy_m, recorded_at
 FROM locations
 ORDER BY user_id, recorded_at DESC;
 
@@ -177,24 +197,24 @@ ORDER BY user_id, recorded_at DESC;
 -- Geocercas (círculos)
 -- ---------------------------------------------------------------------------
 CREATE TABLE geofences (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name            VARCHAR(120) NOT NULL,
-    center_lat      DOUBLE PRECISION NOT NULL,
-    center_lng      DOUBLE PRECISION NOT NULL,
-    radius_m        REAL NOT NULL CHECK (radius_m > 0 AND radius_m <= 50000),
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+ name VARCHAR(120) NOT NULL,
+ center_lat DOUBLE PRECISION NOT NULL,
+ center_lng DOUBLE PRECISION NOT NULL,
+ radius_m REAL NOT NULL CHECK (radius_m > 0 AND radius_m <= 50000),
+ is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_geofences_org ON geofences (organization_id) WHERE is_active;
 
 CREATE TABLE geofence_presence (
-    geofence_id UUID NOT NULL REFERENCES geofences(id) ON DELETE CASCADE,
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    inside      BOOLEAN NOT NULL,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (geofence_id, user_id)
+ geofence_id UUID NOT NULL REFERENCES geofences(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ inside BOOLEAN NOT NULL,
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ PRIMARY KEY (geofence_id, user_id)
 );
 
 CREATE INDEX idx_geofence_presence_user ON geofence_presence (user_id);
@@ -203,16 +223,16 @@ CREATE INDEX idx_geofence_presence_user ON geofence_presence (user_id);
 -- Sesiones PTT (auditoría)
 -- ---------------------------------------------------------------------------
 CREATE TABLE ptt_sessions (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    group_id    UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    ended_at    TIMESTAMPTZ,
-    duration_ms INT GENERATED ALWAYS AS (
-        CASE WHEN ended_at IS NOT NULL
-        THEN (EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000)::INT
-        ELSE NULL END
-    ) STORED
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ ended_at TIMESTAMPTZ,
+ duration_ms INT GENERATED ALWAYS AS (
+ CASE WHEN ended_at IS NOT NULL
+ THEN (EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000)::INT
+ ELSE NULL END
+ ) STORED
 );
 
 CREATE INDEX idx_ptt_sessions_group ON ptt_sessions (group_id, started_at DESC);
@@ -221,15 +241,15 @@ CREATE INDEX idx_ptt_sessions_group ON ptt_sessions (group_id, started_at DESC);
 -- Grabaciones PTT
 -- ---------------------------------------------------------------------------
 CREATE TABLE ptt_recordings (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    group_id        UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    file_path       TEXT NOT NULL,
-    mime_type       VARCHAR(80) NOT NULL DEFAULT 'audio/webm',
-    byte_size       INT,
-    duration_ms     INT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+ group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ file_path TEXT NOT NULL,
+ mime_type VARCHAR(80) NOT NULL DEFAULT 'audio/webm',
+ byte_size INT,
+ duration_ms INT,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_ptt_recordings_group_time ON ptt_recordings (group_id, created_at DESC);
@@ -239,11 +259,11 @@ CREATE INDEX idx_ptt_recordings_org_time ON ptt_recordings (organization_id, cre
 -- Refresh tokens
 -- ---------------------------------------------------------------------------
 CREATE TABLE refresh_tokens (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash  VARCHAR(64) NOT NULL UNIQUE,
-    expires_at  TIMESTAMPTZ NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ token_hash VARCHAR(64) NOT NULL UNIQUE,
+ expires_at TIMESTAMPTZ NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_refresh_tokens_user ON refresh_tokens (user_id);
@@ -254,36 +274,98 @@ CREATE INDEX idx_refresh_tokens_user ON refresh_tokens (user_id);
 CREATE TYPE panic_status AS ENUM ('active', 'acked', 'resolved', 'cancelled');
 
 CREATE TABLE panic_events (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    group_id        UUID REFERENCES groups(id) ON DELETE SET NULL,
-    status          panic_status NOT NULL DEFAULT 'active',
-    latitude        DOUBLE PRECISION,
-    longitude       DOUBLE PRECISION,
-    accuracy_m      REAL,
-    note            TEXT,
-    acked_by        UUID REFERENCES users(id) ON DELETE SET NULL,
-    acked_at        TIMESTAMPTZ,
-    resolved_at     TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ group_id UUID REFERENCES groups(id) ON DELETE SET NULL,
+ status panic_status NOT NULL DEFAULT 'active',
+ latitude DOUBLE PRECISION,
+ longitude DOUBLE PRECISION,
+ accuracy_m REAL,
+ note TEXT,
+ acked_by UUID REFERENCES users(id) ON DELETE SET NULL,
+ acked_at TIMESTAMPTZ,
+ resolved_at TIMESTAMPTZ,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_panic_org_active ON panic_events (organization_id, status, created_at DESC);
 CREATE INDEX idx_panic_user_time ON panic_events (user_id, created_at DESC);
 
 -- ---------------------------------------------------------------------------
+-- Organigrama: Región → zona → unidad
+-- ---------------------------------------------------------------------------
+CREATE TYPE org_unit_kind AS ENUM ('region', 'zone', 'unit');
+CREATE TYPE org_zone_type AS ENUM ('cg', 'zm', 'support');
+
+CREATE TABLE org_units (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+ parent_id UUID REFERENCES org_units(id) ON DELETE CASCADE,
+ kind org_unit_kind NOT NULL,
+ zone_type org_zone_type,
+ name VARCHAR(200) NOT NULL,
+ code VARCHAR(40) NOT NULL,
+ external_id INT,
+ sort_order INT NOT NULL DEFAULT 0,
+ is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE (organization_id, code)
+);
+
+CREATE INDEX idx_org_units_org ON org_units (organization_id);
+CREATE INDEX idx_org_units_parent ON org_units (parent_id);
+
+-- Catálogos editables: grados y empleos (consola Catálogos)
+CREATE TABLE cat_grades (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+ name VARCHAR(150) NOT NULL,
+ abbreviation VARCHAR(40) NOT NULL,
+ category VARCHAR(40),
+ sort_order INT NOT NULL DEFAULT 0,
+ is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE (organization_id, abbreviation)
+);
+CREATE INDEX idx_cat_grades_org ON cat_grades (organization_id, sort_order, name);
+
+CREATE TABLE cat_empleos (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+ name VARCHAR(150) NOT NULL,
+ sort_order INT NOT NULL DEFAULT 0,
+ is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE (organization_id, name)
+);
+CREATE INDEX idx_cat_empleos_org ON cat_empleos (organization_id, sort_order, name);
+
+ALTER TABLE users
+ ADD CONSTRAINT users_unit_id_fkey FOREIGN KEY (unit_id) REFERENCES org_units(id) ON DELETE SET NULL;
+ALTER TABLE users
+ ADD CONSTRAINT users_admin_scope_unit_id_fkey FOREIGN KEY (admin_scope_unit_id) REFERENCES org_units(id) ON DELETE SET NULL;
+ALTER TABLE groups
+ ADD CONSTRAINT groups_unit_id_fkey FOREIGN KEY (unit_id) REFERENCES org_units(id) ON DELETE SET NULL;
+
+CREATE INDEX idx_users_unit ON users (unit_id);
+CREATE INDEX idx_groups_unit ON groups (unit_id);
+
+-- ---------------------------------------------------------------------------
 -- Activity logs (auditoría)
 -- ---------------------------------------------------------------------------
 CREATE TABLE activity_logs (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
-    actor_id        UUID REFERENCES users(id) ON DELETE SET NULL,
-    action          VARCHAR(64) NOT NULL,
-    entity_type     VARCHAR(64),
-    entity_id       UUID,
-    meta            JSONB,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+ actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+ action VARCHAR(64) NOT NULL,
+ entity_type VARCHAR(64),
+ entity_id UUID,
+ meta JSONB,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_activity_logs_org_time ON activity_logs (organization_id, created_at DESC);

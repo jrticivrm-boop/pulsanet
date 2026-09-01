@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapContainer,
   TileLayer,
-  Marker,
   Popup,
   Circle,
   Polyline,
@@ -22,10 +21,24 @@ import {
   fetchRecordings,
   fetchRecordingBlobUrl,
   fetchPanicEvents,
-  patchPanicEvent,
 } from '../api';
 import { socketIoOptions, socketUrl } from '../socketConfig';
-import { startPanicAlarm, stopPanicAlarm, unlockPanicAudio } from '../panicSound';
+import { unlockPanicAudio } from '../panicSound';
+import {
+  LOCATION_POLL_MS,
+  TRACK_POLL_MS,
+  mergeLocations,
+  upsertLocation,
+  isFresh,
+  gpsStatusLine,
+  recordedAtLocal,
+} from './liveTiming.js';
+import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
+import { mapAvatarIcon } from './mapAvatarIcon.js';
+import { MapCoordsLink } from './MapCoordsLink.jsx';
+import { CursorZoom, MapCursorFix, MapSizeFix, SmoothMarker } from './mapLeafletUtils.jsx';
+import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
+import { DEFAULT_MAP_TILE } from './mapTiles.js';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -73,6 +86,7 @@ function pushEvent(setEvents, evt) {
 export default function CommandCenter({ session }) {
   const [overview, setOverview] = useState(null);
   const [locations, setLocations] = useState([]);
+  const { markerPhoto, listPhoto } = useMapAvatarPhotos(locations, session.token);
   const [geofences, setGeofences] = useState([]);
   const [events, setEvents] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -109,8 +123,9 @@ export default function CommandCenter({ session }) {
     const errors = [];
     if (ov.status === 'fulfilled') setOverview(ov.value?.overview);
     else errors.push(ov.reason?.message || 'No se pudo cargar canales');
-    if (loc.status === 'fulfilled') setLocations(loc.value?.locations || []);
-    else errors.push(loc.reason?.message || 'No se pudo cargar GPS');
+    if (loc.status === 'fulfilled') {
+      setLocations((prev) => mergeLocations(prev, loc.value?.locations || []));
+    } else errors.push(loc.reason?.message || 'No se pudo cargar GPS');
     if (gf.status === 'fulfilled') {
       setGeofences((gf.value?.geofences || []).filter((g) => g.isActive !== false));
     }
@@ -143,6 +158,10 @@ export default function CommandCenter({ session }) {
       setLive(true);
       socket.emit('dispatch:join');
       unlockPanicAudio().catch(() => {});
+    });
+    socket.on('reconnect', () => {
+      setLive(true);
+      socket.emit('dispatch:join');
     });
     socket.on('disconnect', () => setLive(false));
 
@@ -177,87 +196,103 @@ export default function CommandCenter({ session }) {
 
     // GPS actualiza el mapa, NO satura la lista de actividad
     socket.on('dispatch:location', (payload) => {
-      setLocations((prev) => {
-        const rest = prev.filter((l) => l.userId !== payload.userId);
-        return [
-          ...rest,
-          {
-            userId: payload.userId,
-            displayName: payload.displayName || payload.userId,
-            latitude: payload.latitude,
-            longitude: payload.longitude,
-            accuracyM: payload.accuracyM,
-            recordedAt: payload.recordedAt,
-          },
-        ];
-      });
+      void (async () => {
+        const loc = await unwrapDispatchPayload(payload, sessionWireKey(session));
+        if (!loc?.userId) return;
+        setLocations((prev) => upsertLocation(prev, loc));
+      })();
     });
 
     socket.on('dispatch:geofence', (payload) => {
-      const entra = payload.event === 'enter';
-      pushEvent(setEvents, {
-        id: `geo-${payload.geofenceId}-${payload.userId}-${payload.at}`,
-        kind: 'zone',
-        title: entra
-          ? `${payload.displayName || 'Operador'} entró a zona`
-          : `${payload.displayName || 'Operador'} salió de zona`,
-        subtitle: `«${payload.name}»`,
-        userId: payload.userId,
-        lat: payload.latitude,
-        lng: payload.longitude,
-        at: payload.at || new Date().toISOString(),
-      });
+      void (async () => {
+        const g = await unwrapDispatchPayload(payload, sessionWireKey(session));
+        if (!g) return;
+        const entra = g.event === 'enter';
+        pushEvent(setEvents, {
+          id: `geo-${g.geofenceId}-${g.userId}-${g.at}`,
+          kind: 'zone',
+          title: entra
+            ? `${g.displayName || 'Operador'} entró a zona`
+            : `${g.displayName || 'Operador'} salió de zona`,
+          subtitle: `«${g.name}»`,
+          userId: g.userId,
+          lat: g.latitude,
+          lng: g.longitude,
+          at: g.at || new Date().toISOString(),
+        });
+      })();
     });
 
-    socket.on('dispatch:panic', (payload) => {
-      startPanicAlarm();
-      setActivePanics((prev) => {
-        if (prev.some((p) => p.id === payload.id)) return prev;
-        return [payload, ...prev];
-      });
-      pushEvent(setEvents, {
-        id: `panic-${payload.id}`,
-        kind: 'panic',
-        title: `🚨 PÁNICO — ${payload.displayName || 'Operador'}`,
-        subtitle: `Canal «${payload.groupName || '—'}»`,
-        userId: payload.userId,
-        lat: payload.latitude,
-        lng: payload.longitude,
-        panicId: payload.id,
-        at: payload.createdAt || new Date().toISOString(),
-      });
-      if (payload.latitude != null && payload.longitude != null) {
-        setCenterTarget({ lat: payload.latitude, lng: payload.longitude });
-        setSelected({
-          id: payload.userId,
+    socket.on('dispatch:panic', (raw) => {
+      void (async () => {
+        const payload = await unwrapDispatchPayload(raw, sessionWireKey(session));
+        // Si viene sealed y falla el unwrap, no usar raw (evitar coords/texto en claro).
+        if (!payload?.id) return;
+        // Sirena + modal: DispatchPanicHost (layout). Aquí solo feed/KPI.
+        setActivePanics((prev) => {
+          if (prev.some((p) => p.id === payload.id)) return prev;
+          return [payload, ...prev];
+        });
+        pushEvent(setEvents, {
+          id: `panic-${payload.id}`,
           kind: 'panic',
-          title: payload.displayName,
-          subtitle: payload.groupName,
+          title: `🚨 PÁNICO — ${payload.displayName || 'Operador'}`,
+          subtitle: `Canal «${payload.groupName || '—'}»`,
           userId: payload.userId,
           lat: payload.latitude,
           lng: payload.longitude,
-          at: payload.createdAt,
+          panicId: payload.id,
+          at: payload.createdAt || new Date().toISOString(),
         });
-      }
+        if (payload.latitude != null && payload.longitude != null) {
+          setCenterTarget({ lat: payload.latitude, lng: payload.longitude });
+          setSelected({
+            id: payload.userId,
+            kind: 'panic',
+            title: payload.displayName,
+            subtitle: payload.groupName,
+            userId: payload.userId,
+            lat: payload.latitude,
+            lng: payload.longitude,
+            at: payload.createdAt,
+          });
+        }
+      })();
     });
 
-    socket.on('dispatch:panic_update', (payload) => {
-      setActivePanics((prev) => {
-        const next =
-          payload.status === 'active'
-            ? prev.map((p) => (p.id === payload.id ? payload : p))
-            : prev.filter((p) => p.id !== payload.id);
-        if (next.length === 0) stopPanicAlarm();
-        return next;
-      });
-      pushEvent(setEvents, {
-        id: `panic-upd-${payload.id}-${payload.status}`,
-        kind: 'panic',
-        title: `Pánico ${payload.status}: ${payload.displayName || 'Operador'}`,
-        subtitle: `Canal «${payload.groupName || '—'}»`,
-        userId: payload.userId,
-        at: new Date().toISOString(),
-      });
+    socket.on('dispatch:panic_update', (raw) => {
+      void (async () => {
+        const payload = await unwrapDispatchPayload(raw, sessionWireKey(session));
+        if (!payload?.id) return;
+        // acked por otro puesto/dispositivo: actualizar datos, no cortar sirena aquí
+        if (payload.status === 'acked') {
+          setActivePanics((prev) =>
+            prev.map((p) => (p.id === payload.id ? { ...p, ...payload } : p))
+          );
+          pushEvent(setEvents, {
+            id: `panic-upd-${payload.id}-${payload.status}`,
+            kind: 'panic',
+            title: `Pánico enterado: ${payload.displayName || 'Operador'}`,
+            subtitle: `Canal «${payload.groupName || '—'}»`,
+            at: new Date().toISOString(),
+          });
+          return;
+        }
+        setActivePanics((prev) => {
+          if (payload.status === 'active') {
+            return prev.map((p) => (p.id === payload.id ? payload : p));
+          }
+          return prev.filter((p) => p.id !== payload.id);
+        });
+        pushEvent(setEvents, {
+          id: `panic-upd-${payload.id}-${payload.status}`,
+          kind: 'panic',
+          title: `Pánico ${payload.status}: ${payload.displayName || 'Operador'}`,
+          subtitle: `Canal «${payload.groupName || '—'}»`,
+          userId: payload.userId,
+          at: new Date().toISOString(),
+        });
+      })();
     });
 
     socket.on('dispatch:recording', (rec) => {
@@ -274,14 +309,29 @@ export default function CommandCenter({ session }) {
       });
     });
 
-    const t = setInterval(reload, 15000);
+    const t = setInterval(() => {
+      if (!document.hidden) reload();
+    }, 15000);
+    const locPoll = setInterval(() => {
+      if (document.hidden) return;
+      fetchLocations(session.token)
+        .then((data) => {
+          setLocations((prev) => mergeLocations(prev, data.locations || []));
+        })
+        .catch(() => {});
+    }, LOCATION_POLL_MS);
+    const onVis = () => {
+      if (!document.hidden) reload();
+    };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       clearInterval(t);
-      stopPanicAlarm();
+      clearInterval(locPoll);
+      document.removeEventListener('visibilitychange', onVis);
       socket.emit('dispatch:leave');
       socket.disconnect();
     };
-  }, [session.token, reload]);
+  }, [session.token, session.crypto?.wireKey, reload]);
 
   useEffect(() => {
     if (!trackUserId) {
@@ -289,13 +339,24 @@ export default function CommandCenter({ session }) {
       return undefined;
     }
     let cancelled = false;
-    fetchUserTrack(session.token, trackUserId, 8)
-      .then((data) => {
-        if (!cancelled) setTrackPoints(data.points || []);
-      })
-      .catch(() => {});
+    const loadTrack = () => {
+      if (cancelled || document.hidden) return;
+      fetchUserTrack(session.token, trackUserId, 8)
+        .then((data) => {
+          if (!cancelled) setTrackPoints(data.points || []);
+        })
+        .catch(() => {});
+    };
+    loadTrack();
+    const t = setInterval(loadTrack, TRACK_POLL_MS);
+    const onVis = () => {
+      if (!document.hidden) loadTrack();
+    };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       cancelled = true;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, [session.token, trackUserId]);
 
@@ -369,19 +430,6 @@ export default function CommandCenter({ session }) {
     }
   }
 
-  async function resolvePanic(id, status) {
-    try {
-      await patchPanicEvent(session.token, id, status);
-      setActivePanics((prev) => {
-        const next = prev.filter((p) => p.id !== id);
-        if (next.length === 0) stopPanicAlarm();
-        return next;
-      });
-    } catch (e) {
-      setError(e.message);
-    }
-  }
-
   useEffect(() => {
     return () => {
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
@@ -428,57 +476,6 @@ export default function CommandCenter({ session }) {
         </div>
       </div>
 
-      {activePanics.length > 0 && (
-        <div className="cc-panic-banner" role="alert">
-          {activePanics.map((p) => (
-            <div key={p.id} className="cc-panic-item">
-              <div>
-                <strong>{p.displayName}</strong>
-                <span>
-                  {p.groupName || 'Canal'}
-                  {p.latitude != null
-                    ? ` · ${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}`
-                    : ''}
-                </span>
-              </div>
-              <div className="cc-panic-actions">
-                {p.latitude != null && (
-                  <button
-                    type="button"
-                    className="cc-btn"
-                    onClick={() => {
-                      setCenterTarget({ lat: p.latitude, lng: p.longitude, t: Date.now() });
-                      setSelected({
-                        id: p.userId,
-                        kind: 'panic',
-                        title: p.displayName,
-                        subtitle: p.groupName,
-                        userId: p.userId,
-                        lat: p.latitude,
-                        lng: p.longitude,
-                        at: p.createdAt,
-                      });
-                    }}
-                  >
-                    Mapa
-                  </button>
-                )}
-                <button type="button" className="cc-btn" onClick={() => resolvePanic(p.id, 'acked')}>
-                  Enterado
-                </button>
-                <button
-                  type="button"
-                  className="cc-btn primary"
-                  onClick={() => resolvePanic(p.id, 'resolved')}
-                >
-                  Resolver
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
       {speakingNow.length > 0 && (
         <div className="cc-air-banner" role="status">
           {speakingNow.map((s) => (
@@ -502,6 +499,7 @@ export default function CommandCenter({ session }) {
         </div>
       )}
 
+      <div className="cc-workspace-grid">
       <div className="cc-upper">
         <section className="cc-panel cc-map-panel">
           <div className="cc-panel-head">
@@ -530,11 +528,14 @@ export default function CommandCenter({ session }) {
             </div>
           </div>
           <div className="cc-map-body">
-            <MapContainer center={GDL} zoom={12} style={{ height: '100%', width: '100%' }}>
+            <MapContainer center={GDL} zoom={12} scrollWheelZoom={false} style={{ height: '100%', width: '100%' }}>
               <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                attribution={DEFAULT_MAP_TILE.attribution}
+                url={DEFAULT_MAP_TILE.url}
               />
+              <CursorZoom />
+              <MapCursorFix />
+              <MapSizeFix />
               <CenterOn target={centerTarget} />
               {geofences.map((g) => (
                 <Circle
@@ -555,10 +556,20 @@ export default function CommandCenter({ session }) {
                   </Popup>
                 </Circle>
               ))}
-              {locations.map((loc) => (
-                <Marker
+              {locations.map((loc) => {
+                const photo = markerPhoto(loc);
+                const isSelected = selected?.userId === loc.userId;
+                return (
+                <SmoothMarker
                   key={loc.userId}
                   position={[loc.latitude, loc.longitude]}
+                  icon={mapAvatarIcon({
+                    name: loc.displayName,
+                    live: isFresh(loc.recordedAt),
+                    selected: isSelected,
+                    photoSrc: photo,
+                  })}
+                  zIndexOffset={isSelected ? 900 : 0}
                   eventHandlers={{
                     click: () =>
                       selectPerson({
@@ -576,12 +587,25 @@ export default function CommandCenter({ session }) {
                   <Popup>
                     <strong>{loc.displayName}</strong>
                     <br />
+                    {gpsStatusLine(loc.recordedAt)}
+                    {recordedAtLocal(loc.recordedAt) ? (
+                      <>
+                        <br />
+                        <span style={{ opacity: 0.75, fontSize: 12 }}>
+                          {recordedAtLocal(loc.recordedAt)}
+                        </span>
+                      </>
+                    ) : null}
+                    <br />
+                    <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
+                    <br />
                     <button type="button" onClick={() => setTrackUserId(loc.userId)}>
                       Ver ruta (8 h)
                     </button>
                   </Popup>
-                </Marker>
-              ))}
+                </SmoothMarker>
+                );
+              })}
               {polyline.length > 0 && (
                 <>
                   <Polyline positions={polyline} pathOptions={{ color: '#3ecf9a', weight: 3 }} />
@@ -680,64 +704,66 @@ export default function CommandCenter({ session }) {
       </div>
 
       <div className="cc-lower">
-        <section className="cc-panel">
-          <div className="cc-panel-head">
-            <div>
-              <h2>Actividad reciente</h2>
-              <p className="cc-hint">Radio, geocercas y pánico (el GPS se ve en el mapa)</p>
+        <section className="cc-panel cc-panel--split">
+          <div className="cc-lower-col">
+            <div className="cc-panel-head">
+              <div>
+                <h2>Actividad reciente</h2>
+                <p className="cc-hint">Radio, geocercas y pánico</p>
+              </div>
+              <div className="cc-filters">
+                {[
+                  { id: 'all', label: 'Todo' },
+                  { id: 'radio', label: 'Radio' },
+                  { id: 'zone', label: 'Zonas' },
+                  { id: 'panic', label: 'Pánico' },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className={filter === f.id ? 'cc-btn primary' : 'cc-btn'}
+                    onClick={() => setFilter(f.id)}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="cc-filters">
-              {[
-                { id: 'all', label: 'Todo' },
-                { id: 'radio', label: 'Radio' },
-                { id: 'zone', label: 'Zonas' },
-                { id: 'panic', label: 'Pánico' },
-              ].map((f) => (
+            <div className="cc-activity">
+              {filteredEvents.length === 0 && (
+                <p className="cc-empty">
+                  Sin actividad aún. Cuando alguien pulse PTT o cruce una geocerca, aparecerá aquí.
+                </p>
+              )}
+              {filteredEvents.map((ev) => (
                 <button
-                  key={f.id}
+                  key={ev.id}
                   type="button"
-                  className={filter === f.id ? 'cc-btn primary' : 'cc-btn'}
-                  onClick={() => setFilter(f.id)}
+                  className={`cc-activity-row${selected?.id === ev.id ? ' selected' : ''}`}
+                  onClick={() => setSelected(ev)}
                 >
-                  {f.label}
+                  <span className={`cc-kind ${ev.kind}`}>{KIND_LABEL[ev.kind] || ev.kind}</span>
+                  <span className="cc-activity-text">
+                    <strong>{ev.title}</strong>
+                    <small>{ev.subtitle}</small>
+                  </span>
+                  <time>{new Date(ev.at).toLocaleTimeString()}</time>
                 </button>
               ))}
             </div>
           </div>
-          <div className="cc-activity">
-            {filteredEvents.length === 0 && (
-              <p className="cc-empty">
-                Sin actividad aún. Cuando alguien pulse PTT o cruce una geocerca, aparecerá aquí.
-              </p>
-            )}
-            {filteredEvents.map((ev) => (
-              <button
-                key={ev.id}
-                type="button"
-                className={`cc-activity-row${selected?.id === ev.id ? ' selected' : ''}`}
-                onClick={() => setSelected(ev)}
-              >
-                <span className={`cc-kind ${ev.kind}`}>{KIND_LABEL[ev.kind] || ev.kind}</span>
-                <span className="cc-activity-text">
-                  <strong>{ev.title}</strong>
-                  <small>{ev.subtitle}</small>
-                </span>
-                <time>{new Date(ev.at).toLocaleTimeString()}</time>
-              </button>
-            ))}
-          </div>
 
-          <div className="cc-rec-block">
+          <div className="cc-lower-col">
             <div className="cc-panel-head">
               <div>
                 <h2>Grabaciones PTT</h2>
-                <p className="cc-hint">Últimas 24 h · se guardan al soltar el PTT (web)</p>
+                <p className="cc-hint">Últimas 24 h · al soltar PTT (web)</p>
               </div>
             </div>
             <div className="cc-rec-list">
               {recordings.length === 0 && (
                 <p className="cc-empty">
-                  Aún no hay grabaciones. Habla por Radio web (mantener PTT) para generar una.
+                  Aún no hay grabaciones. Habla por Radio web (tocar PTT) para generar una.
                 </p>
               )}
               {recordings.map((r) => (
@@ -789,7 +815,7 @@ export default function CommandCenter({ session }) {
                   <div>
                     <dt>Posición</dt>
                     <dd>
-                      {Number(selected.lat).toFixed(5)}, {Number(selected.lng).toFixed(5)}
+                      <MapCoordsLink lat={selected.lat} lng={selected.lng} />
                     </dd>
                   </div>
                 )}
@@ -832,6 +858,7 @@ export default function CommandCenter({ session }) {
             </>
           )}
         </aside>
+      </div>
       </div>
     </div>
   );

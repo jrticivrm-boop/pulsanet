@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api_client.dart';
+import '../roles.dart';
 import '../theme.dart';
 import 'radio_shell.dart';
 
@@ -32,7 +33,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
   Widget build(BuildContext context) {
     final name = widget.api.user?['displayName'] ?? 'Usuario';
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kInstPaper,
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -43,12 +44,14 @@ class _GroupsScreenState extends State<GroupsScreen> {
         ),
         actions: [
           IconButton(onPressed: _reload, icon: const Icon(Icons.refresh)),
-          IconButton(
-            onPressed: () async {
-              await widget.onLogout();
-            },
-            icon: const Icon(Icons.logout),
-          ),
+          if (canLogoutFromApp(widget.api.user))
+            IconButton(
+              onPressed: () async {
+                await widget.onLogout();
+              },
+              tooltip: 'Salir',
+              icon: const Icon(Icons.logout),
+            ),
         ],
       ),
       body: FutureBuilder(

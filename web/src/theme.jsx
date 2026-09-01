@@ -10,7 +10,7 @@ const ThemeContext = createContext({
 function readInitialTheme() {
   try {
     const saved =
-      localStorage.getItem(STORAGE_KEY) || localStorage.getItem('pulsanet_theme');
+      localStorage.getItem(STORAGE_KEY);
     if (saved === 'light' || saved === 'dark') return saved;
   } catch {
     /* ignore */

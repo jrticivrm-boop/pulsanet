@@ -1,6 +1,6 @@
-# PulsaNet — Manual de usuario (v1.0)
+# TacticalPtx — Manual de usuario (v1.0)
 
-## Qué es PulsaNet
+## Qué es TacticalPtx
 
 Comunicación **Push-to-Talk (PTT)** por internet: habla en grupos como un radio, con chat, presencia y mapa de despacho.
 

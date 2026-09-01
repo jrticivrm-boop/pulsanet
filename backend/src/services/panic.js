@@ -1,8 +1,8 @@
 import { query } from '../db.js';
 import { assertGroupMember } from './presence.js';
-import { notifyGroupMembers, notifyUserDevices } from './fcm.js';
+import { notifyGroupMembers } from './fcm.js';
 import { insertGroupMessage } from '../socket/chat.js';
-import { emitDispatch } from '../socket/dispatch.js';
+import { packWireEvent } from './wireCrypto.js';
 import { logActivity } from './activity.js';
 
 function formatPanic(row) {
@@ -26,22 +26,19 @@ function formatPanic(row) {
 }
 
 /**
- * Destinatarios extra: admin/dispatcher org + usuarios con can_receive_panic.
- * (Los miembros del grupo se notifican aparte con notifyGroupMembers.)
+ * Consola de despacho: solo sockets de miembros del grupo (sala user:{id}).
+ * No usa dispatch:track:* (esa ruta era a nivel unidad/org).
  */
-export async function listPanicEscalationUserIds(organizationId, excludeUserId) {
+export async function emitPanicToGroupMembers(io, eventName, payload, groupId) {
+  if (!io || !groupId || !eventName) return;
+  const packed = packWireEvent(payload);
   const { rows } = await query(
-    `SELECT id FROM users
-     WHERE organization_id = $1
-       AND is_active = TRUE
-       AND id <> $2
-       AND (
-         role IN ('root', 'admin', 'dispatcher')
-         OR can_receive_panic = TRUE
-       )`,
-    [organizationId, excludeUserId]
+    `SELECT user_id FROM group_members WHERE group_id = $1`,
+    [groupId]
   );
-  return rows.map((r) => r.id);
+  for (const r of rows) {
+    io.to(`user:${r.user_id}`).emit(eventName, packed);
+  }
 }
 
 export async function triggerPanic({
@@ -97,21 +94,20 @@ export async function triggerPanic({
   // Mensaje de sistema en el chat del grupo
   let systemMsg = null;
   try {
-    const coords =
-      lat != null && lng != null ? ` · ${lat.toFixed(5)}, ${lng.toFixed(5)}` : '';
     systemMsg = await insertGroupMessage({
       groupId,
       senderId: userId,
       type: 'system',
-      body: `🚨 PÁNICO — ${displayName || 'Usuario'}${coords}`,
+      body: `🚨 PÁNICO — ${displayName || 'Usuario'}`,
     });
     io.to(`group:${groupId}`).emit('chat:message', systemMsg);
   } catch (err) {
     console.warn('panic system message:', err.message);
   }
 
+  // Solo el canal activo: radio + consola de miembros de ese grupo (no org-wide)
   io.to(`group:${groupId}`).emit('panic:alert', event);
-  emitDispatch(io, 'dispatch:panic', event);
+  await emitPanicToGroupMembers(io, 'dispatch:panic', event, groupId);
 
   const title = '🚨 ALERTA DE PÁNICO';
   const body = `${displayName || 'Usuario'} — ${event.groupName || 'canal'}`;
@@ -120,6 +116,10 @@ export async function triggerPanic({
     panicId: event.id,
     groupId,
     userId,
+    displayName: displayName || 'Usuario',
+    ...(lat != null ? { latitude: String(lat) } : {}),
+    ...(lng != null ? { longitude: String(lng) } : {}),
+    ...(acc != null ? { accuracyM: String(acc) } : {}),
   };
 
   notifyGroupMembers({
@@ -129,18 +129,6 @@ export async function triggerPanic({
     body,
     data,
   }).catch(() => {});
-
-  const escalation = await listPanicEscalationUserIds(orgId, userId);
-  // Evitar doble push a quienes ya están en el grupo
-  const { rows: members } = await query(
-    `SELECT user_id FROM group_members WHERE group_id = $1`,
-    [groupId]
-  );
-  const memberSet = new Set(members.map((m) => m.user_id));
-  for (const uid of escalation) {
-    if (memberSet.has(uid)) continue;
-    notifyUserDevices({ userId: uid, title, body, data }).catch(() => {});
-  }
 
   await logActivity({
     organizationId: orgId,
@@ -154,9 +142,10 @@ export async function triggerPanic({
   return { event, systemMsg };
 }
 
-export async function listPanicEvents({ orgId, status, limit = 50 }) {
+/** Solo eventos de grupos en los que el viewer es miembro. */
+export async function listPanicEvents({ orgId, viewerId, status, limit = 50 }) {
   const lim = Math.min(Number(limit) || 50, 100);
-  const params = [orgId];
+  const params = [orgId, viewerId];
   let filter = '';
   if (status) {
     params.push(status);
@@ -168,12 +157,34 @@ export async function listPanicEvents({ orgId, status, limit = 50 }) {
      FROM panic_events p
      LEFT JOIN users u ON u.id = p.user_id
      LEFT JOIN groups g ON g.id = p.group_id
-     WHERE p.organization_id = $1${filter}
+     WHERE p.organization_id = $1
+       AND EXISTS (
+         SELECT 1 FROM group_members gm
+         WHERE gm.group_id = p.group_id AND gm.user_id = $2
+       )${filter}
      ORDER BY p.created_at DESC
      LIMIT $${params.length}`,
     params
   );
   return rows.map(formatPanic);
+}
+
+export async function getPanicEvent({ orgId, viewerId, panicId }) {
+  const { rows } = await query(
+    `SELECT p.*, u.display_name, g.name AS group_name
+     FROM panic_events p
+     LEFT JOIN users u ON u.id = p.user_id
+     LEFT JOIN groups g ON g.id = p.group_id
+     WHERE p.id = $1
+       AND p.organization_id = $2
+       AND EXISTS (
+         SELECT 1 FROM group_members gm
+         WHERE gm.group_id = p.group_id AND gm.user_id = $3
+       )`,
+    [panicId, orgId, viewerId]
+  );
+  if (!rows[0]) return null;
+  return formatPanic(rows[0]);
 }
 
 export async function updatePanicStatus({

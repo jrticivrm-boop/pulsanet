@@ -52,3 +52,46 @@ export function presenceKey(groupId) {
 export function presenceTsKey(groupId) {
   return `presence:ts:${groupId}`;
 }
+
+/** Hash socketId → { userId, displayName, focus } por grupo (multi-dispositivo). */
+export function presenceSocketsKey(groupId) {
+  return `presence:sockets:${groupId}`;
+}
+
+/**
+ * Cuenta claves por patrón con SCAN (no KEYS — evita bloquear Redis).
+ * @param {string} match p.ej. 'presence:group:*'
+ * @param {number} [limit=5000] tope de seguridad
+ */
+export async function countKeysByScan(match, limit = 5000) {
+  if (!isRedisReady()) return 0;
+  const redis = getRedis();
+  let cursor = '0';
+  let n = 0;
+  do {
+    const [next, keys] = await redis.scan(cursor, 'MATCH', match, 'COUNT', 200);
+    cursor = String(next);
+    n += keys.length;
+    if (n >= limit) return limit;
+  } while (cursor !== '0');
+  return n;
+}
+
+/**
+ * Lista claves por patrón con SCAN (máx. [limit]).
+ */
+export async function listKeysByScan(match, limit = 500) {
+  if (!isRedisReady()) return [];
+  const redis = getRedis();
+  let cursor = '0';
+  const out = [];
+  do {
+    const [next, keys] = await redis.scan(cursor, 'MATCH', match, 'COUNT', 100);
+    cursor = String(next);
+    for (const k of keys) {
+      out.push(k);
+      if (out.length >= limit) return out;
+    }
+  } while (cursor !== '0');
+  return out;
+}

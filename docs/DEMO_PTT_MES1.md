@@ -1,12 +1,12 @@
-# PulsaNet — Demo PTT Mes 1
+# TacticalPtx — Demo PTT Mes 1
 
 Pasos para la demo de 5 usuarios en navegador.
 
 ## 1. Base de datos
 
 ```bash
-createdb pulsanet_db
-psql -U postgres -d pulsanet_db -f database/schema.sql
+createdb tacticalptx_db
+psql -U postgres -d tacticalptx_db -f database/schema.sql
 ```
 
 ## 2. LiveKit
@@ -21,7 +21,7 @@ Keys `--dev`: `devkey` / `secret` · URL `ws://127.0.0.1:7880` (ya van en `.env.
 
 **Opción B — LiveKit Cloud** (si no tienes Docker)
 
-1. Crea proyecto en https://cloud.livekit.io  
+1. Crea proyecto en https://cloud.livekit.io 
 2. Copia URL, API Key y API Secret a `backend/.env`:
 
 ```env

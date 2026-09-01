@@ -1,7 +1,15 @@
 import { randomUUID } from 'crypto';
 import { query } from '../db.js';
-import { hydrateMessage, formatMessage, formatFreshMessage, loadReactionsSummary } from '../socket/chat.js';
+import {
+  hydrateMessage,
+  formatMessage,
+  formatFreshMessage,
+  loadReactionsSummary,
+  normalizeEmoji,
+  REACTION_NORMALIZED,
+} from '../socket/chat.js';
 import { openMessageBody, sealMessageBody } from './contentCrypto.js';
+import { isModerator } from './roles.js';
 
 export function dmPairKey(userA, userB) {
   return [String(userA), String(userB)].sort().join('_');
@@ -11,8 +19,9 @@ export function dmSocketRoom(userA, userB) {
   return `dm:${dmPairKey(userA, userB)}`;
 }
 
-export function privateCallRoom(userA, userB) {
-  return `call_${dmPairKey(userA, userB)}`;
+export function privateCallRoom(userA, userB, mode = 'call') {
+  const prefix = mode === 'radio' ? 'radio' : 'call';
+  return `${prefix}_${dmPairKey(userA, userB)}`;
 }
 
 export async function assertSameOrgPeer(orgId, userId, peerId) {
@@ -28,7 +37,7 @@ export async function assertSameOrgPeer(orgId, userId, peerId) {
 
 export async function listOrgContacts(orgId, excludeUserId) {
   const { rows } = await query(
-    `SELECT id, username, email, display_name, role, last_seen_at
+    `SELECT id, username, email, display_name, role, last_seen_at, avatar_url
      FROM users
      WHERE organization_id = $1 AND is_active = TRUE AND id <> $2
      ORDER BY display_name`,
@@ -41,6 +50,9 @@ export async function listOrgContacts(orgId, excludeUserId) {
     displayName: u.display_name,
     role: u.role,
     lastSeenAt: u.last_seen_at,
+    avatarUrl: u.avatar_url
+      ? `/api/avatars/file/${encodeURIComponent(u.avatar_url)}`
+      : null,
   }));
 }
 
@@ -61,7 +73,8 @@ export async function listDmConversations(userId) {
        ) t
        ORDER BY pair, created_at DESC
      )
-     SELECT l.*, u.display_name AS peer_name, u.email AS peer_email, u.is_active AS peer_active
+     SELECT l.*, u.display_name AS peer_name, u.email AS peer_email, u.is_active AS peer_active,
+            u.avatar_url AS peer_avatar_url
      FROM latest l
      JOIN users u ON u.id = l.peer_id
      ORDER BY l.created_at DESC
@@ -74,6 +87,9 @@ export async function listDmConversations(userId) {
     peerName: r.peer_name,
     peerEmail: r.peer_email,
     peerActive: r.peer_active,
+    peerAvatarUrl: r.peer_avatar_url
+      ? `/api/avatars/file/${encodeURIComponent(r.peer_avatar_url)}`
+      : null,
     lastMessage: {
       id: r.id,
       type: r.deleted_at ? 'text' : r.type,
@@ -86,20 +102,27 @@ export async function listDmConversations(userId) {
   }));
 }
 
-export async function listDmMessages(userId, peerId, { limit = 80 } = {}) {
+export async function listDmMessages(userId, peerId, { limit = 120 } = {}) {
+  const lim = Math.min(Math.max(limit, 1), 200);
+  // Últimos N (DESC) y luego ASC para pintar el hilo en orden cronológico.
   const { rows } = await query(
     `SELECT id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
             reply_to_id, edited_at, deleted_at, created_at
-     FROM messages
-     WHERE group_id IS NULL
-       AND recipient_id IS NOT NULL
-       AND (
-         (sender_id = $1 AND recipient_id = $2)
-         OR (sender_id = $2 AND recipient_id = $1)
-       )
-     ORDER BY created_at ASC
-     LIMIT $3`,
-    [userId, peerId, Math.min(limit, 200)]
+     FROM (
+       SELECT id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
+              reply_to_id, edited_at, deleted_at, created_at
+       FROM messages
+       WHERE group_id IS NULL
+         AND recipient_id IS NOT NULL
+         AND (
+           (sender_id = $1 AND recipient_id = $2)
+           OR (sender_id = $2 AND recipient_id = $1)
+         )
+       ORDER BY created_at DESC
+       LIMIT $3
+     ) recent
+     ORDER BY created_at ASC`,
+    [userId, peerId, lim]
   );
 
   const out = [];
@@ -182,6 +205,125 @@ export async function insertDmMessage({
   return msg;
 }
 
+function canModerateDm(userId, senderId, userRole) {
+  if (userId && senderId && userId === senderId) return true;
+  return isModerator(userRole);
+}
+
+/** Soft-delete de un mensaje DM (ambos lo ven como eliminado). */
+export async function softDeleteDmMessage({
+  peerId,
+  messageId,
+  userId,
+  userRole,
+}) {
+  const { rows } = await query(
+    `SELECT id, sender_id, recipient_id, deleted_at
+     FROM messages
+     WHERE id = $1 AND group_id IS NULL AND recipient_id IS NOT NULL
+       AND (
+         (sender_id = $2 AND recipient_id = $3)
+         OR (sender_id = $3 AND recipient_id = $2)
+       )`,
+    [messageId, userId, peerId]
+  );
+  const row = rows[0];
+  if (!row) throw new Error('Mensaje no encontrado');
+  if (row.deleted_at) throw new Error('Ya estaba eliminado');
+  if (!canModerateDm(userId, row.sender_id, userRole)) {
+    throw new Error('No puedes eliminar este mensaje');
+  }
+
+  await query(`DELETE FROM message_reactions WHERE message_id = $1`, [messageId]);
+  const { rows: updated } = await query(
+    `UPDATE messages
+     SET deleted_at = NOW(),
+         body = NULL,
+         media_url = NULL,
+         media_mime = NULL,
+         media_name = NULL,
+         media_size = NULL
+     WHERE id = $1
+     RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
+               reply_to_id, edited_at, deleted_at, created_at`,
+    [messageId]
+  );
+  return hydrateDmMessage(updated[0], userId);
+}
+
+/** Vacía el hilo DM (borra mensajes + reacciones/lecturas). */
+export async function clearDmThread(userId, peerId) {
+  const { rows: ids } = await query(
+    `SELECT id FROM messages
+     WHERE group_id IS NULL AND recipient_id IS NOT NULL
+       AND (
+         (sender_id = $1 AND recipient_id = $2)
+         OR (sender_id = $2 AND recipient_id = $1)
+       )`,
+    [userId, peerId]
+  );
+  if (!ids.length) return 0;
+  const list = ids.map((r) => r.id);
+  await query(`DELETE FROM message_reactions WHERE message_id = ANY($1::uuid[])`, [list]);
+  await query(`DELETE FROM message_reads WHERE message_id = ANY($1::uuid[])`, [list]);
+  const { rowCount } = await query(
+    `DELETE FROM messages
+     WHERE group_id IS NULL AND recipient_id IS NOT NULL
+       AND (
+         (sender_id = $1 AND recipient_id = $2)
+         OR (sender_id = $2 AND recipient_id = $1)
+       )`,
+    [userId, peerId]
+  );
+  return rowCount || 0;
+}
+
+/** Toggle reacción en mensaje DM. */
+export async function toggleDmReaction({ peerId, messageId, userId, emoji }) {
+  const canonical = REACTION_NORMALIZED.get(normalizeEmoji(emoji));
+  if (!canonical) throw new Error('Reacción no permitida');
+
+  const { rows } = await query(
+    `SELECT id, deleted_at
+     FROM messages
+     WHERE id = $1 AND group_id IS NULL AND recipient_id IS NOT NULL
+       AND (
+         (sender_id = $2 AND recipient_id = $3)
+         OR (sender_id = $3 AND recipient_id = $2)
+       )`,
+    [messageId, userId, peerId]
+  );
+  const row = rows[0];
+  if (!row) throw new Error('Mensaje no encontrado');
+  if (row.deleted_at) throw new Error('El mensaje está eliminado');
+
+  const { rows: existing } = await query(
+    `SELECT emoji FROM message_reactions WHERE message_id = $1 AND user_id = $2`,
+    [messageId, userId]
+  );
+
+  if (existing[0] && normalizeEmoji(existing[0].emoji) === normalizeEmoji(canonical)) {
+    await query(`DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2`, [
+      messageId,
+      userId,
+    ]);
+  } else {
+    await query(
+      `INSERT INTO message_reactions (message_id, user_id, emoji)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (message_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji, created_at = NOW()`,
+      [messageId, userId, canonical]
+    );
+  }
+
+  const reactions = await loadReactionsSummary([messageId], userId);
+  return {
+    peerId,
+    messageId,
+    reactions: reactions.get(messageId) || [],
+  };
+}
+
 export async function hydrateDmMessage(row, viewerUserId = null) {
   const { rows: users } = await query(`SELECT display_name FROM users WHERE id = $1`, [
     row.sender_id,
@@ -228,7 +370,7 @@ export async function hydrateDmMessage(row, viewerUserId = null) {
 /** Llamadas privadas en memoria (demo / proceso) */
 const activeCalls = new Map();
 
-export function createPrivateCall({ callerId, callerName, targetId, targetName, room }) {
+export function createPrivateCall({ callerId, callerName, targetId, targetName, room, mode = 'call' }) {
   const id = randomUUID();
   const call = {
     id,
@@ -237,6 +379,7 @@ export function createPrivateCall({ callerId, callerName, targetId, targetName, 
     targetId,
     targetName,
     room,
+    mode: mode === 'radio' ? 'radio' : 'call',
     status: 'ringing',
     createdAt: Date.now(),
   };

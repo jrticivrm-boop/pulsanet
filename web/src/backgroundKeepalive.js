@@ -3,7 +3,7 @@
  * (dentro de lo que permite el navegador).
  */
 
-import { unlockAppNotifyAudio, playDmChime, notifyIncomingCall } from './appNotify.js';
+import { notifyIncomingCall, stopCallRingtone, unlockAppNotifyAudio, showBrowserNotification } from './appNotify.js';
 
 let keepaliveTimer = null;
 let silentEl = null;
@@ -143,24 +143,20 @@ function onVisibility() {
   ensureSilentLoop();
 }
 
-/** Aviso de canal/grupo cuando la pestaña no está visible. */
-export function notifyBackgroundChat({ title, body, tag }) {
-  if (!document.hidden) return;
-  playDmChime();
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  try {
-    const n = new Notification(title || 'TacticalPtx', {
-      body: body || 'Nuevo mensaje',
-      tag: tag || 'tacticalptx-chat',
-      requireInteraction: false,
-    });
-    n.onclick = () => {
-      window.focus();
-      n.close();
-    };
-  } catch {
-    /* ignore */
-  }
+/**
+ * Aviso de canal/grupo.
+ * @param {{ title?: string, body?: string, tag?: string, force?: boolean }} opts
+ * force=true: también con pestaña visible (el banner in-app lo maneja ChatInbox).
+ */
+export function notifyBackgroundChat({ title, body, tag, force = false } = {}) {
+  if (!force && !document.hidden) return;
+  unlockAppNotifyAudio().catch(() => {});
+  void showBrowserNotification({
+    title: title || 'TacticalPtx',
+    body: body || 'Nuevo mensaje',
+    tag: tag || `tacticalptx-chat-${Date.now()}`,
+    silent: false,
+  });
 }
 
 export function notifyBackgroundPtt({ speakerName }) {

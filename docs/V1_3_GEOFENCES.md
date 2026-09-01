@@ -1,4 +1,4 @@
-# PulsaNet v1.3 — Geocercas
+# TacticalPtx v1.3 — Geocercas
 
 Circulares por organización. Evaluación en el servidor al reportar GPS (`POST /api/locations`).
 

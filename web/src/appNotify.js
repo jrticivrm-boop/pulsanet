@@ -1,11 +1,21 @@
 /**
- * Avisos in-app / del navegador para DM y llamadas privadas.
- * Complementa FCM (que puede estar apagado) con socket + Notification API + tono.
+ * Avisos in-app / navegador estilo WhatsApp Web:
+ * - Misma conversación abierta y pestaña visible → silencio
+ * - Otra conversación / lista → tono + banner (caller)
+ * - Pestaña en segundo plano → tono + Notification del SO (service worker)
+ * - Llamada a pantalla completa → banner encima del overlay
  */
+
+import { isPrivateCallUiOpen } from './privateCallUi.js';
+
+const MESSAGE_SOUND = '/sounds/message.wav';
+const BASE_TITLE = 'TacticalPtx — Radio PTT';
 
 let unlocked = false;
 let callLoopTimer = null;
 let callAudioEl = null;
+let lastToneAt = 0;
+let swReadyPromise = null;
 
 function getCtx() {
   const AC = window.AudioContext || window.webkitAudioContext;
@@ -57,6 +67,20 @@ function buildToneUri({
   return `data:audio/wav;base64,${btoa(binary)}`;
 }
 
+/** Registra SW de notificaciones (necesario para avisos con pestaña minimizada en Chrome/Edge). */
+export function ensureNotifyServiceWorker() {
+  if (swReadyPromise) return swReadyPromise;
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    swReadyPromise = Promise.resolve(null);
+    return swReadyPromise;
+  }
+  swReadyPromise = navigator.serviceWorker
+    .register('/sw-notify.js', { scope: '/', updateViaCache: 'none' })
+    .then((reg) => reg.ready)
+    .catch(() => null);
+  return swReadyPromise;
+}
+
 export async function unlockAppNotifyAudio() {
   const ctx = getCtx();
   if (ctx) {
@@ -67,9 +91,22 @@ export async function unlockAppNotifyAudio() {
       /* ignore */
     }
   }
-  if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+  try {
+    const el = new Audio(MESSAGE_SOUND);
+    el.volume = 0.01;
+    await el.play();
+    el.pause();
+    el.currentTime = 0;
+    unlocked = true;
+  } catch {
+    /* puede fallar hasta el primer gesto; unlock se reintenta */
+  }
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    ensureNotifyServiceWorker().catch(() => {});
+  } else if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
     try {
-      await Notification.requestPermission();
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') ensureNotifyServiceWorker().catch(() => {});
     } catch {
       /* ignore */
     }
@@ -80,21 +117,51 @@ function playUri(uri, { volume = 0.55 } = {}) {
   try {
     const el = new Audio(uri);
     el.volume = volume;
-    el.play().catch(() => {});
+    const p = el.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => {
+        if (uri !== MESSAGE_SOUND) return;
+        playUri(buildToneUri({ durationSec: 0.28, freq: 980, dual: true }), { volume });
+      });
+    }
     return el;
   } catch {
     return null;
   }
 }
 
+/** Tono de mensaje (estilo WhatsApp). soft ≈ pestaña visible. */
+export function playMessageTone({ soft = false } = {}) {
+  const now = Date.now();
+  if (now - lastToneAt < 280) return;
+  lastToneAt = now;
+  if (!unlocked) {
+    unlockAppNotifyAudio().catch(() => {});
+  }
+  playUri(MESSAGE_SOUND, { volume: soft ? 0.22 : 0.62 });
+}
+
+/** Pitido breve cuando alguien suelta el PTT y el canal queda libre. */
+export function playChannelFreeTone({ soft = false } = {}) {
+  const now = Date.now();
+  if (now - lastToneAt < 180) return;
+  lastToneAt = now;
+  if (!unlocked) {
+    unlockAppNotifyAudio().catch(() => {});
+  }
+  playUri(buildToneUri({ durationSec: 0.11, freq: 620 }), {
+    volume: soft ? 0.2 : 0.42,
+  });
+}
+
+/** @deprecated usar playMessageTone */
 export function playDmChime() {
-  if (!unlocked) return;
-  playUri(buildToneUri({ durationSec: 0.28, freq: 980 }));
+  playMessageTone({ soft: !document.hidden });
 }
 
 export function startCallRingtone() {
   stopCallRingtone();
-  if (!unlocked) return;
+  if (!unlocked) unlockAppNotifyAudio().catch(() => {});
   const uri = buildToneUri({ durationSec: 1.2, freq: 740, dual: true });
   const tick = () => {
     callAudioEl = playUri(uri, { volume: 0.65 });
@@ -118,22 +185,69 @@ export function stopCallRingtone() {
   }
 }
 
-function showBrowserNotification({ title, body, tag, requireInteraction = false }) {
-  if (typeof Notification === 'undefined') return;
-  if (Notification.permission !== 'granted') return;
+function notifyIconUrl() {
   try {
-    const n = new Notification(title, {
-      body,
-      tag: tag || 'tacticalptx',
-      requireInteraction,
-      silent: false,
-    });
+    return new URL('/brand/tacticalptx.png', window.location.origin).href;
+  } catch {
+    return '/brand/tacticalptx.png';
+  }
+}
+
+/**
+ * Muestra notificación del sistema. Prefiere service worker (pestaña en segundo plano).
+ * @returns {Promise<boolean>}
+ */
+export async function showBrowserNotification({
+  title,
+  body,
+  tag,
+  requireInteraction = false,
+  silent = false,
+} = {}) {
+  if (typeof Notification === 'undefined') return false;
+  if (Notification.permission !== 'granted') return false;
+
+  const options = {
+    body: body || 'Nuevo mensaje',
+    tag: tag || `tacticalptx-${Date.now()}`,
+    requireInteraction,
+    silent,
+    icon: notifyIconUrl(),
+    data: { ts: Date.now() },
+  };
+
+  try {
+    const reg = await ensureNotifyServiceWorker();
+    if (reg?.showNotification) {
+      await reg.showNotification(title || 'TacticalPtx', options);
+      return true;
+    }
+  } catch {
+    /* fallback abajo */
+  }
+
+  try {
+    const n = new Notification(title || 'TacticalPtx', options);
     n.onclick = () => {
-      window.focus();
+      try {
+        window.focus();
+      } catch {
+        /* ignore */
+      }
       n.close();
     };
+    if (!requireInteraction) {
+      window.setTimeout(() => {
+        try {
+          n.close();
+        } catch {
+          /* ignore */
+        }
+      }, 12000);
+    }
+    return true;
   } catch {
-    /* ignore */
+    return false;
   }
 }
 
@@ -143,35 +257,101 @@ function previewBody(message) {
   if (t === 'image') return '📷 Imagen';
   if (t === 'audio') return '🎤 Audio';
   if (t === 'video') return '🎬 Video';
-  if (t === 'file') return '📎 Archivo';
+  const mime = String(message.mediaMime || '').toLowerCase();
+  const name = String(message.mediaName || '');
+  if (mime.startsWith('video/') || /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(name)) {
+    return '🎬 Video';
+  }
+  if (t === 'file') return `📎 ${name || 'Archivo'}`;
   if (t === 'sticker') return 'Sticker';
   return String(message.body || '').slice(0, 120) || 'Nuevo mensaje';
 }
 
 /**
- * @param {{ peerId: string, peerName: string, message: object, viewingPeer: boolean, panelVisible: boolean }} opts
- * @returns {boolean} true si mostró aviso (no estaba mirando ese chat)
+ * Notificación unificada estilo WhatsApp Web.
+ * @returns {boolean} true si debe mostrarse banner in-app
  */
-export function notifyDmMessage({ peerId, peerName, message, viewingPeer, panelVisible }) {
-  const quiet = panelVisible && viewingPeer && !document.hidden;
-  if (quiet) return false;
-  const title = peerName || 'Mensaje directo';
-  const body = previewBody(message);
-  playDmChime();
-  if (document.hidden || !panelVisible || !viewingPeer) {
-    showBrowserNotification({ title, body, tag: `dm-${peerId}` });
+export function notifyIncomingMessage({
+  title,
+  body,
+  tag,
+  viewingThisChat = false,
+  messageId = null,
+} = {}) {
+  const hidden = Boolean(document.hidden);
+
+  if (!hidden && viewingThisChat && !isPrivateCallUiOpen()) {
+    playMessageTone({ soft: true });
+    return false;
   }
+
+  playMessageTone({ soft: !hidden });
+
+  if (hidden) {
+    const uniqueTag = messageId ? `${tag || 'msg'}-${messageId}` : `${tag || 'msg'}-${Date.now()}`;
+    void showBrowserNotification({
+      title: title || 'TacticalPtx',
+      body: body || 'Nuevo mensaje',
+      tag: uniqueTag,
+      silent: false,
+    });
+  }
+
   return true;
 }
 
-export function notifyIncomingCall({ callerName, callId }) {
-  const title = 'Llamada privada';
-  const body = `${callerName || 'Usuario'} te está llamando`;
-  startCallRingtone();
-  showBrowserNotification({
+/**
+ * @param {{ peerId: string, peerName: string, message: object, viewingPeer: boolean, panelVisible: boolean }} opts
+ * @returns {boolean} true si debe mostrar banner
+ */
+export function notifyDmMessage({ peerId, peerName, message, viewingPeer, panelVisible }) {
+  const viewingThisChat = Boolean(panelVisible && viewingPeer);
+  return notifyIncomingMessage({
+    title: peerName || 'Mensaje directo',
+    body: previewBody(message),
+    tag: `dm-${peerId}`,
+    messageId: message?.id || null,
+    viewingThisChat,
+  });
+}
+
+export function notifyIncomingCall({ callerName, callId, mode = 'call' }) {
+  const isRadio = mode === 'radio';
+  const title = isRadio ? 'Radio personal' : 'Llamada privada';
+  const body = isRadio
+    ? `${callerName || 'Usuario'} — radio 1:1 (mantén PTT)`
+    : `${callerName || 'Usuario'} te está llamando`;
+  if (!isRadio) startCallRingtone();
+  void showBrowserNotification({
     title,
     body,
-    tag: `call-${callId || 'private'}`,
-    requireInteraction: true,
+    tag: `call-${callId || 'private'}-${Date.now()}`,
+    requireInteraction: !isRadio,
+    silent: isRadio,
   });
+  try {
+    const prev = document.title;
+    document.title = `${isRadio ? '📻' : '📞'} ${callerName || 'Aviso'} — TacticalPtx`;
+    window.setTimeout(() => {
+      try {
+        if (document.title.startsWith('📞') || document.title.startsWith('📻')) {
+          document.title = prev;
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 12000);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Título de pestaña con contador de no leídos, estilo WhatsApp. */
+export function setUnreadDocumentTitle(count) {
+  const n = Math.max(0, Number(count) || 0);
+  try {
+    document.title = n > 0 ? `(${n > 99 ? '99+' : n}) ${BASE_TITLE}` : BASE_TITLE;
+  } catch {
+    /* ignore */
+  }
 }

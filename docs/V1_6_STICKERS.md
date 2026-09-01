@@ -1,8 +1,8 @@
-# PulsaNet v1.6.1 — Stickers
+# TacticalPtx v1.6.1 — Stickers
 
 ## Incluido
 
-- Packs integrados: **PulsaNet** y **Gestos**
+- Packs integrados: **TacticalPtx** y **Gestos**
 - Botón 🎭 en el compositor del chat Radio
 - Tipo de mensaje `sticker` (migración `008`)
 - Envío por socket `chat:sticker` o REST `POST /api/groups/:id/messages/sticker`

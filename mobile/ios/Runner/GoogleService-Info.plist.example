@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  PLANTILLA — NO usar en build.
+  1. Firebase Console → Add iOS app → bundle com.tacticalptx.app
+  2. Descargar GoogleService-Info.plist real
+  3. Copiar a GoogleService-Info.plist (no commitear) o subir base64 a Codemagic
+-->
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>REEMPLAZAR</string>
+	<key>GCM_SENDER_ID</key>
+	<string>REEMPLAZAR</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.tacticalptx.app</string>
+	<key>PROJECT_ID</key>
+	<string>REEMPLAZAR</string>
+	<key>STORAGE_BUCKET</key>
+	<string>REEMPLAZAR.appspot.com</string>
+	<key>IS_ADS_ENABLED</key>
+	<false/>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false/>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true/>
+	<key>IS_GCM_ENABLED</key>
+	<true/>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true/>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:REEMPLAZAR:ios:REEMPLAZAR</string>
+</dict>
+</plist>

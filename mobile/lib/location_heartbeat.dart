@@ -6,8 +6,8 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'api_client.dart';
 
-/// GPS continuo hacia despacho (estilo ubicación en vivo WhatsApp).
-/// Stream al moverse + latido cada 5 s.
+/// GPS continuo hacia despacho (stream + latido periódico).
+/// Stream al moverse + latido cada 5 s; sigue con pantalla bloqueada vía FGS location.
 class LocationHeartbeat {
   LocationHeartbeat._();
 
@@ -48,6 +48,16 @@ class LocationHeartbeat {
         LocationHeartbeat.onFix?.call(false, null, null, null);
         return;
       }
+      // Siempre/background: necesario en algunos OEM para GPS con pantalla apagada.
+      // Si el usuario niega, el FGS con tipo location aún puede mantener fixes.
+      try {
+        final always = await Permission.locationAlways.status;
+        if (!always.isGranted) {
+          await Permission.locationAlways.request();
+        }
+      } catch (_) {
+        /* iOS/Android variantes */
+      }
       final service = await Geolocator.isLocationServiceEnabled();
       if (!service) {
         LocationHeartbeat.onFix?.call(false, null, null, null);
@@ -76,6 +86,8 @@ class LocationHeartbeat {
         accuracy: LocationAccuracy.high,
         distanceFilter: _minMoveMeters.round(),
         intervalDuration: const Duration(seconds: 3),
+        // El FGS de radio ya notifica; no abrir un segundo servicio de Geolocator.
+        forceLocationManager: false,
       );
     }
     if (Platform.isIOS) {
@@ -84,6 +96,8 @@ class LocationHeartbeat {
         distanceFilter: _minMoveMeters.round(),
         activityType: ActivityType.otherNavigation,
         pauseLocationUpdatesAutomatically: false,
+        allowBackgroundLocationUpdates: true,
+        showBackgroundLocationIndicator: true,
       );
     }
     return const LocationSettings(

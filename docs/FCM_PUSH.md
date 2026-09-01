@@ -3,7 +3,7 @@
 ## Qué hace
 
 - Al enviar **chat** (texto/media), **DM**, **llamada privada** o al tomar el **PTT**, el backend notifica vía FCM.
-- La app Android usa canales `tacticalptx_alerts` / `tacticalptx_calls`, muestra pushes en primer plano y re-registra el token si Firebase lo rota.
+- La app Android usa canales `tacticalptx_alerts_nokia` (mensajes, tono SMS Nokia/Morse) / `tacticalptx_calls`, muestra pushes en primer plano y re-registra el token si Firebase lo rota.
 - Sin credenciales Firebase, la API sigue (`fcm: "off"`); no envía pushes.
 
 ## Estado actual (2026-08-13)
@@ -16,7 +16,7 @@
 
 1. [x] Proyecto Firebase + app Android `com.tacticalptx.app`
 2. [x] `google-services.json` → `mobile/android/app/`
-3. [x] Service account → `D:\PulsaNet_Soporte\Secrets\tacticalptx-firebase-adminsdk.json`
+3. [x] Service account → `D:\Soporte\Secrets\tacticalptx-firebase-adminsdk.json`
 4. [x] `FIREBASE_SERVICE_ACCOUNT=...` en `backend/.env`
 5. [x] Reiniciar API → health `"fcm":"configured"`
 6. [ ] Rebuild/instalar APK, login, conceder notificaciones
@@ -25,7 +25,7 @@
 ## Backend
 
 ```env
-FIREBASE_SERVICE_ACCOUNT=D:\PulsaNet_Soporte\Secrets\tacticalptx-firebase-adminsdk.json
+FIREBASE_SERVICE_ACCOUNT=D:\Soporte\Secrets\tacticalptx-firebase-adminsdk.json
 ```
 
 **No** subas el JSON a Git.

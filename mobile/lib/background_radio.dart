@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
-/// Mantiene Radio / socket / audio vivos con la app minimizada o pantalla bloqueada.
+/// Mantiene Radio / socket / audio / GPS vivos con app minimizada o pantalla bloqueada.
 class BackgroundRadio {
   BackgroundRadio._();
 
@@ -20,9 +20,10 @@ class BackgroundRadio {
       androidNotificationOptions: AndroidNotificationOptions(
         channelId: 'tacticalptx_radio',
         channelName: 'Radio TacticalPtx',
-        channelDescription: 'Mantiene el canal PTT, mensajes y llamadas activos',
-        channelImportance: NotificationChannelImportance.LOW,
-        priority: NotificationPriority.LOW,
+        channelDescription:
+            'Mantiene el canal y la ubicación con pantalla bloqueada (sin retener el micrófono)',
+        channelImportance: NotificationChannelImportance.DEFAULT,
+        priority: NotificationPriority.DEFAULT,
         onlyAlertOnce: true,
       ),
       iosNotificationOptions: const IOSNotificationOptions(
@@ -30,7 +31,8 @@ class BackgroundRadio {
         playSound: false,
       ),
       foregroundTaskOptions: ForegroundTaskOptions(
-        eventAction: ForegroundTaskEventAction.repeat(20000),
+        // Ping frecuente: menos riesgo de que el OEM suspenda audio/socket/GPS.
+        eventAction: ForegroundTaskEventAction.repeat(15000),
         autoRunOnBoot: false,
         autoRunOnMyPackageReplaced: false,
         allowWakeLock: true,
@@ -51,7 +53,12 @@ class BackgroundRadio {
     }
   }
 
-  static Future<void> start({String? channelName}) async {
+  /// Arranca (o refresca) el servicio en primer plano.
+  /// [forceRestart] recrea el FGS para aplicar tipos microphone|mediaPlayback|location.
+  static Future<void> start({
+    String? channelName,
+    bool forceRestart = false,
+  }) async {
     if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     await init();
     if (channelName != null && channelName.isNotEmpty) {
@@ -59,10 +66,13 @@ class BackgroundRadio {
     }
 
     final running = await FlutterForegroundTask.isRunningService;
-    final title = 'TacticalPtx Radio';
-    final text = '$_channelLabel · escuchando (mensajes y llamadas activos)';
+    final title = 'TacticalPtx activo';
+    final text =
+        '$_channelLabel · radio y ubicación en segundo plano';
 
-    if (running) {
+    if (running && forceRestart) {
+      await FlutterForegroundTask.stopService();
+    } else if (running) {
       await FlutterForegroundTask.updateService(
         notificationTitle: title,
         notificationText: text,
@@ -72,8 +82,8 @@ class BackgroundRadio {
 
     await FlutterForegroundTask.startService(
       serviceTypes: const [
-        ForegroundServiceTypes.microphone,
         ForegroundServiceTypes.mediaPlayback,
+        ForegroundServiceTypes.location,
       ],
       notificationTitle: title,
       notificationText: text,
@@ -100,7 +110,7 @@ class _RadioTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp) {
-    // Ping ligero para que el SO no mate el proceso.
+    // Ping ligero para que el SO no mate el proceso (audio LiveKit + socket + GPS).
     FlutterForegroundTask.sendDataToMain({'ts': timestamp.millisecondsSinceEpoch});
   }
 

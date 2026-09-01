@@ -17,14 +17,14 @@ Anota el **ID del proyecto** (algo como `tacticalptx-xxxxx`).
 1. En el proyecto → ícono **Android**.
 2. Nombre del paquete (obligatorio):
 
-   `com.tacticalptx.app`
+ `com.tacticalptx.app`
 
 3. Alias de la app: `TacticalPtx`
 4. Registrar app.
 5. Descarga **`google-services.json`**.
 6. Copia ese archivo aquí (reemplaza si ya existe):
 
-   `D:\pulsanet\mobile\android\app\google-services.json`
+ `D:\pulsanet\mobile\android\app\google-services.json`
 
 ## 3. Clave del servidor (para la API)
 
@@ -33,9 +33,9 @@ Anota el **ID del proyecto** (algo como `tacticalptx-xxxxx`).
 3. **Generar nueva clave privada** → descarga el JSON.
 4. Guárdalo como:
 
-   `D:\PulsaNet_Soporte\Secrets\tacticalptx-firebase-adminsdk.json`
+ `D:\Soporte\Secrets\tacticalptx-firebase-adminsdk.json`
 
-   (no lo subas a Git).
+ (no lo subas a Git).
 
 ## 4. Avisarme
 

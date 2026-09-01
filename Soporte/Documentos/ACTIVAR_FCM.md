@@ -1,4 +1,4 @@
-# Activar FCM — checklist (PulsaNet)
+# Activar FCM — checklist (TacticalPtx)
 
 Fecha: 2026-08-11
 
@@ -12,7 +12,7 @@ Sin proyecto Firebase real, health sigue en `"fcm":"off"`.
 ### A. Firebase Console
 
 1. Entra a https://console.firebase.google.com y crea/abre un proyecto.
-2. Añade app **Android** con package: `com.pulsanet.pulsanet_mobile`
+2. Añade app **Android** con package: `com.tacticalptx.app`
 3. Descarga `google-services.json`
 4. Project settings → Service accounts → **Generate new private key** (JSON admin)
 
@@ -21,12 +21,12 @@ Sin proyecto Firebase real, health sigue en `"fcm":"off"`.
 | Archivo | Destino |
 |---------|---------|
 | `google-services.json` | `D:\pulsanet\mobile\android\app\google-services.json` |
-| Service account JSON | `D:\PulsaNet_Soporte\Secrets\pulsanet-firebase-adminsdk.json` (crea carpeta Secrets) |
+| Service account JSON | `D:\Soporte\Secrets\tacticalptx-firebase-adminsdk.json` (crea carpeta Secrets) |
 
 ### C. backend/.env
 
 ```env
-FIREBASE_SERVICE_ACCOUNT=D:\PulsaNet_Soporte\Secrets\pulsanet-firebase-adminsdk.json
+FIREBASE_SERVICE_ACCOUNT=D:\Soporte\Secrets\tacticalptx-firebase-adminsdk.json
 ```
 
 Reinicia API (`npm run dev` en backend).
@@ -54,7 +54,7 @@ POST http://127.0.0.1:4000/api/devices/test
 Authorization: Bearer … 
 Content-Type: application/json
 
-{ "title": "PulsaNet", "body": "Prueba OK" }
+{ "title": "TacticalPtx", "body": "Prueba OK" }
 ```
 
 Doc completa: `D:\pulsanet\docs\FCM_PUSH.md`

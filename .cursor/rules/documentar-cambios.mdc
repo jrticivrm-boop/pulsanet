@@ -1,22 +1,20 @@
 ---
-description: Documentar siempre cambios en bitácora y CHANGELOG de PulsaNet
+description: Documentar siempre cambios en bitácora y CHANGELOG de TacticalPtx
 alwaysApply: true
 ---
 
-# Documentar cambios PulsaNet
+# Documentar cambios TacticalPtx
 
 Al terminar cualquier trabajo que implique **código, infra, docs de producto, UX, fixes u operaciones** (no hace falta si solo respondiste una pregunta sin cambiar nada):
 
 ## Obligatorio
 
 1. Añadir una entrada **al inicio** (después del encabezado) de:
-   - `D:\pulsanet\Soporte\Documentos\BITACORA_DESARROLLO.md`
-   - y sincronizar la misma entrada en `D:\pulsanet\docs\BITACORA_DESARROLLO.md`
-
-   (Compat: `D:\PulsaNet_Soporte\…` es unión → `D:\pulsanet\Soporte\…`)
+ - `C:\pulsanet\Soporte\Documentos\BITACORA_DESARROLLO.md`
+ - y sincronizar la misma entrada en `C:\pulsanet\docs\BITACORA_DESARROLLO.md`
 
 2. Si el cambio es de producto/versión (feature, breaking, release), actualizar también:
-   - `D:\pulsanet\docs\CHANGELOG.md` (sección `[Unreleased]` o versión nueva)
+ - `C:\pulsanet\docs\CHANGELOG.md` (sección `[Unreleased]` o versión nueva)
 
 ## Formato bitácora
 

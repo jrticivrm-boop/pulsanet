@@ -1,14 +1,21 @@
 import { Router } from 'express';
-import { getRedis, isRedisReady } from '../redis.js';
+import { getRedis, isRedisReady, countKeysByScan } from '../redis.js';
 import { query } from '../db.js';
 import { isLiveKitConfigured } from '../services/livekit.js';
 import { config } from '../config.js';
 import { getCounters } from '../services/metrics.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { isDispatch } from '../services/roles.js';
 
 export function createMetricsRouter(io) {
   const router = Router();
 
-  router.get('/', async (_req, res) => {
+  /** Solo despacho autenticado — evita reconocimiento público. */
+  router.get('/', authMiddleware, async (req, res) => {
+    if (!isDispatch(req.user?.role)) {
+      return res.status(403).json({ ok: false, error: 'Sin permiso' });
+    }
+
     let redisOk = false;
     let presenceKeys = 0;
     let floorKeys = 0;
@@ -16,10 +23,8 @@ export function createMetricsRouter(io) {
       if (isRedisReady()) {
         await getRedis().ping();
         redisOk = true;
-        const p = await getRedis().keys('presence:group:*');
-        const f = await getRedis().keys('ptt:floor:*');
-        presenceKeys = p.length;
-        floorKeys = f.length;
+        presenceKeys = await countKeysByScan('presence:group:*');
+        floorKeys = await countKeysByScan('ptt:floor:*');
       }
     } catch {
       redisOk = false;
@@ -42,7 +47,7 @@ export function createMetricsRouter(io) {
       sockets: io?.engine?.clientsCount ?? 0,
       db: dbOk ? 'connected' : 'down',
       redis: redisOk ? 'connected' : 'down',
-      livekit: isLiveKitConfigured() ? config.livekit.url : null,
+      livekit: isLiveKitConfigured() ? 'configured' : 'missing',
       presenceGroups: presenceKeys,
       activeFloors: floorKeys,
       usersCount,

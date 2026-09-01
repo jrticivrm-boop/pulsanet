@@ -1,4 +1,4 @@
-# PulsaNet v1.7.1 — Ticks de lectura
+# TacticalPtx v1.7.1 — Ticks de lectura
 
 ## Comportamiento (Radio web)
 

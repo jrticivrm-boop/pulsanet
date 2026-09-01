@@ -1,6 +1,6 @@
 # Changelog — TacticalPtx
 
-Registro de versiones y cambios relevantes del producto (antes PulsaNet).  
+Registro de versiones y cambios relevantes del producto (TacticalPtx). 
 Bitácora narrativa (día a día): [BITACORA_DESARROLLO.md](BITACORA_DESARROLLO.md)
 
 Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).

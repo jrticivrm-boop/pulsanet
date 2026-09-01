@@ -1,9 +1,9 @@
-# PulsaNet — Auditoría Mes 1–6 (estado real)
+# TacticalPtx — Auditoría Mes 1–6 (estado real)
 
 **Fecha:** 2026-08-11 · **API:** v1.4.0
 
-> Informe narrativo por mes: [INFORME_DESARROLLO_POR_MES.md](INFORME_DESARROLLO_POR_MES.md)  
-> Copia en Soporte: `D:\PulsaNet_Soporte\Documentos\INFORME_DESARROLLO_POR_MES.md`
+> Informe narrativo por mes: [INFORME_DESARROLLO_POR_MES.md](INFORME_DESARROLLO_POR_MES.md) 
+> Copia en Soporte: `D:\Soporte\Documentos\INFORME_DESARROLLO_POR_MES.md`
 
 ## Resumen por mes
 
@@ -18,13 +18,13 @@
 
 ## Bugs corregidos en esta pasada
 
-1. `listen_only` ya **no puede tomar el floor** PTT  
-2. Presencia: heartbeat + limpieza de fantasmas offline (~90 s)  
-3. JWT refresh (`/api/auth/refresh`) + rotación; default access **8h**  
-4. Middleware async Express (errores DB → 500 JSON)  
-5. Historial chat limitado a **90 días**  
-6. Web: refresh en 401, export CSV en despacho, rol `listen_only` al asignar  
-7. Mobile: polling Socket.IO, refresh token, speakerphone LiveKit  
+1. `listen_only` ya **no puede tomar el floor** PTT 
+2. Presencia: heartbeat + limpieza de fantasmas offline (~90 s) 
+3. JWT refresh (`/api/auth/refresh`) + rotación; default access **8h** 
+4. Middleware async Express (errores DB → 500 JSON) 
+5. Historial chat limitado a **90 días** 
+6. Web: refresh en 401, export CSV en despacho, rol `listen_only` al asignar 
+7. Mobile: polling Socket.IO, refresh token, speakerphone LiveKit 
 
 ## v1.1 / v1.2 / v1.3
 
@@ -46,13 +46,13 @@
 
 ## Qué se necesita para continuar
 
-1. **Demo diaria:** Redis + LiveKit + API + Vite (`npm run dev` en `web`)  
-2. **Móvil físico:** USB + `flutter run --dart-define=API_BASE=http://IP:4000` + firewall 4000/7880  
-3. **Producción VPS:** instalar Docker → `infra/docker-compose.prod.yml` + `.env.prod`  
-4. **Stores:** keystore ya generado (respaldar `.jks`); AAB en `mobile/build/.../app-release.aab`  
+1. **Demo diaria:** Redis + LiveKit + API + Vite (`npm run dev` en `web`) 
+2. **Móvil físico:** USB + `flutter run --dart-define=API_BASE=http://IP:4000` + firewall 4000/7880 
+3. **Producción VPS:** instalar Docker → `infra/docker-compose.prod.yml` + `.env.prod` 
+4. **Stores:** keystore ya generado (respaldar `.jks`); AAB en `mobile/build/.../app-release.aab` 
 
 ## Stack al auditar
 
-- API :4000 OK · Redis OK · LiveKit OK · Postgres OK  
-- Vite :5173 a menudo caído → reiniciar `cd web && npm run dev`  
-- `adb`: sin teléfono conectado  
+- API :4000 OK · Redis OK · LiveKit OK · Postgres OK 
+- Vite :5173 a menudo caído → reiniciar `cd web && npm run dev` 
+- `adb`: sin teléfono conectado 

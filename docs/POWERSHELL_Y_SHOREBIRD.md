@@ -4,7 +4,7 @@
 
 ## Hecho importante
 
-En Windows, el comando `shorebird` **usa PowerShell por dentro** (`shorebird.bat` → `shorebird.ps1`).  
+En Windows, el comando `shorebird` **usa PowerShell por dentro** (`shorebird.bat` → `shorebird.ps1`). 
 Si PowerShell está roto, **Shorebird OTA no puede correr** hasta repararlo.
 
 ## Paso A — Reparar PowerShell
@@ -32,7 +32,7 @@ Doble clic:
 
 `D:\pulsanet\mobile\scripts\BUILD-APK-WHATSAPP.cmd`
 
-Usa solo `flutter.bat` (sin PowerShell).  
+Usa solo `flutter.bat` (sin PowerShell). 
 Cada actualización = nueva APK por WhatsApp (no parche OTA).
 
 ## Shorebird ya está descargado

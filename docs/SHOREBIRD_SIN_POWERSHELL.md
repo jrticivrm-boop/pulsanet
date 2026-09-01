@@ -10,7 +10,7 @@ Doble clic:
 
 `D:\pulsanet\mobile\scripts\DIAGNOSTICO.cmd`
 
-Genera: `D:\pulsanet\mobile\scripts\diagnostico.txt`  
+Genera: `D:\pulsanet\mobile\scripts\diagnostico.txt` 
 (Si puedes, mándanos ese archivo.)
 
 ## 2) Instalar Shorebird

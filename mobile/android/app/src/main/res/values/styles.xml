@@ -7,4 +7,6 @@
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+    <!-- image_cropper / uCrop — oliva TacticalPtx -->
+    <style name="Ucrop.CropTheme" parent="Theme.AppCompat.Light.NoActionBar"/>
 </resources>

@@ -1,106 +1,106 @@
-# PulsaNet v1 — stack de producción
+# TacticalPtx v1 — stack de producción
 # Uso:
-#   cd infra
-#   copy .env.prod.example .env.prod
-#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+# cd infra
+# copy .env.prod.example .env.prod
+# docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 #
 # Web + API: http://localhost (Caddy :80)
-# LiveKit:   ws://localhost:7880
+# LiveKit: ws://localhost:7880
 
-name: pulsanet
+name: tacticalptx
 
 services:
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-pulsanet}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-pulsanet_db}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ../database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ../database/migrations/001_activity_logs.sql:/docker-entrypoint-initdb.d/02-activity.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pulsanet} -d ${POSTGRES_DB:-pulsanet_db}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+ postgres:
+ image: postgres:17-alpine
+ restart: unless-stopped
+ environment:
+ POSTGRES_USER: ${POSTGRES_USER:-tacticalptx}
+ POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+ POSTGRES_DB: ${POSTGRES_DB:-tacticalptx_db}
+ volumes:
+ - pgdata:/var/lib/postgresql/data
+ - ../database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+ - ../database/migrations/001_activity_logs.sql:/docker-entrypoint-initdb.d/02-activity.sql:ro
+ healthcheck:
+ test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tacticalptx} -d ${POSTGRES_DB:-tacticalptx_db}"]
+ interval: 5s
+ timeout: 5s
+ retries: 10
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+ redis:
+ image: redis:7-alpine
+ restart: unless-stopped
+ command: ["redis-server", "--appendonly", "yes"]
+ volumes:
+ - redisdata:/data
+ healthcheck:
+ test: ["CMD", "redis-cli", "ping"]
+ interval: 5s
+ timeout: 3s
+ retries: 10
 
-  livekit:
-    image: livekit/livekit-server:v1.8.4
-    restart: unless-stopped
-    command: ["--config", "/etc/livekit.yaml"]
-    volumes:
-      - ./livekit.yaml:/etc/livekit.yaml:ro
-    ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "50000-50100:50000-50100/udp"
+ livekit:
+ image: livekit/livekit-server:v1.8.4
+ restart: unless-stopped
+ command: ["--config", "/etc/livekit.yaml"]
+ volumes:
+ - ./livekit.yaml:/etc/livekit.yaml:ro
+ ports:
+ - "7880:7880"
+ - "7881:7881"
+ - "50000-50100:50000-50100/udp"
 
-  api:
-    build:
-      context: ../backend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      PORT: "4000"
-      DATABASE_URL: postgresql://${POSTGRES_USER:-pulsanet}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pulsanet_db}
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://127.0.0.1}
-      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
-      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-pulsanetkey}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-pulsanetsecret_cambiar_en_produccion_minimo_32}
-      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-300}
-      TRUST_PROXY: "1"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+ api:
+ build:
+ context: ../backend
+ dockerfile: Dockerfile
+ restart: unless-stopped
+ environment:
+ NODE_ENV: production
+ PORT: "4000"
+ DATABASE_URL: postgresql://${POSTGRES_USER:-tacticalptx}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tacticalptx_db}
+ REDIS_URL: redis://redis:6379
+ JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+ JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+ CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://127.0.0.1}
+ LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
+ LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-tacticalptxkey}
+ LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-tacticalptxsecret_cambiar_en_produccion_minimo_32}
+ RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-300}
+ TRUST_PROXY: "1"
+ depends_on:
+ postgres:
+ condition: service_healthy
+ redis:
+ condition: service_healthy
 
-  web:
-    build:
-      context: ../web
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: ""
-        VITE_SOCKET_URL: ""
-    restart: unless-stopped
-    depends_on:
-      - api
+ web:
+ build:
+ context: ../web
+ dockerfile: Dockerfile
+ args:
+ VITE_API_URL: ""
+ VITE_SOCKET_URL: ""
+ restart: unless-stopped
+ depends_on:
+ - api
 
-  proxy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - api
-      - web
+ proxy:
+ image: caddy:2-alpine
+ restart: unless-stopped
+ ports:
+ - "80:80"
+ - "443:443"
+ volumes:
+ - ./Caddyfile:/etc/caddy/Caddyfile:ro
+ - caddy_data:/data
+ - caddy_config:/config
+ depends_on:
+ - api
+ - web
 
 volumes:
-  pgdata:
-  redisdata:
-  caddy_data:
-  caddy_config:
+ pgdata:
+ redisdata:
+ caddy_data:
+ caddy_config:

@@ -1,8 +1,8 @@
-# PulsaNet — Propuesta técnica (1 página)
+# TacticalPtx — Propuesta técnica (1 página)
 
 ## Resumen
 
-**PulsaNet** es una plataforma PTT (*Push-to-Talk*) sobre internet para equipos de campo. Replica lo esencial de soluciones enterprise (voz instantánea por grupos, chat, mapa, despacho web) usando celular/Wi‑Fi, sin radios físicos ni infraestructura de carrier.
+**TacticalPtx** es una plataforma PTT (*Push-to-Talk*) sobre internet para equipos de campo. Replica lo esencial de soluciones enterprise (voz instantánea por grupos, chat, mapa, despacho web) usando celular/Wi‑Fi, sin radios físicos ni infraestructura de carrier.
 
 | Parámetro | Valor |
 |-----------|-------|
@@ -35,15 +35,15 @@
 
 ```
 [Apps Flutter] ──► [API REST + Socket.IO] ──► [PostgreSQL]
-[Web React]    ──►         │                ──► [Redis]
-                           ▼
-                    [LiveKit Cloud/Self]
-                    (audio PTT por grupo)
+[Web React] ──► │ ──► [Redis]
+ ▼
+ [LiveKit Cloud/Self]
+ (audio PTT por grupo)
 ```
 
-- **Señalización PTT** (quién habla, botón presionado): Socket.IO  
-- **Audio**: LiveKit rooms (1 room = 1 grupo PTT)  
-- **Floor control**: solo 1 `speaker` activo por room; backend valida  
+- **Señalización PTT** (quién habla, botón presionado): Socket.IO 
+- **Audio**: LiveKit rooms (1 room = 1 grupo PTT) 
+- **Floor control**: solo 1 `speaker` activo por room; backend valida 
 
 ---
 
@@ -89,4 +89,4 @@
 
 ---
 
-*PulsaNet — Propuesta téchnica v1 — 2026*
+*TacticalPtx — Propuesta téchnica v1 — 2026*

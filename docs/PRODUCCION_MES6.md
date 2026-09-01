@@ -1,4 +1,4 @@
-# PulsaNet — Producción v1.0 (Mes 6)
+# TacticalPtx — Producción v1.0 (Mes 6)
 
 ## Qué incluye este hito
 
@@ -44,10 +44,10 @@ En producción, cambia el `Caddyfile` a tu dominio (Caddy obtiene certificados s
 
 ```
 tu-dominio.example {
-  encode gzip
-  handle /api* { reverse_proxy api:4000 }
-  handle /socket.io* { reverse_proxy api:4000 }
-  handle { reverse_proxy web:80 }
+ encode gzip
+ handle /api* { reverse_proxy api:4000 }
+ handle /socket.io* { reverse_proxy api:4000 }
+ handle { reverse_proxy web:80 }
 }
 ```
 
@@ -69,7 +69,7 @@ Sigue el README: PostgreSQL + `infra/start-services.ps1` + `backend` + `web`.
 Migración auditoría (BD ya existente):
 
 ```powershell
-psql -U postgres -d pulsanet_db -f database/migrations/001_activity_logs.sql
+psql -U postgres -d tacticalptx_db -f database/migrations/001_activity_logs.sql
 ```
 
 ---
@@ -97,7 +97,7 @@ Salida: `build/app/outputs/bundle/release/app-release.aab`
 ### Checklist Play Console
 
 - [ ] Cuenta Google Play Developer
-- [ ] App creada (`com.pulsanet.pulsanet_mobile`)
+- [ ] App creada (`com.tacticalptx.app`)
 - [ ] Privacy policy URL ([PRIVACY.md](PRIVACY.md) hospedada)
 - [ ] Subir AAB a pista interna / cerrada
 - [ ] Capturas y descripción de la ficha
@@ -127,9 +127,9 @@ Luego TestFlight / App Store Connect. Política VoIP/PTT y privacy labels.
 
 ## Criterios de aceptación (código)
 
-1. Compose válido y documentado  
-2. Production rechaza JWT débil  
-3. Login escribe `activity_logs`  
-4. PTT grant/release escribe `ptt_sessions`  
-5. AAB firmable con keystore local  
+1. Compose válido y documentado 
+2. Production rechaza JWT débil 
+3. Login escribe `activity_logs` 
+4. PTT grant/release escribe `ptt_sessions` 
+5. AAB firmable con keystore local 
 6. Manual + privacy publicados en `docs/`

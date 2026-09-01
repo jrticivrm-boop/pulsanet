@@ -2,7 +2,7 @@
 
 ## Qué significa
 
-Hoy PulsaNet en desarrollo corre “a mano” (Postgres Windows + Redis Laragon + LiveKit .exe + Node + Vite).
+Hoy TacticalPtx en desarrollo corre “a mano” (Postgres Windows + Redis Laragon + LiveKit .exe + Node + Vite).
 
 **Docker Compose prod** empaqueta todo en contenedores:
 
@@ -17,8 +17,8 @@ Así lo levantas en un **servidor/VPS** o en esta PC con un solo comando, sin in
 
 ## Qué hacer tú (una vez)
 
-1. Instala [Docker Desktop](https://www.docker.com/products/docker-desktop/) (acepta WSL2 si lo pide) y **reinicia** si lo solicita  
-2. Abre Docker Desktop hasta que diga “Engine running”  
+1. Instala [Docker Desktop](https://www.docker.com/products/docker-desktop/) (acepta WSL2 si lo pide) y **reinicia** si lo solicita 
+2. Abre Docker Desktop hasta que diga “Engine running” 
 3. Luego:
 
 ```powershell
@@ -26,7 +26,7 @@ cd D:\pulsanet\infra
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
-4. Abre http://localhost — web + API detrás de Caddy  
+4. Abre http://localhost — web + API detrás de Caddy 
 5. Seed:
 
 ```powershell

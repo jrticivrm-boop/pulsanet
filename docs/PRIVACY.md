@@ -1,8 +1,8 @@
-# Política de privacidad — PulsaNet (borrador)
+# Política de privacidad — TacticalPtx (borrador)
 
-**Última actualización:** 2026-08-10  
-**Producto:** PulsaNet (comunicación PTT por internet)  
-**Contacto:** privacidad@pulsanet.local *(sustituir por correo real antes de publicar en stores)*
+**Última actualización:** 2026-08-10 
+**Producto:** TacticalPtx (comunicación PTT por internet) 
+**Contacto:** privacidad@tacticalptx.local *(sustituir por correo real antes de publicar en stores)*
 
 Este documento es un **stub** para cumplir requisitos de ficha en tiendas. Debe revisarlo un responsable legal antes de producción pública.
 

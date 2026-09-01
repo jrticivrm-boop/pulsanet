@@ -1,27 +1,68 @@
 import { useEffect, useRef, useState } from 'react';
 import { RoomEvent, Track, createLocalAudioTrack, AudioPresets } from 'livekit-client';
+import { io } from 'socket.io-client';
 import { createEncryptedRoom } from './livekitE2ee';
-
-/** Reescribe 127.0.0.1/localhost con el host de la página (LAN). */
-function publicLiveKitUrl(url) {
-  if (!url || typeof window === 'undefined') return url;
-  const host = window.location.hostname;
-  if (!host || host === 'localhost' || host === '127.0.0.1') return url;
-  return String(url).replace(/127\.0\.0\.1/g, host).replace(/localhost/gi, host);
-}
+import { publicLiveKitUrl } from './livekitUrl';
+import { esMsg } from './esMsg';
+import { assertMediaDevices } from './voiceRecord';
+import { socketIoOptions, socketUrl } from './socketConfig';
+import { setPrivateCallUiOpen } from './privateCallUi';
 
 /**
- * Overlay de llamada privada 1:1 (LiveKit + E2EE si hay e2eeKey).
+ * Overlay llamada / radio privada 1:1 (LiveKit + E2EE).
+ * mode=radio → mic muteado hasta PTT (mantener).
+ * Atrás / Esc minimiza; solo «Colgar» corta la llamada.
  */
 export default function PrivateCallOverlay({ call, onHangup }) {
+  const isRadio = call?.mode === 'radio';
   const [status, setStatus] = useState('Conectando…');
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const [pttHeld, setPttHeld] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const roomRef = useRef(null);
   const micRef = useRef(null);
   const audioEls = useRef([]);
+  const closingRef = useRef(false);
+  const onHangupRef = useRef(onHangup);
+
+  useEffect(() => {
+    onHangupRef.current = onHangup;
+  }, [onHangup]);
+
+  useEffect(() => {
+    setPrivateCallUiOpen(true);
+    return () => setPrivateCallUiOpen(false);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
+
+    function remoteEnd(label) {
+      if (cancelled || closingRef.current) return;
+      closingRef.current = true;
+      setStatus(label || (isRadio ? 'Radio finalizada' : 'Llamada finalizada'));
+      onHangupRef.current?.({ remote: true });
+    }
+
+    const token = call?.authToken;
+    let signalSocket = null;
+    if (token && call?.callId) {
+      signalSocket = io(socketUrl(), {
+        ...socketIoOptions,
+        auth: { token },
+      });
+      signalSocket.on('call:ended', (payload) => {
+        if (payload?.callId === call.callId) {
+          remoteEnd(payload?.reason === 'reject' ? 'Rechazada' : undefined);
+        }
+      });
+      signalSocket.on('call:accepted', (payload) => {
+        if (payload?.callId === call.callId && call.role === 'caller') {
+          setStatus(isRadio ? `Radio con ${call.peerName}` : `En llamada con ${call.peerName}`);
+        }
+      });
+    }
+
     (async () => {
       try {
         const room = await createEncryptedRoom(
@@ -44,11 +85,14 @@ export default function PrivateCallOverlay({ call, onHangup }) {
             el.dataset.privateCall = '1';
             document.body.appendChild(el);
             audioEls.current.push(el);
-            setStatus(`En llamada con ${call.peerName}`);
+            setStatus(isRadio ? `Radio con ${call.peerName}` : `En llamada con ${call.peerName}`);
           }
         });
+        room.on(RoomEvent.ParticipantDisconnected, () => {
+          remoteEnd(undefined);
+        });
         room.on(RoomEvent.Disconnected, () => {
-          if (!cancelled) setStatus('Desconectado');
+          if (!cancelled && !closingRef.current) setStatus('Desconectado');
         });
 
         await room.connect(publicLiveKitUrl(call.url), call.token);
@@ -56,6 +100,7 @@ export default function PrivateCallOverlay({ call, onHangup }) {
           room.disconnect();
           return;
         }
+        assertMediaDevices();
         const mic = await createLocalAudioTrack({
           echoCancellation: true,
           noiseSuppression: true,
@@ -67,18 +112,44 @@ export default function PrivateCallOverlay({ call, onHangup }) {
           audioPreset: AudioPresets.speech,
           red: false,
         });
+        if (isRadio) {
+          await mic.mute();
+          setMuted(true);
+        } else {
+          setMuted(false);
+        }
         setStatus(
           call.role === 'caller'
-            ? `Llamando a ${call.peerName}…`
-            : `En llamada con ${call.peerName}`
+            ? isRadio
+              ? `Esperando a ${call.peerName}…`
+              : `Llamando a ${call.peerName}…`
+            : isRadio
+              ? `Radio con ${call.peerName}`
+              : `En llamada con ${call.peerName}`
         );
       } catch (e) {
-        if (!cancelled) setStatus(e.message || 'Error de audio');
+        if (!cancelled) {
+          setStatus(esMsg(e, 'No se pudo conectar'));
+          setTimeout(() => onHangupRef.current?.({ remote: true }), 1200);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
+      try {
+        signalSocket?.disconnect();
+      } catch {
+        /* ignore */
+      }
+      audioEls.current.forEach((el) => {
+        try {
+          el.remove();
+        } catch {
+          /* ignore */
+        }
+      });
+      audioEls.current = [];
       try {
         micRef.current?.stop();
       } catch {
@@ -89,50 +160,155 @@ export default function PrivateCallOverlay({ call, onHangup }) {
       } catch {
         /* ignore */
       }
-      audioEls.current.forEach((el) => {
-        el.remove();
-      });
-      audioEls.current = [];
     };
-  }, [call]);
+  }, [call?.callId, call?.token, call?.url, call?.e2eeKey, call?.peerName, call?.role, isRadio]);
 
   async function toggleMute() {
     const mic = micRef.current;
     if (!mic) return;
-    if (muted) {
-      await mic.unmute();
-      setMuted(false);
-    } else {
-      await mic.mute();
-      setMuted(true);
+    try {
+      if (muted) {
+        await mic.unmute();
+        setMuted(false);
+      } else {
+        await mic.mute();
+        setMuted(true);
+      }
+    } catch {
+      /* ignore */
     }
   }
 
+  async function pttDown() {
+    if (!isRadio || pttHeld) return;
+    const mic = micRef.current;
+    if (!mic) return;
+    try {
+      await mic.unmute();
+      setMuted(false);
+      setPttHeld(true);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function pttUp() {
+    if (!isRadio || !pttHeld) return;
+    const mic = micRef.current;
+    setPttHeld(false);
+    try {
+      await mic.mute();
+      setMuted(true);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function hangupClick() {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    await onHangupRef.current?.({ remote: false });
+  }
+
+  function minimize() {
+    setMinimized(true);
+  }
+
+  const initials =
+    (call.peerName || '?')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0])
+      .join('')
+      .toUpperCase() || '?';
+
+  if (minimized) {
+    return (
+      <div className="private-call-mini" role="status" aria-label="Llamada en curso">
+        <button type="button" className="private-call-mini-main" onClick={() => setMinimized(false)}>
+          <span className="private-call-mini-avatar" aria-hidden="true">
+            {initials}
+          </span>
+          <span className="private-call-mini-text">
+            <strong>{call.peerName}</strong>
+            <small>{status || (isRadio ? 'Radio en curso' : 'Llamada en curso')}</small>
+          </span>
+        </button>
+        <button
+          type="button"
+          className="private-call-mini-hangup"
+          onClick={hangupClick}
+          title={isRadio ? 'Cerrar' : 'Colgar'}
+        >
+          📵
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="private-call-overlay wa-call" role="dialog" aria-label="Llamada privada">
-      <p className="private-call-label">Llamada de voz</p>
+    <div
+      className={`private-call-overlay wa-call${isRadio ? ' is-radio' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={isRadio ? 'Radio personal' : 'Llamada privada'}
+      data-esc-close=""
+    >
+      <button
+        type="button"
+        className="private-call-back"
+        onClick={minimize}
+        data-esc-close-btn=""
+        title="Minimizar (la llamada sigue)"
+        aria-label="Minimizar"
+      >
+        ←
+      </button>
+      <p className="private-call-label">{isRadio ? 'Radio personal 1:1' : 'Llamada de voz'}</p>
       <div className="private-call-avatar" aria-hidden="true">
-        {(call.peerName || '?')
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean)
-          .slice(0, 2)
-          .map((p) => p[0])
-          .join('')
-          .toUpperCase() || '?'}
+        {initials}
       </div>
       <h2>{call.peerName}</h2>
       <p className="private-call-status">{status}</p>
       <div className="private-call-actions wa-actions">
-        <button type="button" className="wa-call-circle mute" onClick={toggleMute}>
-          <span aria-hidden="true">{muted ? '🔇' : '🎤'}</span>
-          {muted ? 'Mic off' : 'Silenciar'}
-        </button>
-        <button type="button" className="wa-call-circle hangup" onClick={onHangup}>
+        {isRadio ? (
+          <button
+            type="button"
+            className={`wa-call-circle ptt${pttHeld ? ' holding' : ''}`}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              pttDown();
+            }}
+            onPointerUp={() => pttUp()}
+            onPointerCancel={() => pttUp()}
+            onLostPointerCapture={() => pttUp()}
+            onContextMenu={(e) => e.preventDefault()}
+            aria-pressed={pttHeld}
+            title="Mantén para hablar"
+          >
+            <span aria-hidden="true">🎙️</span>
+            {pttHeld ? 'AL AIRE' : 'PTT'}
+          </button>
+        ) : (
+          <button type="button" className="wa-call-circle mute" onClick={toggleMute}>
+            <span aria-hidden="true">{muted ? '🔇' : '🎤'}</span>
+            {muted ? 'Mic off' : 'Silenciar'}
+          </button>
+        )}
+        <button
+          type="button"
+          className="wa-call-circle hangup"
+          onClick={hangupClick}
+          title={isRadio ? 'Cerrar' : 'Colgar'}
+        >
           <span aria-hidden="true">📵</span>
-          Colgar
+          {isRadio ? 'Cerrar' : 'Colgar'}
         </button>
       </div>
+      {isRadio && <p className="private-radio-hint">Mantén PTT para transmitir · suelta para escuchar</p>}
     </div>
   );
 }

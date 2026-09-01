@@ -1,0 +1,318 @@
+[
+  {
+    "id": 1,
+    "nombre": "IV R.M.",
+    "zonas": [
+      {
+        "id": 1,
+        "nombre": "48/a. Z.M.",
+        "organismos": [
+          {
+            "id": 1,
+            "nombre": "H.M.R. de Tampico"
+          },
+          {
+            "id": 2,
+            "nombre": "15/o. B.I."
+          },
+          {
+            "id": 3,
+            "nombre": "C.G. 48/a. Z.M."
+          },
+          {
+            "id": 39,
+            "nombre": "77/o. B.I."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "nombre": "12/a. Z.M.",
+        "organismos": [
+          {
+            "id": 4,
+            "nombre": "V.F.M. de Cd. Valles"
+          },
+          {
+            "id": 5,
+            "nombre": "40/o. B.I."
+          },
+          {
+            "id": 6,
+            "nombre": "36/o. B.I."
+          },
+          {
+            "id": 7,
+            "nombre": "H.M.R. de S.L.P."
+          },
+          {
+            "id": 8,
+            "nombre": "C.G. 12/a. Z.M."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "nombre": "8/a. Z.A.M.",
+        "organismos": [
+          {
+            "id": 9,
+            "nombre": "E.A.M. No. 4"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "nombre": "8/a. Z.M.",
+        "organismos": [
+          {
+            "id": 10,
+            "nombre": "29/o. R.C."
+          },
+          {
+            "id": 11,
+            "nombre": "25/o. R.C."
+          },
+          {
+            "id": 12,
+            "nombre": "19/o. R.C."
+          },
+          {
+            "id": 13,
+            "nombre": "16/o. R.C."
+          },
+          {
+            "id": 14,
+            "nombre": "8/o. R.C."
+          },
+          {
+            "id": 15,
+            "nombre": "Gn. Mil. Matamoros"
+          },
+          {
+            "id": 16,
+            "nombre": "U.M.C.E. de Reynosa"
+          },
+          {
+            "id": 17,
+            "nombre": "C.G. 8/a. Z.M."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "nombre": "7/a. Z.A.M.",
+        "organismos": [
+          {
+            "id": 18,
+            "nombre": "G.B.A. No. 4"
+          },
+          {
+            "id": 19,
+            "nombre": "EDN. AR. 108"
+          },
+          {
+            "id": 20,
+            "nombre": "7/a. Z.A.M."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "nombre": "7/a. Z.M.",
+        "organismos": [
+          {
+            "id": 21,
+            "nombre": "27/o. R.C."
+          },
+          {
+            "id": 22,
+            "nombre": "22/o. B.I."
+          },
+          {
+            "id": 23,
+            "nombre": "16/o. B.I."
+          },
+          {
+            "id": 24,
+            "nombre": "Vivero Forestal Apodaca"
+          },
+          {
+            "id": 25,
+            "nombre": "C.G. 7/a. Z.M."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "nombre": "C.G. IV R.M.",
+        "organismos": [
+          {
+            "id": 26,
+            "nombre": "4/a. Cia. S.M.N."
+          },
+          {
+            "id": 27,
+            "nombre": "4/a. S.R.C.E."
+          },
+          {
+            "id": 28,
+            "nombre": "C.A.C.I.R. IV R.M."
+          },
+          {
+            "id": 29,
+            "nombre": "C.A.R. IV R.M."
+          },
+          {
+            "id": 30,
+            "nombre": "C.G."
+          },
+          {
+            "id": 31,
+            "nombre": "C.R.I. IV R.M."
+          },
+          {
+            "id": 32,
+            "nombre": "Cia. Rgnl. Manto. Autz. IV R.M."
+          },
+          {
+            "id": 33,
+            "nombre": "Cia. Rgnl. Manto. IV R.M."
+          },
+          {
+            "id": 34,
+            "nombre": "H.M.R.E. de Monterrey"
+          },
+          {
+            "id": 35,
+            "nombre": "J.R.S. Ings. IV R.M."
+          },
+          {
+            "id": 36,
+            "nombre": "J.R.S. M.G. IV R.M."
+          },
+          {
+            "id": 37,
+            "nombre": "J.R.S. Tptes. IV R.M."
+          },
+          {
+            "id": 38,
+            "nombre": "J.R.S.A. E I. IV R.M."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 62,
+    "nombre": "I R.M.",
+    "zonas": [
+      {
+        "id": 408,
+        "nombre": "1/o. Z.M.",
+        "organismos": [
+          {
+            "id": 2302,
+            "nombre": "5/o. Organismo"
+          }
+        ]
+      },
+      {
+        "id": 410,
+        "nombre": "22/a. Z.M.",
+        "organismos": [
+          {
+            "id": 2303,
+            "nombre": "10/o. R.C."
+          }
+        ]
+      },
+      {
+        "id": 413,
+        "nombre": "24/a. Z.M.",
+        "organismos": [
+          {
+            "id": 2305,
+            "nombre": "3/er. R.B.R."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 64,
+    "nombre": "VI R.M.",
+    "zonas": [
+      {
+        "id": 412,
+        "nombre": "23/a. Z.M.",
+        "organismos": [
+          {
+            "id": 2304,
+            "nombre": "5/o. R.C. y E.M.C.M."
+          }
+        ]
+      },
+      {
+        "id": 414,
+        "nombre": "25/a. Z.M.",
+        "organismos": [
+          {
+            "id": 2307,
+            "nombre": "1/o. R.C."
+          },
+          {
+            "id": 2308,
+            "nombre": "6/o. R.B.R."
+          },
+          {
+            "id": 2309,
+            "nombre": "7/o. R.B.R."
+          },
+          {
+            "id": 2310,
+            "nombre": "24/o. R.C."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 65,
+    "nombre": "X R.M.",
+    "zonas": [
+      {
+        "id": 415,
+        "nombre": "34/a. Z.M.",
+        "organismos": [
+          {
+            "id": 2311,
+            "nombre": "64/o. B.I."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 66,
+    "nombre": "III R.M.",
+    "zonas": [
+      {
+        "id": 416,
+        "nombre": "J.R.S.Tptes. III R.M.",
+        "organismos": []
+      }
+    ]
+  },
+  {
+    "id": 67,
+    "nombre": "V R.M.",
+    "zonas": [
+      {
+        "id": 417,
+        "nombre": "J.R.S.Tptes. V R.M.",
+        "organismos": []
+      }
+    ]
+  }
+]

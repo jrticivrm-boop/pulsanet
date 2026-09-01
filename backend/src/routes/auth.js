@@ -1,14 +1,41 @@
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { query } from '../db.js';
 import { config } from '../config.js';
 import { authMiddleware, signAccessToken } from '../middleware/auth.js';
 import { logActivity } from '../services/activity.js';
 import { normalizeUsername } from '../services/rfcUsername.js';
 import { validateNewPassword } from '../services/tempPassword.js';
+import { exportWireKeyB64, isWireEncryptionEnabled } from '../services/wireCrypto.js';
+import {
+  isLockdownActive,
+  registerAuthFailure,
+} from '../services/intrusion.js';
+import { mintAvatarTicket } from '../services/avatarTicket.js';
 
 export const authRouter = Router();
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.LOGIN_RATE_MAX || '25', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Demasiados intentos de acceso. Espera unos minutos.' },
+});
+
+/** Solo wireKey (GPS/pánico). contentKey ya no se exporta — cifrado en reposo es solo servidor. */
+function cryptoSessionPayload() {
+  const wireKey = exportWireKeyB64();
+  const wireEnabled = isWireEncryptionEnabled();
+  if (!wireKey && !wireEnabled) return undefined;
+  return {
+    alg: 'aes-256-gcm',
+    wireKey: wireKey || undefined,
+    wireEnabled,
+  };
+}
 
 function hashToken(raw) {
   return crypto.createHash('sha256').update(raw).digest('hex');
@@ -44,13 +71,37 @@ function mapPublicUser(user) {
     organizationId: user.organization_id,
     canReceivePanic: Boolean(user.can_receive_panic),
     mustChangePassword: Boolean(user.must_change_password),
+    avatarUrl: user.avatar_url ? `/api/avatars/file/${encodeURIComponent(user.avatar_url)}` : null,
+    unitId: user.unit_id || null,
+    adminScopeUnitId: user.admin_scope_unit_id || null,
+    canSeeRegion: Boolean(user.can_see_region),
+    canSeeZones: Boolean(user.can_see_zones),
+    canSeeUnits: Boolean(user.can_see_units),
   };
 }
 
-const USER_SELECT =
-  'id, organization_id, username, email, password_hash, display_name, role, is_active, can_receive_panic, must_change_password';
+function sessionExtras(user) {
+  try {
+    const { ticket, expiresIn: avatarTicketExpiresIn } = mintAvatarTicket({
+      id: user.id,
+      organization_id: user.organization_id,
+      sub: user.id,
+      orgId: user.organization_id,
+    });
+    return {
+      avatarTicket: ticket,
+      avatarTicketExpiresIn,
+      crypto: cryptoSessionPayload(),
+    };
+  } catch {
+    return { crypto: cryptoSessionPayload() };
+  }
+}
 
-authRouter.post('/login', async (req, res) => {
+const USER_SELECT =
+  'id, organization_id, username, email, password_hash, display_name, role, is_active, can_receive_panic, must_change_password, avatar_url, unit_id, admin_scope_unit_id, can_see_region, can_see_zones, can_see_units';
+
+authRouter.post('/login', loginLimiter, async (req, res) => {
   const { password } = req.body || {};
   const rawLogin = req.body?.username ?? req.body?.login ?? req.body?.email;
   if (!rawLogin || !password) {
@@ -70,12 +121,36 @@ authRouter.post('/login', async (req, res) => {
 
   const user = rows[0];
   if (!user || !user.is_active) {
+    const trip = await registerAuthFailure(req, { username: loginRaw });
+    if (trip.tripped) {
+      return res.status(503).json({
+        ok: false,
+        error: 'Servicio bloqueado por seguridad (lockdown)',
+        lockdown: true,
+      });
+    }
     return res.status(401).json({ ok: false, error: 'Credenciales inválidas' });
   }
 
   const match = await bcrypt.compare(password, user.password_hash);
   if (!match) {
+    const trip = await registerAuthFailure(req, { username: user.username });
+    if (trip.tripped) {
+      return res.status(503).json({
+        ok: false,
+        error: 'Servicio bloqueado por seguridad (lockdown)',
+        lockdown: true,
+      });
+    }
     return res.status(401).json({ ok: false, error: 'Credenciales inválidas' });
+  }
+
+  if (await isLockdownActive()) {
+    return res.status(503).json({
+      ok: false,
+      error: 'Servicio bloqueado por seguridad (lockdown)',
+      lockdown: true,
+    });
   }
 
   await query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [user.id]);
@@ -96,10 +171,18 @@ authRouter.post('/login', async (req, res) => {
     refreshToken,
     expiresIn: config.jwtExpiresIn,
     user: mapPublicUser(user),
+    ...sessionExtras(user),
   });
 });
 
 authRouter.post('/refresh', async (req, res) => {
+  if (await isLockdownActive()) {
+    return res.status(503).json({
+      ok: false,
+      error: 'Servicio bloqueado por seguridad (lockdown)',
+      lockdown: true,
+    });
+  }
   const raw = req.body?.refreshToken;
   if (!raw || typeof raw !== 'string') {
     return res.status(400).json({ ok: false, error: 'refreshToken requerido' });
@@ -109,7 +192,8 @@ authRouter.post('/refresh', async (req, res) => {
   const { rows } = await query(
     `SELECT rt.id, rt.user_id, rt.expires_at,
             u.id AS uid, u.organization_id, u.username, u.email, u.display_name, u.role, u.is_active,
-            u.can_receive_panic, u.must_change_password, u.password_hash
+            u.can_receive_panic, u.must_change_password, u.password_hash, u.avatar_url,
+            u.unit_id, u.admin_scope_unit_id, u.can_see_region, u.can_see_zones, u.can_see_units
      FROM refresh_tokens rt
      INNER JOIN users u ON u.id = rt.user_id
      WHERE rt.token_hash = $1`,
@@ -136,6 +220,12 @@ authRouter.post('/refresh', async (req, res) => {
     role: row.role,
     can_receive_panic: row.can_receive_panic,
     must_change_password: row.must_change_password,
+    avatar_url: row.avatar_url,
+    unit_id: row.unit_id,
+    admin_scope_unit_id: row.admin_scope_unit_id,
+    can_see_region: row.can_see_region,
+    can_see_zones: row.can_see_zones,
+    can_see_units: row.can_see_units,
   };
   const token = signAccessToken(user);
   const refreshToken = await issueRefreshToken(user.id);
@@ -146,6 +236,7 @@ authRouter.post('/refresh', async (req, res) => {
     refreshToken,
     expiresIn: config.jwtExpiresIn,
     user: mapPublicUser(user),
+    ...sessionExtras(user),
   });
 });
 
@@ -162,7 +253,8 @@ authRouter.post('/logout', authMiddleware, async (req, res) => {
 authRouter.get('/me', authMiddleware, async (req, res) => {
   const { rows } = await query(
     `SELECT id, username, email, display_name, role, organization_id, last_seen_at,
-            can_receive_panic, must_change_password
+            can_receive_panic, must_change_password, avatar_url,
+            unit_id, admin_scope_unit_id, can_see_region, can_see_zones, can_see_units
      FROM users WHERE id = $1`,
     [req.user.sub]
   );
@@ -176,6 +268,7 @@ authRouter.get('/me', authMiddleware, async (req, res) => {
       ...mapPublicUser(u),
       lastSeenAt: u.last_seen_at,
     },
+    ...sessionExtras(u),
   });
 });
 
@@ -202,7 +295,7 @@ authRouter.post('/change-password', authMiddleware, async (req, res) => {
 
   const { rows } = await query(
     `SELECT id, organization_id, username, email, password_hash, display_name, role,
-            is_active, can_receive_panic, must_change_password
+            is_active, can_receive_panic, must_change_password, avatar_url
      FROM users WHERE id = $1`,
     [req.user.sub]
   );
@@ -249,5 +342,6 @@ authRouter.post('/change-password', authMiddleware, async (req, res) => {
     refreshToken,
     expiresIn: config.jwtExpiresIn,
     user: mapPublicUser(refreshed),
+    ...sessionExtras(refreshed),
   });
 });

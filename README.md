@@ -1,7 +1,8 @@
-# TacticalPtx (antes PulsaNet)
+# TacticalPtx
 
-**Ubicación única:** `D:\pulsanet`  
-(Todo el producto + carpeta `Soporte\`. Detalle: [docs/UBICACION_PROYECTO.md](docs/UBICACION_PROYECTO.md))
+**Producto:** TacticalPtx  
+**Única carpeta del proyecto:** `C:\pulsanet` — código, docs, Soporte y las tecnologías del producto viven **solo** ahí (nada fuera).  
+Detalle: [docs/UBICACION_PROYECTO.md](docs/UBICACION_PROYECTO.md)
 
 Plataforma **Push-to-Talk (PTT)** por internet — producto independiente.
 
@@ -19,17 +20,17 @@ Comunicación instantánea por voz para equipos de campo, vía celular o Wi‑Fi
 ## Estructura del proyecto
 
 ```
-D:\pulsanet\
-├── backend/       API REST + Socket.IO + Redis + LiveKit
-├── web/           Radio + panel despacho
-├── mobile/        App Flutter (Android; iOS con Mac)
-├── database/      Esquema PostgreSQL + migraciones
-├── infra/         LiveKit local + Docker Compose prod
-├── docs/          Alcance, arquitectura, demos, producción
-└── Soporte/       Documentos, secretos, APK, respaldos, brand
+C:\pulsanet\
+├── backend/ API REST + Socket.IO + Redis + LiveKit
+├── web/ Radio + panel despacho
+├── mobile/ App Flutter (Android; iOS con Mac)
+├── database/ Esquema PostgreSQL + migraciones
+├── infra/ LiveKit local + Docker Compose prod
+├── docs/ Alcance, arquitectura, demos, producción
+└── Soporte/ Documentos, secretos, APK, respaldos, brand
 ```
 
-`D:\PulsaNet_Soporte` → unión a `D:\pulsanet\Soporte` (compatibilidad).
+Soporte: siempre bajo `C:\pulsanet\Soporte`. No usar `D:\PulsaNet_Soporte` ni otras copias/junctions.
 
 ---
 
@@ -37,6 +38,7 @@ D:\pulsanet\
 
 - [Ubicación del proyecto](docs/UBICACION_PROYECTO.md)
 - [Alcance v1](docs/ALCANCE_V1.md)
+- [Plan de trabajo maestro](docs/PLAN_DE_TRABAJO.md) — sprints + roadmap pendiente
 - [Propuesta técnica](docs/PROPUESTA_TECNICA.md)
 - [Arquitectura](docs/ARQUITECTURA.md)
 - [Manual de usuario](docs/MANUAL_USUARIO.md)
@@ -64,8 +66,8 @@ D:\pulsanet\
 ### 1. PostgreSQL
 
 ```bash
-createdb pulsanet_db
-psql -U postgres -d pulsanet_db -f database/schema.sql
+createdb tacticalptx_db
+psql -U postgres -d tacticalptx_db -f database/schema.sql
 ```
 
 ### 2. Redis + LiveKit
@@ -92,7 +94,7 @@ npm install
 npm run dev
 ```
 
-http://localhost:5173 — usuarios `admin@pulsanet.local` / `op1`…`op4` · pass `demo1234`
+http://localhost:5173 — usuarios `admin@tacticalptx.local` / `op1`…`op4` · pass `demo1234`
 
 ### Producción (Docker)
 
@@ -116,4 +118,4 @@ Ver [docs/PRODUCCION_MES6.md](docs/PRODUCCION_MES6.md) — `infra/docker-compose
 
 ---
 
-*PulsaNet © 2026 — Producto independiente*
+*TacticalPtx © 2026 — Producto independiente*
