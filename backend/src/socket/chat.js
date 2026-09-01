@@ -244,13 +244,19 @@ export async function insertGroupMessage({
 
   // Ruta rápida: mensaje recién creado no tiene reacciones ni lecturas.
   let name = displayName;
+  let avatarUrl = null;
   if (!name) {
-    const { rows: users } = await query(`SELECT display_name FROM users WHERE id = $1`, [
-      senderId,
-    ]);
+    const { rows: users } = await query(
+      `SELECT display_name, avatar_url FROM users WHERE id = $1`,
+      [senderId]
+    );
     name = users[0]?.display_name || 'Usuario';
+    avatarUrl = users[0]?.avatar_url || null;
+  } else {
+    const { rows: users } = await query(`SELECT avatar_url FROM users WHERE id = $1`, [senderId]);
+    avatarUrl = users[0]?.avatar_url || null;
   }
-  return formatFreshMessage(rows[0], name, reply);
+  return formatFreshMessage(rows[0], name, reply, avatarUrl);
 }
 
 export async function insertStickerMessage({ groupId, senderId, stickerId, replyToId = null }) {
@@ -527,7 +533,7 @@ export async function loadReadReceipts(messageIds) {
 }
 
 export async function hydrateMessage(row, viewerUserId = null) {
-  const { rows: users } = await query(`SELECT display_name FROM users WHERE id = $1`, [
+  const { rows: users } = await query(`SELECT display_name, avatar_url FROM users WHERE id = $1`, [
     row.sender_id,
   ]);
   let reply = null;
@@ -550,7 +556,13 @@ export async function hydrateMessage(row, viewerUserId = null) {
       };
     }
   }
-  const msg = formatMessage(row, users[0]?.display_name || 'Usuario', reply);
+  const msg = formatMessage(
+    row,
+    users[0]?.display_name || 'Usuario',
+    reply,
+    [],
+    users[0]?.avatar_url || null
+  );
   if (!msg.isDeleted) {
     const map = await loadReactionsSummary([row.id], viewerUserId);
     msg.reactions = map.get(row.id) || [];
@@ -568,17 +580,23 @@ export async function hydrateMessage(row, viewerUserId = null) {
   return msg;
 }
 
-export function formatMessage(row, displayName, reply = null, reactions = []) {
+export function formatMessage(row, displayName, reply = null, reactions = [], senderAvatarUrl = null) {
   const deleted = Boolean(row.deleted_at);
   const mediaUrl = !deleted && row.media_url ? `/api/media/${row.id}` : null;
   const sticker =
     !deleted && row.type === 'sticker' ? getStickerById(row.body) : null;
   const openedBody = deleted ? null : openMessageBody(row.type, row.body);
+  const avatarPath =
+    senderAvatarUrl ||
+    row.sender_avatar_url ||
+    row.avatar_url ||
+    null;
   return {
     id: row.id,
     groupId: row.group_id,
     senderId: row.sender_id,
     displayName: displayName || 'Usuario',
+    senderAvatarUrl: avatarPath ? String(avatarPath) : null,
     type: deleted ? 'text' : row.type,
     body: deleted ? null : row.type === 'sticker' ? null : openedBody,
     sticker: sticker
@@ -608,8 +626,8 @@ export function formatMessage(row, displayName, reply = null, reactions = []) {
 }
 
 /** Mensaje recién insertado: sin queries extra de reacciones/lecturas. */
-export function formatFreshMessage(row, displayName, reply = null) {
-  return formatMessage(row, displayName, reply, []);
+export function formatFreshMessage(row, displayName, reply = null, senderAvatarUrl = null) {
+  return formatMessage(row, displayName, reply, [], senderAvatarUrl);
 }
 
 export { MAX_BODY };

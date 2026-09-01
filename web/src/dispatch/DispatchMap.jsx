@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useOutletContext } from 'react-router-dom';
 import {
   MapContainer,
   TileLayer,
@@ -91,6 +93,8 @@ function InvalidateOnLayout({ tick }) {
 }
 
 export default function DispatchMap({ session }) {
+  const dispatchCtx = useOutletContext() || {};
+  const ptt = dispatchCtx.ptt;
   const pageRef = useRef(null);
   const [locations, setLocations] = useState([]);
   const { markerPhoto } = useMapAvatarPhotos(locations, session.token);
@@ -556,6 +560,30 @@ export default function DispatchMap({ session }) {
         }}
         onConfirm={confirmDeleteFence}
       />
+
+      {maximized &&
+        ptt &&
+        createPortal(
+          <div className="lt-ptt-float" role="group" aria-label="PTT en pantalla completa">
+            <button
+              type="button"
+              className={`lt-ptt-float-btn${ptt.holding ? ' holding' : ''}`}
+              disabled={!dispatchCtx.group || !ptt.livekitReady}
+              onClick={(e) => {
+                e.preventDefault();
+                ptt.unlockAudio?.().catch(() => {});
+                ptt.toggle();
+              }}
+              onContextMenu={(e) => e.preventDefault()}
+              aria-pressed={ptt.holding}
+              title={ptt.holding ? 'Toca o Espacio para soltar' : 'Toca o Espacio para hablar'}
+            >
+              <span className="lt-ptt-float-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
+              <span className="lt-ptt-float-hint">{dispatchCtx.group?.name || 'Sin canal'}</span>
+            </button>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

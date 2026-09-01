@@ -557,6 +557,9 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
       if (event.userId && event.userId === user?.id) return;
       setIncomingPanic({
         id: event.id,
+        userId: event.userId,
+        groupId: event.groupId,
+        groupName: event.groupName,
         displayName: event.displayName || 'Operador',
         createdAt: event.createdAt,
         latitude: event.latitude,

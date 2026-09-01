@@ -581,6 +581,7 @@ export default function DirectChat({
       const data = await startPrivateCall(token, peer.id, { mode: 'call' });
       setActiveCall({
         callId: data.call.callId,
+        peerId: peer.id,
         room: data.call.room,
         token: data.token,
         authToken: token,
@@ -602,6 +603,7 @@ export default function DirectChat({
       const data = await startPrivateCall(token, peer.id, { mode: 'radio' });
       setActiveRadio({
         callId: data.call.callId,
+        peerId: peer.id,
         room: data.call.room,
         token: data.token,
         authToken: token,
@@ -639,6 +641,7 @@ export default function DirectChat({
       if (mode === 'radio') {
         setActiveRadio({
           callId: data.call.callId,
+          peerId: incomingCall.callerId || peer?.id,
           room: data.call.room,
           token: data.token,
           authToken: token,
@@ -652,6 +655,7 @@ export default function DirectChat({
       }
       setActiveCall({
         callId: data.call.callId,
+        peerId: incomingCall.callerId || peer?.id,
         room: data.call.room,
         token: data.token,
         authToken: token,

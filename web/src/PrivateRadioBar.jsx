@@ -6,7 +6,8 @@ import { publicLiveKitUrl } from './livekitUrl';
 import { esMsg } from './esMsg';
 import { assertMediaDevices } from './voiceRecord';
 import { socketIoOptions, socketUrl } from './socketConfig';
-
+import { setPrivateCallUiOpen } from './privateCallUi';
+import { showChatMessageToast } from './chatNotify';
 /**
  * Radio personal 1:1 — franja superior; PTT por toque (abre / libera).
  */
@@ -25,6 +26,11 @@ const PrivateRadioBar = forwardRef(function PrivateRadioBar({ call, onHangup }, 
   useEffect(() => {
     onHangupRef.current = onHangup;
   }, [onHangup]);
+
+  useEffect(() => {
+    setPrivateCallUiOpen(true);
+    return () => setPrivateCallUiOpen(false);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +54,24 @@ const PrivateRadioBar = forwardRef(function PrivateRadioBar({ call, onHangup }, 
         if (payload?.callId === call.callId) {
           remoteEnd(payload?.reason === 'reject' ? 'Rechazada' : undefined);
         }
+      });
+      signalSocket.on('dm:notify', ({ peerId, peerName, message }) => {
+        if (!call?.peerId || String(peerId) !== String(call.peerId)) return;
+        const preview =
+          message?.type === 'text'
+            ? String(message.body || '').slice(0, 80)
+            : message?.type === 'image'
+              ? '📷 Imagen'
+              : message?.type === 'audio'
+                ? '🎤 Audio'
+                : 'Nuevo mensaje';
+        showChatMessageToast({
+          kind: 'dm',
+          peerId,
+          peerName: peerName || call.peerName || 'Mensaje',
+          preview,
+          title: peerName || call.peerName || 'Mensaje',
+        });
       });
     }
 

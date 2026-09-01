@@ -47,7 +47,7 @@ export function createMessagesRouter(io) {
     const { rows } = await query(
       `SELECT m.id, m.group_id, m.sender_id, m.type, m.body, m.media_url, m.media_mime,
               m.media_name, m.media_size, m.reply_to_id, m.edited_at, m.deleted_at, m.created_at,
-              u.display_name,
+              u.display_name, u.avatar_url AS sender_avatar_url,
               rm.body AS reply_body, rm.type AS reply_type, rm.media_name AS reply_media_name,
               rm.deleted_at AS reply_deleted_at, ru.display_name AS reply_display_name
        FROM messages m

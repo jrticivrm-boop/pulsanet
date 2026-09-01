@@ -340,7 +340,12 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
 
   return (
     <div className={`cc-shell cc-shell--inst${railMini ? ' is-rail-mini' : ''}`}>
-      <DispatchPanicHost session={session} />
+      <DispatchPanicHost
+        session={session}
+        channelPanic={ptt.incomingPanic}
+        onChannelPanicAck={ptt.ackPanic}
+        onChannelPanicSilence={ptt.silencePanicAlarm}
+      />
       <header className="cc-topbar cc-topbar--inst">
         <div className="cc-top-left">
           <div>

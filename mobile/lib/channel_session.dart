@@ -714,6 +714,11 @@ class ChannelSession extends ChangeNotifier {
       await prefs.setBool(_kRadioListenMuteKey, muted);
     } catch (_) {}
     await _applyListenMute();
+    if (muted && !holding) {
+      await AudioSessionSetup.release();
+    } else if (!muted && livekitReady) {
+      await AudioSessionSetup.acquireRadio();
+    }
   }
 
   Future<void> toggleListenMuted() => setListenMuted(!listenMuted);
@@ -745,7 +750,7 @@ class ChannelSession extends ChangeNotifier {
 
   /// Reaplica altavoz de radio / mute de escucha (p. ej. tras bloquear pantalla).
   Future<void> ensureBackgroundAudio() async {
-    if (_room == null || !livekitReady) return;
+    if (_room == null || !livekitReady || listenMuted) return;
     await AudioSessionSetup.acquireRadio();
     if (!listenMuted) {
       try {
@@ -798,7 +803,9 @@ class ChannelSession extends ChangeNotifier {
           unawaited(_applyListenMute());
         });
       _roomEvents = ev;
-      await AudioSessionSetup.acquireRadio();
+      if (!listenMuted) {
+        await AudioSessionSetup.acquireRadio();
+      }
       final lkUrl = AppConfig.publicLiveKitUrl(lk['url'] as String);
       if (kDebugMode) debugPrint('LiveKit connect → $lkUrl');
       await room.connect(

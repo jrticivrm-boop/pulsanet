@@ -1630,6 +1630,13 @@
   gap: 0.75rem;
 }
 
+.cc-panic-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
 .cc-panic-modal {
   width: min(40rem, 100%);
   margin-top: 2.5rem;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { RoomEvent, Track, createLocalAudioTrack, AudioPresets } from 'livekit-client';
 import { io } from 'socket.io-client';
 import { createEncryptedRoom } from './livekitE2ee';
@@ -7,6 +8,18 @@ import { esMsg } from './esMsg';
 import { assertMediaDevices } from './voiceRecord';
 import { socketIoOptions, socketUrl } from './socketConfig';
 import { setPrivateCallUiOpen } from './privateCallUi';
+import { showChatMessageToast } from './chatNotify';
+
+function previewFromMessage(message) {
+  if (!message) return 'Nuevo mensaje';
+  if (message.type === 'text') return String(message.body || '').slice(0, 80);
+  if (message.type === 'image') return '📷 Imagen';
+  if (message.type === 'audio') return '🎤 Audio';
+  if (message.type === 'sticker') return 'Sticker';
+  if (message.type === 'video') return '🎬 Video';
+  if (message.mediaName) return `📎 ${message.mediaName}`;
+  return 'Nuevo mensaje';
+}
 
 /**
  * Overlay llamada / radio privada 1:1 (LiveKit + E2EE).
@@ -24,6 +37,11 @@ export default function PrivateCallOverlay({ call, onHangup }) {
   const audioEls = useRef([]);
   const closingRef = useRef(false);
   const onHangupRef = useRef(onHangup);
+  const callRef = useRef(call);
+
+  useEffect(() => {
+    callRef.current = call;
+  }, [call]);
 
   useEffect(() => {
     onHangupRef.current = onHangup;
@@ -60,6 +78,17 @@ export default function PrivateCallOverlay({ call, onHangup }) {
         if (payload?.callId === call.callId && call.role === 'caller') {
           setStatus(isRadio ? `Radio con ${call.peerName}` : `En llamada con ${call.peerName}`);
         }
+      });
+      signalSocket.on('dm:notify', ({ peerId, peerName, message }) => {
+        const active = callRef.current;
+        if (!active?.peerId || String(peerId) !== String(active.peerId)) return;
+        showChatMessageToast({
+          kind: 'dm',
+          peerId,
+          peerName: peerName || active.peerName || 'Mensaje',
+          preview: previewFromMessage(message),
+          title: peerName || active.peerName || 'Mensaje',
+        });
       });
     }
 
@@ -161,7 +190,7 @@ export default function PrivateCallOverlay({ call, onHangup }) {
         /* ignore */
       }
     };
-  }, [call?.callId, call?.token, call?.url, call?.e2eeKey, call?.peerName, call?.role, isRadio]);
+  }, [call?.callId, call?.token, call?.url, call?.e2eeKey, call?.peerName, call?.peerId, call?.role, isRadio]);
 
   async function toggleMute() {
     const mic = micRef.current;
@@ -224,31 +253,37 @@ export default function PrivateCallOverlay({ call, onHangup }) {
       .join('')
       .toUpperCase() || '?';
 
-  if (minimized) {
-    return (
-      <div className="private-call-mini" role="status" aria-label="Llamada en curso">
-        <button type="button" className="private-call-mini-main" onClick={() => setMinimized(false)}>
-          <span className="private-call-mini-avatar" aria-hidden="true">
-            {initials}
-          </span>
-          <span className="private-call-mini-text">
-            <strong>{call.peerName}</strong>
-            <small>{status || (isRadio ? 'Radio en curso' : 'Llamada en curso')}</small>
-          </span>
-        </button>
-        <button
-          type="button"
-          className="private-call-mini-hangup"
-          onClick={hangupClick}
-          title={isRadio ? 'Cerrar' : 'Colgar'}
-        >
-          📵
-        </button>
-      </div>
-    );
-  }
-
-  return (
+  const ui = minimized ? (
+    <div
+      className="private-call-mini"
+      role="status"
+      aria-label="Llamada en curso"
+      data-esc-close=""
+    >
+      <button
+        type="button"
+        className="private-call-mini-main"
+        onClick={() => setMinimized(false)}
+        data-esc-close-btn=""
+      >
+        <span className="private-call-mini-avatar" aria-hidden="true">
+          {initials}
+        </span>
+        <span className="private-call-mini-text">
+          <strong>{call.peerName}</strong>
+          <small>{status || (isRadio ? 'Radio en curso' : 'Llamada en curso')}</small>
+        </span>
+      </button>
+      <button
+        type="button"
+        className="private-call-mini-hangup"
+        onClick={hangupClick}
+        title={isRadio ? 'Cerrar' : 'Colgar'}
+      >
+        📵
+      </button>
+    </div>
+  ) : (
     <div
       className={`private-call-overlay wa-call${isRadio ? ' is-radio' : ''}`}
       role="dialog"
@@ -311,4 +346,6 @@ export default function PrivateCallOverlay({ call, onHangup }) {
       {isRadio && <p className="private-radio-hint">Mantén PTT para transmitir · suelta para escuchar</p>}
     </div>
   );
+
+  return createPortal(ui, document.body);
 }

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { fetchPanicEvents, patchPanicEvent } from '../api';
@@ -9,36 +10,74 @@ import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
 
 const SOCKET_URL = socketUrl();
 
+function exitFullscreenIfAny() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
 /**
  * Alerta de pánico en la consola de despacho (cualquier pestaña).
- * Solo llegan eventos de grupos donde el operador es miembro
- * (backend: sala user:{id}, no org-wide).
+ * Portal a document.body para quedar por encima del mapa maximizado.
  */
-export default function DispatchPanicHost({ session }) {
+export default function DispatchPanicHost({
+  session,
+  /** Fallback: pánico del canal PTT (usePtt.incomingPanic) cuando el socket dispatch falla. */
+  channelPanic = null,
+  onChannelPanicAck,
+  onChannelPanicSilence,
+}) {
   const navigate = useNavigate();
   const [activePanics, setActivePanics] = useState([]);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState('');
-  /** Modal compacto arriba para no tapar el mapa de seguimiento. */
   const [mapDocked, setMapDocked] = useState(false);
   const alarmSilencedRef = useRef(false);
 
   const silenceAlarmLocally = useCallback(() => {
     alarmSilencedRef.current = true;
     stopPanicAlarm();
-  }, []);
+    onChannelPanicSilence?.();
+  }, [onChannelPanicSilence]);
 
   const syncAlarm = useCallback((list) => {
     if (list.length > 0 && !alarmSilencedRef.current) startPanicAlarm();
     else stopPanicAlarm();
   }, []);
 
+  const mergedPanics = useMemo(() => {
+    if (!channelPanic?.id) return activePanics;
+    if (activePanics.some((p) => p.id === channelPanic.id)) return activePanics;
+    return [
+      {
+        id: channelPanic.id,
+        userId: channelPanic.userId,
+        displayName: channelPanic.displayName,
+        groupId: channelPanic.groupId,
+        groupName: channelPanic.groupName,
+        latitude: channelPanic.latitude,
+        longitude: channelPanic.longitude,
+        accuracyM: channelPanic.accuracyM,
+        status: 'active',
+        _fromChannel: true,
+      },
+      ...activePanics,
+    ];
+  }, [activePanics, channelPanic]);
+
   useEffect(() => {
-    if (activePanics.length === 0) {
+    if (mergedPanics.length === 0) {
       alarmSilencedRef.current = false;
       setMapDocked(false);
     }
-  }, [activePanics.length]);
+  }, [mergedPanics.length]);
+
+  useEffect(() => {
+    if (!channelPanic?.id) return;
+    exitFullscreenIfAny();
+    alarmSilencedRef.current = false;
+    startPanicAlarm();
+  }, [channelPanic?.id]);
 
   const openOnDispatchMap = useCallback(
     (p) => {
@@ -100,6 +139,7 @@ export default function DispatchPanicHost({ session }) {
       void (async () => {
         const payload = await unwrapDispatchPayload(raw, sessionWireKey(session));
         if (!payload?.id) return;
+        exitFullscreenIfAny();
         alarmSilencedRef.current = false;
         startPanicAlarm();
         setActivePanics((prev) => {
@@ -139,16 +179,24 @@ export default function DispatchPanicHost({ session }) {
     };
   }, [session.token, session.crypto?.wireKey, syncAlarm]);
 
-  async function resolvePanic(id, status) {
+  async function resolvePanic(id, status, fromChannel = false) {
     setBusyId(id);
     setError('');
     try {
+      if (fromChannel && status === 'acked' && onChannelPanicAck) {
+        silenceAlarmLocally();
+        await onChannelPanicAck();
+        return;
+      }
       await patchPanicEvent(session.token, id, status);
       setActivePanics((prev) => {
         const next = prev.filter((p) => p.id !== id);
         syncAlarm(next);
         return next;
       });
+      if (status === 'acked' || status === 'resolved') {
+        silenceAlarmLocally();
+      }
     } catch (e) {
       setError(e.message || 'No se pudo actualizar la alerta');
     } finally {
@@ -156,9 +204,9 @@ export default function DispatchPanicHost({ session }) {
     }
   }
 
-  if (activePanics.length === 0) return null;
+  if (mergedPanics.length === 0) return null;
 
-  return (
+  return createPortal(
     <div
       className={`cc-panic-overlay${mapDocked ? ' cc-panic-overlay--docked' : ''}`}
       role="alertdialog"
@@ -169,25 +217,35 @@ export default function DispatchPanicHost({ session }) {
         <header className="cc-panic-modal-head">
           <div className="cc-panic-modal-head-row">
             <h2>🚨 Alerta de pánico</h2>
-            {mapDocked ? (
+            <div className="cc-panic-head-actions">
               <button
                 type="button"
                 className="cc-btn"
-                onClick={() => setMapDocked(false)}
-                title="Ampliar alerta"
+                onClick={silenceAlarmLocally}
+                title="Silenciar sirena en este equipo"
               >
-                Ampliar
+                Silenciar alarma
               </button>
-            ) : null}
+              {mapDocked ? (
+                <button
+                  type="button"
+                  className="cc-btn"
+                  onClick={() => setMapDocked(false)}
+                  title="Ampliar alerta"
+                >
+                  Ampliar
+                </button>
+              ) : null}
+            </div>
           </div>
           <p>
-            Hay {activePanics.length} alerta{activePanics.length === 1 ? '' : 's'} activa
-            {activePanics.length === 1 ? '' : 's'}.
-            {mapDocked ? ' Mapa centrado en el punto de pánico.' : ''}
+            Hay {mergedPanics.length} alerta{mergedPanics.length === 1 ? '' : 's'} activa
+            {mergedPanics.length === 1 ? '' : 's'}.
+            {mapDocked ? ' Mapa centrado en el punto de pánico.' : ' Pulsa Enterado o Silenciar alarma.'}
           </p>
         </header>
         <div className="cc-panic-banner cc-panic-banner--modal" role="alert">
-          {activePanics.map((p) => (
+          {mergedPanics.map((p) => (
             <div key={p.id} className="cc-panic-item">
               <div>
                 <strong>{p.displayName || 'Operador'}</strong>
@@ -242,7 +300,7 @@ export default function DispatchPanicHost({ session }) {
                   type="button"
                   className="cc-btn"
                   disabled={busyId === p.id}
-                  onClick={() => resolvePanic(p.id, 'acked')}
+                  onClick={() => resolvePanic(p.id, 'acked', Boolean(p._fromChannel))}
                 >
                   Enterado
                 </button>
@@ -250,7 +308,7 @@ export default function DispatchPanicHost({ session }) {
                   type="button"
                   className="cc-btn primary"
                   disabled={busyId === p.id}
-                  onClick={() => resolvePanic(p.id, 'resolved')}
+                  onClick={() => resolvePanic(p.id, 'resolved', Boolean(p._fromChannel))}
                 >
                   Resolver
                 </button>
@@ -260,6 +318,7 @@ export default function DispatchPanicHost({ session }) {
         </div>
         {error ? <p className="error">{error}</p> : null}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

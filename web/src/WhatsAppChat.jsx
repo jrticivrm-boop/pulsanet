@@ -69,6 +69,7 @@ export default function WhatsAppChat({
   onOpenDm,
   onCallPeer,
   onRadioPeer,
+  chatActive = true,
 }) {
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState(null);
@@ -106,6 +107,8 @@ export default function WhatsAppChat({
   const endRef = useRef(null);
   const logRef = useRef(null);
   const stickToBottomRef = useRef(true);
+  const savedScrollRef = useRef(null);
+  const chatActiveRef = useRef(chatActive);
   const typingTimer = useRef(null);
   const mediaRec = useRef(null);
   const chunks = useRef([]);
@@ -198,19 +201,33 @@ export default function WhatsAppChat({
   }
 
   useEffect(() => {
-    if (!stickToBottomRef.current) return;
+    const el = logRef.current;
+    if (chatActiveRef.current && !chatActive) {
+      if (el) savedScrollRef.current = el.scrollTop;
+    }
+    if (!chatActiveRef.current && chatActive && el && savedScrollRef.current != null) {
+      const top = savedScrollRef.current;
+      requestAnimationFrame(() => {
+        if (logRef.current) logRef.current.scrollTop = top;
+      });
+    }
+    chatActiveRef.current = chatActive;
+  }, [chatActive]);
+
+  useEffect(() => {
+    if (!chatActive || !stickToBottomRef.current) return;
     scrollLogToEnd('auto');
-  }, [filtered.length, typingLabel]);
+  }, [filtered.length, typingLabel, chatActive]);
 
   useEffect(() => {
     const el = logRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver(() => {
-      if (stickToBottomRef.current) scrollLogToEnd('auto');
+      if (chatActive && stickToBottomRef.current) scrollLogToEnd('auto');
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [chatActive]);
 
   useEffect(() => {
     if (!menuMsgId) return undefined;
@@ -769,6 +786,7 @@ export default function WhatsAppChat({
                       <PersonAvatar
                         userId={m.senderId}
                         name={m.displayName}
+                        avatarUrl={m.senderAvatarUrl || null}
                         token={token}
                         className="wa-bubble-avatar"
                       />

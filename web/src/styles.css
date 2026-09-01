@@ -4527,7 +4527,7 @@ select:focus {
   top: max(0.65rem, env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
-  z-index: 4700;
+  z-index: 12050;
   display: flex;
   align-items: center;
   gap: 0.35rem;

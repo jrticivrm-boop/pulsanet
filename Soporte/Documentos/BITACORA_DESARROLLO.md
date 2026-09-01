@@ -1,3 +1,26 @@
+## 2026-09-01 — APK 1.8.51+60 OTA (MEJORAS.txt + audio)
+
+- **Tipo:** release | fix
+- **Área:** mobile | backend
+- **Qué:**
+  - Publicada **APK 1.8.51+60** OTA con fix de audio (libera sesión al silenciar escucha de radio).
+  - Incluye también los fixes web/backend de MEJORAS.txt del mismo día (pánico, llamadas, chat, PTT).
+  - `APP_VERSION` backend → **1.8.51**; `TacticalPtx-latest.apk` actualizado.
+- **Archivos / refs:** pubspec.yaml, version.js, android.json, channel_session.dart, Publish-ApkUpdate.ps1
+
+## 2026-09-01 — MEJORAS.txt: pánico, llamadas, chat, PTT y audio
+
+- **Tipo:** fix | mejora | ux
+- **Área:** web | backend | mobile
+- **Qué:**
+  - **Pánico en Seguimiento:** `DispatchPanicHost` en portal a `body`, botón «Silenciar alarma», fallback con `ptt.incomingPanic`, sale de pantalla completa al recibir alerta.
+  - **Llamadas:** overlay portaled; atrás/Esc minimiza (no cuelga); banner `dm:notify` durante llamada/radio privada; `peerId` en sesión de llamada.
+  - **Chat Radio:** conserva scroll al volver desde Seguimiento (`chatActive`); avatares de perfil en burbujas (`senderAvatarUrl` en API).
+  - **Mapa maximizado:** botón PTT flotante también en Mapa en vivo (`DispatchMap`).
+  - **Mobile:** suelta sesión de audio del SO cuando radio en mute de escucha.
+- **Notas (#6 indicativos):** `display_name` en BD ya es el indicativo (`SGTO GOMEZ`, etc.) vía admin; usuarios viejos pueden regenerarse con `rebuild-callsigns.js`.
+- **Archivos / refs:** DispatchPanicHost.jsx, PrivateCallOverlay.jsx, WhatsAppChat.jsx, DispatchMap.jsx, chat.js, channel_session.dart, userDisplay.js
+
 ## 2026-09-01 — Limpieza post-rollback 1.8.49 + housekeeping
 
 - **Tipo:** fix | ops | security

@@ -528,6 +528,7 @@ export default function ChatInbox({
               typingLabel={ptt.typingLabel}
               messages={ptt.messages}
               chatError={ptt.chatError}
+              chatActive={chatPanelVisible}
               onSend={(text, opts) => ptt.postChat(text, opts)}
               onSendMedia={(file, opts) => ptt.postMedia(file, opts)}
               onEdit={(id, text) => ptt.editChat(id, text)}
@@ -552,6 +553,7 @@ export default function ChatInbox({
                   const data = await startPrivateCall(session.token, peer.id, { mode: 'call' });
                   setPeerCall({
                     callId: data.call?.callId,
+                    peerId: peer.id,
                     peerName: peer.displayName || 'Usuario',
                     token: data.token,
                     authToken: session.token,
@@ -569,6 +571,7 @@ export default function ChatInbox({
                   const data = await startPrivateCall(session.token, peer.id, { mode: 'radio' });
                   setPeerCall({
                     callId: data.call?.callId,
+                    peerId: peer.id,
                     peerName: peer.displayName || 'Usuario',
                     token: data.token,
                     authToken: session.token,

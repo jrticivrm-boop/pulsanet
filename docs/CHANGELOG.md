@@ -11,9 +11,23 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 - **Mapa despacho:** coordenadas en detalles del marcador (clic → Google Maps).
+- **Pánico despacho:** popup portaled en Seguimiento con «Silenciar alarma» y «Enterado».
+- **PTT maximizado:** botón flotante en Mapa en vivo (como Seguimiento).
+- **Chat grupo web:** avatares de perfil en burbujas (`senderAvatarUrl`).
+
+### Fixed
+- **Llamada web:** flecha atrás / Esc minimiza sin colgar; banner de mensajes durante llamada.
+- **Radio PTT web:** al volver desde Seguimiento no salta el scroll del chat.
+- **Mobile:** radio en mute de escucha ya no mantiene secuestrada la sesión de audio del sistema.
 
 ### Changed
 - **Tono de mensajes:** chirp radio táctico (doble pip) en lugar de Nokia SMS; web + APK + FCM.
+
+## [1.8.51] — 2026-09-01
+
+### Mobile (APK 1.8.51+60)
+- Audio: al silenciar la escucha de radio se libera la sesión de audio del sistema (no invade Spotify/otras apps en mute).
+- Incluye fixes de MEJORAS.txt (pánico despacho, llamadas, chat scroll, avatares web vía API).
 
 ## [1.8.50] — 2026-09-01
 
