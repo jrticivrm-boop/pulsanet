@@ -317,10 +317,13 @@ export function notifyDmMessage({ peerId, peerName, message, viewingPeer, panelV
 
 export function notifyIncomingCall({ callerName, callId, mode = 'call' }) {
   const isRadio = mode === 'radio';
-  const title = isRadio ? 'Radio personal' : 'Llamada privada';
+  const isVideo = mode === 'video';
+  const title = isRadio ? 'Radio personal' : isVideo ? 'Videollamada entrante' : 'Llamada entrante';
   const body = isRadio
     ? `${callerName || 'Usuario'} — radio 1:1 (mantén PTT)`
-    : `${callerName || 'Usuario'} te está llamando`;
+    : isVideo
+      ? `${callerName || 'Usuario'} te llama con video`
+      : `${callerName || 'Usuario'} te está llamando`;
   if (!isRadio) startCallRingtone();
   void showBrowserNotification({
     title,
@@ -331,12 +334,37 @@ export function notifyIncomingCall({ callerName, callId, mode = 'call' }) {
   });
   try {
     const prev = document.title;
-    document.title = `${isRadio ? '📻' : '📞'} ${callerName || 'Aviso'} — TacticalPtx`;
+    const icon = isRadio ? '📻' : isVideo ? '📹' : '📞';
+    document.title = `${icon} ${callerName || 'Aviso'} — TacticalPtx`;
     window.setTimeout(() => {
       try {
-        if (document.title.startsWith('📞') || document.title.startsWith('📻')) {
+        if (document.title.startsWith('📞') || document.title.startsWith('📻') || document.title.startsWith('📹')) {
           document.title = prev;
         }
+      } catch {
+        /* ignore */
+      }
+    }, 12000);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function notifyIncomingGroupVideo({ groupName, startedByName, groupId }) {
+  startCallRingtone();
+  void showBrowserNotification({
+    title: 'Transmisión grupal en vivo',
+    body: `${startedByName || 'Un operador'} inició video en «${groupName || 'grupo'}»`,
+    tag: `gvideo-${groupId || 'group'}`,
+    requireInteraction: true,
+    silent: false,
+  });
+  try {
+    const prev = document.title;
+    document.title = `📹 ${groupName || 'Transmisión'} — TacticalPtx`;
+    window.setTimeout(() => {
+      try {
+        if (document.title.startsWith('📹')) document.title = prev;
       } catch {
         /* ignore */
       }

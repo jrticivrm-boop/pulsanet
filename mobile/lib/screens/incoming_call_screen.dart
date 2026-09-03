@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../api_client.dart';
 import '../theme.dart';
+import '../ringer_mode.dart';
 import '../widgets/user_avatar.dart';
 
 /// Pantalla de llamada entrante — colores institucionales (oliva / oro).
@@ -20,7 +21,7 @@ class IncomingCallScreen extends StatefulWidget {
   final String callerName;
   final Future<void> Function() onAccept;
   final Future<void> Function() onReject;
-  /// `call` | `radio`
+  /// `call` | `video` | `radio` | `group_video`
   final String mode;
   final ApiClient? api;
   final String? callerId;
@@ -45,6 +46,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
   }
 
   Future<void> _buzz() async {
+    final ringer = await readPhoneRingerMode();
+    if (!shouldVibrateForIncomingCall(ringer)) return;
     while (mounted && !_busy) {
       try {
         await HapticFeedback.heavyImpact();
@@ -98,23 +101,72 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
   @override
   Widget build(BuildContext context) {
     final isRadio = widget.mode == 'radio';
+    final isVideo = widget.mode == 'video';
+    final isGroupVideo = widget.mode == 'group_video';
+    final modeLabel =
+        isGroupVideo ? 'TRANSMISIÓN' : isRadio ? 'RADIO' : isVideo ? 'VIDEO' : 'VOZ';
+    final modeIcon = isGroupVideo
+        ? Icons.groups
+        : isRadio
+            ? Icons.podcasts
+            : isVideo
+                ? Icons.videocam
+                : Icons.call;
     return Material(
-      color: kInstCallBg,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              Text(
-                isRadio ? 'Radio personal entrante' : 'Llamada de voz entrante',
-                style: TextStyle(
-                  color: kInstGoldSoft.withValues(alpha: 0.9),
-                  fontSize: 15,
-                  letterSpacing: 0.2,
-                  fontWeight: FontWeight.w600,
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF1A2218), Color(0xFF0D100C), Color(0xFF050605)],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+            child: Column(
+              children: [
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: kInstOlive.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: kInstGold.withValues(alpha: 0.35)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(modeIcon, size: 16, color: kInstGoldSoft),
+                      const SizedBox(width: 8),
+                      Text(
+                        modeLabel,
+                        style: TextStyle(
+                          color: kInstGoldSoft.withValues(alpha: 0.95),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                const SizedBox(height: 14),
+                Text(
+                  isGroupVideo
+                      ? 'Transmisión grupal en vivo'
+                      : isRadio
+                          ? 'Radio personal entrante'
+                          : isVideo
+                              ? 'Videollamada entrante'
+                              : 'Llamada de voz entrante',
+                  style: TextStyle(
+                    color: kInstGoldSoft.withValues(alpha: 0.9),
+                    fontSize: 15,
+                    letterSpacing: 0.2,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               const Spacer(flex: 2),
               AnimatedBuilder(
                 animation: _pulse,
@@ -181,7 +233,11 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
               Text(
                 _busy
                     ? 'Conectando…'
-                    : (isRadio ? 'Invitación a radio 1:1' : 'Te está llamando…'),
+                    : (isRadio
+                        ? 'Invitación a radio 1:1'
+                        : isVideo
+                            ? 'Te llama con video…'
+                            : 'Te está llamando…'),
                 style: TextStyle(
                   color: kInstOnPrimary.withValues(alpha: 0.55),
                   fontSize: 16,
@@ -200,7 +256,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
                   ),
                   _ActionCircle(
                     color: kInstOlive,
-                    icon: isRadio ? Icons.podcasts : Icons.call,
+                    icon: isRadio ? Icons.podcasts : (isVideo ? Icons.videocam : Icons.call),
                     label: isRadio ? 'Unirse' : 'Contestar',
                     enabled: !_busy,
                     onTap: () => _run(widget.onAccept),
@@ -211,6 +267,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen>
             ],
           ),
         ),
+      ),
       ),
     );
   }

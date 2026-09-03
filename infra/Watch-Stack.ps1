@@ -72,25 +72,18 @@ function Test-LiveKitUp {
 }
 
 function Get-PublicDomain {
-  $envFile = Join-Path $script:Root 'backend\.env'
-  if (Test-Path $envFile) {
-    foreach ($line in Get-Content $envFile -ErrorAction SilentlyContinue) {
-      if ($line -match '^PUBLIC_DOMAIN=(.+)$') {
-        $v = $Matches[1].Trim().Trim('"').Trim("'")
-        if ($v) { return $v }
-      }
-    }
-  }
-  $ipFile = Join-Path $script:Root 'infra\caddy\public-ip.txt'
-  if (Test-Path $ipFile) {
-    $ip = (Get-Content $ipFile -Raw -ErrorAction SilentlyContinue).Trim()
-    if ($ip) { return "$ip.sslip.io" }
-  }
-  return '189.152.200.238.sslip.io'
+  $dom = Get-TpxPublicDomainFromEnv -Root $script:Root
+  if ($dom) { return $dom }
+  $ip = Get-TpxStoredPublicIp -Root $script:Root
+  if ($ip) { return "$ip.sslip.io" }
+  $current = Get-TpxCurrentPublicIp
+  if ($current) { return "$current.sslip.io" }
+  return $null
 }
 
 function Test-EdgeUp {
   $dom = Get-PublicDomain
+  if (-not $dom) { return $false }
   $code = & curl.exe -sk --connect-timeout 6 --max-time 10 -o NUL -w '%{http_code}' "https://$dom/api/health" 2>$null
   return ($code -eq '200')
 }
@@ -146,6 +139,15 @@ function Ensure-Service {
 }
 
 function Ensure-Edge {
+  $drift = Test-TpxPublicIpDrift -Root $script:Root
+  if ($drift.Drift) {
+    Write-Log "IP publica desalineada ($($drift.Reason): $($drift.Stored) -> $($drift.Current)) - ENSURE-PUBLIC-EDGE..."
+    $ensure = Join-Path $script:Root 'infra\ENSURE-PUBLIC-EDGE.ps1'
+    if (Test-Path $ensure) {
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ensure | Out-Null
+    }
+    return
+  }
   if (Test-EdgeUp) { return }
   Write-Log 'Borde publico CAIDO - ENSURE-PUBLIC-EDGE...'
   $ensure = Join-Path $script:Root 'infra\ENSURE-PUBLIC-EDGE.ps1'
@@ -157,6 +159,7 @@ function Ensure-Edge {
 }
 
 $script:Root = Resolve-RepoRoot
+. (Join-Path $script:Root 'infra\Sync-PublicIp.ps1')
 $webCmd = Join-Path $script:Root 'infra\start-web.cmd'
 $apiCmd = Join-Path $script:Root 'infra\start-api.cmd'
 $webDir = Join-Path $script:Root 'web'
@@ -193,6 +196,21 @@ try {
       $svc = Join-Path $script:Root 'infra\start-services.ps1'
       if (Test-Path $svc) {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $svc | Out-Null
+      }
+    } else {
+      $yamlIp = Get-TpxLiveKitYamlNodeIp -Root $script:Root
+      $storedIp = Get-TpxStoredPublicIp -Root $script:Root
+      $currentIp = Get-TpxCurrentPublicIp
+      if ($currentIp -and (($storedIp -and $currentIp -ne $storedIp) -or ($yamlIp -and $yamlIp -ne $currentIp))) {
+        Write-Log "IP publica desalineada (stored=$storedIp yaml=$yamlIp current=$currentIp) - Sync + LiveKit"
+        [void](Invoke-TpxPublicIpRealign -Root $script:Root)
+        $svc = Join-Path $script:Root 'infra\start-services.ps1'
+        if (Test-Path $svc) {
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $svc | Out-Null
+        }
+      } else {
+        # Refresco periodico DuckDNS aunque no haya drift detectado en disco.
+        [void](Update-TpxDuckDns -Root $script:Root -PublicIp $currentIp)
       }
     }
     if (($cycle % [Math]::Max(1, $EdgeEveryN)) -eq 0) {

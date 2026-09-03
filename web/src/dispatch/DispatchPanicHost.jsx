@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { fetchPanicEvents, patchPanicEvent } from '../api';
 import { startPanicAlarm, stopPanicAlarm, unlockPanicAudio } from '../panicSound';
-import { openPanicLocation } from '../panicMaps';
+import { openPanicLocation, isValidMapCoord } from '../panicMaps';
 import { socketIoOptions, socketUrl } from '../socketConfig';
 import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
 
@@ -83,12 +83,10 @@ export default function DispatchPanicHost({
     (p) => {
       silenceAlarmLocally();
       setMapDocked(true);
-      const lat = Number(p.latitude);
-      const lng = Number(p.longitude);
       const params = new URLSearchParams();
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        params.set('lat', String(lat));
-        params.set('lng', String(lng));
+      if (isValidMapCoord(p.latitude, p.longitude)) {
+        params.set('lat', String(Number(p.latitude)));
+        params.set('lng', String(Number(p.longitude)));
         params.set('zoom', '17');
       }
       if (p.userId) params.set('user', String(p.userId));
@@ -251,13 +249,13 @@ export default function DispatchPanicHost({
                 <strong>{p.displayName || 'Operador'}</strong>
                 <span>
                   {p.groupName || 'Canal'}
-                  {p.latitude != null
+                  {isValidMapCoord(p.latitude, p.longitude)
                     ? ` · ${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}`
-                    : ''}
+                    : ' · Sin ubicación GPS'}
                 </span>
               </div>
               <div className="cc-panic-actions">
-                {p.latitude != null && (
+                {isValidMapCoord(p.latitude, p.longitude) && (
                   <>
                     <button
                       type="button"
@@ -295,6 +293,16 @@ export default function DispatchPanicHost({
                       Ver en mapa
                     </button>
                   </>
+                )}
+                {!isValidMapCoord(p.latitude, p.longitude) && (
+                  <button
+                    type="button"
+                    className="cc-btn"
+                    onClick={() => openOnDispatchMap(p)}
+                    title="Sin GPS: abre seguimiento (sin pin)"
+                  >
+                    Ir a seguimiento
+                  </button>
                 )}
                 <button
                   type="button"

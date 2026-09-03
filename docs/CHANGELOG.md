@@ -10,18 +10,83 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- **Mapa despacho:** coordenadas en detalles del marcador (clic → Google Maps).
-- **Pánico despacho:** popup portaled en Seguimiento con «Silenciar alarma» y «Enterado».
-- **PTT maximizado:** botón flotante en Mapa en vivo (como Seguimiento).
-- **Chat grupo web:** avatares de perfil en burbujas (`senderAvatarUrl`).
+- **Dominio permanente (DuckDNS):** `SETUP-STABLE-DOMAIN.ps1` + sync automático del A-record; el APK deja de romperse al rotar la IP del ISP.
+- **Módulo Video en despacho:** entrada en el menú lateral (`/despacho/video`) con transmisiones de canal, videollamadas 1:1 y activación de cámara web del puesto.
+- **Pánico en mapa:** el anillo del pin del operador pasa a rojo y parpadea mientras el pánico esté activo.
+- **Video en menú + cámara frontal/trasera:** opción Video en menús Radio/chat; en llamada y transmisión grupal se puede cambiar entre cámara frontal y trasera (web + mobile).
 
 ### Fixed
-- **Llamada web:** flecha atrás / Esc minimiza sin colgar; banner de mensajes durante llamada.
-- **Radio PTT web:** al volver desde Seguimiento no salta el scroll del chat.
-- **Mobile:** radio en mute de escucha ya no mantiene secuestrada la sesión de audio del sistema.
+- **APK 1.8.59+68:** ancla permanente `https://pulsanet.duckdns.org` (DuckDNS); deja de romperse al rotar la IP del ISP.
+- **APK 1.8.58+67:** `API_BASE` alineado a IP pública actual (`189.152.160.81.sslip.io`); login con override de servidor.
+- **Radio PTT «Video en vivo»:** ahora pasa `groupId` al abrir la transmisión (antes no iniciaba).
+- **Video grupal — cierre y aceptar:** `group:video_ended` a todos los miembros; panel web estable al unirse; mobile abre video sin parpadeo al aceptar.
+- **Video grupal — notificaciones:** entrega por socket `user:*`, `group:*` y FCM por miembro; mobile respeta silencio/vibrador/sonido del teléfono.
+- **Grado Mayor:** abreviatura corregida de `May.` a `Myr.` (catálogo, usuarios y UI).
+- **Llamadas / videollamadas:** iconos ya no se montan sobre el video (mobile); botón **Apagar cam** funciona en web y app (ya no se reactiva solo).
+
+### Added
+- **Estabilizadores de llamada:** periodo de gracia ante caídas de red, ping de sesión, refresh de token LiveKit y reconexión automática (web + mobile).
+- **Consola web — videoconferencia en mosaico:** grid adaptativo de participantes, panel embebido en despacho (mapa + canales siguen visibles), botón expandir a pantalla completa.
+- **Transmisión de video grupal** (web + mobile + despacho): notificaciones push + invitación entrante con tono/vibración según modo del teléfono.
+
+## [1.8.57] — 2026-09-01
+
+### Added
+- **Transmisión de video grupal** (web + mobile + despacho): sala LiveKit `gvid_*` paralela al PTT; botón en chat de grupo; mosaico multi-participante; E2EE.
+- API `GET/POST /api/group-video/:groupId/*` (start, join, leave, end, ping, status).
 
 ### Changed
-- **Tono de mensajes:** chirp radio táctico (doble pip) en lugar de Nokia SMS; web + APK + FCM.
+- **Videollamadas 1:1:** resolución **720p** con simulcast (capas 180/360/720) y `adaptiveStream`/`dynacast` en web y mobile.
+
+### Mobile (APK 1.8.57+66)
+- OTA actualizado en `backend/app-updates/`.
+
+## [1.8.56] — 2026-09-01
+
+### Fixed
+- UI videollamada: controles sin solapamiento; **Apagar cam** operativo.
+- Estabilizadores de llamada ante caídas breves de red.
+
+### Mobile (APK 1.8.56+65)
+- OTA actualizado en `backend/app-updates/`.
+
+## [1.8.55] — 2026-09-01
+
+### Added
+- **Historial de llamadas** (mobile): pestaña Llamadas en inbox con registro de voz, videollamadas y radio; filtros Todas/Perdidas; callback desde cada fila.
+- Persistencia en PostgreSQL (`private_call_logs`) vía `GET /api/calls/history`.
+
+### Changed
+- Pantalla de llamada entrante con gradiente y badge de modo (VOZ / VIDEO / RADIO).
+
+### Mobile (APK 1.8.55+64)
+- OTA actualizado en `backend/app-updates/`.
+
+## [1.8.54] — 2026-09-01
+
+### Fixed
+- **Videollamada:** cámara automática al contestar (estilo WhatsApp); colgar cierra en ambos usuarios; menú Llamar con opción Video en web/despacho.
+
+## [1.8.53] — 2026-09-01
+
+### Added
+- **Videollamadas 1:1** (web + mobile): modo `video` en llamadas privadas LiveKit con preview local/remoto y E2EE.
+- **Solicitud de cámara** durante llamada de voz: el peer debe aceptar explícitamente (`/video/request`, `/video/respond`).
+- Botón **Video** en chat directo (web), inbox de canal y menú de miembros (mobile).
+
+### Mobile (APK 1.8.53+62)
+- `PrivateCallScreen` con tracks de video, permisos cámara y notificaciones FCM `private_video` / `private_video_request`.
+
+## [1.8.52] — 2026-09-01
+
+### Mobile (APK 1.8.52+61)
+- Nueva IP pública / dominio: `https://189.152.222.98.sslip.io` (la anterior dejó de responder).
+- OTA obligatoria si el PTT/LiveKit fallaba tras cambio de IP del ISP.
+
+### Fixed
+- **Infra IP/LiveKit:** auto-sync de IP pública (`Sync-PublicIp.ps1`); drift de ISP realinea `.env`, Caddy, UPnP y `node-ip` sin intervención manual.
+- **Web LiveKit:** señal siempre por `wss://` mismo origen (proxy `/rtc`); evita error «No se pudo conectar el audio» en consola local HTTPS.
+- **Mobile LiveKit 4G:** `node_ip` fija (`189.152.222.98`) tras cambio de IP del ISP; corrige `MediaConnectException` / ICE timeout en PTT.
 
 ## [1.8.51] — 2026-09-01
 

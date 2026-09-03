@@ -9,6 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'api_client.dart';
 import 'app_focus.dart';
 import 'message_tone.dart';
+import 'ringer_mode.dart';
 
 const kPushChannelId = 'tacticalptx_alerts_radio';
 const kPushChannelName = 'Alertas TacticalPtx';
@@ -29,6 +30,14 @@ String? _conversationTag({String? groupId, String? peerId, String? callId}) {
   return null;
 }
 
+bool _isCallPushType(String? type) {
+  return type == 'private_call' ||
+      type == 'private_radio' ||
+      type == 'private_video' ||
+      type == 'private_video_request' ||
+      type == 'group_video';
+}
+
 /// Muestra notificación local desde isolate de FCM (mensajes data-only).
 Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
   final type = message.data['type']?.toString();
@@ -39,14 +48,18 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
 
   final title = message.data['title']?.toString() ?? 'TacticalPtx';
   final body = message.data['body']?.toString() ?? 'Nuevo aviso';
-  final isCall = type == 'private_call' || type == 'private_radio';
+  final isCall = _isCallPushType(type);
   final groupId = message.data['groupId']?.toString();
   final peerId = message.data['peerId']?.toString();
   final callId = message.data['callId']?.toString();
   final tag = _conversationTag(groupId: groupId, peerId: peerId, callId: callId);
   String? payload;
   if (isCall) {
-    payload = 'call:${callId ?? ''}';
+    if (type == 'group_video' && groupId != null && groupId.isNotEmpty) {
+      payload = 'gvideo:$groupId';
+    } else {
+      payload = 'call:${callId ?? ''}';
+    }
   } else if (type == 'dm' && peerId != null) {
     payload = 'peer:$peerId';
   } else {
@@ -77,6 +90,7 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
   );
 
   final notifId = _stableId(tag ?? 'msg:${message.messageId ?? body}');
+  final callPrefs = isCall ? await incomingCallNotifPrefs() : null;
   await local.show(
     notifId,
     title,
@@ -91,14 +105,15 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
         tag: tag,
         category: isCall ? AndroidNotificationCategory.call : null,
         fullScreenIntent: isCall,
-        playSound: true,
+        playSound: callPrefs?.playSound ?? !isCall,
+        enableVibration: callPrefs?.enableVibration ?? true,
         sound: isCall
             ? null
             : const RawResourceAndroidNotificationSound(kMessageSoundRaw),
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
-        presentSound: true,
+        presentSound: callPrefs?.playSound ?? true,
         sound: isCall ? null : kMessageSoundIos,
       ),
     ),
@@ -138,6 +153,8 @@ class PushService {
   Map<String, dynamic>? pendingPanicData;
   /// Llamada/radio entrante pendiente (tap FCM / cold start).
   Map<String, dynamic>? pendingIncomingCall;
+  /// Transmisión grupal entrante pendiente.
+  Map<String, dynamic>? pendingIncomingGroupVideo;
 
   Future<void> init() async {
     if (kIsWeb) return;
@@ -170,6 +187,10 @@ class PushService {
       });
 
       FirebaseMessaging.onMessage.listen((msg) {
+        final type = msg.data['type']?.toString();
+        if (_isCallPushType(type)) {
+          onNotificationData?.call(Map<String, dynamic>.from(msg.data));
+        }
         // ignore: unawaited_futures
         _showForeground(msg);
         if (msg.data['type']?.toString() == 'panic') {
@@ -324,6 +345,7 @@ class PushService {
         _conversationTag(groupId: groupId, peerId: peerId, callId: callId);
     final notifId =
         _stableId(tag ?? 't:${DateTime.now().millisecondsSinceEpoch}');
+    final callPrefs = isCall ? await incomingCallNotifPrefs() : null;
     await _local.show(
       notifId,
       title,
@@ -341,14 +363,15 @@ class PushService {
           tag: tag,
           category: isCall ? AndroidNotificationCategory.call : null,
           fullScreenIntent: isCall,
-          playSound: true,
+          playSound: callPrefs?.playSound ?? !isCall,
+          enableVibration: callPrefs?.enableVibration ?? true,
           sound: isCall
               ? null
               : const RawResourceAndroidNotificationSound(kMessageSoundRaw),
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
-          presentSound: true,
+          presentSound: callPrefs?.playSound ?? true,
           sound: isCall ? null : kMessageSoundIos,
           interruptionLevel: isCall
               ? InterruptionLevel.timeSensitive
@@ -363,7 +386,7 @@ class PushService {
     final type = msg.data['type']?.toString();
     if (type == 'ptt') return;
 
-    final isCall = type == 'private_call' || type == 'private_radio';
+    final isCall = _isCallPushType(type);
     final groupId = msg.data['groupId']?.toString();
     final peerId = msg.data['peerId']?.toString();
     final callId = msg.data['callId']?.toString();
@@ -381,7 +404,11 @@ class PushService {
     final body = n?.body ?? msg.data['body']?.toString() ?? '';
     String? payload;
     if (isCall) {
-      payload = 'call:${callId ?? ''}';
+      if (type == 'group_video' && groupId != null && groupId.isNotEmpty) {
+        payload = 'gvideo:$groupId';
+      } else {
+        payload = 'call:${callId ?? ''}';
+      }
     } else if (type == 'dm' && peerId != null) {
       payload = 'peer:$peerId';
     } else {
@@ -423,6 +450,19 @@ class PushService {
       clearConversationNotifications(callId: callId);
       return;
     }
+    if (p.startsWith('gvideo:')) {
+      final groupId = p.substring(7);
+      final data = <String, dynamic>{
+        'type': 'group_video',
+        'groupId': groupId,
+      };
+      pendingIncomingGroupVideo = data;
+      if (invokeCallbacks) {
+        onNotificationData?.call(data);
+      }
+      clearConversationNotifications(groupId: groupId);
+      return;
+    }
     if (p.isNotEmpty) {
       pendingGroupId = p;
       if (invokeCallbacks) {
@@ -446,12 +486,23 @@ class PushService {
       clearConversationNotifications(peerId: pendingPeerId);
       return;
     }
-    if (type == 'private_call' || type == 'private_radio') {
+    if (type == 'private_call' ||
+        type == 'private_radio' ||
+        type == 'private_video' ||
+        type == 'private_video_request') {
       pendingIncomingCall = Map<String, dynamic>.from(data);
       if (invokeCallbacks) {
         onNotificationData?.call(Map<String, dynamic>.from(data));
       }
       clearConversationNotifications(callId: data['callId']?.toString());
+      return;
+    }
+    if (type == 'group_video') {
+      pendingIncomingGroupVideo = Map<String, dynamic>.from(data);
+      if (invokeCallbacks) {
+        onNotificationData?.call(Map<String, dynamic>.from(data));
+      }
+      clearConversationNotifications(groupId: data['groupId']?.toString());
       return;
     }
     if (type == 'panic') {
@@ -479,6 +530,7 @@ class PushService {
     pendingMessageId = null;
     pendingPanicData = null;
     pendingIncomingCall = null;
+    pendingIncomingGroupVideo = null;
   }
 
   Future<void> registerWithApi(ApiClient api) async {

@@ -17,6 +17,7 @@ import 'chat_message_banner.dart';
 import 'message_tone.dart';
 import 'panic_vibration.dart';
 import 'push_service.dart';
+import 'screens/group_video_screen.dart';
 
 const _kRadioListenMuteKey = 'tacticalptx_radio_mute';
 
@@ -238,6 +239,8 @@ class ChannelSession extends ChangeNotifier {
   bool listenMuted = false;
   /// Llamada privada entrante (señal global, aunque no estés en Directos).
   Map<String, dynamic>? incomingPrivateCall;
+  /// Transmisión grupal entrante (socket user:* / FCM).
+  Map<String, dynamic>? incomingGroupVideo;
   /// Último callId finalizado remotamente (para UI que necesite reaccionar).
   String? lastEndedPrivateCallId;
   /// Último DM entrante (SnackBar / badge). Consumir y poner null.
@@ -268,6 +271,32 @@ class ChannelSession extends ChangeNotifier {
 
   String get groupId => group['id'] as String;
   String get groupName => group['name'] as String? ?? 'Canal';
+
+  void _applyIncomingGroupVideoInvite(Map<String, dynamic> data) {
+    if (GroupVideoScreen.uiOpen) return;
+    final me = api.user?['id']?.toString();
+    final starter =
+        data['startedBy']?.toString() ?? data['by']?.toString();
+    if (me != null && starter != null && me == starter) return;
+
+    final gid = data['groupId']?.toString() ?? '';
+    if (gid.isEmpty) return;
+    if (incomingGroupVideo?['groupId']?.toString() == gid) return;
+
+    incomingGroupVideo = Map<String, dynamic>.from(data);
+    notifyListeners();
+    final gname = incomingGroupVideo?['groupName']?.toString() ?? 'Grupo';
+    final who = incomingGroupVideo?['startedByName']?.toString() ??
+        data['displayName']?.toString() ??
+        'Operador';
+    PushService.instance.showLocal(
+      title: 'Transmisión grupal en vivo',
+      body: '$who inició video en «$gname»',
+      payload: 'gvideo:$gid',
+      isCall: true,
+      groupId: gid,
+    );
+  }
 
   Future<void> start() async {
     current = this;
@@ -324,10 +353,20 @@ class ChannelSession extends ChangeNotifier {
         notifyListeners();
         final who = incomingPrivateCall?['callerName']?.toString() ?? 'Usuario';
         final callId = incomingPrivateCall?['callId']?.toString() ?? '';
-        final isRadio = incomingPrivateCall?['mode']?.toString() == 'radio';
+        final mode = incomingPrivateCall?['mode']?.toString() ?? 'call';
+        final isRadio = mode == 'radio';
+        final isVideo = mode == 'video';
         PushService.instance.showLocal(
-          title: isRadio ? 'Radio personal' : 'Llamada privada',
-          body: isRadio ? '$who te invita a radio 1:1' : '$who te está llamando',
+          title: isRadio
+              ? 'Radio personal'
+              : isVideo
+                  ? 'Videollamada'
+                  : 'Llamada privada',
+          body: isRadio
+              ? '$who te invita a radio 1:1'
+              : isVideo
+                  ? '$who te llama con video'
+                  : '$who te está llamando',
           payload: 'call:$callId',
           isCall: true,
           callId: callId.isNotEmpty ? callId : null,
@@ -343,6 +382,23 @@ class ChannelSession extends ChangeNotifier {
         notifyListeners();
         if (id != null && id.isNotEmpty) {
           PushService.instance.clearConversationNotifications(callId: id);
+        }
+      })
+      ..on('group:video_incoming', (data) {
+        if (data is! Map) return;
+        _applyIncomingGroupVideoInvite(Map<String, dynamic>.from(data));
+      })
+      ..on('group:video_started', (data) {
+        if (data is! Map) return;
+        _applyIncomingGroupVideoInvite(Map<String, dynamic>.from(data));
+      })
+      ..on('group:video_ended', (data) {
+        if (data is! Map) return;
+        final gid = data['groupId']?.toString();
+        if (gid != null && gid == incomingGroupVideo?['groupId']?.toString()) {
+          incomingGroupVideo = null;
+          notifyListeners();
+          PushService.instance.clearConversationNotifications(groupId: gid);
         }
       })
       ..on('dm:notify', (data) {

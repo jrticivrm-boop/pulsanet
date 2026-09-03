@@ -897,11 +897,15 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     final peer = _peer;
     if (peer == null) return;
     final isRadio = mode == 'radio';
+    final isVideo = mode == 'video';
     if (isRadio && _personalRadio != null) return;
+    if (isVideo) {
+      await Permission.camera.request();
+    }
     try {
       final data = await widget.api.startPrivateCall(
         peer['id'] as String,
-        mode: isRadio ? 'radio' : 'call',
+        mode: isRadio ? 'radio' : (isVideo ? 'video' : 'call'),
       );
       if (!mounted) return;
       final call = data['call'] as Map? ?? {};
@@ -929,7 +933,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
             url: AppConfig.publicLiveKitUrl(data['url'] as String),
             role: 'caller',
             e2eeKey: data['e2eeKey']?.toString(),
-            mode: 'call',
+            mode: isVideo ? 'video' : 'call',
           ),
         ),
       );
@@ -1052,13 +1056,31 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                         onPressed: () => _startCall(mode: 'call'),
                         icon: const Icon(Icons.call, color: kTacOnSurface),
                       ),
+                      IconButton(
+                        tooltip: 'Videollamada',
+                        onPressed: () => _startCall(mode: 'video'),
+                        icon: const Icon(Icons.videocam, color: kTacOnSurface),
+                      ),
                       PopupMenuButton<String>(
                         tooltip: 'Opciones',
                         color: kTacSurface,
                         onSelected: (v) {
+                          if (v == 'video') {
+                            _startCall(mode: 'video');
+                            return;
+                          }
                           if (v == 'clear') _clearCurrentThread();
                         },
                         itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: 'video',
+                            child: ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.videocam_outlined, color: kTacOnSurface),
+                              title: Text('Videollamada', style: TextStyle(color: kTacOnSurface)),
+                            ),
+                          ),
                           PopupMenuItem(
                             value: 'clear',
                             child: Text('Vaciar chat', style: TextStyle(color: kTacOnSurface)),

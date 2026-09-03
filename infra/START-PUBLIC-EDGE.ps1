@@ -12,6 +12,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'Sync-PublicIp.ps1')
 $caddyDir = Join-Path $PSScriptRoot 'caddy'
 $caddy = Join-Path $caddyDir 'caddy.exe'
 $caddyfile = Join-Path $PSScriptRoot 'Caddyfile.edge'
@@ -27,8 +28,11 @@ if (-not $publicIp) { throw 'No se pudo obtener IP publica' }
 Set-Content -Path (Join-Path $caddyDir 'public-ip.txt') -Value $publicIp -Encoding ascii
 
 if (-not $Domain) {
-  $Domain = "$publicIp.sslip.io"
+  $Domain = Get-TpxPreferredPublicDomain -Root $root -PublicIp $publicIp
+  if (-not $Domain) { $Domain = "$publicIp.sslip.io" }
 }
+[void](Update-TpxDuckDns -Root $root -PublicIp $publicIp)
+[void](Sync-TpxPublicEnv -Root $root -PublicIp $publicIp -Domain $Domain)
 
 Write-Host '=== TacticalPtx PUBLIC EDGE ===' -ForegroundColor Cyan
 Write-Host "PUBLIC_IP=$publicIp"
@@ -84,10 +88,24 @@ Set-Env 'PUBLIC_DOMAIN' $Domain
 Set-Env 'WEB_PUBLIC_URL' $origin
 Set-Env 'LIVEKIT_PUBLIC_HOST' $publicIp
 Set-Env 'LIVEKIT_PUBLIC_URL' "wss://$Domain"
+if ($lan) {
+  Set-Env 'PUBLIC_LAN_IP' $lan
+  Set-Env 'LIVEKIT_LAN_HOST' $lan
+}
 
 $corsLine = Get-Content $envFile | Where-Object { $_ -match '^CORS_ORIGINS=' } | Select-Object -First 1
 $corsVal = if ($corsLine) { ($corsLine -split '=', 2)[1] } else { '' }
-foreach ($o in @('http://localhost:5173', 'https://localhost:5173', 'https://127.0.0.1:5173', $origin)) {
+$corsAdd = @('http://localhost:5173', 'https://localhost:5173', 'https://127.0.0.1:5173', $origin)
+if ($lan) {
+  $corsAdd += @(
+    "https://$lan",
+    "http://$lan",
+    "https://${lan}:5173",
+    "http://${lan}:5173",
+    "https://${lan}:4000"
+  )
+}
+foreach ($o in $corsAdd) {
   if ($corsVal -notlike "*$o*") {
     $corsVal = if ($corsVal) { "$corsVal,$o" } else { $o }
   }
@@ -96,11 +114,8 @@ Set-Env 'CORS_ORIGINS' $corsVal
 
 $lkYaml = Join-Path $PSScriptRoot 'livekit.dev.yaml'
 if (Test-Path $lkYaml) {
-  $yk = Get-Content $lkYaml -Raw
-  $yk2 = [regex]::Replace($yk, '(?m)^(\s*domain:\s*).+$', "`${1}$publicIp")
-  if ($yk2 -ne $yk) {
-    Set-Content -Path $lkYaml -Value $yk2 -NoNewline -Encoding UTF8
-    Write-Host "livekit.dev.yaml turn.domain=$publicIp"
+  if (Sync-TpxLiveKitYaml -Root $root -PublicIp $publicIp) {
+    Write-Host "livekit.dev.yaml node_ip/turn.domain=$publicIp"
   }
 }
 
@@ -159,6 +174,10 @@ if (-not (Test-Path $tplPath)) { $tplPath = $caddyfile }
 $cfg = Get-Content -Raw $tplPath
 $cfg = $cfg -replace '# PLACEHOLDER_API_TRANSPORT', $(if ($apiTls) { $tlsTransport } else { '' })
 $cfg = $cfg -replace '# PLACEHOLDER_WEB_TRANSPORT', $(if ($webTls) { $tlsTransport } else { '' })
+if (-not $lan) {
+  # Sin LAN: quitar bloque de IP (evita {$PUBLIC_LAN_IP} vacío).
+  $cfg = [regex]::Replace($cfg, '(?ms)\r?\n# Acceso por IP LAN.*\z', "`n")
+}
 $activeCaddy = Join-Path $caddyDir 'Caddyfile.edge.active'
 Set-Content -Path $activeCaddy -Value $cfg -Encoding UTF8
 
@@ -169,6 +188,9 @@ $launchLines = @(
   "set API_UPSTREAM=$apiUpstream"
   "set WEB_UPSTREAM=$webUpstream"
 )
+if ($lan) {
+  $launchLines += "set PUBLIC_LAN_IP=$lan"
+}
 if ($Email) {
   $launchLines += "set CADDY_ACME_EMAIL=$Email"
 }
@@ -202,6 +224,16 @@ if ($ok) {
 Write-Host "Consola: $origin"
 Write-Host "API:     $origin/api/health"
 Write-Host "APK:     API_BASE=$origin"
+if ($lan) {
+  Write-Host "LAN:     https://$lan  (aceptar aviso de certificado interno)" -ForegroundColor Cyan
+}
 Write-Host 'Guia:    Soporte\Documentos\DOMINIO_Y_CERTIFICADO.md'
 
 Set-Content -Path (Join-Path $caddyDir 'RESTART-API.flag') -Value '1' -Encoding ascii
+
+Write-Host 'Reiniciando LiveKit con node-ip alineado...' -ForegroundColor Cyan
+if (Restart-TpxLiveKit -Root $root -PublicIp $publicIp) {
+  Write-Host "LiveKit OK node-ip=$publicIp" -ForegroundColor Green
+} else {
+  Write-Host 'LiveKit: no arranco tras edge — ejecuta infra\start-services.ps1' -ForegroundColor Yellow
+}

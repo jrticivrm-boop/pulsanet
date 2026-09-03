@@ -5,6 +5,8 @@ import { ThemeToggle } from './theme';
 import BrandName from './BrandName.jsx';
 import { ensureNotifyServiceWorker } from './appNotify.js';
 import GlobalChatNotifyHost from './GlobalChatNotifyHost.jsx';
+import GroupVideoIncomingHost from './GroupVideoIncomingHost.jsx';
+import GroupVideoSessionHost from './GroupVideoSessionHost.jsx';
 import RadioPage from './pages/RadioPage.jsx';
 import DispatchLayout from './dispatch/DispatchLayout.jsx';
 import CommandCenter from './dispatch/CommandCenter.jsx';
@@ -12,6 +14,7 @@ import DispatchMap from './dispatch/DispatchMap.jsx';
 import DispatchUsers from './dispatch/DispatchUsers.jsx';
 import DispatchGroups from './dispatch/DispatchGroups.jsx';
 import LiveTrackMap from './dispatch/LiveTrackMap.jsx';
+import DispatchVideo from './dispatch/DispatchVideo.jsx';
 import CatalogsLayout from './dispatch/CatalogsLayout.jsx';
 import CatalogGradesEmpleos from './dispatch/CatalogGradesEmpleos.jsx';
 import DispatchDependencias from './dispatch/DispatchDependencias.jsx';
@@ -149,6 +152,8 @@ export default function App() {
   return (
     <>
       {session?.token ? <GlobalChatNotifyHost session={session} /> : null}
+      {session?.token ? <GroupVideoIncomingHost session={session} /> : null}
+      {session?.token ? <GroupVideoSessionHost session={session} /> : null}
       <Routes>
       <Route
         path="/login"
@@ -207,6 +212,7 @@ export default function App() {
       >
         <Route index element={<CommandCenter session={session} />} />
         <Route path="seguimiento" element={<LiveTrackMap session={session} />} />
+        <Route path="video" element={<DispatchVideo session={session} />} />
         <Route path="mapa" element={<DispatchMap session={session} />} />
         <Route path="radio" element={null} />
         <Route path="catalogos" element={<CatalogsLayout />}>

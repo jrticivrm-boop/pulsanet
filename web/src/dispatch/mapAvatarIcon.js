@@ -21,18 +21,20 @@ function escapeCssUrl(url) {
 /**
  * Pin de ubicación (gota / teardrop verde) con foto de perfil o inicial.
  * La punta inferior ancla la lat/lng exacta.
+ * Con `panic: true` el anillo pasa a rojo y parpadea.
  */
-export function mapAvatarIcon({ name, live, selected, photoSrc }) {
+export function mapAvatarIcon({ name, live, selected, photoSrc, panic }) {
   const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
   const label = escapeHtml((name || '').trim().split(/\s+/)[0] || 'Operador');
   const hasPhoto = Boolean(photoSrc);
+  const showRings = Boolean(live || panic);
   const face = hasPhoto
     ? `<span class="lt-wa-photo-bg" style="background-image:url('${escapeCssUrl(photoSrc)}')" aria-hidden="true"></span>`
     : `<span class="lt-wa-letter">${escapeHtml(initial)}</span>`;
   const nameHtml = selected ? `<span class="lt-wa-name">${label}</span>` : '';
   const html = `
-    <div class="lt-wa${live ? ' is-live' : ''}${selected ? ' is-selected' : ''}${selected ? '' : ' lt-wa--compact'}">
-      ${live ? '<span class="lt-wa-ring" aria-hidden="true"></span><span class="lt-wa-ring lt-wa-ring--late" aria-hidden="true"></span>' : ''}
+    <div class="lt-wa${live ? ' is-live' : ''}${panic ? ' is-panic' : ''}${selected ? ' is-selected' : ''}${selected ? '' : ' lt-wa--compact'}">
+      ${showRings ? '<span class="lt-wa-ring" aria-hidden="true"></span><span class="lt-wa-ring lt-wa-ring--late" aria-hidden="true"></span>' : ''}
       <span class="lt-wa-pin${hasPhoto ? ' has-photo' : ''}" aria-hidden="true">
         <span class="lt-wa-pin-tip"></span>
         <span class="lt-wa-pin-face">${face}</span>

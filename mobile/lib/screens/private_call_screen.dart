@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
@@ -12,7 +13,9 @@ import '../config.dart';
 import '../es_msg.dart';
 import '../livekit_e2ee.dart';
 import '../chat_message_banner.dart';
+import '../private_call_stabilizer.dart';
 import '../theme.dart';
+import '../video_streaming_config.dart';
 import '../widgets/user_avatar.dart';
 
 /// Pantalla de llamada / radio privada 1:1 (controles tipo teléfono / WhatsApp).
@@ -39,7 +42,7 @@ class PrivateCallScreen extends StatefulWidget {
   final String role;
   final String? e2eeKey;
 
-  /// `call` = full-duplex; `radio` = PTT (mic mute hasta mantener).
+  /// `call` = full-duplex; `video` = videollamada; `radio` = PTT (mic mute hasta mantener).
   final String mode;
 
   /// true mientras la UI de llamada está montada (minimizada o completa).
@@ -64,6 +67,8 @@ class PrivateCallScreen extends StatefulWidget {
 class _PrivateCallScreenState extends State<PrivateCallScreen> {
   Room? _room;
   LocalAudioTrack? _mic;
+  LocalVideoTrack? _cam;
+  VideoTrack? _remoteVideoTrack;
   String _status = 'Conectando…';
   bool _muted = false;
   bool _minimized = false;
@@ -73,8 +78,13 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
   bool _connected = false;
   bool _closing = false;
   bool _showKeypad = false;
+  bool _cameraOn = false;
+  bool _remoteVideo = false;
+  CameraPosition _cameraPosition = CameraPosition.front;
+  Map<String, dynamic>? _videoRequest;
   String _keypadBuffer = '';
   io.Socket? _signalSocket;
+  PrivateCallStabilizer? _stabilizer;
   EventsListener<RoomEvent>? _roomListener;
   Timer? _tick;
   DateTime? _connectedAt;
@@ -82,6 +92,8 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
   void Function(ChatMessageBannerPayload)? _bannerTapPrev;
 
   bool get _isRadio => widget.mode == 'radio';
+  bool get _isVideo => widget.mode == 'video';
+  bool get _showVideoStage => _isVideo || _cameraOn || _remoteVideo;
 
   @override
   void initState() {
@@ -113,6 +125,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       io.OptionBuilder()
           .setTransports(['websocket', 'polling'])
           .setAuth({'token': token})
+          .enableReconnection()
           .disableAutoConnect()
           .build(),
     );
@@ -131,9 +144,34 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
         setState(() {
           _status = _isRadio
               ? 'Radio con ${widget.peerName}'
-              : 'En llamada';
+              : _isVideo
+                  ? 'Videollamada con ${widget.peerName}'
+                  : 'En llamada';
         });
       }
+    });
+    socket.on('call:video_request', (data) {
+      if (data is! Map || !mounted || _closing) return;
+      if (data['callId']?.toString() != widget.callId) return;
+      setState(() => _videoRequest = Map<String, dynamic>.from(data));
+    });
+    socket.on('call:video_accepted', (data) {
+      if (data is! Map || !mounted) return;
+      if (data['callId']?.toString() != widget.callId) return;
+      setState(() => _status = '${widget.peerName} activó la cámara');
+    });
+    socket.on('call:video_rejected', (data) {
+      if (data is! Map || !mounted) return;
+      if (data['callId']?.toString() != widget.callId) return;
+      setState(() => _status = '${widget.peerName} rechazó compartir cámara');
+    });
+    socket.on('call:video_stopped', (data) {
+      if (data is! Map || !mounted) return;
+      if (data['callId']?.toString() != widget.callId) return;
+      setState(() {
+        _remoteVideo = false;
+        _remoteVideoTrack = null;
+      });
     });
     socket.on('dm:notify', (data) {
       if (data is! Map || !mounted || _closing) return;
@@ -200,6 +238,9 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       });
     }
     try {
+      await _cam?.stop();
+    } catch (_) {}
+    try {
       await _mic?.stop();
     } catch (_) {}
     try {
@@ -253,6 +294,127 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     }
   }
 
+  void _onRemoteVideoTrack(VideoTrack? track) {
+    if (!mounted || _closing) return;
+    setState(() {
+      _remoteVideoTrack = track;
+      _remoteVideo = track != null;
+    });
+  }
+
+  Future<bool> _ensureCameraPermission() async {
+    final status = await Permission.camera.request();
+    return status.isGranted;
+  }
+
+  Future<void> _enableCamera([Room? roomOverride]) async {
+    final room = roomOverride ?? _room;
+    if (room == null) return;
+    if (!await _ensureCameraPermission()) {
+      if (mounted) {
+        setState(() => _status = 'Permiso de cámara denegado');
+      }
+      return;
+    }
+    try {
+      final lp = room.localParticipant;
+      if (lp == null) return;
+      final pub = await lp.setCameraEnabled(
+        true,
+        cameraCaptureOptions: streamingCameraCapture(position: _cameraPosition),
+      );
+      _cam = pub?.track is LocalVideoTrack ? pub!.track as LocalVideoTrack : _cam;
+      if (_cam == null) {
+        for (final p in lp.videoTrackPublications) {
+          if (p.track is LocalVideoTrack) {
+            _cam = p.track as LocalVideoTrack;
+            break;
+          }
+        }
+      }
+      if (mounted) setState(() => _cameraOn = _cam != null);
+    } catch (e) {
+      if (mounted) setState(() => _status = esMsg(e, 'No se pudo activar la cámara'));
+    }
+  }
+
+  Future<void> _disableCamera({bool notifyPeer = true}) async {
+    final room = _room;
+    final lp = room?.localParticipant;
+    try {
+      if (lp != null) {
+        await lp.setCameraEnabled(
+          false,
+          cameraCaptureOptions: const CameraCaptureOptions(stopCameraCaptureOnMute: true),
+        );
+        for (final pub in List<LocalTrackPublication>.from(lp.videoTrackPublications)) {
+          try {
+            await lp.removePublishedTrack(pub.sid);
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    try {
+      await _cam?.stop();
+    } catch (_) {}
+    _cam = null;
+    if (mounted) setState(() => _cameraOn = false);
+    if (notifyPeer) {
+      try {
+        await widget.api.stopPrivateCallVideo(widget.callId);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _toggleCamera() async {
+    if (_cameraOn) {
+      await _disableCamera();
+    } else {
+      await _enableCamera();
+    }
+    HapticFeedback.selectionClick();
+  }
+
+  Future<void> _flipCamera() async {
+    if (!_cameraOn) return;
+    final cam = _cam;
+    if (cam == null) return;
+    final next = _cameraPosition == CameraPosition.front
+        ? CameraPosition.back
+        : CameraPosition.front;
+    try {
+      await cam.setCameraPosition(next);
+      if (mounted) setState(() => _cameraPosition = next);
+      HapticFeedback.selectionClick();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _status = esMsg(e, 'No se pudo cambiar de cámara'));
+      }
+    }
+  }
+
+  Future<void> _requestPeerCamera() async {
+    try {
+      await widget.api.requestPrivateCallVideo(widget.callId);
+      if (mounted) setState(() => _status = 'Esperando que acepte la cámara…');
+    } catch (e) {
+      if (mounted) setState(() => _status = esMsg(e, 'No se pudo solicitar cámara'));
+    }
+  }
+
+  Future<void> _respondVideoRequest(bool accept) async {
+    setState(() => _videoRequest = null);
+    try {
+      await widget.api.respondPrivateCallVideo(widget.callId, accept);
+      if (accept) {
+        await _enableCamera();
+        if (mounted) setState(() => _status = 'En llamada con ${widget.peerName}');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _status = esMsg(e, 'Error al responder solicitud'));
+    }
+  }
+
   Future<void> _connect() async {
     Room? room;
     LocalAudioTrack? mic;
@@ -261,12 +423,17 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       final e2ee = await buildVoiceE2eeOptions(widget.e2eeKey);
       room = Room(roomOptions: RoomOptions(encryption: e2ee));
       final listener = room.createListener();
-      listener.on<ParticipantDisconnectedEvent>((_) {
-        _closeFromRemote(reason: 'peer_left');
-      });
       listener.on<TrackSubscribedEvent>((e) {
         if (_listenMuted && e.track is AudioTrack) {
           _applyListenMute();
+        }
+        if (e.track is VideoTrack) {
+          _onRemoteVideoTrack(e.track as VideoTrack);
+        }
+      });
+      listener.on<TrackUnsubscribedEvent>((e) {
+        if (e.track is VideoTrack) {
+          _onRemoteVideoTrack(null);
         }
       });
       _roomListener = listener;
@@ -292,7 +459,11 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       if (_isRadio) {
         await mic.mute(stopOnMute: true);
       }
+      if (_isVideo) {
+        await _enableCamera(room);
+      }
       if (!mounted) {
+        await _cam?.stop();
         await mic.stop();
         await room.disconnect();
         return;
@@ -304,13 +475,33 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
         _speakerOn = true;
         if (widget.role == 'callee') {
           _markConnected();
-          _status = _isRadio ? 'Radio activa' : 'En llamada';
+          _status = _isRadio
+              ? 'Radio activa'
+              : _isVideo
+                  ? 'Videollamada'
+                  : 'En llamada';
         } else if (_isRadio) {
           _status = 'Invitando a ${widget.peerName}…';
+        } else if (_isVideo) {
+          _status = 'Videollamando…';
         } else {
           _status = 'Llamando…';
         }
       });
+      _stabilizer?.dispose();
+      _stabilizer = PrivateCallStabilizer(
+        api: widget.api,
+        callId: widget.callId,
+        room: room,
+        liveKitUrl: widget.url,
+        liveKitToken: widget.token,
+        peerLabel: widget.peerName,
+        isClosing: () => _closing,
+        onStatus: (msg) {
+          if (mounted && !_closing) setState(() => _status = msg);
+        },
+        onRemoteEnd: () => _closeFromRemote(reason: 'peer_left'),
+      )..attach(signalSocket: _signalSocket);
     } catch (e) {
       try {
         await mic?.stop();
@@ -328,8 +519,11 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       setState(() {
         _room = null;
         _mic = null;
-        _status = e.toString();
+        _status = 'Sin conexión · reintentando…';
       });
+      await Future<void>.delayed(const Duration(seconds: 2));
+      if (!mounted || _closing) return;
+      await _connect();
     }
   }
 
@@ -402,11 +596,15 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       await widget.api.endPrivateCall(widget.callId);
     } catch (_) {}
     try {
+      await _cam?.stop();
+    } catch (_) {}
+    try {
       await _mic?.stop();
     } catch (_) {}
     try {
       await _room?.disconnect();
     } catch (_) {}
+    _room = null;
     await ChannelSession.current?.resumeAfterPersonalRadio();
     await _restorePhoneAudio();
     if (mounted) Navigator.pop(context);
@@ -590,10 +788,12 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     PrivateCallScreen.uiOpen = false;
     ChatMessageBanner.instance.onTap = _bannerTapPrev;
     _tick?.cancel();
+    _stabilizer?.dispose();
     _roomListener?.dispose();
     try {
       _signalSocket?.dispose();
     } catch (_) {}
+    _cam?.stop();
     _mic?.stop();
     _room?.disconnect();
     // Si no se colgó limpio, igual restaurar ruta (sin matar holders de radio).
@@ -601,6 +801,245 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       unawaited(_restorePhoneAudio());
     }
     super.dispose();
+  }
+
+  Widget _buildVideoStage() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxW = constraints.maxWidth;
+        final maxH = constraints.maxHeight;
+        var w = maxW;
+        var h = w * 4 / 3;
+        if (h > maxH) {
+          h = maxH;
+          w = h * 3 / 4;
+        }
+        return Center(
+          child: SizedBox(
+            width: w,
+            height: h,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ColoredBox(color: Colors.black.withValues(alpha: 0.35)),
+                  if (_remoteVideoTrack != null)
+                    VideoTrackRenderer(
+                      _remoteVideoTrack!,
+                      fit: VideoViewFit.cover,
+                    )
+                  else if (!_cameraOn)
+                    Center(child: _peerAvatar(radius: 56)),
+                  if (_cam != null && _cameraOn)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      width: 88,
+                      height: 124,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: kInstOnPrimary.withValues(alpha: 0.35),
+                              width: 2,
+                            ),
+                          ),
+                          child: VideoTrackRenderer(
+                            _cam!,
+                            fit: VideoViewFit.cover,
+                            mirrorMode: _cameraPosition == CameraPosition.front
+                                ? VideoViewMirrorMode.mirror
+                                : VideoViewMirrorMode.off,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCallControlsDock() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(8, 12, 8, 4),
+      decoration: BoxDecoration(
+        color: kInstCallBg,
+        border: Border(
+          top: BorderSide(color: kInstOnPrimary.withValues(alpha: 0.08)),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_isRadio) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _actionButton(
+                  icon: Icons.mic,
+                  label: _pttHeld ? 'AL AIRE' : 'PTT',
+                  onTap: null,
+                  active: _pttHeld,
+                  size: 72,
+                  holdChild: Icon(
+                    Icons.mic,
+                    color: _pttHeld ? kInstCallBg : kInstOnPrimary,
+                    size: 32,
+                  ),
+                ),
+                _actionButton(
+                  icon: _speakerOn ? Icons.volume_up : Icons.phone_in_talk,
+                  label: _speakerOn ? 'Altavoz' : 'Auricular',
+                  onTap: _toggleSpeaker,
+                  active: _speakerOn,
+                ),
+                _actionButton(
+                  icon: Icons.chat_bubble_outline,
+                  label: 'Mensaje',
+                  onTap: _openMessageSheet,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Mantén PTT para transmitir',
+              style: TextStyle(
+                color: kInstOnPrimary.withValues(alpha: 0.45),
+                fontSize: 12,
+              ),
+            ),
+          ] else ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _actionButton(
+                  icon: _muted ? Icons.mic_off : Icons.mic,
+                  label: _muted ? 'Mic off' : 'Silenciar',
+                  onTap: _toggleMute,
+                  active: _muted,
+                ),
+                _actionButton(
+                  icon: _cameraOn ? Icons.videocam : Icons.videocam_off,
+                  label: _cameraOn ? 'Apagar cam' : 'Encender cam',
+                  onTap: _toggleCamera,
+                  active: _cameraOn,
+                ),
+                if (_cameraOn)
+                  _actionButton(
+                    icon: _cameraPosition == CameraPosition.front
+                        ? Icons.cameraswitch_outlined
+                        : Icons.cameraswitch,
+                    label: _cameraPosition == CameraPosition.front
+                        ? 'Trasera'
+                        : 'Frontal',
+                    onTap: _flipCamera,
+                    active: true,
+                  )
+                else if (!_isVideo)
+                  _actionButton(
+                    icon: Icons.visibility_outlined,
+                    label: 'Pedir cam',
+                    onTap: _requestPeerCamera,
+                  )
+                else
+                  _actionButton(
+                    icon: Icons.dialpad,
+                    label: 'Teclado',
+                    onTap: () => setState(() => _showKeypad = !_showKeypad),
+                    active: _showKeypad,
+                  ),
+                if (_cameraOn)
+                  _actionButton(
+                    icon: Icons.dialpad,
+                    label: 'Teclado',
+                    onTap: () => setState(() => _showKeypad = !_showKeypad),
+                    active: _showKeypad,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _actionButton(
+                  icon: Icons.chat_bubble_outline,
+                  label: 'Mensaje',
+                  onTap: _openMessageSheet,
+                ),
+                _actionButton(
+                  icon: _speakerOn ? Icons.volume_up : Icons.phone_in_talk,
+                  label: _speakerOn ? 'Altavoz' : 'Auricular',
+                  onTap: _toggleSpeaker,
+                  active: _speakerOn,
+                ),
+                _actionButton(
+                  icon: _listenMuted ? Icons.volume_off : Icons.hearing,
+                  label: _listenMuted ? 'Sin audio' : 'Audio',
+                  onTap: _toggleListenMute,
+                  active: _listenMuted,
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 20),
+          _actionButton(
+            icon: Icons.call_end,
+            label: _isRadio ? 'Cerrar' : 'Colgar',
+            onTap: _hangup,
+            danger: true,
+            size: 72,
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVideoRequestBanner() {
+    final req = _videoRequest;
+    if (req == null) return const SizedBox.shrink();
+    final fromName = req['fromName']?.toString() ?? 'Usuario';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: kInstCallSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kInstOnPrimary.withValues(alpha: 0.15)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            '$fromName solicita ver tu cámara',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: kInstOnPrimary, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TextButton(
+                onPressed: () => _respondVideoRequest(false),
+                child: const Text('Rechazar'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: kInstOliveMid),
+                onPressed: () => _respondVideoRequest(true),
+                child: const Text('Activar cámara'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _peerAvatar({required double radius}) {
@@ -837,7 +1276,9 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
                                 Text(
                                   _isRadio
                                       ? 'Radio en curso · toca para volver'
-                                      : 'Llamada en curso · toca para volver',
+                                      : _isVideo
+                                          ? 'Videollamada · toca para volver'
+                                          : 'Llamada en curso · toca para volver',
                                   style: TextStyle(
                                     color: kInstOnPrimary.withValues(alpha: 0.65),
                                     fontSize: 12,
@@ -909,7 +1350,11 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
                       ),
                       Expanded(
                         child: Text(
-                          _isRadio ? 'Radio personal' : 'Llamada de voz',
+                          _isRadio
+                              ? 'Radio personal'
+                              : _isVideo
+                                  ? 'Videollamada'
+                                  : 'Llamada de voz',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: kInstGoldSoft.withValues(alpha: 0.9),
@@ -922,53 +1367,63 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
+                  if (_videoRequest != null) _buildVideoRequestBanner(),
                   if (!_showKeypad)
                     Expanded(
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Container(
-                            width: 112,
-                            height: 112,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              boxShadow: _isRadio
-                                  ? [
-                                      BoxShadow(
-                                        color: kInstOlive.withValues(alpha: 0.5),
-                                        spreadRadius: 3,
+                          Expanded(
+                            child: Center(
+                              child: _showVideoStage
+                                  ? Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                                      child: _buildVideoStage(),
+                                    )
+                                  : Container(
+                                      width: 112,
+                                      height: 112,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        boxShadow: _isRadio
+                                            ? [
+                                                BoxShadow(
+                                                  color: kInstOlive.withValues(alpha: 0.5),
+                                                  spreadRadius: 3,
+                                                ),
+                                              ]
+                                            : [
+                                                BoxShadow(
+                                                  color: Colors.black.withValues(alpha: 0.35),
+                                                  blurRadius: 10,
+                                                ),
+                                              ],
                                       ),
-                                    ]
-                                  : [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(alpha: 0.35),
-                                        blurRadius: 10,
-                                      ),
-                                    ],
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: _peerAvatar(radius: 56),
-                          ),
-                          const SizedBox(height: 24),
-                          Text(
-                            widget.peerName,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: kInstOnPrimary,
-                              fontSize: 26,
-                              fontWeight: FontWeight.w600,
+                                      clipBehavior: Clip.antiAlias,
+                                      child: _peerAvatar(radius: 56),
+                                    ),
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            subtitle,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: kInstOnPrimary.withValues(alpha: 0.55),
-                              fontSize: 15,
+                          if (!_showVideoStage || _remoteVideo) ...[
+                            Text(
+                              widget.peerName,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: kInstOnPrimary,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 6),
+                            Text(
+                              subtitle,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: kInstOnPrimary.withValues(alpha: 0.55),
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
                           if (_listenMuted) ...[
                             const SizedBox(height: 6),
                             Text(
@@ -979,6 +1434,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
                               ),
                             ),
                           ],
+                          const SizedBox(height: 8),
                         ],
                       ),
                     )
@@ -1002,99 +1458,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
                     const SizedBox(height: 16),
                     Expanded(child: SingleChildScrollView(child: _buildKeypad())),
                   ],
-                  if (_isRadio) ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _actionButton(
-                          icon: Icons.mic,
-                          label: _pttHeld ? 'AL AIRE' : 'PTT',
-                          onTap: null,
-                          active: _pttHeld,
-                          size: 72,
-                          holdChild: Icon(
-                            Icons.mic,
-                            color: _pttHeld ? kInstCallBg : kInstOnPrimary,
-                            size: 32,
-                          ),
-                        ),
-                        _actionButton(
-                          icon: _speakerOn ? Icons.volume_up : Icons.phone_in_talk,
-                          label: _speakerOn ? 'Altavoz' : 'Auricular',
-                          onTap: _toggleSpeaker,
-                          active: _speakerOn,
-                        ),
-                        _actionButton(
-                          icon: Icons.chat_bubble_outline,
-                          label: 'Mensaje',
-                          onTap: _openMessageSheet,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Mantén PTT para transmitir',
-                      style: TextStyle(
-                        color: kInstOnPrimary.withValues(alpha: 0.45),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ] else ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _actionButton(
-                          icon: _muted ? Icons.mic_off : Icons.mic,
-                          label: _muted ? 'Mic off' : 'Silenciar',
-                          onTap: _toggleMute,
-                          active: _muted,
-                        ),
-                        _actionButton(
-                          icon: Icons.dialpad,
-                          label: 'Teclado',
-                          onTap: () => setState(() => _showKeypad = !_showKeypad),
-                          active: _showKeypad,
-                        ),
-                        _actionButton(
-                          icon: _speakerOn ? Icons.volume_up : Icons.phone_in_talk,
-                          label: _speakerOn ? 'Altavoz' : 'Auricular',
-                          onTap: _toggleSpeaker,
-                          active: _speakerOn,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 22),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _actionButton(
-                          icon: Icons.chat_bubble_outline,
-                          label: 'Mensaje',
-                          onTap: _openMessageSheet,
-                        ),
-                        _actionButton(
-                          icon: Icons.more_horiz,
-                          label: 'Más',
-                          onTap: _openMoreSheet,
-                        ),
-                        _actionButton(
-                          icon: _listenMuted ? Icons.volume_off : Icons.hearing,
-                          label: _listenMuted ? 'Sin audio' : 'Audio',
-                          onTap: _toggleListenMute,
-                          active: _listenMuted,
-                        ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 28),
-                  _actionButton(
-                    icon: Icons.call_end,
-                    label: _isRadio ? 'Cerrar' : 'Colgar',
-                    onTap: _hangup,
-                    danger: true,
-                    size: 72,
-                  ),
-                  const SizedBox(height: 12),
+                  if (!_showKeypad) _buildCallControlsDock(),
                 ],
               ),
             ),

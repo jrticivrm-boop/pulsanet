@@ -43,7 +43,7 @@ export function smoothMapFocus(map, { lat, lng, zoom }, options = {}) {
   };
 }
 
-/** Lee foco de pánico desde query (?lat=&lng=&zoom=). */
+/** Lee foco de pánico desde query (?lat=&lng=&zoom=). Ignora (0,0) / inválidos. */
 export function focusFromSearchParams(searchParams) {
   const lat = Number(searchParams.get('lat'));
   const lng = Number(searchParams.get('lng'));
@@ -51,7 +51,10 @@ export function focusFromSearchParams(searchParams) {
   const user = searchParams.get('user') || '';
   const panic = searchParams.get('panic') || '';
   const stamp = searchParams.get('t') || '';
+  // Rechaza NaN y Null Island (0,0) — no dibujar pin fantasma.
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  if (Math.abs(lat) < 1e-5 && Math.abs(lng) < 1e-5) return null;
   const zoom = Number.isFinite(zoomRaw) && zoomRaw > 0 ? Math.min(zoomRaw, 19) : 17;
   const key = `${panic}|${lat}|${lng}|${user}|${stamp}`;
   return { lat, lng, zoom, token: key, userId: user || null, key };

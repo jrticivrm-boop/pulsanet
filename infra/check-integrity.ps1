@@ -6,6 +6,7 @@ $Root = Split-Path $PSScriptRoot -Parent
 if (-not (Test-Path (Join-Path $Root 'backend\package.json'))) {
   $Root = 'C:\pulsanet'
 }
+. (Join-Path $PSScriptRoot 'Sync-PublicIp.ps1')
 
 Write-Host "Root: $Root" -ForegroundColor Cyan
 $script:fail = 0
@@ -99,6 +100,35 @@ public class TpxTrustAll : ICertificatePolicy {
   } else { Bad 'API health ok=false' }
 } catch {
   Warn ("API no responde en https://127.0.0.1:4000/api/health: " + $_.Exception.Message)
+}
+
+# --- IP publica / borde / LiveKit ICE ---
+$drift = Test-TpxPublicIpDrift -Root $Root
+if ($drift.Current) {
+  if ($drift.Drift) {
+    Bad ("IP publica desalineada ($($drift.Reason)): stored=$($drift.Stored) yaml=$($drift.YamlIp) current=$($drift.Current). Ejecuta infra\ENSURE-PUBLIC-EDGE.ps1")
+  } else {
+    Ok ("IP publica alineada: $($drift.Current)")
+  }
+} else {
+  Warn 'No se pudo consultar ipify (comprobar red)'
+}
+
+$pubDom = Get-TpxPublicDomainFromEnv -Root $Root
+if ($pubDom) {
+  $code = & curl.exe -sk --connect-timeout 8 --max-time 12 -o NUL -w '%{http_code}' "https://$pubDom/api/health" 2>$null
+  if ($code -eq '200') { Ok "Edge publico OK https://$pubDom/api/health" }
+  else { Bad "Edge publico health=$code en https://$pubDom (Caddy/UPnP?)" }
+} elseif ($drift.Current) {
+  Warn 'PUBLIC_DOMAIN ausente en .env'
+}
+
+if (Test-Path (Join-Path $Root 'infra\livekit\livekit-server.exe')) {
+  if (Test-NetConnection -ComputerName 127.0.0.1 -Port 7880 -WarningAction SilentlyContinue | Select-Object -ExpandProperty TcpTestSucceeded) {
+    Ok 'LiveKit :7880 escuchando'
+  } else {
+    Bad 'LiveKit :7880 no escucha. Ejecuta infra\start-services.ps1'
+  }
 }
 
 Write-Host ''

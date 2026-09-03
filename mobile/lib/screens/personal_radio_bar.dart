@@ -10,6 +10,7 @@ import '../audio_session_setup.dart';
 import '../channel_session.dart';
 import '../config.dart';
 import '../livekit_e2ee.dart';
+import '../private_call_stabilizer.dart';
 import '../theme.dart';
 
 /// Radio personal 1:1 — franja superior; PTT por toque (abre / libera).
@@ -48,6 +49,7 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
   bool _busy = false;
   bool _connectFailed = false;
   io.Socket? _signalSocket;
+  PrivateCallStabilizer? _stabilizer;
   EventsListener<RoomEvent>? _roomListener;
 
   bool get pttHeld => _pttOn;
@@ -67,6 +69,7 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
       io.OptionBuilder()
           .setTransports(['websocket'])
           .setAuth({'token': token})
+          .enableReconnection()
           .disableAutoConnect()
           .enableForceNew()
           .build(),
@@ -126,6 +129,20 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
         _connectFailed = false;
         _status = 'Listo · toca para hablar';
       });
+      _stabilizer?.dispose();
+      _stabilizer = PrivateCallStabilizer(
+        api: widget.api,
+        callId: widget.callId,
+        room: room,
+        liveKitUrl: widget.url,
+        liveKitToken: widget.token,
+        peerLabel: widget.peerName,
+        isClosing: () => _closing,
+        onStatus: (msg) {
+          if (mounted && !_closing) setState(() => _status = msg);
+        },
+        onRemoteEnd: () => _close(remote: true),
+      )..attach(signalSocket: _signalSocket);
     } catch (e) {
       try {
         await room?.disconnect();
@@ -235,6 +252,7 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
 
   @override
   void dispose() {
+    _stabilizer?.dispose();
     _roomListener?.dispose();
     try {
       _signalSocket?.dispose();

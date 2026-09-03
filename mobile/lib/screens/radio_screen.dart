@@ -23,6 +23,7 @@ class RadioScreen extends StatelessWidget {
     required this.onPanic,
     this.onOpenLocation,
     this.onOpenProfile,
+    this.onOpenGroupVideo,
     this.avatarUrl,
     this.avatarHeaders,
     this.api,
@@ -39,6 +40,7 @@ class RadioScreen extends StatelessWidget {
   final VoidCallback onPanic;
   final VoidCallback? onOpenLocation;
   final VoidCallback? onOpenProfile;
+  final VoidCallback? onOpenGroupVideo;
   final ApiClient? api;
 
   String get _status {
@@ -103,6 +105,7 @@ class RadioScreen extends StatelessWidget {
                       onSelected: (v) async {
                         if (v == 'channels') onOpenMenu();
                         if (v == 'location') onOpenLocation?.call();
+                        if (v == 'video') onOpenGroupVideo?.call();
                         if (v == 'mute') {
                           final next = !session.listenMuted;
                           await session.setListenMuted(next);
@@ -129,6 +132,17 @@ class RadioScreen extends StatelessWidget {
                             visualDensity: VisualDensity.compact,
                           ),
                         ),
+                        if (onOpenGroupVideo != null)
+                          const PopupMenuItem(
+                            value: 'video',
+                            child: ListTile(
+                              leading: Icon(Icons.videocam_outlined),
+                              title: Text('Video en vivo'),
+                              subtitle: Text('Transmisión grupal con cámara'),
+                              contentPadding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
                         PopupMenuItem(
                           value: 'mute',
                           child: ListTile(

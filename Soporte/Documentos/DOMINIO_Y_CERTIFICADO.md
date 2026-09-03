@@ -65,9 +65,34 @@ powershell -File infra\START-PUBLIC-EDGE.ps1 -Domain app.tudominio.mx -Email adm
 - Router: reenvío **TCP 80** y **TCP 443** a la PC (UPnP o manual)
 - Puertos LiveKit (7880–7882, 3478) siguen necesarios para audio
 
-## IP dinámica
+## IP dinámica → dominio permanente (recomendado)
 
-Si el ISP cambia la IP, el hostname `*.sslip.io` cambia: hay que **re-ejecutar** `START-PUBLIC-EDGE` y **republicar APK** (o usar dominio propio + DDNS).
+`*.sslip.io` **incluye la IP en el nombre**: si el ISP cambia la IP, el APK deja de conectar hasta republicar.
+
+Ancla permanente con **DuckDNS** (gratis):
+
+1. Crea cuenta en https://www.duckdns.org y un subdominio (ej. `tacticalptx`).
+2. Ejecuta una sola vez:
+
+```powershell
+powershell -File infra\SETUP-STABLE-DOMAIN.ps1 -Subdomain tacticalptx -Token TU_TOKEN
+```
+
+Eso fija `STABLE_PUBLIC_DOMAIN=tacticalptx.duckdns.org`, actualiza el DNS A, reinicia Caddy con Let's Encrypt y alinea `.env` / LiveKit.
+
+3. Publica APK (queda con ese hostname para siempre):
+
+```bat
+mobile\scripts\PUBLISH-APK-UPDATE.cmd
+```
+
+Cuando cambie la IP, `Sync-PublicIp` / `Watch-Stack` actualizan DuckDNS automáticamente. **No hace falta otro APK por cambio de IP.**
+
+Token en `Soporte\Secrets\stable-domain.env` (no versionar).
+
+## IP dinámica (modo sslip, sin ancla)
+
+Si el ISP cambia la IP, el hostname `*.sslip.io` cambia: hay que **re-ejecutar** `START-PUBLIC-EDGE` y **republicar APK** (o usar dominio propio + DDNS como arriba).
 
 ## Archivos
 

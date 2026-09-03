@@ -4,6 +4,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'api_client.dart';
 import 'app_update.dart';
 import 'background_radio.dart';
+import 'config.dart';
 import 'lan_tls.dart';
 import 'location_heartbeat.dart';
 import 'push_service.dart';
@@ -17,6 +18,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // TLS mínimo antes de cualquier HTTP; el resto en paralelo / diferido.
   await LanTls.install();
+  await AppConfig.load();
   runApp(const TacticalPtxApp());
   // No activar AudioSession aquí: secuestra volumen/mic del teléfono.
   unawaited(BackgroundRadio.init());

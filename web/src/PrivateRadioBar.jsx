@@ -8,6 +8,7 @@ import { assertMediaDevices } from './voiceRecord';
 import { socketIoOptions, socketUrl } from './socketConfig';
 import { setPrivateCallUiOpen } from './privateCallUi';
 import { showChatMessageToast } from './chatNotify';
+import { attachPrivateCallStabilizer } from './privateCallStabilizer';
 /**
  * Radio personal 1:1 — franja superior; PTT por toque (abre / libera).
  */
@@ -34,6 +35,7 @@ const PrivateRadioBar = forwardRef(function PrivateRadioBar({ call, onHangup }, 
 
   useEffect(() => {
     let cancelled = false;
+    let detachStabilizer = () => {};
 
     function remoteEnd(label) {
       if (cancelled || closingRef.current) return;
@@ -91,6 +93,21 @@ const PrivateRadioBar = forwardRef(function PrivateRadioBar({ call, onHangup }, 
         );
         roomRef.current = room;
 
+        if (token && call?.callId) {
+          detachStabilizer = attachPrivateCallStabilizer({
+            room,
+            callId: call.callId,
+            authToken: token,
+            signalSocket,
+            closingRef,
+            onStatus: (msg) => {
+              if (!cancelled && !closingRef.current) setStatus(msg);
+            },
+            onRemoteEnd: () => remoteEnd(undefined),
+            getPeerLabel: () => call.peerName || 'el otro usuario',
+          });
+        }
+
         room.on(RoomEvent.TrackSubscribed, (track) => {
           if (track.kind === Track.Kind.Audio) {
             const el = track.attach();
@@ -98,9 +115,6 @@ const PrivateRadioBar = forwardRef(function PrivateRadioBar({ call, onHangup }, 
             document.body.appendChild(el);
             audioEls.current.push(el);
           }
-        });
-        room.on(RoomEvent.ParticipantDisconnected, () => {
-          remoteEnd(undefined);
         });
 
         assertMediaDevices();
@@ -139,6 +153,7 @@ const PrivateRadioBar = forwardRef(function PrivateRadioBar({ call, onHangup }, 
 
     return () => {
       cancelled = true;
+      detachStabilizer();
       try {
         signalSocket?.disconnect();
       } catch {

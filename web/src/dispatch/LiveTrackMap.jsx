@@ -17,7 +17,7 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import 'leaflet/dist/leaflet.css';
-import { fetchLocations, fetchOverview, fetchUserTrack, fetchGroupMembers } from '../api';
+import { fetchLocations, fetchOverview, fetchUserTrack, fetchGroupMembers, fetchPanicEvents } from '../api';
 import { socketIoOptions, socketUrl } from '../socketConfig';
 import {
   LOCATION_POLL_MS,
@@ -208,6 +208,8 @@ export default function LiveTrackMap({ session }) {
   const [live, setLive] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [maximized, setMaximized] = useState(false);
+  const [panicUserIds, setPanicUserIds] = useState(() => new Set());
+  const panicIdToUserRef = useRef(new Map());
   const [trackScope, setTrackScope] = useState(null);
   const [sheetOpen, setSheetOpen] = useState(() => {
     try {
@@ -268,10 +270,31 @@ export default function LiveTrackMap({ session }) {
 
   // Deep-link desde «Ver en mapa» en alerta de pánico.
   useEffect(() => {
-    const focus = focusFromSearchParams(searchParams);
-    if (!focus) return;
+    const hasFocusQuery =
+      searchParams.has('lat') ||
+      searchParams.has('lng') ||
+      searchParams.has('panic') ||
+      searchParams.has('user') ||
+      searchParams.has('t');
+    if (!hasFocusQuery) return;
 
-    if (appliedFocusKey.current === focus.key) return;
+    const focus = focusFromSearchParams(searchParams);
+    const clearQuery = () => {
+      const next = new URLSearchParams(searchParams);
+      ['lat', 'lng', 'zoom', 'user', 'panic', 't'].forEach((k) => next.delete(k));
+      setSearchParams(next, { replace: true });
+    };
+
+    // Coords inválidas (p. ej. 0,0): limpiar URL y no pintar pin.
+    if (!focus) {
+      clearQuery();
+      return;
+    }
+
+    if (appliedFocusKey.current === focus.key) {
+      clearQuery();
+      return;
+    }
     appliedFocusKey.current = focus.key;
 
     setFocusPin({
@@ -287,10 +310,7 @@ export default function LiveTrackMap({ session }) {
       setFollow(true);
     }
 
-    const next = new URLSearchParams(searchParams);
-    ['lat', 'lng', 'zoom', 'user', 'panic', 't'].forEach((k) => next.delete(k));
-    setSearchParams(next, { replace: true });
-
+    clearQuery();
     window.setTimeout(() => setFocusLock(false), 2500);
   }, [searchParams, setSearchParams]);
 
@@ -341,9 +361,10 @@ export default function LiveTrackMap({ session }) {
 
   const reload = useCallback(async () => {
     try {
-      const [loc, ov] = await Promise.all([
+      const [loc, ov, panic] = await Promise.all([
         fetchLocations(session.token, { groupIds: scopeGroupIds || undefined }),
         fetchOverview(session.token),
+        fetchPanicEvents(session.token, { status: 'active' }).catch(() => ({ events: [] })),
       ]);
       const list = loc.locations || [];
       if (loc.scope) setTrackScope(loc.scope);
@@ -367,6 +388,20 @@ export default function LiveTrackMap({ session }) {
         (c.online || []).forEach((m) => ids.add(m.userId));
       });
       setOnlineIds(ids);
+      setPanicUserIds(
+        (() => {
+          const next = new Set();
+          const idMap = new Map();
+          (panic.events || []).forEach((e) => {
+            if (e.userId) {
+              next.add(e.userId);
+              if (e.id) idMap.set(e.id, e.userId);
+            }
+          });
+          panicIdToUserRef.current = idMap;
+          return next;
+        })()
+      );
       setError('');
     } catch (e) {
       setError(e.message);
@@ -417,6 +452,52 @@ export default function LiveTrackMap({ session }) {
       })();
     });
     socket.on('dispatch:presence', () => reload());
+    socket.on('dispatch:panic', (raw) => {
+      void (async () => {
+        const payload = await unwrapDispatchPayload(raw, sessionWireKey(session));
+        const uid = payload?.userId;
+        if (!uid) return;
+        if (payload.id) panicIdToUserRef.current.set(payload.id, uid);
+        setPanicUserIds((prev) => {
+          if (prev.has(uid)) return prev;
+          const next = new Set(prev);
+          next.add(uid);
+          return next;
+        });
+      })();
+    });
+    socket.on('dispatch:panic_update', (raw) => {
+      void (async () => {
+        const payload = await unwrapDispatchPayload(raw, sessionWireKey(session));
+        if (!payload?.id) return;
+        if (payload.status === 'acked' || payload.status === 'active') {
+          const uid = payload.userId || panicIdToUserRef.current.get(payload.id);
+          if (uid) {
+            panicIdToUserRef.current.set(payload.id, uid);
+            setPanicUserIds((prev) => {
+              if (prev.has(uid)) return prev;
+              const next = new Set(prev);
+              next.add(uid);
+              return next;
+            });
+          }
+          return;
+        }
+        const uid = payload.userId || panicIdToUserRef.current.get(payload.id);
+        panicIdToUserRef.current.delete(payload.id);
+        if (!uid) return;
+        setPanicUserIds((prev) => {
+          if (!prev.has(uid)) return prev;
+          // ¿otro pánico activo del mismo usuario?
+          for (const [, otherUid] of panicIdToUserRef.current) {
+            if (otherUid === uid) return prev;
+          }
+          const next = new Set(prev);
+          next.delete(uid);
+          return next;
+        });
+      })();
+    });
     return () => {
       socket.emit('dispatch:leave');
       socket.disconnect();
@@ -769,16 +850,18 @@ export default function LiveTrackMap({ session }) {
             const fresh = isFresh(p.recordedAt, now);
             const selected = p.userId === selectedId;
             const photo = markerPhoto(p);
+            const inPanic = panicUserIds.has(p.userId);
             return (
               <SmoothMarker
                 key={p.userId}
                 position={[Number(p.latitude), Number(p.longitude)]}
-                zIndexOffset={selected ? 900 : fresh ? 100 : 0}
+                zIndexOffset={selected ? 900 : inPanic ? 400 : fresh ? 100 : 0}
                 icon={mapAvatarIcon({
                   name: p.displayName,
                   live: fresh,
                   selected,
                   photoSrc: photo,
+                  panic: inPanic,
                 })}
                 eventHandlers={{ click: () => focusPerson(p) }}
               >

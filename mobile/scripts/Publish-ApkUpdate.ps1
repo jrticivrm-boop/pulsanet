@@ -107,11 +107,29 @@ if (Test-Path $gpPath) {
 $apiBase = if ($env:API_BASE) { $env:API_BASE } else {
   $dom = $null
   $envFile = Join-Path $root 'backend\.env'
-  if (Test-Path $envFile) {
-    $line = Get-Content $envFile | Where-Object { $_ -match '^PUBLIC_DOMAIN=' } | Select-Object -First 1
-    if ($line) { $dom = ($line -split '=', 2)[1].Trim() }
+  $hint = Join-Path $root 'infra\caddy\apk-api-base.txt'
+  if (Test-Path $hint) {
+    $h = (Get-Content $hint -Raw -ErrorAction SilentlyContinue).Trim()
+    if ($h -match '^https?://') { $dom = $h }
   }
-  if ($dom) { "https://$dom" } else { 'https://189.152.200.238.sslip.io' }
+  if (-not $dom -and (Test-Path $envFile)) {
+    . (Join-Path $root 'infra\Sync-PublicIp.ps1')
+    $stable = Get-TpxStablePublicDomain -Root $root
+    if ($stable) {
+      $dom = "https://$stable"
+    } else {
+      $line = Get-Content $envFile | Where-Object { $_ -match '^PUBLIC_DOMAIN=' } | Select-Object -First 1
+      if ($line) { $dom = 'https://' + (($line -split '=', 2)[1].Trim().Trim('"').Trim("'")) }
+    }
+  }
+  if ($dom) {
+    $dom.TrimEnd('/')
+  } else {
+    . (Join-Path $root 'infra\Sync-PublicIp.ps1')
+    $ip = Get-TpxCurrentPublicIp
+    if (-not $ip) { throw 'Sin PUBLIC_DOMAIN en .env y sin IP publica (ipify). Ejecuta infra\START-PUBLIC-EDGE.ps1' }
+    "https://$ip.sslip.io"
+  }
 }
 
 function Read-Secret {

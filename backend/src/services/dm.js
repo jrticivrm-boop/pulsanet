@@ -20,7 +20,8 @@ export function dmSocketRoom(userA, userB) {
 }
 
 export function privateCallRoom(userA, userB, mode = 'call') {
-  const prefix = mode === 'radio' ? 'radio' : 'call';
+  const m = String(mode || 'call').toLowerCase();
+  const prefix = m === 'radio' ? 'radio' : m === 'video' ? 'video' : 'call';
   return `${prefix}_${dmPairKey(userA, userB)}`;
 }
 
@@ -367,28 +368,65 @@ export async function hydrateDmMessage(row, viewerUserId = null) {
   return msg;
 }
 
-/** Llamadas privadas en memoria (demo / proceso) */
+/** Llamadas privadas en memoria (activas) */
 const activeCalls = new Map();
 
-export function createPrivateCall({ callerId, callerName, targetId, targetName, room, mode = 'call' }) {
+function computeCallOutcome(call, { reason = 'hangup', endedBy = null } = {}) {
+  const answered = Boolean(call.answeredAt);
+  if (reason === 'reject') {
+    if (answered) return 'completed';
+    if (endedBy && endedBy === call.targetId) return 'rejected';
+    return 'missed';
+  }
+  if (!answered) {
+    if (endedBy && endedBy === call.callerId) return 'cancelled';
+    return 'missed';
+  }
+  return 'completed';
+}
+
+export function createPrivateCall({
+  callerId,
+  callerName,
+  targetId,
+  targetName,
+  room,
+  mode = 'call',
+  orgId = null,
+}) {
   const id = randomUUID();
+  const normalized = String(mode || 'call').toLowerCase();
+  const callMode = normalized === 'radio' ? 'radio' : normalized === 'video' ? 'video' : 'call';
   const call = {
     id,
+    orgId,
     callerId,
     callerName,
     targetId,
     targetName,
     room,
-    mode: mode === 'radio' ? 'radio' : 'call',
+    mode: callMode,
+    withVideo: callMode === 'video',
+    videoRequest: null,
     status: 'ringing',
     createdAt: Date.now(),
+    answeredAt: null,
+    lastSeenAt: {},
   };
   activeCalls.set(id, call);
-  // limpia llamadas viejas (>10 min)
+  touchPrivateCall(id, callerId);
   for (const [cid, c] of activeCalls) {
     if (Date.now() - c.createdAt > 10 * 60 * 1000) activeCalls.delete(cid);
   }
   return call;
+}
+
+export function touchPrivateCall(id, userId) {
+  const c = activeCalls.get(id);
+  if (!c || !userId) return null;
+  if (!c.lastSeenAt) c.lastSeenAt = {};
+  c.lastSeenAt[userId] = Date.now();
+  return c;
 }
 
 export function getPrivateCall(id) {
@@ -402,11 +440,99 @@ export function updatePrivateCall(id, patch) {
   return c;
 }
 
-export function endPrivateCall(id) {
+export function endPrivateCall(id, { reason = 'hangup', endedBy = null } = {}) {
   const c = activeCalls.get(id);
-  if (c) {
-    c.status = 'ended';
-    activeCalls.delete(id);
+  if (!c) return null;
+  c.status = 'ended';
+  activeCalls.delete(id);
+  return { call: c, reason, endedBy };
+}
+
+export async function persistPrivateCallLog({ call, reason = 'hangup', endedBy = null }) {
+  if (!call?.id || !call.callerId || !call.targetId) return null;
+  const endedAt = new Date();
+  const startedAt = new Date(call.createdAt || Date.now());
+  const answeredAt = call.answeredAt ? new Date(call.answeredAt) : null;
+  const outcome = computeCallOutcome(call, { reason, endedBy });
+  let durationSec = null;
+  if (answeredAt) {
+    durationSec = Math.max(0, Math.floor((endedAt.getTime() - answeredAt.getTime()) / 1000));
   }
-  return c;
+  const orgId = call.orgId;
+  if (!orgId) return { outcome, durationSec };
+  try {
+    await query(
+      `INSERT INTO private_call_logs (
+         id, organization_id, caller_id, target_id, mode, outcome, reason,
+         started_at, answered_at, ended_at, duration_sec
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (id) DO UPDATE SET
+         outcome = EXCLUDED.outcome,
+         reason = EXCLUDED.reason,
+         answered_at = COALESCE(private_call_logs.answered_at, EXCLUDED.answered_at),
+         ended_at = EXCLUDED.ended_at,
+         duration_sec = EXCLUDED.duration_sec`,
+      [
+        call.id,
+        orgId,
+        call.callerId,
+        call.targetId,
+        call.mode || 'call',
+        outcome,
+        reason || null,
+        startedAt,
+        answeredAt,
+        endedAt,
+        durationSec,
+      ]
+    );
+  } catch (e) {
+    console.error('[calls] persist log failed:', e.message);
+  }
+  return { outcome, durationSec };
+}
+
+export async function listPrivateCallHistory(userId, orgId, { limit = 80, peerId = null, missedOnly = false } = {}) {
+  if (!userId || !orgId) return [];
+  const lim = Math.min(Math.max(Number(limit) || 80, 1), 200);
+  const params = [userId, orgId];
+  let peerFilter = '';
+  if (peerId) {
+    params.push(peerId);
+    peerFilter = ` AND (l.caller_id = $3 OR l.target_id = $3)`;
+  }
+  const missedFilter = missedOnly ? ` AND l.outcome IN ('missed', 'rejected')` : '';
+  const { rows } = await query(
+    `SELECT l.id, l.caller_id, l.target_id, l.mode, l.outcome, l.reason,
+            l.started_at, l.answered_at, l.ended_at, l.duration_sec,
+            CASE WHEN l.caller_id = $1 THEN l.target_id ELSE l.caller_id END AS peer_id,
+            CASE WHEN l.caller_id = $1 THEN 'outgoing' ELSE 'incoming' END AS direction,
+            u.display_name AS peer_name,
+            u.avatar_url AS peer_avatar_url
+     FROM private_call_logs l
+     JOIN users u ON u.id = CASE WHEN l.caller_id = $1 THEN l.target_id ELSE l.caller_id END
+     WHERE l.organization_id = $2
+       AND (l.caller_id = $1 OR l.target_id = $1)
+       ${peerFilter}
+       ${missedFilter}
+     ORDER BY l.ended_at DESC
+     LIMIT ${lim}`,
+    params
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    peerId: r.peer_id,
+    peerName: r.peer_name,
+    peerAvatarUrl: r.peer_avatar_url
+      ? `/api/avatars/file/${encodeURIComponent(r.peer_avatar_url)}`
+      : null,
+    direction: r.direction,
+    mode: r.mode || 'call',
+    outcome: r.outcome || 'completed',
+    reason: r.reason,
+    startedAt: r.started_at,
+    answeredAt: r.answered_at,
+    endedAt: r.ended_at,
+    durationSec: r.duration_sec,
+  }));
 }

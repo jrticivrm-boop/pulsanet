@@ -282,9 +282,14 @@ class ApiClient {
     String targetUserId, {
     String mode = 'call',
   }) async {
+    final m = mode == 'radio'
+        ? 'radio'
+        : mode == 'video'
+            ? 'video'
+            : 'call';
     return _post('/api/calls/private', {
       'targetUserId': targetUserId,
-      'mode': mode == 'radio' ? 'radio' : 'call',
+      'mode': m,
     });
   }
 
@@ -296,8 +301,66 @@ class ApiClient {
     return _get('/api/calls/private/$callId');
   }
 
+  Future<Map<String, dynamic>> pingPrivateCall(String callId) async {
+    return _post('/api/calls/private/$callId/ping', {});
+  }
+
+  Future<Map<String, dynamic>> refreshPrivateCall(String callId) async {
+    return _post('/api/calls/private/$callId/refresh', {});
+  }
+
   Future<void> endPrivateCall(String callId, {String reason = 'hangup'}) async {
     await _post('/api/calls/private/$callId/end', {'reason': reason});
+  }
+
+  Future<void> requestPrivateCallVideo(String callId) async {
+    await _post('/api/calls/private/$callId/video/request', {});
+  }
+
+  Future<void> respondPrivateCallVideo(String callId, bool accept) async {
+    await _post('/api/calls/private/$callId/video/respond', {'accept': accept});
+  }
+
+  Future<void> stopPrivateCallVideo(String callId) async {
+    await _post('/api/calls/private/$callId/video/stop', {});
+  }
+
+  Future<Map<String, dynamic>> fetchGroupVideoStatus(String groupId) async {
+    return _get('/api/group-video/$groupId/status');
+  }
+
+  Future<Map<String, dynamic>> startGroupVideo(String groupId) async {
+    return _post('/api/group-video/$groupId/start', {});
+  }
+
+  Future<Map<String, dynamic>> joinGroupVideo(String groupId) async {
+    return _post('/api/group-video/$groupId/join', {});
+  }
+
+  Future<void> leaveGroupVideo(String groupId) async {
+    await _post('/api/group-video/$groupId/leave', {});
+  }
+
+  Future<void> endGroupVideo(String groupId) async {
+    await _post('/api/group-video/$groupId/end', {});
+  }
+
+  Future<void> pingGroupVideo(String groupId) async {
+    await _post('/api/group-video/$groupId/ping', {});
+  }
+
+  Future<List<Map<String, dynamic>>> fetchCallHistory({
+    int limit = 80,
+    String? peerId,
+    bool missedOnly = false,
+  }) async {
+    final q = <String>[
+      'limit=$limit',
+      if (peerId != null && peerId.isNotEmpty) 'peerId=$peerId',
+      if (missedOnly) 'missed=1',
+    ].join('&');
+    final data = await _get('/api/calls/history?$q');
+    return (data['history'] as List? ?? []).cast<Map<String, dynamic>>();
   }
 
   Future<Map<String, dynamic>> fetchLiveKitToken(String groupId) async {

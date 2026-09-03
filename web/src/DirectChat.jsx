@@ -14,6 +14,7 @@ import {
   uploadDmMedia,
 } from './api';
 import ChatMedia from './ChatMedia';
+import { warmUpVideoCallMedia } from './callMedia';
 import PrivateCallOverlay from './PrivateCallOverlay';
 import PrivateRadioBar from './PrivateRadioBar';
 import ImageGalleryLightbox, { collectImageMessages } from './ImageGalleryLightbox';
@@ -115,6 +116,7 @@ export default function DirectChat({
   const [mediaComposer, setMediaComposer] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
+  const [callMenuOpen, setCallMenuOpen] = useState(false);
   const [activeRadio, setActiveRadio] = useState(null);
   const [imageGallery, setImageGallery] = useState(null);
   const radioBarRef = useRef(null);
@@ -596,6 +598,28 @@ export default function DirectChat({
     }
   }
 
+  async function videoCallPeer() {
+    if (!peer) return;
+    try {
+      await warmUpVideoCallMedia();
+      const data = await startPrivateCall(token, peer.id, { mode: 'video' });
+      setActiveCall({
+        callId: data.call.callId,
+        peerId: peer.id,
+        room: data.call.room,
+        token: data.token,
+        authToken: token,
+        url: data.url,
+        peerName: peer.displayName,
+        role: 'caller',
+        e2eeKey: data.e2eeKey || null,
+        mode: 'video',
+      });
+    } catch (e) {
+      setError(esMsg(e.message));
+    }
+  }
+
   async function radioPeer() {
     if (!peer || activeRadio || radioStartingRef.current) return;
     radioStartingRef.current = true;
@@ -634,7 +658,15 @@ export default function DirectChat({
   async function acceptCall() {
     if (!incomingCall) return;
     stopCallRingtone();
-    const mode = incomingCall.mode === 'radio' ? 'radio' : 'call';
+    const mode =
+      incomingCall.mode === 'radio'
+        ? 'radio'
+        : incomingCall.mode === 'video'
+          ? 'video'
+          : 'call';
+    if (mode === 'video') {
+      await warmUpVideoCallMedia();
+    }
     try {
       const data = await acceptPrivateCall(token, incomingCall.callId);
       setIncomingCall(null);
@@ -663,7 +695,7 @@ export default function DirectChat({
         peerName: incomingCall.callerName,
         role: 'callee',
         e2eeKey: data.e2eeKey || null,
-        mode: 'call',
+        mode,
       });
     } catch (e) {
       setError(esMsg(e.message));
@@ -824,24 +856,52 @@ export default function DirectChat({
                     <StarIcon size="1.1rem" />
                   </button>
                 )}
-                <button
-                  type="button"
-                  className={`btn ghost dm-call-btn radio-ptt-btn${activeRadio ? ' active-session' : ''}`}
-                  onClick={() => {
-                    if (!activeRadio) radioPeer();
-                  }}
-                  disabled={Boolean(activeRadio)}
-                  title={
-                    activeRadio
-                      ? 'Radio activa — usa el botón PTT de la barra'
-                      : 'Iniciar radio personal (PTT)'
-                  }
-                >
-                  Radio
-                </button>
-                <button type="button" className="btn primary dm-call-btn" onClick={callPeer}>
-                  Llamar
-                </button>
+                <div className="dm-call-menu">
+                  <button
+                    type="button"
+                    className="btn primary dm-call-menu-btn"
+                    aria-haspopup="menu"
+                    aria-expanded={callMenuOpen}
+                    onClick={() => setCallMenuOpen((v) => !v)}
+                  >
+                    Llamar ▾
+                  </button>
+                  {callMenuOpen && (
+                    <div className="dm-call-menu-panel open" role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setCallMenuOpen(false);
+                          callPeer();
+                        }}
+                      >
+                        Llamada de voz
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setCallMenuOpen(false);
+                          videoCallPeer();
+                        }}
+                      >
+                        Videollamada
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={Boolean(activeRadio)}
+                        onClick={() => {
+                          setCallMenuOpen(false);
+                          if (!activeRadio) radioPeer();
+                        }}
+                      >
+                        Radio personal (PTT)
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </header>
 
@@ -1053,7 +1113,11 @@ export default function DirectChat({
             aria-label="Llamada entrante"
             data-esc-close=""
           >
-            <p className="incoming-call-kicker">Llamada de voz entrante</p>
+            <p className="incoming-call-kicker">
+              {incomingCall.mode === 'video'
+                ? 'Videollamada entrante'
+                : 'Llamada de voz entrante'}
+            </p>
             <div className="incoming-call-avatar-wrap" aria-hidden="true">
               <span className="incoming-call-ring" />
               <span className="incoming-call-ring delay" />

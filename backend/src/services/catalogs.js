@@ -2,6 +2,17 @@ import { query } from '../db.js';
 import { DEFAULT_EMPLEO_SEED, DEFAULT_GRADE_SEED } from '../data/defaultGrades.js';
 
 export async function ensureDefaultCatalogs(orgId) {
+  await query(
+    `UPDATE cat_grades SET abbreviation = 'Myr.', updated_at = NOW()
+     WHERE organization_id = $1 AND name = 'Mayor' AND abbreviation = 'May.'`,
+    [orgId]
+  );
+  await query(
+    `UPDATE users SET grade = 'Myr.', updated_at = NOW()
+     WHERE organization_id = $1 AND LOWER(TRIM(grade)) = 'may.'`,
+    [orgId]
+  );
+
   const { rows: gCount } = await query(
     `SELECT COUNT(*)::int AS n FROM cat_grades WHERE organization_id = $1`,
     [orgId]

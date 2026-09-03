@@ -69,6 +69,9 @@ export default function WhatsAppChat({
   onOpenDm,
   onCallPeer,
   onRadioPeer,
+  onVideoPeer,
+  onGroupVideo,
+  groupVideoActive = false,
   chatActive = true,
 }) {
   const [draft, setDraft] = useState('');
@@ -149,7 +152,7 @@ export default function WhatsAppChat({
 
   function openPeerSheet(peerUserId, displayName, evt) {
     if (!peerUserId || peerUserId === userId) return;
-    if (!onOpenDm && !onCallPeer && !onRadioPeer) return;
+    if (!onOpenDm && !onCallPeer && !onRadioPeer && !onVideoPeer) return;
     evt?.preventDefault?.();
     evt?.stopPropagation?.();
     const x = evt?.clientX ?? Math.min(window.innerWidth - 200, 120);
@@ -619,7 +622,7 @@ export default function WhatsAppChat({
             type="button"
             className="wa-header-info"
             onClick={() => {
-              if (!onOpenDm && !onCallPeer && !onRadioPeer) return;
+              if (!onOpenDm && !onCallPeer && !onRadioPeer && !onVideoPeer) return;
               setShowMembers((v) => !v);
               setPeerMenu(null);
             }}
@@ -636,6 +639,17 @@ export default function WhatsAppChat({
           </button>
         </div>
         <div className="wa-header-actions">
+          {onGroupVideo && (
+            <button
+              type="button"
+              className={`wa-group-video-btn${groupVideoActive ? ' live' : ''}`}
+              title={groupVideoActive ? 'Transmisión en curso — entrar' : 'Iniciar o unirse a video grupal en vivo'}
+              onClick={() => onGroupVideo()}
+            >
+              <span className="wa-group-video-dot" aria-hidden="true" />
+              Video en vivo
+            </button>
+          )}
           <button
             type="button"
             className="wa-icon-btn"
@@ -716,6 +730,19 @@ export default function WhatsAppChat({
               }}
             >
               Llamada personal
+            </button>
+          )}
+          {onVideoPeer && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onVideoPeer({ id: peerMenu.userId, displayName: peerMenu.displayName });
+                setPeerMenu(null);
+                setShowMembers(false);
+              }}
+            >
+              Videollamada
             </button>
           )}
         </div>

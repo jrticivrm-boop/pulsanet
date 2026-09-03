@@ -1,3 +1,248 @@
+## 2026-09-03 — Ancla DuckDNS pulsanet + APK 1.8.59
+
+- **Tipo:** infra | fix
+- **Área:** infra | mobile
+- **Qué:**
+  - Dominio permanente **`pulsanet.duckdns.org`** configurado (DuckDNS A → IP pública; Sync/Watch lo mantienen).
+  - Caddy + Let's Encrypt en ese host; `.env` / APK default apuntan ahí.
+  - APK **1.8.59+68** OTA con `API_BASE=https://pulsanet.duckdns.org`.
+- **Por qué / notas:** Ya no hace falta republicar APK cuando el ISP cambie la IP.
+- **Archivos / refs:** `Soporte/Secrets/stable-domain.env`, `infra/caddy/stable-domain.txt`, `mobile/lib/config.dart`
+
+## 2026-09-03 — APK ancla dominio permanente (anti-desfase IP)
+
+- **Tipo:** fix | infra | feature
+- **Área:** mobile | infra
+- **Qué:**
+  - Causa: APK apuntaba a `189.152.222.98.sslip.io` (IP vieja); el ISP ahora es `189.152.160.81`.
+  - APK **1.8.58+67** OTA con `API_BASE=https://189.152.160.81.sslip.io`; borde Caddy realineado.
+  - Ancla permanente: DuckDNS vía `infra\SETUP-STABLE-DOMAIN.ps1` + `Sync-PublicIp` (actualiza A-record al cambiar IP; el APK ya no depende de `IP.sslip.io`).
+  - Login móvil: opción **Servidor** para fijar URL si aún no hay OTA.
+- **Archivos / refs:** `infra/Sync-PublicIp.ps1`, `SETUP-STABLE-DOMAIN.ps1`, `START-PUBLIC-EDGE.ps1`, `mobile/lib/config.dart`, `login_screen.dart`, `Publish-ApkUpdate.ps1`
+
+## 2026-09-03 — Módulo Video en despacho + cámara consola
+
+- **Tipo:** feature | fix | ux
+- **Área:** web
+- **Qué:**
+  - Menú **Video** en el rail de despacho (junto a Operaciones / Seguimiento) → `/despacho/video`.
+  - Consola con canales (iniciar/unirse a transmisión), operadores en línea (videollamada 1:1) y botón **Activar cámara web** del puesto (vista previa + permiso del navegador).
+  - Controles de cámara con texto claro en panel de consola; fix Radio PTT: el botón «Video en vivo» ahora envía `groupId`.
+- **Por qué / notas:** Faltaba un módulo dedicado y una opción explícita de cámara en consola; el botón de Radio no abría la sesión.
+- **Archivos / refs:** `web/src/dispatch/DispatchVideo.jsx`, `DispatchLayout.jsx`, `App.jsx`, `GroupVideoPanel.jsx`, `RadioPage.jsx`
+
+## 2026-09-03 — Marcador en mapa: anillo rojo parpadeante en pánico
+
+- **Tipo:** ux | feature
+- **Área:** web
+- **Qué:** Al activar pánico, el círculo verde del pin del operador en el mapa pasa a rojo y parpadea (Centro de mando, Mapa en vivo y Mapa de despacho) hasta que el evento se cierra.
+- **Archivos / refs:** `web/src/dispatch/mapAvatarIcon.js`, `command-center.css`, `CommandCenter.jsx`, `LiveTrackMap.jsx`, `DispatchMap.jsx`
+
+## 2026-09-03 — Sin pin de pánico en (0,0)
+
+- **Tipo:** fix | ux
+- **Área:** web | mobile
+- **Qué:** El mapa ya no dibuja «Punto de pánico» en coordenadas `0,0` (Null Island). Se trata como sin GPS; botones de mapa solo con ubicación válida.
+- **Por qué / notas:** Ese pin no era un operador real: pánico enviado sin GPS fijado.
+- **Archivos / refs:** `web/src/panicMaps.js`, `web/src/dispatch/LiveTrackMap.jsx`, `web/src/dispatch/DispatchPanicHost.jsx`, `mobile/lib/panic_maps.dart`
+
+## 2026-09-02 — Acceso LAN por IP + stack caído / IP pública nueva
+
+- **Tipo:** fix | infra
+- **Área:** infra
+- **Qué:**
+  - Causa de «no entra» por `192.168.68.51`: esa IP **no es** del servidor (LAN actual `192.168.1.216`); además API/Web/Caddy estaban caídos.
+  - Borde Caddy ahora sirve también **`https://192.168.1.216`** (cert interno).
+  - IP pública del ISP cambió a **`189.152.160.81`** → dominio `https://189.152.160.81.sslip.io`.
+  - LiveKit no arrancaba por YAML corrupto (`control characters`); reescrito `livekit.dev.yaml`.
+- **Archivos / refs:** `infra/Caddyfile.edge.template`, `infra/START-PUBLIC-EDGE.ps1`, `infra/livekit.dev.yaml`
+
+## 2026-09-02 — Menú Video + cambio cámara frontal/trasera
+
+- **Tipo:** feature | ux
+- **Área:** web | mobile
+- **Qué:**
+  - Opción **Video en vivo** en menú Radio (☰), menú del chat de grupo y menú de Directos (Videollamada).
+  - En videollamada 1:1 y transmisión grupal: botón para alternar **cámara frontal ↔ trasera** (web + mobile); preview local sin espejo en trasera.
+- **Por qué / notas:** Equipos institucionales con permisos de cámara; el agente debe poder mostrar entorno (trasera) o rostro (frontal) sin salir de la llamada.
+- **Archivos / refs:** `mobile/lib/screens/radio_screen.dart`, `private_call_screen.dart`, `group_video_screen.dart`, `web/src/PrivateCallOverlay.jsx`, `web/src/useGroupVideo.js`, `web/src/videoStreaming.js`
+
+## 2026-09-01 — Video grupal: cierre global + aceptar sin parpadeo
+
+- **Tipo:** fix
+- **Área:** backend | web | mobile
+- **Qué:**
+  - **`group:video_ended`** llega a todos los miembros por sala `user:*` (no solo canal PTT) — al colgar/terminar cierra video e invitación en web y mobile.
+  - **Web:** panel único en `App` al aceptar invitación (sin navegación retrasada ni doble conexión LiveKit).
+  - **Mobile:** al aceptar o tocar notificación abre video directo (sin cambiar canal PTT); evita pop accidental del diálogo sobre la pantalla de video.
+- **Archivos / refs:** `backend/src/routes/groupVideo.js`, `web/src/GroupVideoSessionHost.jsx`, `web/src/useGroupVideo.js`, `mobile/lib/screens/radio_shell.dart`
+
+## 2026-09-01 — Fix entrega notificaciones video grupal + modo teléfono
+
+- **Tipo:** fix
+- **Área:** backend | mobile
+- **Qué:**
+  - Invitación grupal por **tres vías**: socket `user:*`, socket `group:*` (canal PTT) y FCM **por miembro** (`notifyUserDevices`, igual que llamadas 1:1).
+  - Join explícito a sala `user:{id}` en cada conexión socket del servidor.
+  - Mobile: escucha también `group:video_started`; deduplica invitaciones; notificación local respeta **silencio / vibrador / sonido** del teléfono.
+- **Por qué / notas:** La invitación solo iba a `user:*` y el batch FCM podía no entregar; miembros en el canal del grupo no recibían evento si fallaba la sala personal.
+- **Archivos / refs:** `backend/src/routes/groupVideo.js`, `backend/src/server.js`, `backend/src/services/fcm.js`, `mobile/lib/channel_session.dart`, `mobile/lib/push_service.dart`, `mobile/lib/ringer_mode.dart`
+
+## 2026-09-01 — Notificaciones transmisión grupal (FCM + socket + tono/vibración)
+
+- **Tipo:** feature | fix
+- **Área:** backend | web | mobile
+- **Qué:**
+  - Al iniciar video grupal: push FCM a miembros + evento `group:video_incoming` por sala `user:*` (llega aunque no estén en el canal PTT).
+  - Web: pantalla **Unirse/Ignorar** con tono de llamada; mobile: pantalla entrante estilo llamada + canal `tacticalptx_calls`.
+  - Vibración respeta modo **silencio** del teléfono (Android); sonido usa tono del sistema (respeta vibrador/silencio).
+- **Archivos / refs:** `backend/src/routes/groupVideo.js`, `backend/src/services/fcm.js`, `web/src/GroupVideoIncomingHost.jsx`, `mobile/lib/push_service.dart`, `mobile/lib/ringer_mode.dart`
+
+## 2026-09-01 — Fix video grupal: cámara local no se mostraba
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** Corregido bug donde el mosaico quedaba en «Sin cámara» aunque LiveKit publicara video (rebuild de tiles antes de actualizar estado); lectura de track desde `camRef`/publicación local; warmup de permisos; fallback 720→540.
+- **Archivos / refs:** `web/src/useGroupVideo.js`, `web/src/ChatInbox.jsx`, `web/src/dispatch/CommandCenter.jsx`
+
+## 2026-09-01 — UX video grupal web: botones visibles en Radio y Despacho
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:** Botón **Video en vivo** con etiqueta (ya no solo emoji) en header del chat de grupo; mismo control en panel PTT de Radio; botón por canal en consola **Operaciones** (Despacho).
+- **Por qué / notas:** El acceso solo estaba en chat y era fácil de no ver; Operaciones no tenía chat integrado.
+- **Archivos / refs:** `web/src/WhatsAppChat.jsx`, `web/src/pages/RadioPage.jsx`, `web/src/dispatch/CommandCenter.jsx`
+
+## 2026-09-01 — Streaming video grupal + HD 720p (1.8.57)
+
+- **Tipo:** feature | mejora
+- **Área:** backend | web | mobile | database
+- **Qué:**
+  - **Video grupal en vivo:** sala LiveKit paralela `gvid_*` (no interrumpe PTT audio); API `/api/group-video`, eventos socket `group:video_*`.
+  - **Web/despacho:** botón 📹 en chat de grupo, panel mosaico `GroupVideoPanel`, E2EE + simulcast/adaptiveStream.
+  - **Mobile:** pantalla `GroupVideoScreen`, botón en header del chat de grupo; videollamada 1:1 sube a **720p**.
+  - APK **1.8.57+66** publicada OTA.
+- **Por qué / notas:** PTT sigue en `grp_*` audio-only; video es opt-in en segunda conexión.
+- **Archivos / refs:** `backend/src/routes/groupVideo.js`, `web/src/useGroupVideo.js`, `web/src/GroupVideoPanel.jsx`, `mobile/lib/screens/group_video_screen.dart`, `database/migrations/022_group_video_sessions.sql`
+
+## 2026-09-01 — APK 1.8.56+65 (fixes llamadas + estabilizadores)
+
+- **Tipo:** release | ops
+- **Área:** mobile | backend
+- **Qué:** Compilada y publicada APK **1.8.56+65** (UI llamadas, apagar cámara, estabilizadores de red, historial).
+- **Archivos / refs:** `Soporte/APK/TacticalPtx-1.8.56+65.apk`, `backend/app-updates/files/TacticalPtx.apk`
+
+## 2026-09-01 — Abreviatura Mayor: Myr.
+
+- **Tipo:** fix
+- **Área:** backend | web
+- **Qué:** Corregida abreviatura de **Mayor** de `May.` a `Myr.` en catálogo y UI; migración actualiza registros existentes.
+- **Archivos / refs:** `backend/src/data/defaultGrades.js`, `web/src/dispatch/armyGrades.js`, `database/migrations/021_mayor_abbreviation_myr.sql`
+
+## 2026-09-01 — Fix UI llamadas: iconos + apagar cámara
+
+- **Tipo:** fix | ux
+- **Área:** web | mobile
+- **Qué:**
+  - Web: eliminado auto-reencendido de cámara cada 400 ms al apagarla en videollamada; toggle respeta elección del usuario.
+  - Web/mobile: apagar cámara vía unpublish/`setCameraEnabled(false)` con fallback por publicación.
+  - Mobile: dock de controles fijo abajo (sin montarse sobre video); PiP local arriba-derecha.
+- **Archivos / refs:** `web/src/PrivateCallOverlay.jsx`, `web/src/styles.css`, `mobile/lib/screens/private_call_screen.dart`
+
+## 2026-09-01 — Estabilizadores virtuales llamadas (voz / radio / video)
+
+- **Tipo:** mejora | fix
+- **Área:** backend | web | mobile
+- **Qué:**
+  - Periodo de gracia (~28 s) ante caídas LiveKit: no cuelga al instante si el peer se desconecta brevemente.
+  - Ping cada 15 s (`POST /private/:id/ping`) + refresh de token LiveKit (`POST /private/:id/refresh`).
+  - Web: `privateCallStabilizer.js` en overlay, radio bar y opciones resilientes en `livekitE2ee.js`.
+  - Mobile: `PrivateCallStabilizer` en llamada privada y radio personal; reintento automático al fallar connect.
+- **Archivos / refs:** `backend/src/routes/calls.js`, `backend/src/services/dm.js`, `web/src/privateCallStabilizer.js`, `mobile/lib/private_call_stabilizer.dart`
+
+## 2026-09-01 — Consola web: panel videoconferencia en mosaico
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - Nuevo componente `VideoConferenceMosaic` con grid adaptativo (1–N participantes) y attach/detach estable por tile.
+  - `PrivateCallOverlay` usa mosaico en videollamadas; modo `console` embebido en despacho con mapa/canales visibles.
+  - Panel **Videoconferencia** en Command Center: expandir a pantalla completa, controles integrados.
+- **Archivos / refs:** `web/src/VideoConferenceMosaic.jsx`, `web/src/usePrivateCallTiles.js`, `web/src/PrivateCallOverlay.jsx`, `web/src/dispatch/CommandCenter.jsx`, `web/src/styles.css`, `web/src/dispatch/command-center.css`
+
+## 2026-09-01 — Historial de llamadas + UI profesional (APK 1.8.55)
+
+- **Tipo:** feature | ux
+- **Área:** backend | mobile | database
+- **Qué:**
+  - Tabla `private_call_logs` y API `GET /api/calls/history` (voz, video, radio; perdidas/completadas).
+  - Inbox mobile con pestaña **Chats | Llamadas** e historial agrupado por fecha (estilo WhatsApp).
+  - Pantalla entrante con gradiente y badge de modo (VOZ / VIDEO / RADIO).
+  - APK **1.8.55+64** compilada y publicada OTA.
+- **Archivos / refs:** `database/migrations/020_private_call_logs.sql`, `backend/src/services/dm.js`, `backend/src/routes/calls.js`, `mobile/lib/screens/call_history_pane.dart`, `mobile/lib/screens/chat_inbox_screen.dart`, `mobile/lib/screens/incoming_call_screen.dart`
+
+## 2026-09-01 — Fix videollamada: cámara auto, colgar ambos lados, menú web
+
+- **Tipo:** fix | ux
+- **Área:** web | mobile
+- **Qué:**
+  - Cámara se activa sola al contestar/iniciar videollamada (permisos en gesto del usuario + fix mobile `_room` null).
+  - Colgar cierra en ambos extremos: teardown LiveKit + `call:ended` en inbox/despacho.
+  - Menú **Llamar ▾** en chat directo (voz / video / radio); videollamada en panel Seguimiento y menú de canal.
+- **Archivos / refs:** `web/src/PrivateCallOverlay.jsx`, `web/src/callMedia.js`, `web/src/DirectChat.jsx`, `web/src/ChatInbox.jsx`, `web/src/dispatch/CommandCenter.jsx`, `mobile/lib/screens/private_call_screen.dart`
+
+
+- **Tipo:** release | ops
+- **Área:** mobile | backend
+- **Qué:**
+  - Compilada y publicada APK **1.8.53+62** con `API_BASE=https://189.152.222.98.sslip.io`.
+  - Copias: `Soporte/APK/TacticalPtx-1.8.53+62.apk`, OTA `backend/app-updates/files/TacticalPtx.apk`, manifest `android.json` actualizado.
+- **Archivos / refs:** `mobile/scripts/Publish-ApkUpdate.ps1`, `backend/app-updates/android.json`
+
+## 2026-09-01 — Videollamadas 1:1 + solicitud de cámara (web + mobile)
+
+- **Tipo:** feature
+- **Área:** backend | web | mobile
+- **Qué:**
+  - Modo `video` en llamadas privadas LiveKit (salas `video_*`, E2EE igual que voz).
+  - API REST + sockets: `/video/request`, `/video/respond`, `/video/stop` con consentimiento explícito.
+  - Web: overlay con preview local/remoto, botón videollamada en DM e inbox; solicitud de cámara en llamada de voz.
+  - Mobile: `PrivateCallScreen` con `VideoTrackRenderer`, permisos cámara, FCM `private_video` / `private_video_request`.
+  - Versión **1.8.53+62**.
+- **Archivos / refs:** `backend/src/routes/calls.js`, `backend/src/services/dm.js`, `web/src/PrivateCallOverlay.jsx`, `web/src/DirectChat.jsx`, `mobile/lib/screens/private_call_screen.dart`, `mobile/lib/api_client.dart`
+
+## 2026-09-01 — Resiliencia IP pública + LiveKit ICE (auto-sync)
+
+- **Tipo:** infra | fix
+- **Área:** infra | ops
+- **Qué:**
+  - Nuevo `infra/Sync-PublicIp.ps1`: detecta cambio de IP (ipify vs `.env`/`public-ip.txt`/`livekit.dev.yaml`) y realinea `.env`, YAML y `--node-ip`.
+  - `ENSURE-PUBLIC-EDGE` y `Watch-Stack` fuerzan `START-PUBLIC-EDGE` ante **drift** aunque Caddy responda 200.
+  - `START-PUBLIC-EDGE` sincroniza `node_ip` + reinicia LiveKit; `start-services` prefiere ipify sobre `.env` viejo.
+  - `check-integrity` valida alineación IP + health del borde público; quitados fallbacks a IP `189.152.200.238`.
+- **Archivos / refs:** `infra/Sync-PublicIp.ps1`, `ENSURE-PUBLIC-EDGE.ps1`, `START-PUBLIC-EDGE.ps1`, `start-services.ps1`, `Watch-Stack.ps1`, `check-integrity.ps1`
+
+## 2026-09-01 — LiveKit ICE móvil 4G: node-ip fija tras cambio ISP
+
+- **Tipo:** fix | infra
+- **Área:** infra | mobile
+- **Qué:**
+  - Tras instalar APK 1.8.52, móvil conectaba API pero fallaba audio: `MediaConnectException` (ICE timeout).
+  - Causa: LiveKit seguía anunciando candidatos con IP vieja vía STUN; puertos media/TURN ya reenviados por UPnP.
+  - Fix: `livekit.dev.yaml` → `node_ip: 189.152.222.98`, `use_external_ip: false`, `advertise_internal_ip: true`; `start-services.ps1` pasa `--node-ip` desde `LIVEKIT_PUBLIC_HOST`; UPnP/firewall refrescados.
+- **Archivos / refs:** `infra/livekit.dev.yaml`, `infra/start-services.ps1`, `infra/Reinforce-UPnP.ps1`
+
+## 2026-09-01 — Fix LiveKit: IP pública nueva + señal wss same-origin
+
+- **Tipo:** fix | infra | release
+- **Área:** web | infra | mobile | backend
+- **Qué:**
+  - IP pública cambió **189.152.200.238 → 189.152.222.98**; Caddy/borde caído → «No se pudo conectar el audio (LiveKit)».
+  - `ENSURE-PUBLIC-EDGE`: Caddy + cert LE en `https://189.152.222.98.sslip.io`; LiveKit reiniciado.
+  - Web: `livekitUrl.js` usa **siempre** `wss://mismo-origen` bajo HTTPS (proxy `/rtc`, sin hairpin al dominio viejo).
+  - `.env` alineado; APK **1.8.52+61** OTA con `API_BASE=https://189.152.222.98.sslip.io`.
+- **Archivos / refs:** `web/src/livekitUrl.js`, `backend/.env`, `mobile/lib/config.dart`, `infra/ENSURE-PUBLIC-EDGE.ps1`
+
 ## 2026-09-01 — APK 1.8.51+60 OTA (MEJORAS.txt + audio)
 
 - **Tipo:** release | fix

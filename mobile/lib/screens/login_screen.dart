@@ -20,14 +20,18 @@ class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final _username = TextEditingController();
   final _password = TextEditingController();
+  final _server = TextEditingController();
   bool _busy = false;
   bool _obscure = true;
+  bool _showServer = false;
   String? _error;
   late final AnimationController _enter;
 
   @override
   void initState() {
     super.initState();
+    _server.text = AppConfig.apiBaseUrl;
+    _showServer = AppConfig.hasOverride;
     _enter = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 780),
@@ -40,6 +44,9 @@ class _LoginScreenState extends State<LoginScreen>
       _error = null;
     });
     try {
+      if (_showServer) {
+        await AppConfig.setApiBaseOverride(_server.text.trim());
+      }
       await widget.api.login(_username.text.trim().toLowerCase(), _password.text);
       _password.clear();
       widget.onLoggedIn();
@@ -55,6 +62,7 @@ class _LoginScreenState extends State<LoginScreen>
     _enter.dispose();
     _username.dispose();
     _password.dispose();
+    _server.dispose();
     super.dispose();
   }
 
@@ -306,6 +314,40 @@ class _LoginScreenState extends State<LoginScreen>
                                             onSubmitted: (_) => _busy ? null : _submit(),
                                             style: TacticalFonts.body(color: kInstInk),
                                           ),
+                                          const SizedBox(height: 4),
+                                          Align(
+                                            alignment: Alignment.centerLeft,
+                                            child: TextButton(
+                                              onPressed: () =>
+                                                  setState(() => _showServer = !_showServer),
+                                              child: Text(
+                                                _showServer
+                                                    ? 'Ocultar servidor'
+                                                    : 'Servidor (si no conecta)',
+                                                style: TacticalFonts.label(
+                                                  color: kInstGold,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          if (_showServer) ...[
+                                            TextField(
+                                              controller: _server,
+                                              decoration: const InputDecoration(
+                                                labelText: 'URL del servidor',
+                                                hintText: 'https://tacticalptx.duckdns.org',
+                                                prefixIcon: Icon(Icons.dns_outlined),
+                                              ),
+                                              keyboardType: TextInputType.url,
+                                              autocorrect: false,
+                                              style: TacticalFonts.body(
+                                                color: kInstInk,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                          ],
                                           if (_error != null) ...[
                                             const SizedBox(height: 12),
                                             Container(

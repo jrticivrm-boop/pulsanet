@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { io } from 'socket.io-client';
 import WhatsAppChat from './WhatsAppChat';
 import DirectChat from './DirectChat';
 import PrivateCallOverlay from './PrivateCallOverlay';
 import PrivateRadioBar from './PrivateRadioBar';
 import { notifyIncomingMessage, setUnreadDocumentTitle, playMessageTone } from './appNotify';
 import { setActiveChatView, clearActiveChatView, showChatMessageToast, isViewingChat } from './chatNotify';
-import { startPrivateCall, endPrivateCall } from './api';
+import { warmUpVideoCallMedia } from './callMedia';
+import {
+  startPrivateCall,
+  endPrivateCall,
+} from './api';
+import { socketIoOptions, socketUrl } from './socketConfig';
 import StarIcon from './StarIcon';
 import { esMsg } from './esMsg';
 import PersonAvatar from './PersonAvatar';
@@ -90,12 +96,29 @@ export default function ChatInbox({
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState('');
   const [peerCall, setPeerCall] = useState(null);
+  const [groupVideoLive, setGroupVideoLive] = useState({});
   const lastGroupMsgRef = useRef(null);
   const selectedRef = useRef(selected);
 
   useEffect(() => {
     selectedRef.current = selected;
   }, [selected]);
+
+  useEffect(() => {
+    const token = session?.token;
+    if (!token) return undefined;
+    const socket = io(socketUrl(), {
+      ...socketIoOptions,
+      auth: { token },
+    });
+    socket.on('call:ended', ({ callId }) => {
+      if (!callId) return;
+      setPeerCall((c) => (String(c?.callId) === String(callId) ? null : c));
+    });
+    return () => {
+      socket.disconnect();
+    };
+  }, [session?.token]);
 
   useEffect(() => {
     if (!group?.id) return;
@@ -152,6 +175,42 @@ export default function ChatInbox({
       return next;
     });
   }, []);
+
+  const openGroupVideo = useCallback((groupId, groupName) => {
+    if (!groupId) return;
+    window.dispatchEvent(
+      new CustomEvent('tacticalptx:open-group-video', {
+        detail: { groupId, groupName: groupName || 'Grupo' },
+      })
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!session.token) return undefined;
+    const socket = io(socketUrl(), { ...socketIoOptions, auth: { token: session.token } });
+    const onStarted = (payload) => {
+      const gid = payload?.groupId;
+      if (!gid) return;
+      setGroupVideoLive((prev) => ({ ...prev, [gid]: true }));
+    };
+    const onEnded = (payload) => {
+      const gid = payload?.groupId;
+      if (!gid) return;
+      setGroupVideoLive((prev) => {
+        const next = { ...prev };
+        delete next[gid];
+        return next;
+      });
+    };
+    socket.on('group:video_started', onStarted);
+    socket.on('group:video_ended', onEnded);
+    socket.connect();
+    return () => {
+      socket.off('group:video_started', onStarted);
+      socket.off('group:video_ended', onEnded);
+      socket.disconnect();
+    };
+  }, [session.token]);
 
   useEffect(() => {
     if (!focusGroupId) return;
@@ -566,6 +625,25 @@ export default function ChatInbox({
                   window.alert(esMsg(e.message || e, 'No se pudo iniciar la llamada'));
                 }
               }}
+              onVideoPeer={async (peer) => {
+                try {
+                  await warmUpVideoCallMedia();
+                  const data = await startPrivateCall(session.token, peer.id, { mode: 'video' });
+                  setPeerCall({
+                    callId: data.call?.callId,
+                    peerId: peer.id,
+                    peerName: peer.displayName || 'Usuario',
+                    token: data.token,
+                    authToken: session.token,
+                    url: data.url,
+                    e2eeKey: data.e2eeKey,
+                    role: 'caller',
+                    mode: 'video',
+                  });
+                } catch (e) {
+                  window.alert(esMsg(e.message || e, 'No se pudo iniciar la videollamada'));
+                }
+              }}
               onRadioPeer={async (peer) => {
                 try {
                   const data = await startPrivateCall(session.token, peer.id, { mode: 'radio' });
@@ -590,6 +668,10 @@ export default function ChatInbox({
                   window.alert(esMsg(e.message || e, 'No se pudo iniciar la radio'));
                 }
               }}
+              onGroupVideo={() =>
+                openGroupVideo(selected.id, selected.name || group?.name || 'Grupo')
+              }
+              groupVideoActive={Boolean(groupVideoLive[selected.id])}
             />
           </div>
         )}

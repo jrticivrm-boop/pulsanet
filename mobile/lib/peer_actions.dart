@@ -79,6 +79,12 @@ Future<void> showChannelPeerActions({
               subtitle: const Text('Llamada de voz privada'),
               onTap: () => Navigator.pop(ctx, 'call'),
             ),
+            ListTile(
+              leading: const Icon(Icons.videocam, color: kInstOlive),
+              title: const Text('Videollamada'),
+              subtitle: const Text('Llamada con cámara 1:1'),
+              onTap: () => Navigator.pop(ctx, 'video'),
+            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -126,6 +132,16 @@ Future<void> showChannelPeerActions({
       peerId: peerId,
       peerName: displayName,
     );
+    return;
+  }
+
+  if (choice == 'video') {
+    await startPersonalVideoCall(
+      context: context,
+      api: api,
+      peerId: peerId,
+      peerName: displayName,
+    );
   }
 }
 
@@ -158,6 +174,39 @@ Future<void> startPersonalCall({
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(esMsg(e, 'No se pudo iniciar la llamada'))),
+    );
+  }
+}
+
+Future<void> startPersonalVideoCall({
+  required BuildContext context,
+  required ApiClient api,
+  required String peerId,
+  required String peerName,
+}) async {
+  try {
+    final data = await api.startPrivateCall(peerId, mode: 'video');
+    if (!context.mounted) return;
+    final call = data['call'] as Map? ?? {};
+    await Navigator.of(context).push(
+      PrivateCallScreen.route(
+        child: PrivateCallScreen(
+          api: api,
+          callId: call['callId']?.toString() ?? '',
+          peerId: peerId,
+          peerName: peerName,
+          token: data['token'] as String,
+          url: AppConfig.publicLiveKitUrl(data['url'] as String),
+          role: 'caller',
+          e2eeKey: data['e2eeKey']?.toString(),
+          mode: 'video',
+        ),
+      ),
+    );
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(esMsg(e, 'No se pudo iniciar la videollamada'))),
     );
   }
 }

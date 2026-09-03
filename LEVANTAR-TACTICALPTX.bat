@@ -371,7 +371,11 @@ exit /b 0
 
 :ensure_edge
 set "EDGE_OK="
-if not defined PUBLIC_DOMAIN set "PUBLIC_DOMAIN=189.152.200.238.sslip.io"
+if not defined PUBLIC_DOMAIN (
+ if exist "%ROOT%\infra\START-PUBLIC-EDGE.ps1" (
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\infra\START-PUBLIC-EDGE.ps1"
+ )
+)
 if exist "%ROOT%\infra\ENSURE-PUBLIC-EDGE.cmd" (
  call "%ROOT%\infra\ENSURE-PUBLIC-EDGE.cmd"
 ) else if exist "%ROOT%\infra\ENSURE-PUBLIC-EDGE.ps1" (

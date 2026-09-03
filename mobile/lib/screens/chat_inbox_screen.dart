@@ -12,12 +12,16 @@ import '../peer_actions.dart';
 import '../theme.dart';
 import '../widgets/tactical_backdrop.dart';
 import '../widgets/user_avatar.dart';
+import 'call_history_pane.dart';
+import 'group_video_screen.dart';
 import 'chat_panel.dart';
 
 const _favKey = 'tacticalptx_chat_favorites';
 const _hiddenKey = 'tacticalptx_chat_hidden';
 
 enum InboxTab { all, unread, favorites, groups }
+
+enum InboxMainSection { chats, calls }
 
 class ChatFavorites {
   ChatFavorites({this.dm = const [], this.group = const []});
@@ -150,6 +154,7 @@ class ChatInboxScreen extends StatefulWidget {
 }
 
 class ChatInboxScreenState extends State<ChatInboxScreen> {
+  InboxMainSection _section = InboxMainSection.chats;
   InboxTab _tab = InboxTab.all;
   ChatFavorites _favorites = ChatFavorites();
   ChatHidden _hidden = ChatHidden();
@@ -710,12 +715,12 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'CHATS',
+                    _section == InboxMainSection.chats ? 'CHATS' : 'LLAMADAS',
                     style: TacticalFonts.display(
                       fontSize: 22,
                       fontWeight: FontWeight.w700,
@@ -724,15 +729,30 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
                     ),
                   ),
                   Text(
-                    'Grupos y mensajes directos',
+                    _section == InboxMainSection.chats
+                        ? 'Grupos y mensajes directos'
+                        : 'Historial de voz, video y radio',
                     style: TextStyle(
                       fontSize: 13,
                       color: kTacMuted.withValues(alpha: 0.9),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  _SectionToggle(
+                    section: _section,
+                    onChanged: (s) => setState(() => _section = s),
+                  ),
                 ],
               ),
             ),
+            if (_section == InboxMainSection.calls)
+              Expanded(
+                child: CallHistoryPane(
+                  api: widget.api,
+                  onOpenDm: widget.onOpenDm,
+                ),
+              )
+            else ...[
             SizedBox(
               height: 40,
               child: ListView(
@@ -823,6 +843,7 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
                           ),
                         ),
             ),
+            ],
           ],
         ),
       ),
@@ -841,6 +862,67 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
         if (_query.trim().isNotEmpty) return 'Sin resultados';
         return 'Sin conversaciones';
     }
+  }
+}
+
+class _SectionToggle extends StatelessWidget {
+  const _SectionToggle({required this.section, required this.onChanged});
+
+  final InboxMainSection section;
+  final ValueChanged<InboxMainSection> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: kTacPanel,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kTacBorder.withValues(alpha: 0.35)),
+      ),
+      padding: const EdgeInsets.all(3),
+      child: Row(
+        children: [
+          _seg('Chats', InboxMainSection.chats, Icons.chat_bubble_outline),
+          _seg('Llamadas', InboxMainSection.calls, Icons.history),
+        ],
+      ),
+    );
+  }
+
+  Expanded _seg(String label, InboxMainSection value, IconData icon) {
+    final selected = section == value;
+    return Expanded(
+      child: Material(
+        color: selected ? kInstOlive.withValues(alpha: 0.45) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => onChanged(value),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 16,
+                  color: selected ? kTacGoldSoft : kTacMuted,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? kTacGoldSoft : kTacMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1149,10 +1231,37 @@ class GroupChatScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+                    IconButton(
+                      tooltip: 'Video grupal en vivo',
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          GroupVideoScreen.route(
+                            child: GroupVideoScreen(
+                              api: api,
+                              groupId: session.groupId,
+                              groupName: groupName,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.video_camera_front_outlined, color: kTacGoldSoft),
+                    ),
                     PopupMenuButton<String>(
                       tooltip: 'Opciones',
                       color: kTacSurface,
                       onSelected: (v) async {
+                        if (v == 'video') {
+                          await Navigator.of(context).push(
+                            GroupVideoScreen.route(
+                              child: GroupVideoScreen(
+                                api: api,
+                                groupId: session.groupId,
+                                groupName: groupName,
+                              ),
+                            ),
+                          );
+                          return;
+                        }
                         if (v != 'clear') return;
                         final ok = await showDialog<bool>(
                           context: context,
@@ -1193,6 +1302,15 @@ class GroupChatScreen extends StatelessWidget {
                         }
                       },
                       itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'video',
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.videocam_outlined, color: kTacOnSurface),
+                            title: Text('Video en vivo', style: TextStyle(color: kTacOnSurface)),
+                          ),
+                        ),
                         PopupMenuItem(
                           value: 'clear',
                           child: Text('Vaciar grupo', style: TextStyle(color: kTacOnSurface)),

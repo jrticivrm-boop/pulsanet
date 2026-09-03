@@ -1,12 +1,14 @@
 import { ExternalE2EEKeyProvider, Room } from 'livekit-client';
+import { RESILIENT_ROOM_OPTIONS } from './privateCallStabilizer.js';
 
 /**
  * Crea una Room LiveKit con E2EE de aplicación cuando el API entrega e2eeKey.
  * WebRTC ya usa DTLS-SRTP; esto cifra medios antes del SFU.
  */
 export async function createEncryptedRoom(baseOptions = {}, e2eeKey) {
+  const merged = { ...RESILIENT_ROOM_OPTIONS, ...baseOptions };
   if (!e2eeKey) {
-    return new Room(baseOptions);
+    return new Room(merged);
   }
 
   try {
@@ -16,7 +18,7 @@ export async function createEncryptedRoom(baseOptions = {}, e2eeKey) {
       type: 'module',
     });
     return new Room({
-      ...baseOptions,
+      ...merged,
       encryption: {
         keyProvider,
         worker,

@@ -63,6 +63,13 @@ function ModIcon({ name }) {
           <path d="M9 4v15.5M15 6.5V22" />
         </svg>
       );
+    case 'video':
+      return (
+        <svg {...common}>
+          <rect x="3" y="7" width="12" height="10" rx="1.5" />
+          <path d="M15 10.5 21 7v10l-6-3.5Z" />
+        </svg>
+      );
     case 'catalog':
       return (
         <svg {...common}>
@@ -117,6 +124,7 @@ function ModIcon({ name }) {
 const NAV = [
   { to: '/despacho', end: true, label: 'Operaciones', hint: 'Consola PTT', icon: 'ops' },
   { to: '/despacho/seguimiento', label: 'Seguimiento', hint: 'Ubicación en vivo', icon: 'track' },
+  { to: '/despacho/video', label: 'Video', hint: 'Cámara y transmisiones', icon: 'video' },
   { to: '/despacho/mapa', label: 'Mapa en vivo', hint: 'Rutas y geocercas', icon: 'map' },
 ];
 

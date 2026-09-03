@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api_client.dart';
@@ -24,6 +25,7 @@ import '../widgets/tactical_backdrop.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_inbox_screen.dart';
 import 'direct_pane.dart';
+import 'group_video_screen.dart';
 import 'incoming_call_screen.dart';
 import 'personal_radio_bar.dart';
 import 'private_call_screen.dart';
@@ -54,6 +56,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
   bool _loading = true;
   String? _loadError;
   bool _privateCallDialogOpen = false;
+  bool _groupVideoDialogOpen = false;
   Map<String, dynamic>? _personalRadio;
   int _chatUnread = 0;
   bool _conversationOpen = false;
@@ -115,8 +118,15 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
         );
         return;
       }
-      if (type == 'private_call' || type == 'private_radio') {
+      if (type == 'private_call' ||
+          type == 'private_radio' ||
+          type == 'private_video' ||
+          type == 'private_video_request') {
         unawaited(_openIncomingCallFromPush(Map<String, dynamic>.from(data)));
+        return;
+      }
+      if (type == 'group_video') {
+        unawaited(_openIncomingGroupVideoFromPush(Map<String, dynamic>.from(data)));
         return;
       }
       if (type == 'panic') {
@@ -253,6 +263,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
   void _consumePendingNotificationNav() {
     final push = PushService.instance;
     final incomingCall = push.pendingIncomingCall;
+    final incomingGroupVideo = push.pendingIncomingGroupVideo;
     final panic = push.pendingPanicData;
     final peerId = push.pendingPeerId;
     final groupId = push.pendingGroupId;
@@ -260,6 +271,10 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     push.clearPendingNavigation();
     if (incomingCall != null) {
       unawaited(_openIncomingCallFromPush(Map<String, dynamic>.from(incomingCall)));
+      return;
+    }
+    if (incomingGroupVideo != null) {
+      unawaited(_openIncomingGroupVideoFromPush(Map<String, dynamic>.from(incomingGroupVideo)));
       return;
     }
     if (panic != null) {
@@ -470,6 +485,30 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       });
     }
 
+    if (session.incomingGroupVideo != null && !_groupVideoDialogOpen) {
+      if (GroupVideoScreen.uiOpen) {
+        session.incomingGroupVideo = null;
+        return;
+      }
+      _groupVideoDialogOpen = true;
+      final invite = Map<String, dynamic>.from(session.incomingGroupVideo!);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showIncomingGroupVideo(invite);
+      });
+    } else if (session.incomingGroupVideo == null && _groupVideoDialogOpen) {
+      if (GroupVideoScreen.uiOpen) {
+        _groupVideoDialogOpen = false;
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final nav = Navigator.of(context, rootNavigator: true);
+        if (nav.canPop()) nav.pop();
+        _groupVideoDialogOpen = false;
+      });
+    }
+
     final dm = session.lastDmNotify;
     if (dm != null) {
       session.lastDmNotify = null;
@@ -522,16 +561,16 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     session.silenceIncomingPanicAlarm();
     final lat = session.incomingPanicLat;
     final lng = session.incomingPanicLng;
-    if (lat == null || lng == null) {
+    if (!isValidMapCoord(lat, lng)) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sin ubicación disponible para esta alerta')),
+        const SnackBar(content: Text('Sin ubicación GPS válida para esta alerta')),
       );
       return;
     }
     final ok = await openPanicLocation(
-      latitude: lat,
-      longitude: lng,
+      latitude: lat!,
+      longitude: lng!,
       navigate: navigate,
       label: session.incomingPanicLabel,
     );
@@ -559,7 +598,11 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       'callerName':
           data['callerName']?.toString() ?? data['title']?.toString() ?? 'Usuario',
       'mode': data['mode']?.toString() ??
-          (data['type']?.toString() == 'private_radio' ? 'radio' : 'call'),
+          (data['type']?.toString() == 'private_radio'
+              ? 'radio'
+              : data['type']?.toString() == 'private_video'
+                  ? 'video'
+                  : 'call'),
     };
 
     try {
@@ -658,11 +701,12 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       barrierColor: Colors.black,
       transitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (ctx, anim, secondary) {
+        final callMode = call['mode']?.toString() ?? 'call';
         return IncomingCallScreen(
           api: widget.api,
           callerId: call['callerId']?.toString(),
           callerName: who,
-          mode: 'call',
+          mode: callMode,
           onReject: () async {
             try {
               await widget.api.endPrivateCall(callId, reason: 'reject');
@@ -672,12 +716,16 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
           },
           onAccept: () async {
             try {
+              if (callMode == 'video') {
+                await Permission.camera.request();
+              }
               final data = await widget.api.acceptPrivateCall(callId);
               _session?.incomingPrivateCall = null;
               if (!ctx.mounted) return;
               Navigator.of(ctx).pop();
               if (!mounted) return;
               final accepted = data['call'] as Map? ?? {};
+              final mode = accepted['mode']?.toString() ?? callMode;
               await Navigator.of(context).push(
                 PrivateCallScreen.route(
                   child: PrivateCallScreen(
@@ -690,7 +738,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
                     url: AppConfig.publicLiveKitUrl(data['url'] as String),
                     role: 'callee',
                     e2eeKey: data['e2eeKey']?.toString(),
-                    mode: 'call',
+                    mode: mode == 'video' ? 'video' : 'call',
                   ),
                 ),
               );
@@ -706,6 +754,71 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       },
     ).whenComplete(() {
       _privateCallDialogOpen = false;
+    });
+  }
+
+  Future<void> _joinGroupVideoDirect(String groupId, String groupName) async {
+    if (!mounted) return;
+    if (_groupVideoDialogOpen || GroupVideoScreen.uiOpen) return;
+    _session?.incomingGroupVideo = null;
+    _groupVideoDialogOpen = false;
+    PushService.instance.pendingIncomingGroupVideo = null;
+    PushService.instance.clearConversationNotifications(groupId: groupId);
+    await Navigator.of(context).push(
+      GroupVideoScreen.route(
+        child: GroupVideoScreen(
+          api: widget.api,
+          groupId: groupId,
+          groupName: groupName,
+          startIfNeeded: false,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openIncomingGroupVideoFromPush(Map<String, dynamic> data) async {
+    if (!mounted) return;
+    final groupId = data['groupId']?.toString() ?? '';
+    if (groupId.isEmpty) return;
+    await _joinGroupVideoDirect(
+      groupId,
+      data['groupName']?.toString() ?? 'Grupo',
+    );
+  }
+
+  Future<void> _showIncomingGroupVideo(Map<String, dynamic> invite) async {
+    final groupId = invite['groupId']?.toString() ?? '';
+    final groupName = invite['groupName']?.toString() ?? 'Grupo';
+    if (groupId.isEmpty) {
+      _groupVideoDialogOpen = false;
+      return;
+    }
+
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black,
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (ctx, anim, secondary) {
+        return IncomingCallScreen(
+          callerName: groupName,
+          mode: 'group_video',
+          onReject: () async {
+            _session?.incomingGroupVideo = null;
+            if (ctx.mounted) Navigator.of(ctx).pop();
+          },
+          onAccept: () async {
+            _session?.incomingGroupVideo = null;
+            _groupVideoDialogOpen = false;
+            if (ctx.mounted) Navigator.of(ctx).pop();
+            if (!mounted) return;
+            PushService.instance.clearConversationNotifications(groupId: groupId);
+            await _joinGroupVideoDirect(groupId, groupName);
+          },
+        );
+      },
+    ).whenComplete(() {
+      _groupVideoDialogOpen = false;
     });
   }
 
@@ -1118,6 +1231,15 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
           onChannelChanged: _changeChannel,
           onOpenMenu: () => setState(() => _overlay = _OverlayPane.groups),
           onOpenLocation: () => setState(() => _overlay = _OverlayPane.location),
+          onOpenGroupVideo: () {
+            final g = _groups.isEmpty
+                ? null
+                : _groups[_channelIndex.clamp(0, _groups.length - 1)];
+            final gid = g?['id']?.toString() ?? session.groupId;
+            final gname = g?['name']?.toString() ?? session.groupName;
+            if (gid.isEmpty) return;
+            unawaited(_joinGroupVideoDirect(gid, gname));
+          },
           onPanic: _sendPanic,
           onOpenProfile: _openProfileSheet,
           api: widget.api,

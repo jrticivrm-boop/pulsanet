@@ -128,15 +128,28 @@ export function sendDmMessage(token, userId, body, { replyToId } = {}) {
 }
 
 export function startPrivateCall(token, targetUserId, { mode = 'call' } = {}) {
+  const m = mode === 'radio' ? 'radio' : mode === 'video' ? 'video' : 'call';
   return api('/api/calls/private', {
     token,
     method: 'POST',
-    body: { targetUserId, mode: mode === 'radio' ? 'radio' : 'call' },
+    body: { targetUserId, mode: m },
   });
 }
 
 export function acceptPrivateCall(token, callId) {
   return api(`/api/calls/private/${callId}/accept`, { token, method: 'POST' });
+}
+
+export function fetchPrivateCall(token, callId) {
+  return api(`/api/calls/private/${callId}`, { token });
+}
+
+export function pingPrivateCall(token, callId) {
+  return api(`/api/calls/private/${callId}/ping`, { token, method: 'POST' });
+}
+
+export function refreshPrivateCall(token, callId) {
+  return api(`/api/calls/private/${callId}/refresh`, { token, method: 'POST' });
 }
 
 export function endPrivateCall(token, callId, reason = 'hangup') {
@@ -145,6 +158,46 @@ export function endPrivateCall(token, callId, reason = 'hangup') {
     method: 'POST',
     body: { reason },
   });
+}
+
+export function requestPrivateCallVideo(token, callId) {
+  return api(`/api/calls/private/${callId}/video/request`, { token, method: 'POST' });
+}
+
+export function respondPrivateCallVideo(token, callId, accept) {
+  return api(`/api/calls/private/${callId}/video/respond`, {
+    token,
+    method: 'POST',
+    body: { accept: Boolean(accept) },
+  });
+}
+
+export function stopPrivateCallVideo(token, callId) {
+  return api(`/api/calls/private/${callId}/video/stop`, { token, method: 'POST' });
+}
+
+export function fetchGroupVideoStatus(token, groupId) {
+  return api(`/api/group-video/${groupId}/status`, { token });
+}
+
+export function startGroupVideo(token, groupId) {
+  return api(`/api/group-video/${groupId}/start`, { token, method: 'POST' });
+}
+
+export function joinGroupVideo(token, groupId) {
+  return api(`/api/group-video/${groupId}/join`, { token, method: 'POST' });
+}
+
+export function leaveGroupVideo(token, groupId) {
+  return api(`/api/group-video/${groupId}/leave`, { token, method: 'POST' });
+}
+
+export function endGroupVideo(token, groupId) {
+  return api(`/api/group-video/${groupId}/end`, { token, method: 'POST' });
+}
+
+export function pingGroupVideo(token, groupId) {
+  return api(`/api/group-video/${groupId}/ping`, { token, method: 'POST' });
 }
 
 export function fetchMessages(token, groupId, limit = 50) {

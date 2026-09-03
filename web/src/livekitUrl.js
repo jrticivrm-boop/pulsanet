@@ -1,27 +1,19 @@
 /**
  * URL LiveKit alcanzable desde el navegador.
  *
- * En página HTTPS no se puede abrir ws:// (mixed content bloqueado).
- * Ahí usamos el mismo origen (wss://host:5173); Vite hace proxy /rtc → LiveKit :7880.
- * El medio RTC (UDP 7882 / TCP 7881) sigue yendo directo al node-ip público.
+ * En HTTPS siempre usamos el mismo origen (wss://host) para la señal WebSocket:
+ * - Consola local :5173 → proxy Vite `/rtc` → LiveKit :7880
+ * - Dominio público :443 → proxy Caddy `/rtc` → LiveKit :7880
  *
- * En HTTP o clientes nativos: conserva el host del API (p. ej. ws://IP_PUBLICA:7880).
+ * Evita mixed content (ws:// bajo HTTPS) y hairpin cuando el API devuelve
+ * wss://dominio-publico pero la consola está en https://127.0.0.1:5173.
+ *
+ * Media RTC (UDP 7882 / TCP 7881) sigue directo al node-ip público.
  */
 export function publicLiveKitUrl(url, fallbackHost) {
   if (!url) return url;
 
   if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
-    const raw = String(url);
-    if (raw.startsWith('wss://')) {
-      const pageHost = window.location.hostname;
-      if (pageHost && pageHost !== 'localhost' && pageHost !== '127.0.0.1') {
-        return raw
-          .replace(/127\.0\.0\.1/g, pageHost)
-          .replace(/localhost/gi, pageHost);
-      }
-      return raw;
-    }
-    // ws:// bajo HTTPS → misma origen (proxy Vite)
     return `wss://${window.location.host}`;
   }
 

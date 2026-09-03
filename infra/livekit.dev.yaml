@@ -1,8 +1,6 @@
-# LiveKit — desarrollo (LAN Wi-Fi + 4G via IP publica / UPnP)
+﻿# LiveKit — desarrollo (LAN Wi-Fi + 4G via IP publica / UPnP)
+# node_ip / turn.domain se sincronizan con infra\Sync-PublicIp.ps1
 # Arranque: livekit-server --config infra/livekit.dev.yaml --dev --udp-port 7882 --node-ip <IP_PUBLICA>
-#
-# Senal movil/web: wss://PUBLIC_DOMAIN/rtc (Caddy :443).
-# Media: TCP 7881 + UDP 7882 + TURN UDP 3478 (UPnP en router).
 
 port: 7880
 bind_addresses:
@@ -11,15 +9,16 @@ bind_addresses:
 rtc:
   tcp_port: 7881
   udp_port: 7882
-  use_external_ip: true
+  use_external_ip: false
+  node_ip: 189.152.160.81
+  advertise_internal_ip: true
   congestion_control:
     enabled: true
     allow_pause: false
 
-# TURN embebido (4G con UDP bloqueado). relay en 7882/7881 — no rango 50000+ (UPnP no lo abre).
 turn:
   enabled: true
-  domain: 189.152.200.238
+  domain: 189.152.160.81
   udp_port: 3478
 
 logging:

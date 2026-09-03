@@ -5,7 +5,7 @@ export const DEFAULT_GRADE_SEED = [
   { category: 'Generales', abbreviation: 'Gral. Brig.', name: 'General Brigadier', sortOrder: 30 },
   { category: 'Jefes', abbreviation: 'Cor.', name: 'Coronel', sortOrder: 40 },
   { category: 'Jefes', abbreviation: 'Tte. Cor.', name: 'Teniente Coronel', sortOrder: 50 },
-  { category: 'Jefes', abbreviation: 'May.', name: 'Mayor', sortOrder: 60 },
+  { category: 'Jefes', abbreviation: 'Myr.', name: 'Mayor', sortOrder: 60 },
   { category: 'Oficiales', abbreviation: 'Cap. 1/o.', name: 'Capitán Primero', sortOrder: 70 },
   { category: 'Oficiales', abbreviation: 'Cap. 2/o.', name: 'Capitán Segundo', sortOrder: 80 },
   { category: 'Oficiales', abbreviation: 'Tte.', name: 'Teniente', sortOrder: 90 },

@@ -2,7 +2,7 @@
 # Build IPA TacticalPtx (requiere macOS + Xcode + Apple Developer).
 # Uso:
 #   cd mobile && ./scripts/build-ios.sh
-#   API_BASE=https://189.152.200.238.sslip.io ./scripts/build-ios.sh
+#   API_BASE=https://TU_DOMINIO.sslip.io ./scripts/build-ios.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,7 +13,11 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-API_BASE="${API_BASE:-https://189.152.200.238.sslip.io}"
+if [[ -z "${API_BASE:-}" ]] && [[ -f ../backend/.env ]]; then
+  dom="$(grep -m1 '^PUBLIC_DOMAIN=' ../backend/.env | cut -d= -f2- | tr -d "\"'")"
+  if [[ -n "$dom" ]]; then API_BASE="https://$dom"; fi
+fi
+API_BASE="${API_BASE:-https://189.152.222.98.sslip.io}"
 echo "=== TacticalPtx iOS ==="
 echo "API_BASE=$API_BASE"
 echo "Root=$ROOT"

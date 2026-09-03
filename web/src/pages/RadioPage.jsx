@@ -8,7 +8,7 @@ import { useGpsReporter } from '../useGpsReporter';
 import ChatInbox from '../ChatInbox';
 import ChannelMultiSelect from '../ChannelMultiSelect';
 import { unlockPanicAudio } from '../panicSound';
-import { openPanicLocation } from '../panicMaps';
+import { openPanicLocation, isValidMapCoord } from '../panicMaps';
 import { unlockAppNotifyAudio } from '../appNotify';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
 import { useDispatchListen } from '../useDispatchListen';
@@ -147,7 +147,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
 
   useEffect(() => {
     const st = location.state;
-    if (!st?.focusPeerId && !st?.focusGroupId) return;
+    if (!st?.focusPeerId && !st?.focusGroupId && !st?.openGroupVideo) return;
     if (st.focusPeerId) setFocusPeerId(st.focusPeerId);
     if (st.focusGroupId) {
       setFocusGroupId(st.focusGroupId);
@@ -268,6 +268,21 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                   label="Canales"
                 />
               )}
+              <button
+                type="button"
+                className="btn ghost radio-group-video-btn"
+                disabled={!group?.id}
+                title="Transmisión de video del canal activo (no interrumpe el PTT)"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('tacticalptx:open-group-video', {
+                      detail: { groupId: group.id, groupName: group.name },
+                    })
+                  )
+                }
+              >
+                Video en vivo
+              </button>
               <ul className="status-list">
                 <li className={ptt.connected ? 'ok' : ''}>
                   {ptt.connected ? 'Enlace ok' : 'Enlace…'}
@@ -414,7 +429,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                 <br />
                 La alarma suena hasta pulsar Enterado.
               </p>
-              {ptt.incomingPanic.latitude != null && ptt.incomingPanic.longitude != null ? (
+              {isValidMapCoord(ptt.incomingPanic.latitude, ptt.incomingPanic.longitude) ? (
                 <>
                   <p className="radio-panic-meta">
                     {ptt.incomingPanic.accuracyM != null

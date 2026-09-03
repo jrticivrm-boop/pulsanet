@@ -16,7 +16,7 @@ export const EJERCITO_MEXICANO_GRADE_GROUPS = [
     options: [
       { value: 'Cor.', label: 'Coronel' },
       { value: 'Tte. Cor.', label: 'Teniente Coronel' },
-      { value: 'May.', label: 'Mayor' },
+      { value: 'Myr.', label: 'Mayor' },
     ],
   },
   {

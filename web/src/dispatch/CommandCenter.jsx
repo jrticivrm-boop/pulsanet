@@ -21,7 +21,13 @@ import {
   fetchRecordings,
   fetchRecordingBlobUrl,
   fetchPanicEvents,
+  startPrivateCall,
+  endPrivateCall,
 } from '../api';
+import { warmUpVideoCallMedia } from '../callMedia';
+import PrivateCallOverlay from '../PrivateCallOverlay';
+import GroupVideoPanel from '../GroupVideoPanel';
+import { esMsg } from '../esMsg';
 import { socketIoOptions, socketUrl } from '../socketConfig';
 import { unlockPanicAudio } from '../panicSound';
 import {
@@ -99,8 +105,16 @@ export default function CommandCenter({ session }) {
   const [recordings, setRecordings] = useState([]);
   const [playingId, setPlayingId] = useState(null);
   const [activePanics, setActivePanics] = useState([]);
+  const [peerCall, setPeerCall] = useState(null);
+  const [groupVideo, setGroupVideo] = useState(null);
+  const [groupVideoLive, setGroupVideoLive] = useState({});
   const audioRef = useRef(null);
   const audioUrlRef = useRef(null);
+
+  const panicUserIds = useMemo(
+    () => new Set((activePanics || []).map((p) => p.userId).filter(Boolean)),
+    [activePanics]
+  );
 
   const channelNameById = useMemo(() => {
     const m = new Map();
@@ -110,6 +124,19 @@ export default function CommandCenter({ session }) {
 
   const channelNameRef = useRef(channelNameById);
   channelNameRef.current = channelNameById;
+
+  const openGroupVideo = useCallback(
+    async (groupId, groupName) => {
+      if (!groupId) return;
+      try {
+        await warmUpVideoCallMedia();
+        setGroupVideo({ groupId, groupName: groupName || 'Grupo' });
+      } catch (e) {
+        window.alert(esMsg(e.message || e, 'No se pudo abrir la transmisión grupal'));
+      }
+    },
+    []
+  );
 
   const reload = useCallback(async () => {
     const results = await Promise.allSettled([
@@ -309,6 +336,21 @@ export default function CommandCenter({ session }) {
       });
     });
 
+    socket.on('group:video_started', (payload) => {
+      const gid = payload?.groupId;
+      if (gid) setGroupVideoLive((prev) => ({ ...prev, [gid]: true }));
+    });
+    socket.on('group:video_ended', (payload) => {
+      const gid = payload?.groupId;
+      if (!gid) return;
+      setGroupVideoLive((prev) => {
+        const next = { ...prev };
+        delete next[gid];
+        return next;
+      });
+      setGroupVideo((cur) => (cur?.groupId === gid ? null : cur));
+    });
+
     const t = setInterval(() => {
       if (!document.hidden) reload();
     }, 15000);
@@ -408,6 +450,40 @@ export default function CommandCenter({ session }) {
     setCenterTarget({ lat: selected.lat, lng: selected.lng, t: Date.now() });
   }
 
+  async function startPersonCall(mode = 'call') {
+    const userId = selected?.userId;
+    const name = selected?.title || 'Usuario';
+    if (!userId) return;
+    try {
+      if (mode === 'video') await warmUpVideoCallMedia();
+      const data = await startPrivateCall(session.token, userId, { mode });
+      setPeerCall({
+        callId: data.call?.callId,
+        peerId: userId,
+        peerName: name,
+        token: data.token,
+        authToken: session.token,
+        url: data.url,
+        e2eeKey: data.e2eeKey,
+        role: 'caller',
+        mode: mode === 'video' ? 'video' : 'call',
+      });
+    } catch (e) {
+      setError(esMsg(e.message || e, 'No se pudo iniciar la llamada'));
+    }
+  }
+
+  useEffect(() => {
+    const token = session?.token;
+    if (!token) return undefined;
+    const socket = io(socketUrl(), { ...socketIoOptions, auth: { token } });
+    socket.on('call:ended', ({ callId }) => {
+      if (!callId) return;
+      setPeerCall((c) => (String(c?.callId) === String(callId) ? null : c));
+    });
+    return () => socket.disconnect();
+  }, [session.token]);
+
   async function playRecording(id) {
     try {
       if (audioUrlRef.current) {
@@ -499,7 +575,35 @@ export default function CommandCenter({ session }) {
         </div>
       )}
 
-      <div className="cc-workspace-grid">
+      {peerCall?.mode === 'video' && (
+        <PrivateCallOverlay
+          call={peerCall}
+          layout="console"
+          onHangup={async (opts) => {
+            try {
+              if (peerCall.callId && opts?.remote !== true) {
+                await endPrivateCall(session.token, peerCall.callId, 'hangup');
+              }
+            } catch {
+              /* ignore */
+            }
+            setPeerCall(null);
+          }}
+        />
+      )}
+
+      {groupVideo && (
+        <GroupVideoPanel
+          token={session.token}
+          groupId={groupVideo.groupId}
+          groupName={groupVideo.groupName}
+          layout="console"
+          onClose={() => setGroupVideo(null)}
+          onRemoteEnded={() => setGroupVideo(null)}
+        />
+      )}
+
+      <div className={`cc-workspace-grid${peerCall?.mode === 'video' || groupVideo ? ' with-video' : ''}`}>
       <div className="cc-upper">
         <section className="cc-panel cc-map-panel">
           <div className="cc-panel-head">
@@ -559,6 +663,7 @@ export default function CommandCenter({ session }) {
               {locations.map((loc) => {
                 const photo = markerPhoto(loc);
                 const isSelected = selected?.userId === loc.userId;
+                const inPanic = panicUserIds.has(loc.userId);
                 return (
                 <SmoothMarker
                   key={loc.userId}
@@ -568,8 +673,9 @@ export default function CommandCenter({ session }) {
                     live: isFresh(loc.recordedAt),
                     selected: isSelected,
                     photoSrc: photo,
+                    panic: inPanic,
                   })}
-                  zIndexOffset={isSelected ? 900 : 0}
+                  zIndexOffset={isSelected ? 900 : inPanic ? 400 : 0}
                   eventHandlers={{
                     click: () =>
                       selectPerson({
@@ -643,9 +749,19 @@ export default function CommandCenter({ session }) {
               >
                 <header>
                   <h3>{ch.name}</h3>
-                  <span className={ch.speaker ? 'cc-badge air' : 'cc-badge idle'}>
-                    {ch.speaker ? 'Al aire' : 'Libre'}
-                  </span>
+                  <div className="cc-channel-head-actions">
+                    <button
+                      type="button"
+                      className={`cc-btn cc-group-video-btn${groupVideoLive[ch.id] ? ' live' : ''}`}
+                      title="Video en vivo del canal (paralelo al PTT)"
+                      onClick={() => openGroupVideo(ch.id, ch.name)}
+                    >
+                      Video en vivo
+                    </button>
+                    <span className={ch.speaker ? 'cc-badge air' : 'cc-badge idle'}>
+                      {ch.speaker ? 'Al aire' : 'Libre'}
+                    </span>
+                  </div>
                 </header>
                 {ch.speaker && (
                   <button
@@ -851,6 +967,24 @@ export default function CommandCenter({ session }) {
                     Ver ruta
                   </button>
                 )}
+                {selected.userId && (
+                  <>
+                    <button
+                      type="button"
+                      className="cc-btn"
+                      onClick={() => startPersonCall('call')}
+                    >
+                      Llamada
+                    </button>
+                    <button
+                      type="button"
+                      className="cc-btn primary"
+                      onClick={() => startPersonCall('video')}
+                    >
+                      Videollamada
+                    </button>
+                  </>
+                )}
               </div>
               {selected.lat == null && selected.userId && (
                 <p className="cc-hint">Esta persona aún no reportó GPS.</p>
@@ -860,6 +994,22 @@ export default function CommandCenter({ session }) {
         </aside>
       </div>
       </div>
+      {peerCall && peerCall.mode !== 'video' && (
+        <PrivateCallOverlay
+          call={peerCall}
+          layout="overlay"
+          onHangup={async (opts) => {
+            try {
+              if (peerCall.callId && opts?.remote !== true) {
+                await endPrivateCall(session.token, peerCall.callId, 'hangup');
+              }
+            } catch {
+              /* ignore */
+            }
+            setPeerCall(null);
+          }}
+        />
+      )}
     </div>
   );
 }

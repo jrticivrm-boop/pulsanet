@@ -23,6 +23,7 @@ import {
   fetchGeofences,
   createGeofence,
   deleteGeofence,
+  fetchPanicEvents,
 } from '../api';
 import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
 import { socketIoOptions, socketUrl } from '../socketConfig';
@@ -99,6 +100,8 @@ export default function DispatchMap({ session }) {
   const [locations, setLocations] = useState([]);
   const { markerPhoto } = useMapAvatarPhotos(locations, session.token);
   const [onlineIds, setOnlineIds] = useState(new Set());
+  const [panicUserIds, setPanicUserIds] = useState(() => new Set());
+  const panicIdToUserRef = useRef(new Map());
   const [trackUserId, setTrackUserId] = useState('');
   const [trackHours, setTrackHours] = useState(8);
   const [trackPoints, setTrackPoints] = useState([]);
@@ -163,10 +166,11 @@ export default function DispatchMap({ session }) {
     async function load() {
       if (document.hidden) return;
       try {
-        const [loc, ov, gf] = await Promise.all([
+        const [loc, ov, gf, panic] = await Promise.all([
           fetchLocations(session.token),
           fetchOverview(session.token),
           fetchGeofences(session.token),
+          fetchPanicEvents(session.token, { status: 'active' }).catch(() => ({ events: [] })),
         ]);
         if (cancelled) return;
         setLocations((prev) => mergeLocations(prev, loc.locations || []));
@@ -176,6 +180,18 @@ export default function DispatchMap({ session }) {
         });
         setOnlineIds(ids);
         setGeofences((gf.geofences || []).filter((g) => g.isActive !== false));
+        {
+          const next = new Set();
+          const idMap = new Map();
+          (panic.events || []).forEach((e) => {
+            if (e.userId) {
+              next.add(e.userId);
+              if (e.id) idMap.set(e.id, e.userId);
+            }
+          });
+          panicIdToUserRef.current = idMap;
+          setPanicUserIds(next);
+        }
         setError('');
       } catch (e) {
         if (!cancelled) setError(e.message);
@@ -222,6 +238,51 @@ export default function DispatchMap({ session }) {
             ...prev,
           ].slice(0, 12)
         );
+      })();
+    });
+    socket.on('dispatch:panic', (raw) => {
+      void (async () => {
+        const payload = await unwrapDispatchPayload(raw, sessionWireKey(session));
+        const uid = payload?.userId;
+        if (!uid) return;
+        if (payload.id) panicIdToUserRef.current.set(payload.id, uid);
+        setPanicUserIds((prev) => {
+          if (prev.has(uid)) return prev;
+          const next = new Set(prev);
+          next.add(uid);
+          return next;
+        });
+      })();
+    });
+    socket.on('dispatch:panic_update', (raw) => {
+      void (async () => {
+        const payload = await unwrapDispatchPayload(raw, sessionWireKey(session));
+        if (!payload?.id) return;
+        if (payload.status === 'acked' || payload.status === 'active') {
+          const uid = payload.userId || panicIdToUserRef.current.get(payload.id);
+          if (uid) {
+            panicIdToUserRef.current.set(payload.id, uid);
+            setPanicUserIds((prev) => {
+              if (prev.has(uid)) return prev;
+              const next = new Set(prev);
+              next.add(uid);
+              return next;
+            });
+          }
+          return;
+        }
+        const uid = payload.userId || panicIdToUserRef.current.get(payload.id);
+        panicIdToUserRef.current.delete(payload.id);
+        if (!uid) return;
+        setPanicUserIds((prev) => {
+          if (!prev.has(uid)) return prev;
+          for (const [, otherUid] of panicIdToUserRef.current) {
+            if (otherUid === uid) return prev;
+          }
+          const next = new Set(prev);
+          next.delete(uid);
+          return next;
+        });
       })();
     });
     return () => {
@@ -511,6 +572,7 @@ export default function DispatchMap({ session }) {
           {locations.map((loc) => {
             const photo = markerPhoto(loc);
             const isLive = onlineIds.has(loc.userId);
+            const inPanic = panicUserIds.has(loc.userId);
             return (
             <SmoothMarker
               key={loc.userId}
@@ -520,8 +582,9 @@ export default function DispatchMap({ session }) {
                 live: isLive,
                 selected: false,
                 photoSrc: photo,
+                panic: inPanic,
               })}
-              zIndexOffset={isLive ? 100 : 0}
+              zIndexOffset={inPanic ? 400 : isLive ? 100 : 0}
             >
               <Popup>
                 <strong>{loc.displayName}</strong>

@@ -29,6 +29,7 @@ import { registerDispatchHandlers } from './socket/dispatch.js';
 import { registerDmHandlers } from './socket/dm.js';
 import { createDmRouter } from './routes/dm.js';
 import { createCallsRouter } from './routes/calls.js';
+import { createGroupVideoRouter } from './routes/groupVideo.js';
 import { createMeRouter, createAvatarsRouter } from './routes/me.js';
 import { createAppUpdateRouter } from './routes/appUpdate.js';
 import { catalogsRouter } from './routes/catalogs.js';
@@ -97,6 +98,7 @@ const recordingsRouter = createRecordingsRouter(io);
 const mediaRouter = wrapRouterAsync(createMediaRouter());
 const dmRouter = wrapRouterAsync(createDmRouter(io));
 const callsRouter = wrapRouterAsync(createCallsRouter(io));
+const groupVideoRouter = wrapRouterAsync(createGroupVideoRouter(io));
 
 app.use('/api/health', wrapRouterAsync(healthRouter));
 app.use('/api/app', wrapRouterAsync(createAppUpdateRouter()));
@@ -110,6 +112,7 @@ app.use('/api/groups', wrapRouterAsync(groupsRouter));
 app.use('/api/groups/:id/messages', messagesRouter);
 app.use('/api/dm', dmRouter);
 app.use('/api/calls', callsRouter);
+app.use('/api/group-video', groupVideoRouter);
 app.use('/api/media', mediaRouter);
 app.use('/api/livekit', wrapRouterAsync(livekitRouter));
 app.use('/api/admin', wrapRouterAsync(adminRouter));
@@ -158,6 +161,10 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   inc('socketConnects');
+  const user = socket.data.user;
+  if (user?.sub) {
+    socket.join(`user:${user.sub}`);
+  }
   socket.on('disconnect', () => inc('socketDisconnects'));
 });
 
