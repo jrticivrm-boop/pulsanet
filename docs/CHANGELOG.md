@@ -10,12 +10,55 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Multi Ver cámara:** varias pantallas apiladas; control remoto frontal/trasera y mic del dispositivo. APK **1.8.70+79**.
+
+### Fixed
+- **Aislamiento Ver cámara / videollamada:** sin dependencia cruzada; control robusto. APK **1.8.72+82**.
+- **Cambio frontal/trasera (Ver cámara):** reinicio de track + señal por socket/LiveKit. APK **1.8.71+80**.
+- **Ver cámara app cerrada/suspendida:** FCM background despierta FGS+app y activa cámara en silencio. APK **1.8.69+78**.
+- **Cámara remota con pantalla bloqueada:** FGS tipo `camera` + wake lock; no se corta al bloquear. APK **1.8.68+77**.
+- **Emoji/Stickers tapables:** tabs dejan de quedar bajo la barra de navegación Android. APK **1.8.67+76**.
+
+### Changed
+- **Indicativo:** se arma con grado + apellido + cargo (sin campos editables de indicativo/detalle).\n- **Mapa despacho:** zoom máximo **22** (antes ~18) con overzoom en satélite/calles.
+- **Matrícula:** formato obligatorio `Letra-Números` (ej. `A-1234`, `B-2048`) en alta/edición de usuarios.
+- **Monitor Expandir:** video centrado en X/Y; **Pantalla completa** = alto completo del stage (marco vertical, sin barra horizontal).
+- **Monitor Expandir:** un solo video centrado; **Tamaño** solo en pantalla completa (sm→xl real); quitado del panel normal.
+- **Monitor cámara (Expandir):** layout de sala de monitoreo — stage a pantalla completa, dock con EN VIVO y controles mejor distribuidos.
+- **Chat emojis/adjuntos:** panel más nítido (web+APK), búsqueda/recientes en móvil; menú adjuntar con iconos + preview/leyenda. APK **1.8.66+75**.
+- **Ver cámara (silenciosa):** con permiso previo no notifica ni abre UI en el móvil; solo proyecta en el panel web. APK **1.8.65+74**.
+
+### Added
+- **Panel video redimensionable:** tamaños Compacto → Máximo + Expandir a pantalla completa sin perder el feed.
+
+### Changed
+- **Calidad video despacho:** captura/publicación **720p @ ~3.2 Mbps @ 30 FPS (VP8)**; APK **1.8.64+73**.
+
+### Fixed
+- **Expandir dejaba el video negro:** dos mosaicos enganchaban el mismo track; ahora solo uno activo.
+- **Video pixelado / sin nitidez:** el perfil 540p de estabilidad se sube a 720p con bitrate suficiente.
+
+### Added
+- **Cámara remota auto:** permiso inicial en el móvil; luego despacho puede activar la cámara sin Contestar (APK **1.8.63+72**).
+
+### Fixed
+- **Video intermitente / “reconectando”:** ICE en puertos sin UPnP + uplink alto; LiveKit otra vez en UDP **7882**, video 540p estable, reconnect suave. APK **1.8.62+71**.
+- **Video tiles negros (audio OK):** H.264+E2EE → **VP8**; attach por `srcObject`; APK **1.8.61+70**.
+- **Video inestable / parpadeo:** simulcast demasiado pesado + adaptiveStream + republicación agresiva de cámara; ahora ladder 480/720 estable, hold de frame y reconnect suave.
+- **APK 1.8.60+69:** OTA con estabilidad de video; ancla `https://pulsanet.duckdns.org`.
+
+### Changed
+- **Video streaming:** perfiles tipo RTMP — H.264 @ 30 FPS con capas **480p (1500 Kbps)** + **720p (4500 Kbps)** estables (1080 reservado; no se emiten las 3 a la vez).
+
+### Added
+- **Ver cámara del dispositivo (despacho):** desde el módulo Video / Operaciones se puede solicitar la cámara del teléfono de campo y proyectarla en el panel (intent `remote_camera`, cámara trasera preferida en el móvil).
 - **Dominio permanente (DuckDNS):** `SETUP-STABLE-DOMAIN.ps1` + sync automático del A-record; el APK deja de romperse al rotar la IP del ISP.
 - **Módulo Video en despacho:** entrada en el menú lateral (`/despacho/video`) con transmisiones de canal, videollamadas 1:1 y activación de cámara web del puesto.
 - **Pánico en mapa:** el anillo del pin del operador pasa a rojo y parpadea mientras el pánico esté activo.
 - **Video en menú + cámara frontal/trasera:** opción Video en menús Radio/chat; en llamada y transmisión grupal se puede cambiar entre cámara frontal y trasera (web + mobile).
 
 ### Fixed
+- **Video consola negro:** preview y mosaico de videollamada; republicación de cámara tras reconectar LiveKit.
 - **APK 1.8.59+68:** ancla permanente `https://pulsanet.duckdns.org` (DuckDNS); deja de romperse al rotar la IP del ISP.
 - **APK 1.8.58+67:** `API_BASE` alineado a IP pública actual (`189.152.160.81.sslip.io`); login con override de servidor.
 - **Radio PTT «Video en vivo»:** ahora pasa `groupId` al abrir la transmisión (antes no iniciaba).

@@ -336,7 +336,7 @@ class _LoginScreenState extends State<LoginScreen>
                                               controller: _server,
                                               decoration: const InputDecoration(
                                                 labelText: 'URL del servidor',
-                                                hintText: 'https://tacticalptx.duckdns.org',
+                                                hintText: 'https://pulsanet.duckdns.org',
                                                 prefixIcon: Icon(Icons.dns_outlined),
                                               ),
                                               keyboardType: TextInputType.url,

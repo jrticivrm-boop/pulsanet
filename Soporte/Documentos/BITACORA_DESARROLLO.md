@@ -1,3 +1,317 @@
+## 2026-09-04 — Aislamiento video/monitor + estabilidad control (APK 1.8.72)
+
+## 2026-09-06 — Borde publico DuckDNS restaurado (APK)
+
+- **Tipo:** ops | fix
+- **Area:** infra
+- **Que:**
+  - Realineado borde HTTPS con **https://pulsanet.duckdns.org** (health 200).
+  - DuckDNS y UPnP 80/443 refrescados; LiveKit node-ip alineado a IP publica actual.
+  - La APK no debe usar IP/sslip: default y OTA siguen el dominio estable.
+- **Por que / notas:** Fallo de conexion de la APK no era cambio de URL en codigo; el borde publico no respondia.
+- **Archivos / refs:** infra/START-PUBLIC-EDGE.ps1, infra/caddy/apk-api-base.txt, mobile/lib/config.dart
+
+## 2026-09-06 — Eliminar Radio personal 1:1 (app + web)
+
+- **Tipo:** feature | breaking
+- **Area:** mobile | web | backend
+- **Que:**
+  - Retirada la opcion de iniciar Radio personal / PTT 1:1 en APK y Web.
+  - API rechaza mode=radio en llamadas privadas.
+  - Invitaciones residuales se rechazan automaticamente.
+- **Archivos / refs:** peer_actions.dart, direct_pane.dart, ChatInbox.jsx, DirectChat.jsx, WhatsAppChat.jsx, calls.js
+
+## 2026-09-04 — Mensaje permiso de camaras (APK)
+
+- **Tipo:** ux
+- **Area:** mobile
+- **Que:**
+  - Dialogo y textos de permiso de camara reducidos a: «Permiso de camaras unicamente».
+- **Archivos / refs:** mobile/lib/screens/radio_shell.dart
+- **APK:** 1.8.73+83
+
+## 2026-09-04 — Reordenar modulos del menu lateral
+
+- **Tipo:** feature | ux
+- **Area:** web
+- **Que:**
+  - Arrastrar (asa ⋮⋮) los modulos del rail para reacomodarlos.
+  - El orden se guarda en localStorage.
+- **Archivos / refs:** DispatchLayout.jsx, institutional.css
+
+## 2026-09-04 — Sin etiqueta de nombre bajo pins del mapa
+
+- **Tipo:** ux
+- **Area:** web
+- **Que:**
+  - Quitada la pastilla de nombre bajo el marcador; el detalle solo al seleccionar (panel/popup).
+- **Archivos / refs:** mapAvatarIcon.js, command-center.css
+
+## 2026-09-04 — Indicativo desde Cargo / puesto
+
+- **Tipo:** feature | ux
+- **Area:** web | backend
+- **Que:**
+  - Eliminados campos Indicativo al aire y Detalle/expansion.
+  - El nombre visible se arma solo: Grado + Apellido[, cargo] (ej. Sgto. 1/o. Gomez, desarrollador).
+  - Quitados textos/ayudas del formulario de usuarios.
+- **Archivos / refs:** rfcUsername.js, DispatchUsers.jsx, admin.js
+
+## 2026-09-04 — Mas zoom en mapas de despacho
+
+- **Tipo:** mejora | ux
+- **Area:** web
+- **Que:**
+  - Zoom maximo del mapa sube a **22** (antes ~18), con overzoom sobre tiles nativos 19.
+  - Ajuste automatico al grupo de operadores permite acercar mas (hasta 18).
+- **Archivos / refs:** web/src/dispatch/mapTiles.js, LiveTrackMap, DispatchMap, CommandCenter, mapLeafletUtils
+
+## 2026-09-04 — Formato de matricula (letra-guion-numeros)
+
+- **Tipo:** feature | fix
+- **Area:** web | backend
+- **Que:**
+  - Matricula siempre en formato Letra-Numeros (ej. A-1234, B-2048).
+  - Mascara en el formulario de usuarios; validacion en API al crear/editar.
+- **Archivos / refs:** web/src/matricula.js, backend/src/services/matricula.js, DispatchUsers.jsx, admin.js
+
+## 2026-09-04 — Pins de ubicacion redondos (gota)
+
+- **Tipo:** ux
+- **Area:** web
+- **Que:**
+  - Correccion: ubicaciones en mapa como pin gota redondo (foto circular), no cuadrado.
+  - Se conservan colores, live, panico y avatar de cada usuario.
+- **Archivos / refs:** web/src/dispatch/command-center.css, web/src/dispatch/mapAvatarIcon.js
+
+## 2026-09-04 — Forma de pins de ubicacion en mapa
+
+- **Tipo:** ux
+- **Area:** web
+- **Que:**
+  - Marcadores de ubicacion: silueta gota/teardrop sustituida por badge cuadrado redondeado + punta triangular.
+  - Colores (verde / en vivo / panico) y foto circular del usuario sin cambios.
+- **Archivos / refs:** web/src/dispatch/command-center.css, web/src/dispatch/mapAvatarIcon.js
+
+- **Tipo:** fix | security | mejora
+- **Área:** web | mobile | backend
+- **Qué:**
+  - Ver cámara y videollamada ya no comparten flags ni pelean por la cámara (CameraSessionGate).
+  - Control remoto deduplicado + cola de facing; fallos no cuelgan la sesión.
+  - Conferencia Expandir sin remount LiveKit; monitor sin mic del puesto ni privateCallUi.
+  - Exclusión mutua mismo peer (Ver cámara ↔ videollamada).
+  - APK **1.8.72+82**.
+- **Archivos / refs:** camera_session_gate.dart, 
+emote_camera_session.dart, RemoteMonitorConference.jsx, PrivateCallOverlay.jsx, privateCallUi.js
+
+## 2026-09-03 — Fix cambio cámara frontal/trasera (APK 1.8.71)
+
+- **Tipo:** fix
+- **Área:** mobile | web
+- **Qué:**
+  - Control remoto también por socket principal + data packet LiveKit.
+  - Cambio de cámara reinicia el track (off→on con facing nuevo); setCameraPosition no bastaba en FGS.
+  - APK **1.8.71+80**.
+- **Archivos / refs:** 
+emote_camera_session.dart, channel_session.dart, PrivateCallOverlay.jsx
+
+## 2026-09-03 — Conferencia multi-cámara + dock centrado
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - Varias «Ver cámara» en un mosaico tipo conferencia (RemoteMonitorConference).
+  - Dock del monitor: barra a ancho completo; EN VIVO a la izquierda y controles centrados (ya no el bloque de 26rem a la izquierda).
+- **Archivos / refs:** RemoteMonitorConference.jsx, PrivateCallOverlay.jsx, DispatchVideo.jsx, CommandCenter.jsx, command-center.css, styles.css
+
+## 2026-09-03 — Multi-monitor + control frontal/trasera/mic
+
+- **Tipo:** feature
+- **Área:** web | backend | mobile
+- **Qué:**
+  - Varias «Ver cámara» a la vez, apiladas en el panel (Video y Command Center).
+  - Control remoto: cámara frontal/trasera y micrófono ON/OFF del dispositivo.
+  - API POST /private/:id/remote-control + socket call:remote_control.
+  - APK **1.8.70+79** (FGS microphone al activar mic remoto).
+- **Archivos / refs:** DispatchVideo.jsx, CommandCenter.jsx, PrivateCallOverlay.jsx, calls.js, 
+emote_camera_session.dart
+
+## 2026-09-03 — Monitor: centrado real + pantalla completa usable
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Corregido el colapso del stage (tile absolute → barra fea arriba).
+  - Un solo video centrado en X/Y con flex; sin caja horizontal ancha.
+  - **Pantalla completa** = alto completo del stage (marco vertical centrado).
+- **Archivos / refs:** `styles.css`, `PrivateCallOverlay.jsx`
+
+## 2026-09-03 — Monitor: centrado en pantalla + tamaño pantalla completa
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Un solo video queda **centrado en la pantalla** (absolute 50%/50%).
+  - Nuevo tamaño **Pantalla completa** (`fill`) que ocupa todo el stage.
+  - Tamaño solo en Expandir; al abrir Expandir arranca en pantalla completa.
+- **Archivos / refs:** `PrivateCallOverlay.jsx`, `VideoConferenceMosaic.jsx`, `styles.css`
+
+## 2026-09-03 — Monitor Expandir: video centrado + tamaño funcional
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Un solo video queda **centrado** (Expandir y panel).
+  - **Tamaño** solo en Expandir; escala real vía `--vc-solo-h` (40→84vh).
+  - Quitado el control del panel normal; al Expandir arranca en Máximo.
+- **Archivos / refs:** `PrivateCallOverlay.jsx`, `VideoConferenceMosaic.jsx`, `styles.css`, `command-center.css`
+
+## 2026-09-03 — UI monitor cámara: pantalla completa redistribuida
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:** Vista Expandir de «Cámara del dispositivo» tipo sala de monitoreo: chrome superior, stage a pantalla completa, dock inferior con estado EN VIVO + acciones; video portrait/landscape centrado y más usable.
+- **Archivos / refs:** `PrivateCallOverlay.jsx`, `styles.css`
+
+## 2026-09-03 — Ver cámara con app cerrada / suspendida (APK 1.8.69)
+
+- **Tipo:** fix
+- **Área:** mobile | backend
+- **Qué:**
+  - FCM en background ya no se ignora: guarda la solicitud, arranca FGS `camera` y **reabre la app** (sin Contestar) para publicar LiveKit.
+  - Al reanudar/arranque se drena el pending y activa la cámara en silencio.
+- **Archivos / refs:** `remote_camera_wake.dart`, `push_service.dart`, `radio_shell.dart`, `fcm.js`
+
+## 2026-09-03 — Cámara remota con pantalla bloqueada (APK 1.8.68)
+
+- **Tipo:** fix | feature
+- **Área:** mobile | backend
+- **Qué:**
+  - FGS Android con tipo **`camera`** + wake/wifi lock para que «Ver cámara» no se suspenda al bloquear el teléfono.
+  - Watchdog republica la cámara si el SO la apaga; FCM data-only (sin banner) para despertar con pantalla bloqueada.
+- **Archivos / refs:** `background_radio.dart`, `remote_camera_session.dart`, `AndroidManifest.xml`, `fcm.js`, `calls.js`
+
+## 2026-09-03 — Emoji/Stickers: safe area barra de navegación (APK 1.8.67)
+
+- **Tipo:** fix | ux
+- **Área:** mobile
+- **Qué:** Los tabs Emoji/Stickers ya no se montan sobre los botones del sistema; padding inferior con `viewPadding`.
+- **Archivos / refs:** `chat_emoji_panel.dart`
+
+## 2026-09-03 — Chat: emojis y adjuntos mejorados (APK 1.8.66)
+
+- **Tipo:** mejora | ux
+- **Área:** web | mobile
+- **Qué:**
+  - Panel de emojis con tipografía color-emoji más nítida, acentos tácticos (sin verde WhatsApp), sin pestaña GIF vacía; móvil gana **búsqueda + recientes**.
+  - Menú adjuntar tipo iconos (Galería / Cámara / Video / Documento); en móvil, vista previa + leyenda antes de enviar; fotos a mayor calidad.
+- **Archivos / refs:** `WaEmojiPicker.jsx`, `styles.css`, `WhatsAppChat.jsx`, `DirectChat.jsx`, `chat_emoji_panel.dart`, `chat_attach_sheet.dart`, `emoji_data.dart`
+
+## 2026-09-03 — Ver cámara silenciosa (sin aviso en el móvil) APK 1.8.65
+
+- **Tipo:** fix | ux
+- **Área:** mobile | backend
+- **Qué:**
+  - Con permiso previo, **Ver cámara** solo publica el feed a LiveKit: **sin push FCM, sin notificación local, sin vibración, sin snackbar y sin abrir panel de video** en el teléfono.
+  - Sesión headless `RemoteCameraSession`; al colgar desde despacho se apaga sola.
+- **Archivos / refs:** `remote_camera_session.dart`, `radio_shell.dart`, `channel_session.dart`, `backend/src/routes/calls.js`
+
+## 2026-09-03 — Video nítido 720p + Expandir sin perder imagen (APK 1.8.64)
+
+- **Tipo:** fix | mejora | ux
+- **Área:** web | mobile
+- **Qué:**
+  - Codificación a **720p / ~3.2 Mbps / 30 FPS / VP8** (antes 540p “estable” se veía pixelada).
+  - **Expandir** ya no deja el video negro: un solo mosaico enganchado al track (panel o fullscreen).
+  - Panel de video en despacho: tamaños **Compacto / Mediano / Grande / Máximo** + pantalla completa más grande; `object-fit: contain` en 1 tile.
+- **Archivos / refs:** `videoStreaming.js`, `video_streaming_config.dart`, `PrivateCallOverlay.jsx`, `VideoConferenceMosaic.jsx`, `styles.css`, `command-center.css`
+
+## 2026-09-03 — Cámara remota: permiso inicial + auto-aceptar (APK 1.8.63)
+
+- **Tipo:** feature
+- **Área:** mobile | web
+- **Qué:**
+  - Al entrar a la app (primera vez): diálogo para permitir que **despacho active la cámara** + permiso del SO.
+  - Con eso activo, **Ver cámara** desde el panel web acepta sola (sin Contestar); snackbar «Despacho activó tu cámara».
+  - Interruptor en perfil del móvil para activar/desactivar.
+- **Archivos / refs:** `remote_camera_prefs.dart`, `radio_shell.dart`, `channel_session.dart`, `DispatchVideo.jsx`
+
+## 2026-09-03 — Intermitencia video: ICE/UPnP + bitrate + reconnect (APK 1.8.62)
+
+- **Tipo:** fix | infra
+- **Área:** infra | web | mobile
+- **Qué:**
+  - LiveKit usaba puertos UDP altos (50000+) **sin UPnP** → media 4G inestable; vuelto a **UDP mux 7882** + relays TURN 30000–30010 mapeados.
+  - Video a **540p / 1.2 Mbps / VP8 / sin simulcast** (prioridad continuidad en 4G).
+  - Stabilizer deja de spamear “Reconectando…” en microcortes; LiveKit reiniciado.
+  - APK **1.8.62+71** OTA.
+- **Archivos / refs:** `infra/livekit.dev.yaml`, `Reinforce-UPnP.ps1`, `videoStreaming.js`, `privateCallStabilizer.js`, `video_streaming_config.dart`
+
+## 2026-09-03 — Video negro: VP8 + attach srcObject (APK 1.8.61)
+
+- **Tipo:** fix
+- **Área:** web | mobile
+- **Qué:**
+  - Causa típica de tiles negros con audio OK: **H.264 + E2EE** entre web y APK.
+  - Codec de publicación vuelve a **VP8**; attach del mosaico vía `MediaStream`/`srcObject`; dynacast off; monitor sin tile local vacío.
+  - APK **1.8.61+70** OTA.
+- **Archivos / refs:** `videoStreaming.js`, `VideoConferenceMosaic.jsx`, `video_streaming_config.dart`, `PrivateCallOverlay.jsx`
+
+## 2026-09-03 — APK 1.8.60+69 (estabilidad video)
+
+- **Tipo:** fix | release
+- **Área:** mobile
+- **Qué:**
+  - Compilada y publicada OTA **APK 1.8.60+69** con fixes de parpadeo/intermitencia de video (simulcast 480/720, adaptiveStream off, reconnect suave).
+  - `API_BASE=https://pulsanet.duckdns.org`; `APP_VERSION` backend → **1.8.60**.
+- **Archivos / refs:** `Soporte/APK/TacticalPtx-1.8.60+69.apk`, `backend/app-updates/files/TacticalPtx.apk`, `android.json`
+
+## 2026-09-03 — Estabilidad video (fin de parpadeo / intermitencia)
+
+- **Tipo:** fix
+- **Área:** web | mobile
+- **Qué:**
+  - Baja carga de uplink: simulcast 480p+720p (~6 Mbps) en lugar de 480+720+1080 (~14.5 Mbps) que saturaba la red.
+  - `adaptiveStream` desactivado (evitaba resubscribe al redimensionar tiles).
+  - No republicar cámara en cada `Reconnected` salvo track muerto; debounce de unsubscribes; mosaico mantiene último frame.
+  - Stabilizer: no fuerza `connect` encima de la reconexión interna de LiveKit; delays más largos.
+- **Archivos / refs:** `videoStreaming.js`, `VideoConferenceMosaic.jsx`, `usePrivateCallTiles.js`, `useGroupVideo.js`, `privateCallStabilizer.js`, `video_streaming_config.dart`, `private_call_screen.dart`, `group_video_screen.dart`
+
+## 2026-09-03 — Perfiles video RTMP-like (480/720/1080 @ 30 FPS)
+
+- **Tipo:** mejora
+- **Área:** web | mobile
+- **Qué:**
+  - Publicación LiveKit con perfiles tipo RTMP externo: H.264, 30 FPS, techos CBR-like **480p/1500 Kbps**, **720p/4500 Kbps**, **1080p/8500 Kbps** (simulcast + captura 1080).
+  - Audio de sala a Opus HQ stereo (~AAC 128 kbps); captura con fallback 1080→720→540 si el dispositivo no abre Full HD.
+- **Por qué / notas:** WebRTC no tiene CBR estricto ni AAC en el peer; el techo de bitrate + `maintain-framerate` aproximan el perfil pedido. AAC real solo en egress RTMP externo.
+- **Archivos / refs:** `web/src/videoStreaming.js`, `web/src/useGroupVideo.js`, `web/src/PrivateCallOverlay.jsx`, `mobile/lib/video_streaming_config.dart`
+
+## 2026-09-03 — Ver cámara del dispositivo desde consola Video
+
+- **Tipo:** feature
+- **Área:** web | backend | mobile
+- **Qué:**
+  - Desde **Despacho → Video** (y Operaciones): botón **Ver cámara** solicita activar la cámara del dispositivo de campo y proyecta el feed en el panel (sin publicar cam del puesto por defecto).
+  - Intent `remote_camera`: FCM/socket «Solicitud de cámara»; en el móvil se muestra «Despacho solicita ver tu cámara» y se prioriza cámara **trasera**.
+- **Archivos / refs:** `backend/src/routes/calls.js`, `dm.js`, `DispatchVideo.jsx`, `CommandCenter.jsx`, `PrivateCallOverlay.jsx`, `incoming_call_screen.dart`, `private_call_screen.dart`, `radio_shell.dart`
+
+## 2026-09-03 — Video negro en consola / tras reconectar
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Vista previa de cámara: stream se enganchaba a un `<video>` que luego se desmontaba.
+  - Videollamada en consola: mosaico sin altura útil + tile local no se refrescaba; tras «Conexión restaurada» no se republicaba la cámara (frame negro con «Apagar cam» activo).
+- **Archivos / refs:** `DispatchVideo.jsx`, `PrivateCallOverlay.jsx`, `usePrivateCallTiles.js`, `VideoConferenceMosaic.jsx`, `useGroupVideo.js`, CSS
+
+## 2026-09-03 — Vista previa cámara consola negra
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** En módulo Video, al activar cámara web el preview quedaba negro porque el stream se enganchaba a un `<video>` que luego se desmontaba. Ahora el elemento es estable y se re-engancha el stream.
+- **Archivos / refs:** `web/src/dispatch/DispatchVideo.jsx`, `command-center.css`
+
 ## 2026-09-03 — Ancla DuckDNS pulsanet + APK 1.8.59
 
 - **Tipo:** infra | fix

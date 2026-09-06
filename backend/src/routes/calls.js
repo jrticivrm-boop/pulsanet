@@ -10,10 +10,17 @@ import {
   touchPrivateCall,
   persistPrivateCallLog,
   listPrivateCallHistory,
+  listActivePrivateCalls,
   privateCallRoom,
 } from '../services/dm.js';
-import { notifyUserDevices } from '../services/fcm.js';
+import { notifyUserDevices, notifyUserDevicesDataOnly } from '../services/fcm.js';
 import { voiceE2eeKeyForRoom } from '../services/voiceE2ee.js';
+
+const RING_TIMEOUT_MS = 45_000;
+const REMOTE_CAMERA_RING_MS = 120_000;
+const STALE_ACTIVE_MS = 90_000;
+const HARD_MAX_CALL_MS = 10 * 60 * 1000;
+const SWEEP_EVERY_MS = 5_000;
 
 function normalizeMode(raw) {
   const m = String(raw || '').toLowerCase();
@@ -36,6 +43,7 @@ function serializeCall(call) {
     callId: call.id,
     room: call.room,
     mode: call.mode || 'call',
+    intent: call.intent || null,
     status: call.status,
     callerId: call.callerId,
     callerName: call.callerName,
@@ -62,59 +70,158 @@ async function issueCallCredentials(req, call, identity, displayName) {
   };
 }
 
+/** Cierra llamada, persiste historial y notifica a ambos extremos. */
+export async function finalizePrivateCall(io, callId, { reason = 'hangup', endedBy = null } = {}) {
+  const call = getPrivateCall(callId);
+  if (!call) return null;
+  const ended = endPrivateCall(callId, { reason, endedBy });
+  if (ended?.call) {
+    await persistPrivateCallLog({
+      call: ended.call,
+      reason: ended.reason,
+      endedBy: ended.endedBy,
+    });
+  }
+  const payload = {
+    callId,
+    by: endedBy || null,
+    reason,
+    mode: call.mode || 'call',
+  };
+  io.to(`user:${call.callerId}`).emit('call:ended', payload);
+  io.to(`user:${call.targetId}`).emit('call:ended', payload);
+  return ended;
+}
+
+export function startPrivateCallSweeper(io) {
+  const tick = async () => {
+    const now = Date.now();
+    for (const call of listActivePrivateCalls()) {
+      const age = now - (call.createdAt || now);
+      const isRemoteCam = call.intent === 'remote_camera';
+      try {
+        if (call.status === 'ringing') {
+          const limit = isRemoteCam ? REMOTE_CAMERA_RING_MS : RING_TIMEOUT_MS;
+          if (age > limit) {
+            await finalizePrivateCall(io, call.id, { reason: 'timeout', endedBy: null });
+            continue;
+          }
+        }
+        if (call.status === 'active') {
+          const seen = call.lastSeenAt || {};
+          const callerSeen = seen[call.callerId] || 0;
+          const targetSeen = seen[call.targetId] || 0;
+          const bothStale =
+            now - callerSeen > STALE_ACTIVE_MS && now - targetSeen > STALE_ACTIVE_MS;
+          if (bothStale || age > HARD_MAX_CALL_MS) {
+            await finalizePrivateCall(io, call.id, { reason: 'timeout', endedBy: null });
+          }
+        }
+      } catch (e) {
+        console.warn('[calls] sweeper', call.id, e?.message || e);
+      }
+    }
+  };
+  const handle = setInterval(() => {
+    tick().catch((e) => console.warn('[calls] sweeper tick', e?.message || e));
+  }, SWEEP_EVERY_MS);
+  if (typeof handle.unref === 'function') handle.unref();
+  return handle;
+}
+
 export function createCallsRouter(io) {
   const router = Router();
   router.use(authMiddleware);
 
-  /** Iniciar llamada, videollamada o radio privada 1:1 (`mode`: call|video|radio) */
+  /** Iniciar llamada o videollamada privada 1:1 (`mode`: call|video).
+   *  `intent: 'remote_camera'` = despacho pide ver la cámara del dispositivo (monitor).
+   *  Radio personal 1:1 deshabilitada.
+   */
   router.post('/private', async (req, res) => {
     const targetUserId = req.body?.targetUserId;
     const mode = normalizeMode(req.body?.mode);
+    if (mode === 'radio') {
+      return res.status(410).json({
+        ok: false,
+        error: 'Radio personal 1:1 ya no está disponible',
+      });
+    }
+    const intentRaw = String(req.body?.intent || '').toLowerCase();
+    const intent = intentRaw === 'remote_camera' ? 'remote_camera' : null;
+    const effectiveMode = intent === 'remote_camera' ? 'video' : mode;
     const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, targetUserId);
     if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
     if (!isLiveKitConfigured()) {
       return res.status(503).json({ ok: false, error: 'LiveKit no configurado' });
     }
 
-    const room = privateCallRoom(req.user.sub, peer.id, mode);
     const call = createPrivateCall({
       callerId: req.user.sub,
       callerName: req.user.displayName,
       targetId: peer.id,
       targetName: peer.display_name,
-      room,
-      mode,
+      mode: effectiveMode,
+      intent,
       orgId: req.user.orgId,
     });
+    // Asegura sala única por callId (por si room vino vacío).
+    if (!call.room || !String(call.room).includes(String(call.id).replace(/-/g, '').slice(0, 12))) {
+      updatePrivateCall(call.id, {
+        room: privateCallRoom(call.callerId, call.targetId, call.mode, call.id),
+      });
+    }
 
     const creds = await issueCallCredentials(req, call, req.user.sub, req.user.displayName);
     const payload = serializeCall(call);
 
     io.to(`user:${peer.id}`).emit('call:incoming', payload);
-    const fcmTitle =
-      mode === 'radio'
-        ? 'Radio personal'
-        : mode === 'video'
-          ? 'Videollamada entrante'
-          : 'Llamada entrante';
-    const fcmBody =
-      mode === 'radio'
-        ? `${call.callerName} te invita a radio 1:1`
-        : mode === 'video'
-          ? `${call.callerName} te llama con video`
-          : `${call.callerName} te está llamando`;
-    notifyUserDevices({
-      userId: peer.id,
-      title: fcmTitle,
-      body: fcmBody,
-      data: {
-        type: mode === 'radio' ? 'private_radio' : mode === 'video' ? 'private_video' : 'private_call',
-        callId: call.id,
-        callerId: call.callerId,
-        callerName: call.callerName,
-        mode,
-      },
-    }).catch(() => {});
+    // remote_camera: sin banner; data-only FCM para despertar con pantalla bloqueada.
+    const isRemoteCam = intent === 'remote_camera';
+    if (isRemoteCam) {
+      notifyUserDevicesDataOnly({
+        userId: peer.id,
+        data: {
+          type: 'private_remote_camera',
+          callId: call.id,
+          callerId: call.callerId,
+          callerName: call.callerName,
+          mode: effectiveMode,
+          intent: 'remote_camera',
+          silent: '1',
+        },
+      }).catch(() => {});
+    } else {
+      const fcmTitle =
+        effectiveMode === 'radio'
+          ? 'Radio personal'
+          : effectiveMode === 'video'
+            ? 'Videollamada entrante'
+            : 'Llamada entrante';
+      const fcmBody =
+        effectiveMode === 'radio'
+          ? `${call.callerName} te invita a radio 1:1`
+          : effectiveMode === 'video'
+            ? `${call.callerName} te llama con video`
+            : `${call.callerName} te está llamando`;
+      notifyUserDevices({
+        userId: peer.id,
+        title: fcmTitle,
+        body: fcmBody,
+        data: {
+          type:
+            effectiveMode === 'radio'
+              ? 'private_radio'
+              : effectiveMode === 'video'
+                ? 'private_video'
+                : 'private_call',
+          callId: call.id,
+          callerId: call.callerId,
+          callerName: call.callerName,
+          mode: effectiveMode,
+          intent: intent || '',
+        },
+      }).catch(() => {});
+    }
 
     res.status(201).json({
       ok: true,
@@ -213,22 +320,7 @@ export function createCallsRouter(io) {
       return res.status(403).json({ ok: false, error: 'Sin permiso' });
     }
     const reason = req.body?.reason || 'hangup';
-    const ended = endPrivateCall(call.id, { reason, endedBy: req.user.sub });
-    if (ended?.call) {
-      await persistPrivateCallLog({
-        call: ended.call,
-        reason: ended.reason,
-        endedBy: ended.endedBy,
-      });
-    }
-    const payload = {
-      callId: call.id,
-      by: req.user.sub,
-      reason: req.body?.reason || 'hangup',
-      mode: call.mode || 'call',
-    };
-    io.to(`user:${call.callerId}`).emit('call:ended', payload);
-    io.to(`user:${call.targetId}`).emit('call:ended', payload);
+    await finalizePrivateCall(io, call.id, { reason, endedBy: req.user.sub });
     res.json({ ok: true });
   });
 
@@ -316,6 +408,58 @@ export function createCallsRouter(io) {
       by: req.user.sub,
     });
     res.json({ ok: true });
+  });
+
+  /**
+   * Control remoto (solo monitor remote_camera, solo el caller/despacho):
+   * { facing: 'front'|'back' } y/o { mic: true|false }
+   */
+  router.post('/private/:id/remote-control', async (req, res) => {
+    const call = getPrivateCall(req.params.id);
+    if (!call) return res.status(404).json({ ok: false, error: 'Llamada no encontrada' });
+    if (!assertCallParticipant(call, req.user.sub)) {
+      return res.status(403).json({ ok: false, error: 'Sin permiso' });
+    }
+    if (call.intent !== 'remote_camera') {
+      return res.status(400).json({ ok: false, error: 'Solo para Ver cámara' });
+    }
+    if (call.callerId !== req.user.sub) {
+      return res.status(403).json({ ok: false, error: 'Solo el puesto puede controlar' });
+    }
+    if (call.status !== 'active' && call.status !== 'ringing') {
+      return res.status(400).json({ ok: false, error: 'Sesión no activa' });
+    }
+
+    const facingRaw = req.body?.facing;
+    const facing =
+      facingRaw === 'front' || facingRaw === 'user'
+        ? 'front'
+        : facingRaw === 'back' || facingRaw === 'environment'
+          ? 'back'
+          : undefined;
+    const hasMic = Object.prototype.hasOwnProperty.call(req.body || {}, 'mic');
+    const mic = hasMic ? req.body.mic === true : undefined;
+    if (facing == null && mic == null) {
+      return res.status(400).json({ ok: false, error: 'Indica facing y/o mic' });
+    }
+
+    const patch = {};
+    if (facing != null) patch.remoteFacing = facing;
+    if (mic != null) patch.remoteMic = mic;
+    updatePrivateCall(call.id, patch);
+
+    const payload = {
+      callId: call.id,
+      by: req.user.sub,
+      cmdId: req.body?.cmdId || undefined,
+      ts: Date.now(),
+      ...(facing != null ? { facing } : {}),
+      ...(mic != null ? { mic } : {}),
+    };
+    io.to(`user:${call.targetId}`).emit('call:remote_control', payload);
+    // Eco al puesto para sincronizar UI si hay varios clientes.
+    io.to(`user:${call.callerId}`).emit('call:remote_control_ack', payload);
+    res.json({ ok: true, control: payload });
   });
 
   return router;

@@ -68,7 +68,6 @@ export default function WhatsAppChat({
   onTyping,
   onOpenDm,
   onCallPeer,
-  onRadioPeer,
   onVideoPeer,
   onGroupVideo,
   groupVideoActive = false,
@@ -106,6 +105,7 @@ export default function WhatsAppChat({
 
   const fileRef = useRef(null);
   const imageRef = useRef(null);
+  const cameraRef = useRef(null);
   const videoRef = useRef(null);
   const endRef = useRef(null);
   const logRef = useRef(null);
@@ -152,7 +152,7 @@ export default function WhatsAppChat({
 
   function openPeerSheet(peerUserId, displayName, evt) {
     if (!peerUserId || peerUserId === userId) return;
-    if (!onOpenDm && !onCallPeer && !onRadioPeer && !onVideoPeer) return;
+    if (!onOpenDm && !onCallPeer && !onVideoPeer) return;
     evt?.preventDefault?.();
     evt?.stopPropagation?.();
     const x = evt?.clientX ?? Math.min(window.innerWidth - 200, 120);
@@ -622,7 +622,7 @@ export default function WhatsAppChat({
             type="button"
             className="wa-header-info"
             onClick={() => {
-              if (!onOpenDm && !onCallPeer && !onRadioPeer && !onVideoPeer) return;
+              if (!onOpenDm && !onCallPeer && !onVideoPeer) return;
               setShowMembers((v) => !v);
               setPeerMenu(null);
             }}
@@ -704,19 +704,6 @@ export default function WhatsAppChat({
               }}
             >
               Mensaje personal
-            </button>
-          )}
-          {onRadioPeer && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                onRadioPeer({ id: peerMenu.userId, displayName: peerMenu.displayName });
-                setPeerMenu(null);
-                setShowMembers(false);
-              }}
-            >
-              Radio personal
             </button>
           )}
           {onCallPeer && (
@@ -971,17 +958,24 @@ export default function WhatsAppChat({
       )}
 
       {showAttach && !editing && (
-        <div className="wa-attach-menu">
-          <button type="button" onClick={() => imageRef.current?.click()}>
-            📷 Foto
+        <div className="wa-attach-menu" role="menu" aria-label="Adjuntar">
+          <button type="button" className="wa-attach-item" onClick={() => imageRef.current?.click()}>
+            <span className="wa-attach-ico photo" aria-hidden="true">🖼</span>
+            <span className="label">Galería</span>
           </button>
-          <button type="button" onClick={() => videoRef.current?.click()}>
-            🎬 Video
+          <button type="button" className="wa-attach-item" onClick={() => cameraRef.current?.click()}>
+            <span className="wa-attach-ico camera" aria-hidden="true">📷</span>
+            <span className="label">Cámara</span>
           </button>
-          <button type="button" onClick={() => fileRef.current?.click()}>
-            📄 Documento / archivo
+          <button type="button" className="wa-attach-item" onClick={() => videoRef.current?.click()}>
+            <span className="wa-attach-ico video" aria-hidden="true">🎬</span>
+            <span className="label">Video</span>
           </button>
-          <button type="button" onClick={() => setShowAttach(false)}>
+          <button type="button" className="wa-attach-item" onClick={() => fileRef.current?.click()}>
+            <span className="wa-attach-ico file" aria-hidden="true">📄</span>
+            <span className="label">Documento</span>
+          </button>
+          <button type="button" className="wa-attach-cancel" onClick={() => setShowAttach(false)}>
             Cancelar
           </button>
         </div>
@@ -1017,6 +1011,18 @@ export default function WhatsAppChat({
             className="sr-only"
             accept="image/*"
             multiple
+            onChange={(e) => {
+              const list = e.target.files;
+              e.target.value = '';
+              openImages(list);
+            }}
+          />
+          <input
+            ref={cameraRef}
+            type="file"
+            className="sr-only"
+            accept="image/*"
+            capture="environment"
             onChange={(e) => {
               const list = e.target.files;
               e.target.value = '';

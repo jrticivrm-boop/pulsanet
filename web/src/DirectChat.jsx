@@ -16,7 +16,6 @@ import {
 import ChatMedia from './ChatMedia';
 import { warmUpVideoCallMedia } from './callMedia';
 import PrivateCallOverlay from './PrivateCallOverlay';
-import PrivateRadioBar from './PrivateRadioBar';
 import ImageGalleryLightbox, { collectImageMessages } from './ImageGalleryLightbox';
 import {
   notifyDmMessage,
@@ -117,10 +116,7 @@ export default function DirectChat({
   const [incomingCall, setIncomingCall] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
   const [callMenuOpen, setCallMenuOpen] = useState(false);
-  const [activeRadio, setActiveRadio] = useState(null);
   const [imageGallery, setImageGallery] = useState(null);
-  const radioBarRef = useRef(null);
-  const radioStartingRef = useRef(false);
 
   function openImageGallery(m) {
     const items = collectImageMessages(messages);
@@ -133,6 +129,7 @@ export default function DirectChat({
   const logRef = useRef(null);
   const peerRef = useRef(null);
   const imageRef = useRef(null);
+  const cameraRef = useRef(null);
   const videoRef = useRef(null);
   const fileRef = useRef(null);
   const activeRef = useRef(active);
@@ -329,31 +326,15 @@ export default function DirectChat({
     });
 
     socket.on('call:incoming', (payload) => {
-      // Radio personal: auto-unirse (como canal grupal), sin UI de llamada.
+      // Radio personal 1:1 retirada.
       if (payload?.mode === 'radio') {
         (async () => {
           try {
-            const data = await acceptPrivateCall(token, payload.callId);
-            setActiveRadio({
-              callId: data.call.callId,
-              room: data.call.room,
-              token: data.token,
-              authToken: token,
-              url: data.url,
-              peerName: payload.callerName,
-              role: 'callee',
-              e2eeKey: data.e2eeKey || null,
-              mode: 'radio',
-            });
-            notifyIncomingCall({
-              callerName: payload?.callerName,
-              callId: payload?.callId,
-              mode: 'radio',
-            });
-            stopCallRingtone();
-          } catch (e) {
-            setError(esMsg(e.message));
+            await endPrivateCall(token, payload.callId, 'reject');
+          } catch {
+            /* ignore */
           }
+          stopCallRingtone();
         })();
         return;
       }
@@ -373,8 +354,6 @@ export default function DirectChat({
       stopCallRingtone();
       setIncomingCall((c) => (c?.callId === callId ? null : c));
       setActiveCall((c) => (c?.callId === callId ? null : c));
-      setActiveRadio((c) => (c?.callId === callId ? null : c));
-      setRadioPttHeld(false);
     });
 
     return () => {
@@ -620,71 +599,25 @@ export default function DirectChat({
     }
   }
 
-  async function radioPeer() {
-    if (!peer || activeRadio || radioStartingRef.current) return;
-    radioStartingRef.current = true;
-    try {
-      const data = await startPrivateCall(token, peer.id, { mode: 'radio' });
-      setActiveRadio({
-        callId: data.call.callId,
-        peerId: peer.id,
-        room: data.call.room,
-        token: data.token,
-        authToken: token,
-        url: data.url,
-        peerName: peer.displayName,
-        role: 'caller',
-        e2eeKey: data.e2eeKey || null,
-        mode: 'radio',
-      });
-    } catch (e) {
-      setError(esMsg(e.message));
-    } finally {
-      radioStartingRef.current = false;
-    }
-  }
-
-  async function hangupRadio(opts) {
-    try {
-      if (activeRadio?.callId && opts?.remote !== true) {
-        await endPrivateCall(token, activeRadio.callId, 'hangup');
-      }
-    } catch {
-      /* ignore */
-    }
-    setActiveRadio(null);
-  }
-
   async function acceptCall() {
     if (!incomingCall) return;
     stopCallRingtone();
-    const mode =
-      incomingCall.mode === 'radio'
-        ? 'radio'
-        : incomingCall.mode === 'video'
-          ? 'video'
-          : 'call';
+    if (incomingCall.mode === 'radio') {
+      try {
+        await endPrivateCall(token, incomingCall.callId, 'reject');
+      } catch {
+        /* ignore */
+      }
+      setIncomingCall(null);
+      return;
+    }
+    const mode = incomingCall.mode === 'video' ? 'video' : 'call';
     if (mode === 'video') {
       await warmUpVideoCallMedia();
     }
     try {
       const data = await acceptPrivateCall(token, incomingCall.callId);
       setIncomingCall(null);
-      if (mode === 'radio') {
-        setActiveRadio({
-          callId: data.call.callId,
-          peerId: incomingCall.callerId || peer?.id,
-          room: data.call.room,
-          token: data.token,
-          authToken: token,
-          url: data.url,
-          peerName: incomingCall.callerName,
-          role: 'callee',
-          e2eeKey: data.e2eeKey || null,
-          mode: 'radio',
-        });
-        return;
-      }
       setActiveCall({
         callId: data.call.callId,
         peerId: incomingCall.callerId || peer?.id,
@@ -888,26 +821,11 @@ export default function DirectChat({
                       >
                         Videollamada
                       </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={Boolean(activeRadio)}
-                        onClick={() => {
-                          setCallMenuOpen(false);
-                          if (!activeRadio) radioPeer();
-                        }}
-                      >
-                        Radio personal (PTT)
-                      </button>
                     </div>
                   )}
                 </div>
               </div>
             </header>
-
-            {activeRadio && (
-              <PrivateRadioBar ref={radioBarRef} call={activeRadio} onHangup={hangupRadio} />
-            )}
 
             {error && <p className="error dm-error">{error}</p>}
 
@@ -981,17 +899,24 @@ export default function DirectChat({
             </div>
 
             {showAttach && (
-              <div className="wa-attach-menu dm-attach-menu">
-                <button type="button" onClick={() => imageRef.current?.click()}>
-                  📷 Foto
+              <div className="wa-attach-menu dm-attach-menu" role="menu" aria-label="Adjuntar">
+                <button type="button" className="wa-attach-item" onClick={() => imageRef.current?.click()}>
+                  <span className="wa-attach-ico photo" aria-hidden="true">🖼</span>
+                  <span className="label">Galería</span>
                 </button>
-                <button type="button" onClick={() => videoRef.current?.click()}>
-                  🎬 Video
+                <button type="button" className="wa-attach-item" onClick={() => cameraRef.current?.click()}>
+                  <span className="wa-attach-ico camera" aria-hidden="true">📷</span>
+                  <span className="label">Cámara</span>
                 </button>
-                <button type="button" onClick={() => fileRef.current?.click()}>
-                  📄 Documento / archivo
+                <button type="button" className="wa-attach-item" onClick={() => videoRef.current?.click()}>
+                  <span className="wa-attach-ico video" aria-hidden="true">🎬</span>
+                  <span className="label">Video</span>
                 </button>
-                <button type="button" onClick={() => setShowAttach(false)}>
+                <button type="button" className="wa-attach-item" onClick={() => fileRef.current?.click()}>
+                  <span className="wa-attach-ico file" aria-hidden="true">📄</span>
+                  <span className="label">Documento</span>
+                </button>
+                <button type="button" className="wa-attach-cancel" onClick={() => setShowAttach(false)}>
                   Cancelar
                 </button>
               </div>
@@ -1012,6 +937,18 @@ export default function DirectChat({
                   className="sr-only"
                   accept="image/*"
                   multiple
+                  onChange={(e) => {
+                    const list = e.target.files;
+                    e.target.value = '';
+                    openImages(list);
+                  }}
+                />
+                <input
+                  ref={cameraRef}
+                  type="file"
+                  className="sr-only"
+                  accept="image/*"
+                  capture="environment"
                   onChange={(e) => {
                     const list = e.target.files;
                     e.target.value = '';

@@ -28,7 +28,7 @@ import { registerChatHandlers } from './socket/chat.js';
 import { registerDispatchHandlers } from './socket/dispatch.js';
 import { registerDmHandlers } from './socket/dm.js';
 import { createDmRouter } from './routes/dm.js';
-import { createCallsRouter } from './routes/calls.js';
+import { createCallsRouter, startPrivateCallSweeper } from './routes/calls.js';
 import { createGroupVideoRouter } from './routes/groupVideo.js';
 import { createMeRouter, createAvatarsRouter } from './routes/me.js';
 import { createAppUpdateRouter } from './routes/appUpdate.js';
@@ -210,6 +210,7 @@ async function start() {
     console.log(`  Wire:   ${isWireEncryptionEnabled() ? 'on' : 'off'} (GPS socket)`);
     console.log(`  Content AES: ${isContentEncryptionReady() ? 'on' : 'off'}`);
     console.log(`  Voice E2EE: ${isVoiceE2eeReady() ? 'on' : 'off'}`);
+    startPrivateCallSweeper(io);
   });
 }
 

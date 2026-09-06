@@ -3,7 +3,6 @@ import { io } from 'socket.io-client';
 import WhatsAppChat from './WhatsAppChat';
 import DirectChat from './DirectChat';
 import PrivateCallOverlay from './PrivateCallOverlay';
-import PrivateRadioBar from './PrivateRadioBar';
 import { notifyIncomingMessage, setUnreadDocumentTitle, playMessageTone } from './appNotify';
 import { setActiveChatView, clearActiveChatView, showChatMessageToast, isViewingChat } from './chatNotify';
 import { warmUpVideoCallMedia } from './callMedia';
@@ -644,52 +643,10 @@ export default function ChatInbox({
                   window.alert(esMsg(e.message || e, 'No se pudo iniciar la videollamada'));
                 }
               }}
-              onRadioPeer={async (peer) => {
-                try {
-                  const data = await startPrivateCall(session.token, peer.id, { mode: 'radio' });
-                  setPeerCall({
-                    callId: data.call?.callId,
-                    peerId: peer.id,
-                    peerName: peer.displayName || 'Usuario',
-                    token: data.token,
-                    authToken: session.token,
-                    url: data.url,
-                    e2eeKey: data.e2eeKey,
-                    role: 'caller',
-                    mode: 'radio',
-                  });
-                  // Abrir DM del peer para usar radio en contexto de chat
-                  setSelected({
-                    kind: 'dm',
-                    id: peer.id,
-                    name: peer.displayName || 'Usuario',
-                  });
-                } catch (e) {
-                  window.alert(esMsg(e.message || e, 'No se pudo iniciar la radio'));
-                }
-              }}
               onGroupVideo={() =>
                 openGroupVideo(selected.id, selected.name || group?.name || 'Grupo')
               }
               groupVideoActive={Boolean(groupVideoLive[selected.id])}
-            />
-          </div>
-        )}
-
-        {peerCall?.mode === 'radio' && (
-          <div className="wa-inbox-radio-dock">
-            <PrivateRadioBar
-              call={peerCall}
-              onHangup={async (opts) => {
-                try {
-                  if (peerCall.callId && opts?.remote !== true) {
-                    await endPrivateCall(session.token, peerCall.callId, 'hangup');
-                  }
-                } catch {
-                  /* ignore */
-                }
-                setPeerCall(null);
-              }}
             />
           </div>
         )}

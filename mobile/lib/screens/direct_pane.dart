@@ -20,10 +20,10 @@ import '../chat_bubble_style.dart';
 import '../theme.dart';
 import '../user_display.dart';
 import '../audio_session_setup.dart';
+import '../widgets/chat_attach_sheet.dart';
 import '../widgets/chat_emoji_panel.dart';
 import '../widgets/tactical_backdrop.dart';
 import '../widgets/user_avatar.dart';
-import 'personal_radio_bar.dart';
 import 'private_call_screen.dart';
 
 /// Contactos, chat 1:1 y llamada privada.
@@ -34,8 +34,6 @@ class DirectPane extends StatefulWidget {
     required this.onBack,
     this.initialPeerId,
     this.threadOnly = false,
-    this.initialStartRadio = false,
-    this.initialPersonalRadio,
   });
 
   final ApiClient api;
@@ -44,10 +42,6 @@ class DirectPane extends StatefulWidget {
   final String? initialPeerId;
   /// Solo hilo (desde inbox): sin lista de contactos; atrás cierra la ruta.
   final bool threadOnly;
-  /// Al abrir el hilo, inicia radio personal (barra PTT arriba del chat).
-  final bool initialStartRadio;
-  /// Sesión ya aceptada (callee): muestra barra PTT sin llamar de nuevo.
-  final Map<String, dynamic>? initialPersonalRadio;
 
   @override
   State<DirectPane> createState() => _DirectPaneState();
@@ -66,11 +60,6 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
   bool _showEmojiPanel = false;
   Map<String, dynamic>? _replyTo;
   Map<String, String>? _pinned;
-  /// Sesión radio personal activa (barra PTT, no pantalla de llamada).
-  Map<String, dynamic>? _personalRadio;
-  final GlobalKey<PersonalRadioBarState> _radioKey = GlobalKey<PersonalRadioBarState>();
-  bool _radioStartScheduled = false;
-
   String? get _pinScope {
     final id = _peer?['id']?.toString();
     return id == null ? null : 'dm:$id';
@@ -89,17 +78,6 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
       unawaited(_loadContactsInBackground());
     } else {
       _load();
-    }
-    final seed = widget.initialPersonalRadio;
-    if (seed != null && seed['callId'] != null) {
-      _personalRadio = Map<String, dynamic>.from(seed);
-    }
-    if (widget.initialStartRadio && _personalRadio == null && !_radioStartScheduled) {
-      _radioStartScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _personalRadio != null) return;
-        unawaited(_startCall(mode: 'radio'));
-      });
     }
   }
 
@@ -581,42 +559,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
 
   Future<void> _openAttachMenu() async {
     if (_uploading || _peer == null) return;
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: kInstSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: kInstOlive),
-              title: const Text('Galería'),
-              onTap: () => Navigator.pop(ctx, 'gallery'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined, color: kInstOlive),
-              title: const Text('Cámara'),
-              onTap: () => Navigator.pop(ctx, 'camera'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.videocam_outlined, color: kInstOlive),
-              title: const Text('Video'),
-              onTap: () => Navigator.pop(ctx, 'video'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.attach_file, color: kInstOlive),
-              title: const Text('Documento o archivo'),
-              subtitle: const Text('PDF, Word, Excel, ZIP, RAR…'),
-              onTap: () => Navigator.pop(ctx, 'file'),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
+    final choice = await showChatAttachSheet(context);
     if (!mounted || choice == null) return;
     if (choice == 'gallery') {
       await _pickImage(ImageSource.gallery);
@@ -634,6 +577,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     required String filename,
     String? mime,
     required String type,
+    String? caption,
   }) async {
     final peer = _peer;
     if (peer == null) return;
@@ -645,7 +589,9 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
         filename: filename,
         mime: mime,
         type: type,
-        body: _draft.text.trim().isEmpty ? null : _draft.text.trim(),
+        body: (caption != null && caption.isNotEmpty)
+            ? caption
+            : (_draft.text.trim().isEmpty ? null : _draft.text.trim()),
         replyToId: _replyTo?['id']?.toString(),
       );
       _draft.clear();
@@ -669,13 +615,27 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     await Permission.camera.request();
     await AudioSessionSetup.pauseForCamera();
     try {
-      final x = await ImagePicker().pickImage(source: source, imageQuality: 85);
+      final x = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 92,
+        maxWidth: 1920,
+      );
       if (x == null) return;
+      if (!mounted) return;
+      final caption = await showMediaSendConfirm(
+        context,
+        path: x.path,
+        kind: 'image',
+        filename: x.name,
+        initialCaption: _draft.text.trim().isEmpty ? null : _draft.text.trim(),
+      );
+      if (caption == null) return;
       await _sendMediaFile(
         path: x.path,
         filename: x.name,
         mime: x.mimeType,
         type: 'image',
+        caption: caption,
       );
     } finally {
       await AudioSessionSetup.resumeAfterCamera();
@@ -689,11 +649,21 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
       maxDuration: const Duration(minutes: 5),
     );
     if (x == null) return;
+    if (!mounted) return;
+    final caption = await showMediaSendConfirm(
+      context,
+      path: x.path,
+      kind: 'video',
+      filename: x.name,
+      initialCaption: _draft.text.trim().isEmpty ? null : _draft.text.trim(),
+    );
+    if (caption == null) return;
     await _sendMediaFile(
       path: x.path,
       filename: x.name,
       mime: x.mimeType ?? 'video/mp4',
       type: 'video',
+      caption: caption,
     );
   }
 
@@ -701,10 +671,20 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     final result = await FilePicker.platform.pickFiles(withData: false, type: FileType.any);
     final f = result?.files.single;
     if (f?.path == null) return;
-    await _sendMediaFile(
+    if (!mounted) return;
+    final caption = await showMediaSendConfirm(
+      context,
       path: f!.path!,
+      kind: 'file',
+      filename: f.name,
+      initialCaption: _draft.text.trim().isEmpty ? null : _draft.text.trim(),
+    );
+    if (caption == null) return;
+    await _sendMediaFile(
+      path: f.path!,
       filename: f.name,
       type: classifyUploadName(f.name),
+      caption: caption,
     );
   }
 
@@ -896,32 +876,18 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
   Future<void> _startCall({String mode = 'call'}) async {
     final peer = _peer;
     if (peer == null) return;
-    final isRadio = mode == 'radio';
+    if (mode == 'radio') return;
     final isVideo = mode == 'video';
-    if (isRadio && _personalRadio != null) return;
     if (isVideo) {
       await Permission.camera.request();
     }
     try {
       final data = await widget.api.startPrivateCall(
         peer['id'] as String,
-        mode: isRadio ? 'radio' : (isVideo ? 'video' : 'call'),
+        mode: isVideo ? 'video' : 'call',
       );
       if (!mounted) return;
       final call = data['call'] as Map? ?? {};
-      if (isRadio) {
-        setState(() {
-          _personalRadio = {
-            'callId': call['callId']?.toString() ?? '',
-            'peerName': userDisplayLabel(peer),
-            'token': data['token'] as String,
-            'url': AppConfig.publicLiveKitUrl(data['url'] as String),
-            'role': 'caller',
-            'e2eeKey': data['e2eeKey']?.toString(),
-          };
-        });
-        return;
-      }
       await Navigator.of(context).push(
         PrivateCallScreen.route(
           child: PrivateCallScreen(
@@ -1040,18 +1006,6 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                         ),
                       ),
                       IconButton(
-                        tooltip: _personalRadio == null
-                            ? 'Radio personal'
-                            : 'Radio activa (usa PTT arriba)',
-                        onPressed: _personalRadio == null
-                            ? () => _startCall(mode: 'radio')
-                            : null,
-                        icon: Icon(
-                          Icons.cell_tower,
-                          color: _personalRadio != null ? kTacGold : kTacOnSurface,
-                        ),
-                      ),
-                      IconButton(
                         tooltip: 'Llamada privada',
                         onPressed: () => _startCall(mode: 'call'),
                         icon: const Icon(Icons.call, color: kTacOnSurface),
@@ -1098,20 +1052,6 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                 ),
               ),
             ),
-            if (_personalRadio != null)
-              PersonalRadioBar(
-                key: _radioKey,
-                api: widget.api,
-                callId: _personalRadio!['callId'] as String,
-                peerName: _personalRadio!['peerName'] as String,
-                token: _personalRadio!['token'] as String,
-                url: _personalRadio!['url'] as String,
-                role: _personalRadio!['role'] as String? ?? 'caller',
-                e2eeKey: _personalRadio!['e2eeKey'] as String?,
-                onClosed: () {
-                  if (mounted) setState(() => _personalRadio = null);
-                },
-              ),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -1322,7 +1262,15 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                                                                 padding: const EdgeInsets.symmetric(vertical: 4),
                                                                 child: Text(
                                                                   sticker['value']?.toString() ?? '🎭',
-                                                                  style: const TextStyle(fontSize: 52),
+                                                                  style: const TextStyle(
+                                                                    fontSize: 72,
+                                                                    height: 1.05,
+                                                                    fontFamilyFallback: [
+                                                                      'Noto Color Emoji',
+                                                                      'Segoe UI Emoji',
+                                                                      'Apple Color Emoji',
+                                                                    ],
+                                                                  ),
                                                                 ),
                                                               ),
                                                             if (mediaUrl != null && mediaUrl.isNotEmpty)

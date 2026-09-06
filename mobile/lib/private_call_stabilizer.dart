@@ -6,7 +6,8 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'api_client.dart';
 import 'config.dart';
 
-/// Estabilizador virtual: mantiene llamadas voz/radio/video ante caídas breves.
+/// Estabilizador suave: deja que LiveKit reconecte; no cuelga por microcortes.
+/// Tras N ciclos de grace/reconnect, abandona (onGiveUp / onRemoteEnd).
 class PrivateCallStabilizer {
   PrivateCallStabilizer({
     required this.api,
@@ -17,7 +18,11 @@ class PrivateCallStabilizer {
     required this.onStatus,
     required this.onRemoteEnd,
     required this.isClosing,
+    this.onGiveUp,
     this.peerLabel = 'el otro usuario',
+    this.peerGrace = const Duration(seconds: 45),
+    this.maxPeerGraceCycles = 5,
+    this.maxReconnectCycles = 6,
   });
 
   final ApiClient api;
@@ -27,31 +32,48 @@ class PrivateCallStabilizer {
   final String liveKitToken;
   final void Function(String status) onStatus;
   final Future<void> Function() onRemoteEnd;
+  /// Si se agotan reintentos: cuelga en servidor + cierra UI.
+  final Future<void> Function()? onGiveUp;
   final bool Function() isClosing;
   final String peerLabel;
+  final Duration peerGrace;
+  final int maxPeerGraceCycles;
+  final int maxReconnectCycles;
 
-  static const _peerGrace = Duration(seconds: 28);
-  static const _pingEvery = Duration(seconds: 15);
+  static const _pingEvery = Duration(seconds: 25);
   static const _reconnectDelays = [
-    Duration(milliseconds: 400),
-    Duration(milliseconds: 800),
-    Duration(milliseconds: 1600),
-    Duration(milliseconds: 3200),
-    Duration(milliseconds: 6000),
-    Duration(seconds: 10),
+    Duration(seconds: 3),
+    Duration(seconds: 6),
+    Duration(seconds: 12),
+    Duration(seconds: 20),
   ];
 
   Timer? _peerGraceTimer;
   Timer? _pingTimer;
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
+  int _peerGraceCycles = 0;
+  int _reconnectCycles = 0;
   EventsListener<RoomEvent>? _listener;
   bool _disposed = false;
+  DateTime _quietUntil = DateTime.fromMillisecondsSinceEpoch(0);
+
+  bool get _busy =>
+      room.connectionState == ConnectionState.connected ||
+      room.connectionState == ConnectionState.reconnecting ||
+      room.connectionState == ConnectionState.connecting;
+
+  Future<void> _abandon(String status) async {
+    if (_disposed || isClosing()) return;
+    onStatus(status);
+    final fn = onGiveUp ?? onRemoteEnd;
+    await fn();
+  }
 
   void attach({io.Socket? signalSocket}) {
     _pingTimer = Timer.periodic(_pingEvery, (_) {
       if (_disposed || isClosing()) return;
-      unawaited(api.pingPrivateCall(callId).catchError((_) => <String, dynamic>{}));
+      unawaited(_pingOrDie());
     });
 
     signalSocket?.onConnect((_) => _resyncFromBackend());
@@ -64,17 +86,54 @@ class PrivateCallStabilizer {
     listener.on<ParticipantConnectedEvent>((_) {
       _cancelPeerGrace();
       _reconnectAttempt = 0;
-      onStatus('En llamada');
+      _peerGraceCycles = 0;
+      _reconnectCycles = 0;
+      _quietUntil = DateTime.now().add(const Duration(seconds: 4));
     });
-    listener.on<RoomReconnectingEvent>((_) => onStatus('Reconectando…'));
+    listener.on<RoomReconnectingEvent>((_) {
+      if (DateTime.now().isBefore(_quietUntil)) return;
+      onStatus('Reconectando…');
+    });
     listener.on<RoomReconnectedEvent>((_) {
       _cancelPeerGrace();
+      _reconnectTimer?.cancel();
       _reconnectAttempt = 0;
-      onStatus('Conexión restaurada');
+      _peerGraceCycles = 0;
+      _reconnectCycles = 0;
+      _quietUntil = DateTime.now().add(const Duration(seconds: 6));
     });
-    listener.on<RoomDisconnectedEvent>((_) => _scheduleReconnect());
+    listener.on<RoomDisconnectedEvent>((e) {
+      if (e.reason == DisconnectReason.clientInitiated ||
+          e.reason == DisconnectReason.roomDeleted ||
+          e.reason == DisconnectReason.duplicateIdentity) {
+        return;
+      }
+      _reconnectTimer?.cancel();
+      _reconnectTimer = Timer(const Duration(milliseconds: 2500), () {
+        if (_disposed || isClosing()) return;
+        if (room.connectionState == ConnectionState.disconnected) {
+          _scheduleReconnect();
+        }
+      });
+    });
   }
 
+  Future<void> _pingOrDie() async {
+    try {
+      await api.pingPrivateCall(callId);
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('404') ||
+          msg.contains('no encontrada') ||
+          msg.contains('not found') ||
+          msg.contains('finalizada') ||
+          msg.contains('ended')) {
+        await onRemoteEnd();
+      }
+    }
+  }
+
+  /// true = sigue activa; false = terminada en servidor.
   Future<bool> _verifyCallActive() async {
     try {
       final data = await api.fetchPrivateCall(callId);
@@ -82,8 +141,17 @@ class PrivateCallStabilizer {
       if (call is! Map) return false;
       final status = call['status']?.toString();
       return status != null && status != 'ended';
-    } catch (_) {
-      return false;
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('404') ||
+          msg.contains('no encontrada') ||
+          msg.contains('not found') ||
+          msg.contains('finalizada') ||
+          msg.contains('ended')) {
+        return false;
+      }
+      // Blip de red: no dar por muerta.
+      return true;
     }
   }
 
@@ -95,44 +163,65 @@ class PrivateCallStabilizer {
   void _schedulePeerGrace() {
     if (_disposed || isClosing()) return;
     _cancelPeerGrace();
-    onStatus('Reconectando con $peerLabel…');
-    _peerGraceTimer = Timer(_peerGrace, () async {
+    _peerGraceTimer = Timer(const Duration(seconds: 8), () {
       if (_disposed || isClosing()) return;
-      final alive = await _verifyCallActive();
-      if (!alive) {
-        await onRemoteEnd();
-        return;
-      }
-      onStatus('Conexión inestable — manteniendo llamada…');
-      _schedulePeerGrace();
+      if (DateTime.now().isBefore(_quietUntil)) return;
+      onStatus('Reconectando con $peerLabel…');
+      _peerGraceTimer = Timer(peerGrace, () async {
+        if (_disposed || isClosing()) return;
+        final alive = await _verifyCallActive();
+        if (!alive) {
+          await onRemoteEnd();
+          return;
+        }
+        _peerGraceCycles += 1;
+        if (_peerGraceCycles >= maxPeerGraceCycles) {
+          await _abandon('Sin respuesta del otro usuario');
+          return;
+        }
+        onStatus('Conexión inestable — manteniendo llamada…');
+        _schedulePeerGrace();
+      });
     });
   }
 
   void _scheduleReconnect() {
-    if (_disposed || isClosing()) return;
+    if (_disposed || isClosing() || _busy) return;
+    if (_reconnectCycles >= maxReconnectCycles) {
+      unawaited(_abandon('No se pudo restaurar la conexión'));
+      return;
+    }
     if (_reconnectAttempt >= _reconnectDelays.length) {
       _reconnectAttempt = 0;
+      _reconnectCycles += 1;
     }
     final delay = _reconnectDelays[_reconnectAttempt];
     _reconnectAttempt += 1;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(delay, () async {
-      if (_disposed || isClosing()) return;
+      if (_disposed || isClosing() || _busy) return;
       final alive = await _verifyCallActive();
       if (!alive) {
         await onRemoteEnd();
         return;
       }
       try {
-        onStatus('Restaurando audio y video…');
+        onStatus('Restaurando enlace…');
         final fresh = await api.refreshPrivateCall(callId);
         final url = AppConfig.publicLiveKitUrl(fresh['url']?.toString() ?? liveKitUrl);
         final token = fresh['token']?.toString() ?? liveKitToken;
-        if (room.connectionState == ConnectionState.connected) return;
+        if (_busy) return;
         await room.connect(url, token);
         _reconnectAttempt = 0;
-        onStatus('Conexión restaurada');
-      } catch (_) {
+        _reconnectCycles = 0;
+        _quietUntil = DateTime.now().add(const Duration(seconds: 5));
+        onStatus('Enlace restaurado');
+      } catch (e) {
+        final msg = e.toString().toLowerCase();
+        if (msg.contains('404') || msg.contains('no encontrada') || msg.contains('not found')) {
+          await onRemoteEnd();
+          return;
+        }
         _scheduleReconnect();
       }
     });
@@ -140,14 +229,19 @@ class PrivateCallStabilizer {
 
   Future<void> _resyncFromBackend() async {
     if (_disposed || isClosing()) return;
-    final alive = await _verifyCallActive();
-    if (!alive) {
-      await onRemoteEnd();
-      return;
-    }
+    _quietUntil = DateTime.now().add(const Duration(seconds: 3));
     try {
       await api.pingPrivateCall(callId);
-    } catch (_) {}
+    } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('404') ||
+          msg.contains('no encontrada') ||
+          msg.contains('not found') ||
+          msg.contains('finalizada')) {
+        await onRemoteEnd();
+        return;
+      }
+    }
     if (room.connectionState == ConnectionState.disconnected) {
       _scheduleReconnect();
     }

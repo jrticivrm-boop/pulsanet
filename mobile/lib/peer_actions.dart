@@ -68,12 +68,6 @@ Future<void> showChannelPeerActions({
               onTap: () => Navigator.pop(ctx, 'dm'),
             ),
             ListTile(
-              leading: const Icon(Icons.cell_tower, color: kInstOlive),
-              title: const Text('Radio personal'),
-              subtitle: const Text('PTT 1:1 (mantener para hablar)'),
-              onTap: () => Navigator.pop(ctx, 'radio'),
-            ),
-            ListTile(
               leading: const Icon(Icons.call, color: kInstOlive),
               title: const Text('Llamada personal'),
               subtitle: const Text('Llamada de voz privada'),
@@ -102,22 +96,6 @@ Future<void> showChannelPeerActions({
           api: api,
           initialPeerId: peerId,
           threadOnly: true,
-          onBack: () => nav.popUntil((route) => route.isFirst),
-        ),
-      ),
-    );
-    return;
-  }
-
-  if (choice == 'radio') {
-    final nav = Navigator.of(context);
-    await nav.push<void>(
-      MaterialPageRoute(
-        builder: (_) => DirectPane(
-          api: api,
-          initialPeerId: peerId,
-          threadOnly: true,
-          initialStartRadio: true,
           onBack: () => nav.popUntil((route) => route.isFirst),
         ),
       ),

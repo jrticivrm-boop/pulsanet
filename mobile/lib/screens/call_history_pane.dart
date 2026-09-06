@@ -156,15 +156,12 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
   }
 
   Future<void> _startCall(String peerId, String peerName, String mode) async {
+    if (mode == 'radio') return;
     if (mode == 'video') await Permission.camera.request();
     try {
       final data = await widget.api.startPrivateCall(peerId, mode: mode);
       if (!mounted) return;
       final call = data['call'] as Map? ?? {};
-      if (mode == 'radio') {
-        await widget.onOpenDm(peerId, peerName);
-        return;
-      }
       await Navigator.of(context).push(
         PrivateCallScreen.route(
           child: PrivateCallScreen(
@@ -246,11 +243,6 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
               title: const Text('Videollamada'),
               onTap: () => Navigator.pop(ctx, 'video'),
             ),
-            ListTile(
-              leading: const Icon(Icons.cell_tower, color: kInstOlive),
-              title: const Text('Radio personal'),
-              onTap: () => Navigator.pop(ctx, 'radio'),
-            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -263,8 +255,6 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
       await _startCall(peerId, peerName, 'call');
     } else if (choice == 'video') {
       await _startCall(peerId, peerName, 'video');
-    } else if (choice == 'radio') {
-      await _startCall(peerId, peerName, 'radio');
     }
   }
 

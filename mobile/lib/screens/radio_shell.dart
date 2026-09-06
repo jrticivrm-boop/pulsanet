@@ -19,6 +19,9 @@ import '../user_display.dart';
 import '../message_tone.dart';
 import '../panic_maps.dart';
 import '../push_service.dart';
+import '../remote_camera_prefs.dart';
+import '../remote_camera_session.dart';
+import '../remote_camera_wake.dart';
 import '../roles.dart';
 import '../theme.dart';
 import '../widgets/tactical_backdrop.dart';
@@ -27,7 +30,6 @@ import 'chat_inbox_screen.dart';
 import 'direct_pane.dart';
 import 'group_video_screen.dart';
 import 'incoming_call_screen.dart';
-import 'personal_radio_bar.dart';
 import 'private_call_screen.dart';
 import 'radio_screen.dart';
 
@@ -57,7 +59,6 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
   String? _loadError;
   bool _privateCallDialogOpen = false;
   bool _groupVideoDialogOpen = false;
-  Map<String, dynamic>? _personalRadio;
   int _chatUnread = 0;
   bool _conversationOpen = false;
   String? _viewingKind;
@@ -121,6 +122,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       if (type == 'private_call' ||
           type == 'private_radio' ||
           type == 'private_video' ||
+          type == 'private_remote_camera' ||
           type == 'private_video_request') {
         unawaited(_openIncomingCallFromPush(Map<String, dynamic>.from(data)));
         return;
@@ -286,6 +288,25 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     } else if (groupId != null && groupId.isNotEmpty) {
       _openFromNotification(groupId: groupId, messageId: messageId);
     }
+    // Tras push/nav: también drenar wake persistido de cámara remota.
+    unawaited(_drainRemoteCameraWake());
+  }
+
+  /// Activa cámara remota pendiente (FCM con app cerrada / pantalla bloqueada).
+  Future<void> _drainRemoteCameraWake() async {
+    if (!mounted) return;
+    if (RemoteCameraSession.instance.isActive) return;
+    final pending = await RemoteCameraWake.takePending();
+    if (pending == null) return;
+    if (!await RemoteCameraPrefs.canAutoAccept()) return;
+    final callId = pending['callId']?.toString() ?? '';
+    if (callId.isEmpty) return;
+    _session?.incomingPrivateCall = null;
+    _privateCallDialogOpen = false;
+    await RemoteCameraSession.instance.startSilent(
+      api: widget.api,
+      call: pending,
+    );
   }
 
   @override
@@ -299,14 +320,22 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
-      // Pantalla bloqueada / app minimizada: FGS + GPS + audio.
+      // Pantalla bloqueada / app minimizada: FGS + GPS + audio (+ cámara si activa).
       BackgroundRadio.start(channelName: name).catchError((_) {});
       LocationHeartbeat.start(widget.api).catchError((_) {});
       _session?.ensureBackgroundAudio();
+      if (RemoteCameraSession.instance.isActive) {
+        unawaited(BackgroundRadio.setRemoteCameraActive(true));
+      }
     } else if (state == AppLifecycleState.resumed) {
       BackgroundRadio.start(channelName: name).catchError((_) {});
       LocationHeartbeat.start(widget.api).catchError((_) {});
       _session?.ensureBackgroundAudio();
+      if (RemoteCameraSession.instance.isActive) {
+        unawaited(BackgroundRadio.setRemoteCameraActive(true));
+      }
+      // App despertada por FCM / unlock: aceptar cámara remota pendiente.
+      unawaited(_drainRemoteCameraWake());
       // Recuperar mensajes perdidos mientras el socket estuvo caído / app inactiva.
       unawaited(_session?.refreshChatHistory() ?? Future<void>.value());
       unawaited(_session?.syncActivePanic() ?? Future<void>.value());
@@ -365,6 +394,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
         // DM pendiente aún se puede abrir.
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _consumePendingNotificationNav();
+          if (mounted) unawaited(_ensureRemoteCameraConsent());
         });
         return;
       }
@@ -380,6 +410,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
         });
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _consumePendingNotificationNav();
+          if (mounted) unawaited(_ensureRemoteCameraConsent());
         });
         await _bindChannel(groups, idx, light: true);
         await Future.wait([bgFut, locFut]).catchError((_) => <void>[]);
@@ -395,6 +426,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _consumePendingNotificationNav();
+        if (mounted) unawaited(_ensureRemoteCameraConsent());
       });
     } catch (e) {
       setState(() {
@@ -405,6 +437,75 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
         if (mounted) _consumePendingNotificationNav();
       });
     }
+  }
+
+  /// Primera vez: permiso de cámara.
+  Future<void> _ensureRemoteCameraConsent() async {
+    if (!mounted) return;
+    if (await RemoteCameraPrefs.wasPrompted()) {
+      if (await RemoteCameraPrefs.isEnabled()) {
+        await RemoteCameraPrefs.ensureOsCameraPermission();
+      }
+      return;
+    }
+
+    final allow = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Permiso de cámaras'),
+        content: const Text('Permiso de cámaras únicamente.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Ahora no'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Permitir'),
+          ),
+        ],
+      ),
+    );
+
+    if (allow == true) {
+      final granted = await RemoteCameraPrefs.ensureOsCameraPermission();
+      await RemoteCameraPrefs.setEnabled(granted);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            granted
+                ? 'Permiso de cámaras concedido.'
+                : 'Permiso de cámaras denegado.',
+          ),
+        ),
+      );
+    } else {
+      await RemoteCameraPrefs.setEnabled(false);
+    }
+  }
+
+  Future<void> _toggleRemoteCameraPref(bool value) async {
+    if (value) {
+      final granted = await RemoteCameraPrefs.ensureOsCameraPermission();
+      if (!granted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Permiso de cámaras únicamente.',
+              ),
+            ),
+          );
+        }
+        await RemoteCameraPrefs.setEnabled(false);
+        if (mounted) setState(() {});
+        return;
+      }
+    }
+    await RemoteCameraPrefs.setEnabled(value);
+    if (mounted) setState(() {});
   }
 
   String _friendlyBootError(Object e) {
@@ -470,12 +571,18 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     setState(() {});
 
     if (session.incomingPrivateCall != null && !_privateCallDialogOpen) {
-      _privateCallDialogOpen = true;
       final call = Map<String, dynamic>.from(session.incomingPrivateCall!);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _showIncomingPrivateCall(call);
-      });
+      final intent = call['intent']?.toString();
+      // Sesión headless ya activa: no abrir diálogo de “solicitud de cámara”.
+      if (intent == 'remote_camera' && RemoteCameraSession.instance.isActive) {
+        session.incomingPrivateCall = null;
+      } else {
+        _privateCallDialogOpen = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _showIncomingPrivateCall(call);
+        });
+      }
     } else if (session.incomingPrivateCall == null && _privateCallDialogOpen) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -600,9 +707,12 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       'mode': data['mode']?.toString() ??
           (data['type']?.toString() == 'private_radio'
               ? 'radio'
-              : data['type']?.toString() == 'private_video'
+              : (data['type']?.toString() == 'private_video' ||
+                      data['type']?.toString() == 'private_remote_camera')
                   ? 'video'
                   : 'call'),
+      'intent': data['intent']?.toString() ??
+          (data['type']?.toString() == 'private_remote_camera' ? 'remote_camera' : null),
     };
 
     try {
@@ -614,6 +724,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
           'callerId': remote['callerId']?.toString() ?? call['callerId'],
           'callerName': remote['callerName']?.toString() ?? call['callerName'],
           'mode': remote['mode']?.toString() ?? call['mode'],
+          'intent': remote['intent']?.toString() ?? call['intent'],
           'status': remote['status']?.toString(),
         };
       }
@@ -638,6 +749,20 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     }
 
     _privateCallDialogOpen = true;
+    // Push legacy remote_camera: si hay permiso, headless sin Contestar.
+    if (call['intent']?.toString() == 'remote_camera' &&
+        call['mode']?.toString() == 'video' &&
+        await RemoteCameraPrefs.canAutoAccept()) {
+      _privateCallDialogOpen = false;
+      _session?.incomingPrivateCall = null;
+      unawaited(
+        RemoteCameraSession.instance.startSilent(
+          api: widget.api,
+          call: call,
+        ),
+      );
+      return;
+    }
     await _showIncomingPrivateCall(call);
   }
 
@@ -650,49 +775,32 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       return;
     }
 
-    // Radio personal: abrir chat 1:1 con barra PTT (visible; no debajo de otra ruta).
+    // Radio personal 1:1 retirada: rechazar invitaciones residuales.
     if (call['mode']?.toString() == 'radio') {
       try {
-        final data = await widget.api.acceptPrivateCall(callId);
+        await widget.api.endPrivateCall(callId, reason: 'reject');
+      } catch (_) {}
+      _session?.incomingPrivateCall = null;
+      _privateCallDialogOpen = false;
+      return;
+    }
+
+    final callMode = call['mode']?.toString() ?? 'call';
+    final callIntent = call['intent']?.toString();
+
+    // Despacho «Ver cámara»: permiso previo → headless (sin UI / snack / push).
+    if (callIntent == 'remote_camera' && callMode == 'video') {
+      if (await RemoteCameraPrefs.canAutoAccept()) {
         _session?.incomingPrivateCall = null;
         _privateCallDialogOpen = false;
-        if (!mounted) return;
-        final accepted = data['call'] as Map? ?? {};
-        final peerId = accepted['callerId']?.toString() ??
-            call['callerId']?.toString() ??
-            '';
-        final radioSession = <String, dynamic>{
-          'callId': accepted['callId']?.toString() ?? callId,
-          'peerName': who,
-          'token': data['token'] as String,
-          'url': AppConfig.publicLiveKitUrl(data['url'] as String),
-          'role': 'callee',
-          'e2eeKey': data['e2eeKey']?.toString(),
-        };
-        if (peerId.isEmpty) {
-          setState(() => _personalRadio = radioSession);
-          return;
-        }
-        final nav = Navigator.of(context);
-        await nav.push<void>(
-          MaterialPageRoute(
-            builder: (_) => DirectPane(
-              api: widget.api,
-              initialPeerId: peerId,
-              threadOnly: true,
-              initialPersonalRadio: radioSession,
-              onBack: () => nav.popUntil((route) => route.isFirst),
-            ),
+        unawaited(
+          RemoteCameraSession.instance.startSilent(
+            api: widget.api,
+            call: call,
           ),
         );
-      } catch (e) {
-        _privateCallDialogOpen = false;
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
-        );
+        return;
       }
-      return;
     }
 
     await showGeneralDialog<void>(
@@ -701,12 +809,12 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       barrierColor: Colors.black,
       transitionDuration: const Duration(milliseconds: 220),
       pageBuilder: (ctx, anim, secondary) {
-        final callMode = call['mode']?.toString() ?? 'call';
         return IncomingCallScreen(
           api: widget.api,
           callerId: call['callerId']?.toString(),
           callerName: who,
           mode: callMode,
+          intent: callIntent,
           onReject: () async {
             try {
               await widget.api.endPrivateCall(callId, reason: 'reject');
@@ -719,29 +827,9 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
               if (callMode == 'video') {
                 await Permission.camera.request();
               }
-              final data = await widget.api.acceptPrivateCall(callId);
-              _session?.incomingPrivateCall = null;
               if (!ctx.mounted) return;
               Navigator.of(ctx).pop();
-              if (!mounted) return;
-              final accepted = data['call'] as Map? ?? {};
-              final mode = accepted['mode']?.toString() ?? callMode;
-              await Navigator.of(context).push(
-                PrivateCallScreen.route(
-                  child: PrivateCallScreen(
-                    api: widget.api,
-                    callId: accepted['callId']?.toString() ?? callId,
-                    peerId: accepted['callerId']?.toString() ??
-                        call['callerId']?.toString(),
-                    peerName: who,
-                    token: data['token'] as String,
-                    url: AppConfig.publicLiveKitUrl(data['url'] as String),
-                    role: 'callee',
-                    e2eeKey: data['e2eeKey']?.toString(),
-                    mode: mode == 'video' ? 'video' : 'call',
-                  ),
-                ),
-              );
+              await _acceptAndOpenPrivateCall(call);
             } catch (e) {
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
@@ -755,6 +843,56 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     ).whenComplete(() {
       _privateCallDialogOpen = false;
     });
+  }
+
+  Future<void> _acceptAndOpenPrivateCall(Map<String, dynamic> call) async {
+    final who = call['callerName']?.toString() ?? 'Usuario';
+    final callId = call['callId']?.toString();
+    if (callId == null || callId.isEmpty) {
+      _privateCallDialogOpen = false;
+      return;
+    }
+    final callMode = call['mode']?.toString() ?? 'call';
+    final callIntent = call['intent']?.toString();
+
+    try {
+      if (callMode == 'video') {
+        await Permission.camera.request();
+      }
+
+      final data = await widget.api.acceptPrivateCall(callId);
+      _session?.incomingPrivateCall = null;
+      _privateCallDialogOpen = false;
+      if (!mounted) return;
+
+      final accepted = data['call'] as Map? ?? {};
+      final mode = accepted['mode']?.toString() ?? callMode;
+      final intent = accepted['intent']?.toString() ?? callIntent;
+
+      await Navigator.of(context).push(
+        PrivateCallScreen.route(
+          child: PrivateCallScreen(
+            api: widget.api,
+            callId: accepted['callId']?.toString() ?? callId,
+            peerId: accepted['callerId']?.toString() ??
+                call['callerId']?.toString(),
+            peerName: who,
+            token: data['token'] as String,
+            url: AppConfig.publicLiveKitUrl(data['url'] as String),
+            role: 'callee',
+            e2eeKey: data['e2eeKey']?.toString(),
+            mode: mode == 'video' ? 'video' : 'call',
+            intent: intent,
+          ),
+        ),
+      );
+    } catch (e) {
+      _privateCallDialogOpen = false;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(esMsg(e, 'No se pudo aceptar la solicitud'))),
+      );
+    }
   }
 
   Future<void> _joinGroupVideoDirect(String groupId, String groupName) async {
@@ -923,6 +1061,29 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
                     child: const Text('Quitar icono'),
                   ),
                 ],
+                const SizedBox(height: 8),
+                FutureBuilder<bool>(
+                  future: RemoteCameraPrefs.isEnabled(),
+                  builder: (context, snap) {
+                    final on = snap.data ?? false;
+                    return SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Permiso de cámaras',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: const Text(
+                        'Permiso de cámaras únicamente',
+                        style: TextStyle(fontSize: 12, color: kInstMuted),
+                      ),
+                      value: on,
+                      onChanged: (v) async {
+                        Navigator.pop(ctx);
+                        await _toggleRemoteCameraPref(v);
+                      },
+                    );
+                  },
+                ),
                 if (canLogoutFromApp(widget.api.user)) ...[
                   const SizedBox(height: 16),
                   const Divider(height: 1),
@@ -1279,22 +1440,6 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     final shell = Scaffold(
       body: Column(
         children: [
-          if (_personalRadio != null)
-            SafeArea(
-              bottom: false,
-              child: PersonalRadioBar(
-                api: widget.api,
-                callId: _personalRadio!['callId'] as String,
-                peerName: _personalRadio!['peerName'] as String,
-                token: _personalRadio!['token'] as String,
-                url: _personalRadio!['url'] as String,
-                role: _personalRadio!['role'] as String? ?? 'callee',
-                e2eeKey: _personalRadio!['e2eeKey'] as String?,
-                onClosed: () {
-                  if (mounted) setState(() => _personalRadio = null);
-                },
-              ),
-            ),
           Expanded(child: body),
         ],
       ),

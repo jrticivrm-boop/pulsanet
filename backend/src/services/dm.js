@@ -19,10 +19,14 @@ export function dmSocketRoom(userA, userB) {
   return `dm:${dmPairKey(userA, userB)}`;
 }
 
-export function privateCallRoom(userA, userB, mode = 'call') {
+export function privateCallRoom(userA, userB, mode = 'call', callId = '') {
   const m = String(mode || 'call').toLowerCase();
   const prefix = m === 'radio' ? 'radio' : m === 'video' ? 'video' : 'call';
-  return `${prefix}_${dmPairKey(userA, userB)}`;
+  const short = String(callId || '')
+    .replace(/-/g, '')
+    .slice(0, 12);
+  const base = `${prefix}_${dmPairKey(userA, userB)}`;
+  return short ? `${base}_${short}` : base;
 }
 
 export async function assertSameOrgPeer(orgId, userId, peerId) {
@@ -390,13 +394,16 @@ export function createPrivateCall({
   callerName,
   targetId,
   targetName,
-  room,
+  room = null,
   mode = 'call',
+  intent = null,
   orgId = null,
 }) {
   const id = randomUUID();
   const normalized = String(mode || 'call').toLowerCase();
   const callMode = normalized === 'radio' ? 'radio' : normalized === 'video' ? 'video' : 'call';
+  const intentNorm = String(intent || '').toLowerCase() === 'remote_camera' ? 'remote_camera' : null;
+  const roomName = room || privateCallRoom(callerId, targetId, callMode, id);
   const call = {
     id,
     orgId,
@@ -404,8 +411,9 @@ export function createPrivateCall({
     callerName,
     targetId,
     targetName,
-    room,
+    room: roomName,
     mode: callMode,
+    intent: intentNorm,
     withVideo: callMode === 'video',
     videoRequest: null,
     status: 'ringing',
@@ -415,10 +423,11 @@ export function createPrivateCall({
   };
   activeCalls.set(id, call);
   touchPrivateCall(id, callerId);
-  for (const [cid, c] of activeCalls) {
-    if (Date.now() - c.createdAt > 10 * 60 * 1000) activeCalls.delete(cid);
-  }
   return call;
+}
+
+export function listActivePrivateCalls() {
+  return [...activeCalls.values()];
 }
 
 export function touchPrivateCall(id, userId) {
