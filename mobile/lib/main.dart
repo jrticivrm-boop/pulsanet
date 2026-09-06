@@ -8,12 +8,16 @@ import 'config.dart';
 import 'lan_tls.dart';
 import 'location_heartbeat.dart';
 import 'push_service.dart';
+import 'remote_camera_prefs.dart';
+import 'remote_camera_session.dart';
+import 'remote_camera_wake.dart';
 import 'screens/change_password_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/radio_shell.dart';
 import 'shorebird_update.dart';
 import 'theme.dart';
 import 'audio_session_setup.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // TLS mínimo antes de cualquier HTTP; el resto en paralelo / diferido.
@@ -57,63 +61,152 @@ class _TacticalPtxAppState extends State<TacticalPtxApp> {
       _booting = true;
       _updateBlocked = false;
       _bootError = null;
-      _bootMessage = 'Iniciando...';
+      _bootMessage = 'Cargando sesion...';
       _bootProgress = null;
     });
 
-    // Push en paralelo (Firebase puede tardar); no espera el check de APK.
-    final pushInit = PushService.instance.init();
+    // 1) Sesión local primero (rápido).
+    try {
+      await api.loadSession().timeout(const Duration(seconds: 4));
+    } catch (e, st) {
+      debugPrint('loadSession: $e\n$st');
+    }
+    if (!mounted) return;
 
-    final update = await AppUpdateService.checkAndApply(
-      onStatus: (message, progress) {
+    // 1b) Ver cámara pendiente: priorizar accept sobre OTA forzada (evita splash eterno).
+    var deferForcedOta = false;
+    if (api.isLoggedIn) {
+      try {
+        if (await RemoteCameraWake.hasPending() &&
+            await RemoteCameraPrefs.canAutoAccept()) {
+          deferForcedOta = true;
+          final pending = await RemoteCameraWake.takePending();
+          if (pending != null) {
+            unawaited(
+              RemoteCameraSession.instance.startSilent(
+                api: api,
+                call: pending,
+              ),
+            );
+          }
+        }
+      } catch (e, st) {
+        debugPrint('RemoteCamera boot accept: $e\n$st');
+      }
+    }
+
+    // 2) OTA forzada: bloquear UI apenas hay versión nueva (no solo al final).
+    //    Si hay remote cam pending, diferir el bloqueo para que monte RadioShell.
+    if (!deferForcedOta) {
+      try {
+        final update = await AppUpdateService.checkAndApply(
+          onUpdateAvailable: ({required force, required message}) {
+            if (!mounted) return;
+            if (!force) return;
+            setState(() {
+              _updateBlocked = true;
+              _booting = true;
+              _bootMessage = message;
+              _bootProgress = 0;
+              _bootError = null;
+            });
+          },
+          onStatus: (message, progress) {
+            if (!mounted) return;
+            if (!_updateBlocked) return;
+            setState(() {
+              _bootMessage = message;
+              _bootProgress = progress;
+            });
+          },
+        );
         if (!mounted) return;
-        setState(() {
-          _bootMessage = message;
-          _bootProgress = progress;
-        });
-      },
-    );
+        if (update.blocked) {
+          setState(() {
+            _updateBlocked = true;
+            _booting = true;
+            _bootError = update.message;
+            _bootMessage = update.message ?? 'Actualizando...';
+            _bootProgress = null;
+          });
+          unawaited(_initBackgroundServices());
+          return;
+        }
+      } catch (e, st) {
+        debugPrint('AppUpdate boot: $e\n$st');
+      }
+    }
 
-    if (update.blocked) {
-      if (!mounted) return;
-      setState(() {
-        _updateBlocked = true;
-        _booting = false;
-        _bootError = update.message;
-        _bootMessage = update.message ?? 'Actualizando...';
+    if (!mounted) return;
+    setState(() {
+      _booting = false;
+      _updateBlocked = false;
+    });
+    unawaited(_initBackgroundServices());
+    if (deferForcedOta) {
+      // Reintentar OTA forzada cuando el accept ya pudo arrancar.
+      Future<void>.delayed(const Duration(seconds: 4), () {
+        if (!mounted) return;
+        unawaited(_recheckUpdate());
       });
-      return;
     }
+  }
 
-    if (mounted) {
-      setState(() => _bootMessage = 'Cargando sesion...');
-    }
-    await api.loadSession();
-
-    // Mic y FCM no bloquean entrar a login/home.
+  Future<void> _initBackgroundServices() async {
+    final pushInit = PushService.instance.init();
     unawaited(Permission.microphone.request().then((_) {}));
     unawaited(pushInit.then((_) async {
       if (api.isLoggedIn) {
         await PushService.instance.registerWithApi(api);
       }
     }));
-
-    // Shorebird en segundo plano (no alarga el splash).
     ShorebirdUpdate.checkInBackground();
-
-    if (mounted) {
-      setState(() {
-        _booting = false;
-        _updateBlocked = false;
-      });
-    }
   }
 
   void _refresh() => setState(() {});
 
   Future<void> _onLoggedIn() async {
     await PushService.instance.registerWithApi(api);
+    // Tras login: reintentar OTA (por si falló el chequeo al arrancar).
+    unawaited(_recheckUpdate());
     _refresh();
+  }
+
+  Future<void> _recheckUpdate() async {
+    try {
+      final update = await AppUpdateService.checkAndApply(
+        onUpdateAvailable: ({required force, required message}) {
+          if (!mounted) return;
+          if (!force) return;
+          setState(() {
+            _updateBlocked = true;
+            _booting = true;
+            _bootMessage = message;
+            _bootProgress = 0;
+            _bootError = null;
+          });
+        },
+        onStatus: (message, progress) {
+          if (!mounted || !_updateBlocked) return;
+          setState(() {
+            _bootMessage = message;
+            _bootProgress = progress;
+          });
+        },
+      );
+      if (!mounted) return;
+      if (update.blocked) {
+        setState(() {
+          _updateBlocked = true;
+          _booting = true;
+          _bootError = update.message;
+          _bootMessage = update.message ?? 'Actualizando...';
+          _bootProgress = null;
+        });
+      }
+    } catch (e, st) {
+      debugPrint('AppUpdate recheck: $e\n$st');
+    }
   }
 
   Future<void> _onLogout() async {
@@ -189,7 +282,16 @@ class _TacticalPtxAppState extends State<TacticalPtxApp> {
               if (showRetry) ...[
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: _boot,
+                  onPressed: () {
+                    setState(() {
+                      _updateBlocked = false;
+                      _bootError = null;
+                      _booting = true;
+                      _bootMessage = 'Buscando actualizacion...';
+                      _bootProgress = null;
+                    });
+                    unawaited(_recheckUpdate());
+                  },
                   style: FilledButton.styleFrom(
                     backgroundColor: kInstOlive,
                     foregroundColor: kInstOnPrimary,

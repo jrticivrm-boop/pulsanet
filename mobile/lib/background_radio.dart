@@ -3,12 +3,16 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
-/// Mantiene Radio / socket / audio / GPS vivos con app minimizada o pantalla bloqueada.
+/// Mantiene Radio / socket / audio / GPS (/ cámara remota) vivos con pantalla bloqueada.
 class BackgroundRadio {
   BackgroundRadio._();
 
   static bool _inited = false;
   static String _channelLabel = 'Canal activo';
+  static bool _remoteCameraActive = false;
+  static bool _remoteMicActive = false;
+
+  static bool get remoteCameraActive => _remoteCameraActive;
 
   static Future<void> init() async {
     if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
@@ -21,9 +25,9 @@ class BackgroundRadio {
         channelId: 'tacticalptx_radio',
         channelName: 'Radio TacticalPtx',
         channelDescription:
-            'Mantiene el canal y la ubicación con pantalla bloqueada (sin retener el micrófono)',
-        channelImportance: NotificationChannelImportance.DEFAULT,
-        priority: NotificationPriority.DEFAULT,
+            'Mantiene canal, ubicación y cámara remota con pantalla bloqueada',
+        channelImportance: NotificationChannelImportance.LOW,
+        priority: NotificationPriority.LOW,
         onlyAlertOnce: true,
       ),
       iosNotificationOptions: const IOSNotificationOptions(
@@ -31,8 +35,7 @@ class BackgroundRadio {
         playSound: false,
       ),
       foregroundTaskOptions: ForegroundTaskOptions(
-        // Ping frecuente: menos riesgo de que el OEM suspenda audio/socket/GPS.
-        eventAction: ForegroundTaskEventAction.repeat(15000),
+        eventAction: ForegroundTaskEventAction.repeat(12000),
         autoRunOnBoot: false,
         autoRunOnMyPackageReplaced: false,
         allowWakeLock: true,
@@ -53,8 +56,38 @@ class BackgroundRadio {
     }
   }
 
+  /** Activa tipo FGS `camera` para que Android no suspenda el feed al bloquear. */
+  static Future<void> setRemoteCameraActive(bool active) async {
+    if (_remoteCameraActive == active) {
+      if (active) {
+        // Si ya está activo en memoria, refrescar título; tipos ya aplicados.
+        await start(forceRestart: false);
+      }
+      return;
+    }
+    final enabling = active && !_remoteCameraActive;
+    _remoteCameraActive = active;
+    if (!active) _remoteMicActive = false;
+    final running = await FlutterForegroundTask.isRunningService;
+    // updateService no cambia serviceTypes: al añadir `camera` hay que reiniciar
+    // (mismo patrón que mic). Al apagar, update basta si el servicio sigue.
+    await start(forceRestart: running && enabling);
+  }
+
+  /// Incluye tipo FGS `microphone` mientras el despacho activa el mic remoto.
+  static Future<void> setRemoteMicActive(bool active) async {
+    if (_remoteMicActive == active) return;
+    final enabling = active && !_remoteMicActive;
+    _remoteMicActive = active;
+    if (active && !_remoteCameraActive) {
+      _remoteCameraActive = true;
+    }
+    final running = await FlutterForegroundTask.isRunningService;
+    // Solo reiniciar al añadir tipo microphone; apagar no tumba el servicio.
+    await start(forceRestart: running && enabling);
+  }
+
   /// Arranca (o refresca) el servicio en primer plano.
-  /// [forceRestart] recrea el FGS para aplicar tipos microphone|mediaPlayback|location.
   static Future<void> start({
     String? channelName,
     bool forceRestart = false,
@@ -66,13 +99,21 @@ class BackgroundRadio {
     }
 
     final running = await FlutterForegroundTask.isRunningService;
-    final title = 'TacticalPtx activo';
-    final text =
-        '$_channelLabel · radio y ubicación en segundo plano';
+    final title = _remoteCameraActive ? 'Cámara de despacho activa' : 'TacticalPtx activo';
+    final text = _remoteCameraActive
+        ? (_remoteMicActive
+            ? 'Transmitiendo cámara y micrófono · $_channelLabel'
+            : 'Transmitiendo cámara con pantalla bloqueada · $_channelLabel')
+        : '$_channelLabel · radio y ubicación en segundo plano';
 
-    if (running && forceRestart) {
-      await FlutterForegroundTask.stopService();
-    } else if (running) {
+    final types = <ForegroundServiceTypes>[
+      ForegroundServiceTypes.mediaPlayback,
+      ForegroundServiceTypes.location,
+      if (_remoteCameraActive) ForegroundServiceTypes.camera,
+      if (_remoteMicActive) ForegroundServiceTypes.microphone,
+    ];
+
+    if (running && !forceRestart) {
       await FlutterForegroundTask.updateService(
         notificationTitle: title,
         notificationText: text,
@@ -80,11 +121,12 @@ class BackgroundRadio {
       return;
     }
 
+    if (running && forceRestart) {
+      await FlutterForegroundTask.stopService();
+    }
+
     await FlutterForegroundTask.startService(
-      serviceTypes: const [
-        ForegroundServiceTypes.mediaPlayback,
-        ForegroundServiceTypes.location,
-      ],
+      serviceTypes: types,
       notificationTitle: title,
       notificationText: text,
       callback: backgroundRadioCallback,
@@ -93,6 +135,7 @@ class BackgroundRadio {
 
   static Future<void> stop() async {
     if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
+    _remoteCameraActive = false;
     if (await FlutterForegroundTask.isRunningService) {
       await FlutterForegroundTask.stopService();
     }
@@ -110,7 +153,6 @@ class _RadioTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp) {
-    // Ping ligero para que el SO no mate el proceso (audio LiveKit + socket + GPS).
     FlutterForegroundTask.sendDataToMain({'ts': timestamp.millisecondsSinceEpoch});
   }
 

@@ -1,15 +1,129 @@
+## 2026-09-06 — Fix Ver cámara splash + SafeArea Llamadas (1.8.81+91)
+
+- **Tipo:** fix
+- **Área:** mobile | web
+- **Qué:**
+  - FCM `private_remote_camera` ya no usa `IncomingCallWake`/`launchApp` si auto-accept (evita recrear Activity → splash).
+  - Boot: si hay pending remote cam, se acepta en silencio y se difiere OTA forzada ~4 s.
+  - FGS: al activar cámara se hace `forceRestart` para aplicar tipo `camera` (Android 14+).
+  - Wake background: persist + bring UI; FGS camera lo arranca el isolate principal.
+  - `PrivateCallHost`: si despacho marca `handled`, no abre overlay 1:1.
+  - Cabecera **Llamadas**: `SafeArea` para no montarse bajo la barra de estado.
+- **Archivos / refs:** main.dart, push_service.dart, remote_camera_wake.dart, incoming_call_wake.dart, background_radio.dart, radio_shell.dart, call_history_pane.dart, PrivateCallHost.jsx
+
 ## 2026-09-04 — Aislamiento video/monitor + estabilidad control (APK 1.8.72)
 
-## 2026-09-06 — Borde publico DuckDNS restaurado (APK)
+## 2026-09-06 — Rediseño web: Personas y llamadas
 
-- **Tipo:** ops | fix
-- **Area:** infra
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - Paleta Personas global (Ctrl+K) + ficha de acciones (mensaje / llamada / video / ver cámara).
+  - Host único de llamadas (`PrivateCallHost`) entrantes y salientes; inbox con pestaña Personas y acciones rápidas.
+  - DM: iconos de llamada visibles; grupo: roster completo + acciones por miembro; Radio “En línea” abre ficha.
+  - Despacho alineado (layout, consola, video, seguimiento, usuarios → Contactar).
+- **Archivos / refs:** peerActions.js, PrivateCallHost.jsx, PeoplePalette.jsx, PeerActionSheet.jsx, ChatInbox.jsx, DirectChat.jsx, WhatsAppChat.jsx, RadioPage.jsx, DispatchLayout.jsx, CommandCenter.jsx, DispatchVideo.jsx
+
+## 2026-09-06 — UI llamada web: avatar + banner entrante
+
+- **Tipo:** fix | ux | feature
+- **Área:** web | mobile
+- **Qué:**
+  - Overlay de llamada muestra foto del usuario (`PersonAvatar`); avatar ya no se monta encima del texto (CSS `absolute` corregido).
+  - Estados cortos («En llamada») sin repetir el nombre en cabecera y cuerpo.
+  - Banner flotante global de llamada entrante (arriba/derecha) para Contestar/Rechazar sin abrir el panel de chat.
+- **Archivos / refs:** IncomingCallHost.jsx, PrivateCallOverlay.jsx, DirectChat.jsx, App.jsx, styles.css, private_call_screen.dart
+
+## 2026-09-06 — Fix OTA automática (APK 1.8.79+89)
+
+- **Tipo:** fix | release
+- **Área:** mobile | backend
+- **Qué:**
+  - OTA forzada vuelve a bloquear el arranque al detectar versión nueva (no solo al terminar).
+  - Reintento tras login; timeout manifiesto 12s + 1 reintento; token descarga 1h.
+  - Publicada **1.8.79+89**.
+- **Archivos / refs:** main.dart, app_update.dart, appUpdate.js, Soporte/APK/TacticalPtx-1.8.79+89.apk
+
+## 2026-09-06 — APK 1.8.78+88 (llamadas nítidas + E2EE + Alertas)
+
+- **Tipo:** release
+- **Área:** mobile
+- **Qué:** Publicada OTA **1.8.78+88** (audio llamadas sin NS/DTX agresivo; sala+E2EE v3 por sesión; botón Alertas; timeout 5 timbres / llamada perdida; pantalla Contestar).
+- **Archivos / refs:** Soporte/APK/TacticalPtx-1.8.78+88.apk
+
+## 2026-09-06 — Llamadas: nitidez, E2EE e integridad
+
+- **Tipo:** mejora | security | fix
+- **Área:** mobile | web | backend
+- **Qué:**
+  - Audio de llamadas alineado con PTT (sin noise suppression/DTX/RED agresivos) → voz más nítida.
+  - Sala LiveKit **única por llamada** + clave E2EE **v3** por sesión; fail-closed si `e2ee: true` sin clave.
+  - Video ~2.8 Mbps + adaptiveStream + preferir framerate bajo congestión; token LiveKit TTL 1h.
+- **Archivos / refs:** voiceE2ee.js, dm.js, livekit.js, video_streaming_config.dart, videoStreaming.js, livekitE2ee.js, private_call_screen.dart, PrivateCallOverlay.jsx
+
+## 2026-09-06 — APK 1.8.77+87: botón Alertas + llamadas
+
+- **Tipo:** release | ux
+- **Área:** mobile | backend
+- **Qué:** Publicada APK con botón Radio **Alertas** (ya no «PÁNICO»), textos de overlay/chat/FCM alineados; incluye fixes de llamada entrante y timeout 5 timbres.
+- **Archivos / refs:** radio_screen.dart, radio_shell.dart, panic.js, Soporte/APK/TacticalPtx-1.8.77+87.apk
+
+## 2026-09-06 — Llamada entrante a pantalla + 5 timbres / perdida
+
+- **Tipo:** fix | feature | ux
+- **Área:** mobile | backend | web
+- **Qué:**
+  - Entrante: abre pantalla Contestar (trae app al frente); FCM data-only sin banner del sistema; full-screen intent solo de respaldo en segundo plano.
+  - Sin respuesta tras **5 timbres (~25 s)**: el servidor cuelga y manda push «Llamada perdida» al destino (estilo WhatsApp); el llamante ve «Sin respuesta».
+- **Archivos / refs:** calls.js (sweeper), dm.js, server.js, incoming_call_wake.dart, MainActivity.kt, channel_session.dart, push_service.dart, radio_shell.dart
+
+## 2026-09-06 — Botón Pánico → Alertas
+
+- **Tipo:** ux
+- **Área:** mobile | web
+- **Qué:** La etiqueta del botón de pánico en Radio pasa de «PÁNICO» a «Alertas» (app y web).
+- **Archivos / refs:** mobile/lib/screens/radio_screen.dart, web/src/pages/RadioPage.jsx
+
+## 2026-09-06 — Contraste pantalla de llamada
+
+- **Tipo:** ux
+- **Area:** mobile
+- **Que:** Fondos y botones de llamada mas claros/visibles; colgar en rojo vivo; titulo y etiquetas con mayor contraste.
+- **Archivos / refs:** theme.dart (kInstCall*), private_call_screen.dart
+
+## 2026-09-06 — APK 1.8.76+86 (arranke rapido + nav llamadas)
+
+- **Tipo:** release
+- **Area:** mobile
+- **Que:** Publicada OTA **1.8.76+86** (splash sesion no bloquea por OTA; nav Chats/Llamadas/Radio abajo; timbre llamadas).
+- **Archivos / refs:** Soporte/APK/TacticalPtx-1.8.76+86.apk
+
+## 2026-09-06 — Nav inferior: Chats / Llamadas / Radio
+
+- **Tipo:** ux
+- **Area:** mobile
+- **Que:** Llamadas pasan a la barra inferior junto a Chats y Radio; se quita el toggle Chats|Llamadas de arriba en el inbox.
+- **Archivos / refs:** radio_shell.dart, chat_inbox_screen.dart, call_history_pane.dart
+
+## 2026-09-06 — Reabrir app: sin splash «Cargando sesion» lento
+
+- **Tipo:** fix | ux
+- **Area:** mobile
 - **Que:**
-  - Realineado borde HTTPS con **https://pulsanet.duckdns.org** (health 200).
-  - DuckDNS y UPnP 80/443 refrescados; LiveKit node-ip alineado a IP publica actual.
-  - La APK no debe usar IP/sslip: default y OTA siguen el dominio estable.
-- **Por que / notas:** Fallo de conexion de la APK no era cambio de URL en codigo; el borde publico no respondia.
-- **Archivos / refs:** infra/START-PUBLIC-EDGE.ps1, infra/caddy/apk-api-base.txt, mobile/lib/config.dart
+  - Arranque: carga sesion local primero y muestra home; OTA/Push/Shorebird en segundo plano.
+  - RadioShell libera UI al tener grupos (LiveKit/FGS no bloquean).
+  - Timeouts cortos en loadSession (4s) y fetchGroups (8s).
+- **Archivos / refs:** mobile/lib/main.dart, mobile/lib/screens/radio_shell.dart
+
+## 2026-09-06 — Timbre/vibracion llamadas + ciclo de vida
+
+- **Tipo:** feature | fix
+- **Area:** mobile | web | backend
+- **Que:**
+  - Timbre nativo Android (ringtone del sistema) + vibracion en bucle al recibir voz/video.
+  - Canal FCM/local 	acticalptx_calls_v2 con USAGE_NOTIFICATION_RINGTONE + fullScreenIntent.
+  - Tope de reconexion/connect; endPrivateCall en salidas fallidas; mensaje si la llamada ya expiro.
+- **Archivos / refs:** MainActivity.kt, call_ringtone.dart, incoming_call_screen.dart, push_service.dart, private_call_screen.dart, PrivateCallOverlay.jsx, fcm.js — APK **1.8.75+85**
 
 ## 2026-09-06 — Eliminar Radio personal 1:1 (app + web)
 

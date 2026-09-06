@@ -173,6 +173,7 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
             url: AppConfig.publicLiveKitUrl(data['url'] as String),
             role: 'caller',
             e2eeKey: data['e2eeKey']?.toString(),
+            e2ee: data['e2ee'] == true,
             mode: mode == 'video' ? 'video' : 'call',
           ),
         ),
@@ -262,36 +263,62 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
   Widget build(BuildContext context) {
     final groups = _grouped;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          height: 40,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            children: [
-              _FilterChip(
-                label: 'Todas',
-                selected: _filter == CallHistoryFilter.all,
-                onTap: () {
-                  setState(() => _filter = CallHistoryFilter.all);
-                  _load();
-                },
-              ),
-              _FilterChip(
-                label: 'Perdidas',
-                selected: _filter == CallHistoryFilter.missed,
-                onTap: () {
-                  setState(() => _filter = CallHistoryFilter.missed);
-                  _load();
-                },
-              ),
-            ],
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'LLAMADAS',
+                  style: TacticalFonts.display(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: kTacOnSurface,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                Text(
+                  'Historial de voz y video',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: kTacMuted.withValues(alpha: 0.9),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                _FilterChip(
+                  label: 'Todas',
+                  selected: _filter == CallHistoryFilter.all,
+                  onTap: () {
+                    setState(() => _filter = CallHistoryFilter.all);
+                    _load();
+                  },
+                ),
+                _FilterChip(
+                  label: 'Perdidas',
+                  selected: _filter == CallHistoryFilter.missed,
+                  onTap: () {
+                    setState(() => _filter = CallHistoryFilter.missed);
+                    _load();
+                  },
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
           child: TextField(
             onChanged: (v) => setState(() => _query = v),
             decoration: InputDecoration(
@@ -388,7 +415,8 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
                       ),
                     ),
         ),
-      ],
+        ],
+      ),
     );
   }
 }

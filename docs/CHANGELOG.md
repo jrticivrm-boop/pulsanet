@@ -10,9 +10,20 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Personas (web):** paleta global Ctrl+K / botón Personas; ficha Mensaje · Llamada · Video · Ver cámara; pestaña Personas en inbox; contactar desde mapa/usuarios/en línea.
+- **Banner de llamada entrante (web):** notificación flotante arriba/derecha para Contestar/Rechazar sin abrir el chat.
+- **Llamada perdida:** tras 5 timbres (~25 s) sin contestar, el servidor cuelga y notifica «Llamada perdida» al destino.
 - **Multi Ver cámara:** varias pantallas apiladas; control remoto frontal/trasera y mic del dispositivo. APK **1.8.70+79**.
 
+### Changed
+- **Llamadas web unificadas:** salida/entrada vía `PrivateCallHost`; DM con iconos directos (sin menú «Llamar ▾»).
+
 ### Fixed
+- **Ver cámara (APK splash) + cabecera Llamadas:** FCM remote cam ya no relaunch/Contestar con auto-accept; OTA no bloquea accept pendiente; FGS tipo `camera` con forceRestart; SafeArea en historial de llamadas. APK **1.8.81+91**.
+- **UI llamada de voz (web):** foto de perfil del interlocutor; texto y avatar ya no se solapan.
+
+### Fixed
+- **Llamada entrante:** abre pantalla Contestar (no solo banner); FCM data-only + wake a primer plano.
 - **Aislamiento Ver cámara / videollamada:** sin dependencia cruzada; control robusto. APK **1.8.72+82**.
 - **Cambio frontal/trasera (Ver cámara):** reinicio de track + señal por socket/LiveKit. APK **1.8.71+80**.
 - **Ver cámara app cerrada/suspendida:** FCM background despierta FGS+app y activa cámara en silencio. APK **1.8.69+78**.
@@ -20,7 +31,12 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Emoji/Stickers tapables:** tabs dejan de quedar bajo la barra de navegación Android. APK **1.8.67+76**.
 
 ### Changed
-- **Indicativo:** se arma con grado + apellido + cargo (sin campos editables de indicativo/detalle).\n- **Mapa despacho:** zoom máximo **22** (antes ~18) con overzoom en satélite/calles.
+- **Botón Radio:** etiqueta **Alertas** (antes PÁNICO). APK **1.8.78+88**.
+- **Llamadas (nitidez/seguridad):** audio sin NS/DTX agresivo; sala+E2EE por sesión (v3); fail-closed E2EE; video 2.8 Mbps + adaptiveStream; token LiveKit 1h. APK **1.8.78+88**.
+- **Llamadas entrantes:** timbre nativo + vibración (estilo WhatsApp); canal `tacticalptx_calls_v2`. APK **1.8.75+85**.
+- **Radio personal 1:1:** eliminada de app y web; API ya no permite iniciarla.
+- **Indicativo:** se arma con grado + apellido + cargo (sin campos editables de indicativo/detalle).
+- **Mapa despacho:** zoom máximo **22** (antes ~18) con overzoom en satélite/calles.
 - **Matrícula:** formato obligatorio `Letra-Números` (ej. `A-1234`, `B-2048`) en alta/edición de usuarios.
 - **Monitor Expandir:** video centrado en X/Y; **Pantalla completa** = alto completo del stage (marco vertical, sin barra horizontal).
 - **Monitor Expandir:** un solo video centrado; **Tamaño** solo en pantalla completa (sm→xl real); quitado del panel normal.

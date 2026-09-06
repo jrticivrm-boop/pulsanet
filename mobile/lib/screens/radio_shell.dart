@@ -10,9 +10,11 @@ import '../api_client.dart';
 import '../app_focus.dart';
 import '../audio_session_setup.dart';
 import '../background_radio.dart';
+import '../call_ringtone.dart';
 import '../channel_session.dart';
 import '../config.dart';
 import '../es_msg.dart';
+import '../incoming_call_wake.dart';
 import '../location_heartbeat.dart';
 import '../chat_message_banner.dart';
 import '../user_display.dart';
@@ -26,6 +28,7 @@ import '../roles.dart';
 import '../theme.dart';
 import '../widgets/tactical_backdrop.dart';
 import '../widgets/user_avatar.dart';
+import 'call_history_pane.dart';
 import 'chat_inbox_screen.dart';
 import 'direct_pane.dart';
 import 'group_video_screen.dart';
@@ -33,7 +36,7 @@ import 'incoming_call_screen.dart';
 import 'private_call_screen.dart';
 import 'radio_screen.dart';
 
-/// Home post-login: Chats (WhatsApp) + Radio PTT en dos pestañas.
+/// Home post-login: Chats + Llamadas + Radio PTT.
 class RadioShell extends StatefulWidget {
   const RadioShell({super.key, required this.api, required this.onLogout});
 
@@ -44,7 +47,7 @@ class RadioShell extends StatefulWidget {
   State<RadioShell> createState() => _RadioShellState();
 }
 
-enum _MainTab { chats, radio }
+enum _MainTab { chats, calls, radio }
 
 enum _OverlayPane { none, location, groups }
 
@@ -125,6 +128,16 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
           type == 'private_remote_camera' ||
           type == 'private_video_request') {
         unawaited(_openIncomingCallFromPush(Map<String, dynamic>.from(data)));
+        return;
+      }
+      if (type == 'missed_call') {
+        final peerId = data['callerId']?.toString() ?? data['peerId']?.toString();
+        if (peerId != null && peerId.isNotEmpty) {
+          _openFromNotification(peerId: peerId);
+        } else {
+          setState(() => _tab = _MainTab.calls);
+        }
+        unawaited(CallRingtone.stop());
         return;
       }
       if (type == 'group_video') {
@@ -288,8 +301,17 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     } else if (groupId != null && groupId.isNotEmpty) {
       _openFromNotification(groupId: groupId, messageId: messageId);
     }
-    // Tras push/nav: también drenar wake persistido de cámara remota.
+    // Tras push/nav: drenar wakes persistidos.
+    unawaited(_drainIncomingCallWake());
     unawaited(_drainRemoteCameraWake());
+  }
+
+  Future<void> _drainIncomingCallWake() async {
+    if (!mounted) return;
+    if (_privateCallDialogOpen || PrivateCallScreen.uiOpen) return;
+    final pending = await IncomingCallWake.takePending();
+    if (pending == null) return;
+    await _openIncomingCallFromPush(Map<String, dynamic>.from(pending));
   }
 
   /// Activa cámara remota pendiente (FCM con app cerrada / pantalla bloqueada).
@@ -336,6 +358,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       }
       // App despertada por FCM / unlock: aceptar cámara remota pendiente.
       unawaited(_drainRemoteCameraWake());
+      unawaited(_drainIncomingCallWake());
       // Recuperar mensajes perdidos mientras el socket estuvo caído / app inactiva.
       unawaited(_session?.refreshChatHistory() ?? Future<void>.value());
       unawaited(_session?.syncActivePanic() ?? Future<void>.value());
@@ -381,7 +404,9 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       final bgFut = BackgroundRadio.init().then((_) => BackgroundRadio.requestPermissions());
       final locFut = LocationHeartbeat.start(widget.api);
 
-      final groups = await widget.api.fetchGroups();
+      final groups = await widget.api
+          .fetchGroups()
+          .timeout(const Duration(seconds: 8));
       final prefs = await SharedPreferences.getInstance();
       var idx = prefs.getInt('tacticalptx_channel_index') ?? 0;
       if (groups.isEmpty) {
@@ -400,25 +425,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       }
       if (idx < 0 || idx >= groups.length) idx = 0;
 
-      // Si hay DM pendiente, liberar UI antes de terminar radio/LiveKit.
-      final pendingDm = PushService.instance.pendingPeerId;
-      if (pendingDm != null && pendingDm.isNotEmpty) {
-        setState(() {
-          _groups = groups;
-          _channelIndex = idx;
-          _loading = false;
-        });
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _consumePendingNotificationNav();
-          if (mounted) unawaited(_ensureRemoteCameraConsent());
-        });
-        await _bindChannel(groups, idx, light: true);
-        await Future.wait([bgFut, locFut]).catchError((_) => <void>[]);
-        return;
-      }
-
-      await _bindChannel(groups, idx, light: true);
-      await Future.wait([bgFut, locFut]).catchError((_) => <void>[]);
+      // Liberar UI enseguida; LiveKit/FGS no bloquean el home.
       setState(() {
         _groups = groups;
         _channelIndex = idx;
@@ -428,6 +435,9 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
         if (mounted) _consumePendingNotificationNav();
         if (mounted) unawaited(_ensureRemoteCameraConsent());
       });
+
+      await _bindChannel(groups, idx, light: true);
+      await Future.wait([bgFut, locFut]).catchError((_) => <void>[]);
     } catch (e) {
       setState(() {
         _loading = false;
@@ -696,6 +706,34 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     final callId = data['callId']?.toString() ?? '';
     if (callId.isEmpty) return;
 
+    final earlyIntent = data['intent']?.toString() ??
+        (data['type']?.toString() == 'private_remote_camera'
+            ? 'remote_camera'
+            : null);
+    // Entrada única remote cam + auto-accept: headless, sin Contestar / launchApp.
+    if (earlyIntent == 'remote_camera' &&
+        await RemoteCameraPrefs.canAutoAccept()) {
+      PushService.instance.clearConversationNotifications(callId: callId);
+      PushService.instance.pendingIncomingCall = null;
+      _session?.incomingPrivateCall = null;
+      _privateCallDialogOpen = false;
+      unawaited(
+        RemoteCameraSession.instance.startSilent(
+          api: widget.api,
+          call: {
+            'callId': callId,
+            'callerId': data['callerId']?.toString(),
+            'callerName': data['callerName']?.toString() ??
+                data['title']?.toString() ??
+                'Despacho',
+            'mode': data['mode']?.toString() ?? 'video',
+            'intent': 'remote_camera',
+          },
+        ),
+      );
+      return;
+    }
+
     PushService.instance.clearConversationNotifications(callId: callId);
     PushService.instance.pendingIncomingCall = null;
 
@@ -711,8 +749,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
                       data['type']?.toString() == 'private_remote_camera')
                   ? 'video'
                   : 'call'),
-      'intent': data['intent']?.toString() ??
-          (data['type']?.toString() == 'private_remote_camera' ? 'remote_camera' : null),
+      'intent': earlyIntent,
     };
 
     try {
@@ -763,6 +800,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       );
       return;
     }
+    await IncomingCallWake.bringUiToFront();
     await _showIncomingPrivateCall(call);
   }
 
@@ -803,6 +841,10 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       }
     }
 
+    // Quitar banner: la pantalla Contestar es la UI.
+    unawaited(PushService.instance.clearConversationNotifications(callId: callId));
+    await IncomingCallWake.bringUiToFront();
+
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -819,6 +861,8 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
             try {
               await widget.api.endPrivateCall(callId, reason: 'reject');
             } catch (_) {}
+            await CallRingtone.stop();
+            await PushService.instance.clearConversationNotifications(callId: callId);
             _session?.incomingPrivateCall = null;
             if (ctx.mounted) Navigator.of(ctx).pop();
           },
@@ -865,6 +909,8 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       _privateCallDialogOpen = false;
       if (!mounted) return;
 
+      await PushService.instance.clearConversationNotifications(callId: callId);
+
       final accepted = data['call'] as Map? ?? {};
       final mode = accepted['mode']?.toString() ?? callMode;
       final intent = accepted['intent']?.toString() ?? callIntent;
@@ -881,6 +927,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
             url: AppConfig.publicLiveKitUrl(data['url'] as String),
             role: 'callee',
             e2eeKey: data['e2eeKey']?.toString(),
+            e2ee: data['e2ee'] == true,
             mode: mode == 'video' ? 'video' : 'call',
             intent: intent,
           ),
@@ -888,9 +935,24 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       );
     } catch (e) {
       _privateCallDialogOpen = false;
+      _session?.incomingPrivateCall = null;
+      await CallRingtone.stop();
       if (!mounted) return;
+      final msg = e.toString().toLowerCase();
+      final expired = msg.contains('404') ||
+          msg.contains('no encontrada') ||
+          msg.contains('not found') ||
+          msg.contains('finalizada') ||
+          msg.contains('ended') ||
+          msg.contains('timeout');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(esMsg(e, 'No se pudo aceptar la solicitud'))),
+        SnackBar(
+          content: Text(
+            expired
+                ? 'Llamada finalizada o sin respuesta'
+                : esMsg(e, 'No se pudo aceptar la solicitud'),
+          ),
+        ),
       );
     }
   }
@@ -968,7 +1030,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(success ? 'Alerta de pánico enviada' : (session.error ?? 'No se pudo enviar')),
+        content: Text(success ? 'Alerta enviada' : (session.error ?? 'No se pudo enviar')),
         backgroundColor: success ? kRadioDanger : null,
       ),
     );
@@ -1322,10 +1384,16 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       _tab = tab;
       _overlay = _OverlayPane.none;
     });
-    if (tab == _MainTab.chats) {
+    if (tab == _MainTab.chats || tab == _MainTab.calls) {
       PushService.instance.clearAllNotifications();
     }
   }
+
+  int get _mainTabIndex => switch (_tab) {
+        _MainTab.chats => 0,
+        _MainTab.calls => 1,
+        _MainTab.radio => 2,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -1360,7 +1428,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     final session = _session!;
 
     final mainBody = IndexedStack(
-      index: _tab == _MainTab.chats ? 0 : 1,
+      index: _mainTabIndex,
       children: [
         ChatInboxScreen(
           key: _inboxKey,
@@ -1377,6 +1445,13 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
           onOpenGroup: (gid, gname, {messageId}) async {
             await _openGroupFromInbox(gid, gname, messageId: messageId);
           },
+          onOpenDm: (pid, pname) async {
+            await _openDmFromInbox(pid, pname);
+          },
+        ),
+        CallHistoryPane(
+          key: const ValueKey('calls-main'),
+          api: widget.api,
           onOpenDm: (pid, pname) async {
             await _openDmFromInbox(pid, pname);
           },
@@ -1474,6 +1549,14 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
                       ),
                       Expanded(
                         child: _NavTab(
+                          icon: Icons.call_rounded,
+                          label: 'Llamadas',
+                          selected: _tab == _MainTab.calls && _overlay == _OverlayPane.none,
+                          onTap: () => _onMainTabTap(_MainTab.calls),
+                        ),
+                      ),
+                      Expanded(
+                        child: _NavTab(
                           icon: Icons.cell_tower_rounded,
                           label: 'Radio',
                           selected: _tab == _MainTab.radio && _overlay == _OverlayPane.none,
@@ -1509,7 +1592,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             const Text(
-                              'ALERTA DE PÁNICO',
+                              'ALERTA',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: kRadioDanger,

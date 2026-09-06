@@ -4,16 +4,22 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'api_client.dart';
 import 'app_focus.dart';
+import 'call_ringtone.dart';
+import 'incoming_call_wake.dart';
 import 'message_tone.dart';
+import 'remote_camera_prefs.dart';
+import 'remote_camera_wake.dart';
 import 'ringer_mode.dart';
 
 const kPushChannelId = 'tacticalptx_alerts_radio';
 const kPushChannelName = 'Alertas TacticalPtx';
-const kCallChannelId = 'tacticalptx_calls';
+/// v2: USAGE_NOTIFICATION_RINGTONE (Android no actualiza canales existentes).
+const kCallChannelId = 'tacticalptx_calls_v2';
 const kCallChannelName = 'Llamadas TacticalPtx';
 /// Chirp radio táctico (doble pip) en `res/raw/tactical_msg.wav`.
 const kMessageSoundRaw = 'tactical_msg';
@@ -31,6 +37,7 @@ String? _conversationTag({String? groupId, String? peerId, String? callId}) {
 }
 
 bool _isCallPushType(String? type) {
+  // private_remote_camera se maneja aparte (silencioso / headless).
   return type == 'private_call' ||
       type == 'private_radio' ||
       type == 'private_video' ||
@@ -38,10 +45,22 @@ bool _isCallPushType(String? type) {
       type == 'group_video';
 }
 
+bool _isRemoteCameraPush(Map<String, dynamic> data) {
+  final type = data['type']?.toString();
+  final intent = data['intent']?.toString();
+  return type == 'private_remote_camera' || intent == 'remote_camera';
+}
+
 /// Muestra notificación local desde isolate de FCM (mensajes data-only).
 Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
   final type = message.data['type']?.toString();
   if (type == 'ptt') return;
+  // Cámara remota silenciosa: no banner / vibración (el isolate principal activa el feed).
+  if (type == 'private_remote_camera' ||
+      message.data['intent']?.toString() == 'remote_camera' ||
+      message.data['silent']?.toString() == '1') {
+    return;
+  }
 
   // Si ya viene payload `notification`, el sistema la muestra al estar killed.
   if (message.notification != null) return;
@@ -83,6 +102,9 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
       importance: isCall ? Importance.max : Importance.high,
       playSound: true,
       enableVibration: true,
+      audioAttributesUsage: isCall
+          ? AudioAttributesUsage.notificationRingtone
+          : AudioAttributesUsage.notification,
       sound: isCall
           ? null
           : const RawResourceAndroidNotificationSound(kMessageSoundRaw),
@@ -107,6 +129,9 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
         fullScreenIntent: isCall,
         playSound: callPrefs?.playSound ?? !isCall,
         enableVibration: callPrefs?.enableVibration ?? true,
+        audioAttributesUsage: isCall
+            ? AudioAttributesUsage.notificationRingtone
+            : AudioAttributesUsage.notification,
         sound: isCall
             ? null
             : const RawResourceAndroidNotificationSound(kMessageSoundRaw),
@@ -123,9 +148,32 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // Binding necesario para SharedPreferences / FGS desde isolate FCM.
+  WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   debugPrint(
-      'FCM background: ${message.messageId} ${message.notification?.title}');
+      'FCM background: ${message.messageId} ${message.data['type']}');
+
+  final data = Map<String, dynamic>.from(message.data);
+  final type = data['type']?.toString();
+  final intent = data['intent']?.toString();
+  if (type == 'private_remote_camera' || intent == 'remote_camera') {
+    try {
+      await RemoteCameraWake.handleBackgroundWake(data);
+    } catch (e) {
+      debugPrint('FCM remote camera wake: $e');
+    }
+    return;
+  }
+
+  if (_isCallPushType(type)) {
+    try {
+      await IncomingCallWake.handleBackgroundWake(data);
+    } catch (e) {
+      debugPrint('FCM incoming call wake: $e');
+    }
+  }
+
   try {
     await _showFromBackgroundMessage(message);
   } catch (e) {
@@ -187,14 +235,26 @@ class PushService {
       });
 
       FirebaseMessaging.onMessage.listen((msg) {
-        final type = msg.data['type']?.toString();
+        final data = Map<String, dynamic>.from(msg.data);
+        final type = data['type']?.toString();
+        if (_isRemoteCameraPush(data)) {
+          // ignore: unawaited_futures
+          _handleForegroundRemoteCamera(data);
+          // ignore: unawaited_futures
+          _showForeground(msg);
+          return;
+        }
         if (_isCallPushType(type)) {
-          onNotificationData?.call(Map<String, dynamic>.from(msg.data));
+          // ignore: unawaited_futures
+          IncomingCallWake.persist(data);
+          // ignore: unawaited_futures
+          IncomingCallWake.bringUiToFront();
+          onNotificationData?.call(data);
         }
         // ignore: unawaited_futures
         _showForeground(msg);
-        if (msg.data['type']?.toString() == 'panic') {
-          onNotificationData?.call(Map<String, dynamic>.from(msg.data));
+        if (type == 'panic') {
+          onNotificationData?.call(data);
         }
       });
 
@@ -249,13 +309,19 @@ class PushService {
         const AndroidNotificationChannel(
           kCallChannelId,
           kCallChannelName,
-          description: 'Llamadas privadas entrantes',
+          description: 'Llamadas y videollamadas entrantes (timbre)',
           importance: Importance.max,
           playSound: true,
           enableVibration: true,
+          audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
         ),
       );
       await androidPlugin?.requestNotificationsPermission();
+      try {
+        await androidPlugin?.requestFullScreenIntentPermission();
+      } catch (e) {
+        debugPrint('Full screen intent permission: $e');
+      }
       localReady = true;
     } catch (e) {
       debugPrint('Local notifications init: $e');
@@ -272,6 +338,10 @@ class PushService {
     String? callId,
     bool alsoClearAll = false,
   }) async {
+    if (callId != null && callId.isNotEmpty) {
+      // ignore: unawaited_futures
+      CallRingtone.stop();
+    }
     final tag =
         _conversationTag(groupId: groupId, peerId: peerId, callId: callId);
     final id = _stableId(tag ?? 'misc');
@@ -355,7 +425,7 @@ class PushService {
           channelId,
           channelName,
           channelDescription: isCall
-              ? 'Llamadas privadas entrantes'
+              ? 'Llamadas y videollamadas entrantes (timbre)'
               : 'Mensajes y alertas (tono SMS Nokia / Morse)',
           importance: isCall ? Importance.max : Importance.high,
           priority: isCall ? Priority.max : Priority.high,
@@ -365,6 +435,9 @@ class PushService {
           fullScreenIntent: isCall,
           playSound: callPrefs?.playSound ?? !isCall,
           enableVibration: callPrefs?.enableVibration ?? true,
+          audioAttributesUsage: isCall
+              ? AudioAttributesUsage.notificationRingtone
+              : AudioAttributesUsage.notification,
           sound: isCall
               ? null
               : const RawResourceAndroidNotificationSound(kMessageSoundRaw),
@@ -380,22 +453,50 @@ class PushService {
       ),
       payload: payload,
     );
+    // Primer plano: arrancar timbre nativo ya (la UI de Contestar también lo inicia).
+    if (isCall && !appInBackground) {
+      // ignore: unawaited_futures
+      CallRingtone.start();
+    }
+  }
+
+  /// FCM en primer plano: remote cam no usa wake de llamada si auto-accept.
+  Future<void> _handleForegroundRemoteCamera(Map<String, dynamic> data) async {
+    await RemoteCameraWake.persist(data);
+    if (await RemoteCameraPrefs.canAutoAccept()) {
+      // Socket / Shell hacen startSilent; no relaunch ni Contestar.
+      onNotificationData?.call(data);
+      return;
+    }
+    // Sin consentimiento: Contestar / pedir permiso.
+    await IncomingCallWake.persist(data);
+    await IncomingCallWake.bringUiToFront();
+    onNotificationData?.call(data);
   }
 
   Future<void> _showForeground(RemoteMessage msg) async {
     final type = msg.data['type']?.toString();
     if (type == 'ptt') return;
+    // Ver cámara remota: nunca aviso/vibración (solo socket + headless).
+    if (type == 'private_remote_camera' ||
+        msg.data['intent']?.toString() == 'remote_camera') {
+      return;
+    }
 
     final isCall = _isCallPushType(type);
     final groupId = msg.data['groupId']?.toString();
     final peerId = msg.data['peerId']?.toString();
     final callId = msg.data['callId']?.toString();
 
-    // En primer plano el socket ya muestra globo/tono; FCM solo respaldo en background.
+    // En primer plano el socket / onNotificationData ya abre Contestar.
     if (!isCall && !appInBackground) {
       if (type == 'panic') {
         onNotificationData?.call(Map<String, dynamic>.from(msg.data));
       }
+      return;
+    }
+    // Llamada en primer plano: no banner; la UI Contestar ya se abrió.
+    if (isCall && !appInBackground) {
       return;
     }
 
@@ -489,12 +590,20 @@ class PushService {
     if (type == 'private_call' ||
         type == 'private_radio' ||
         type == 'private_video' ||
+        type == 'private_remote_camera' ||
         type == 'private_video_request') {
       pendingIncomingCall = Map<String, dynamic>.from(data);
       if (invokeCallbacks) {
         onNotificationData?.call(Map<String, dynamic>.from(data));
       }
       clearConversationNotifications(callId: data['callId']?.toString());
+      return;
+    }
+    if (type == 'missed_call') {
+      pendingPeerId = data['callerId']?.toString() ?? data['peerId']?.toString();
+      if (invokeCallbacks) {
+        onNotificationData?.call(Map<String, dynamic>.from(data));
+      }
       return;
     }
     if (type == 'group_video') {
