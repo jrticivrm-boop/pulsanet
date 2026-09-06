@@ -1,3 +1,49 @@
+## 2026-09-06 — Fix re-ring en llamada + altavoz por defecto (1.8.84+94)
+
+- **Tipo:** fix
+- **Área:** mobile | backend
+- **Qué:**
+  - No abrir Contestar encima si ya hay llamada 1:1 (PrivateCallGate + guardas en socket/push/shell).
+  - Backend 409 si caller/callee ya tienen llamada activa (evita re-marcar).
+  - Voz: **auricular por defecto** al contestar (no altavoz); video/radio siguen manos libres.
+  - Radio ensureBackgroundAudio / 
+eleasePtt ya no fuerzan altavoz mientras hay llamada 1:1.
+- **Archivos / refs:** private_call_gate.dart, private_call_screen.dart, channel_session.dart, radio_shell.dart, calls.js, dm.js
+
+## 2026-09-06 — Panel web progresivo (fases 0–5)
+
+- **Tipo:** feature | ux | mejora
+- **Área:** web
+- **Qué:**
+  - **F0–1:** tokens/breakpoints (720/960), useMediaQuery, shell phone (bottom nav Radio/Chats/Personas/Más), rail oculto, safe-area.
+  - **F2:** inbox lista XOR hilo en phone; Atrás; tab Chats → lista; Personas/peer sheet full-bleed; touch ≥44px.
+  - **F3:** overlays llamada 100dvh+safe-area; unlockMediaAudio unificado; warmUp media con errores claros; mapa/video fullscreen dvh.
+  - **F4:** Command Center tabs Mapa|Actividad ≤960; LiveTrack bottom sheet + capas drawer; Video máx. 2 monitores en phone; tablas/catálogos 1 col / scroll.
+  - **F5:** manifest.webmanifest, iconos, offline.html, SW shell cache (sin API/socket/LiveKit); higiene (pointer: coarse).
+- **Por qué / notas:** web móvil = respaldo / mesa ligera; sin paridad FGS Flutter. Matriz: Soporte/Documentos/MATRIZ_PRUEBA_PANEL_WEB.md.
+- **Archivos / refs:** responsive.css, useMediaQuery.js, DispatchLayout.jsx, ChatInbox.jsx, unlockMediaAudio.js, PrivateCall*, CommandCenter.jsx, LiveTrackMap.jsx, DispatchVideo.jsx, sw-notify.js, manifest.webmanifest
+
+## 2026-09-06 — Calidad de video: nitidez sobre fluidez (1.8.83+93)
+
+- **Tipo:** fix | mejora
+- **Área:** mobile | web
+- **Qué:**
+  - `degradationPreference` pasa de `maintainFramerate` a `maintainResolution`: el encoder baja FPS en vez de reescalar a 360p (se veía borroso aun en la misma red).
+  - Bitrate alineado a **3.2 Mbps** en móvil y web (antes móvil publicaba 2.8 con captura de 3.2).
+  - Web: `adaptiveStream: false` — el mosaico enlaza por `srcObject`, así que adaptiveStream no observaba los elementos y solo podía pausar tracks.
+- **Por qué / notas:** VP8 por software en Android satura CPU a 720p30; con `maintainFramerate` WebRTC reescala la resolución y la imagen se ve suave/pixelada aunque haya ancho de banda de sobra.
+- **Archivos / refs:** video_streaming_config.dart, videoStreaming.js
+
+## 2026-09-06 — Fix switch frontal/trasera Ver cámara (1.8.82+92)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - `setCameraEnabled(false/true)` solo muteaba el mismo track: no cambiaba facing.
+  - Switch ahora: `setCameraPosition` → recrear track (`removePublishedTrack` + `createCameraTrack`) → fallback.
+  - Socket dedicado también escucha `call:remote_control` (backup + dedupe).
+- **Archivos / refs:** remote_camera_session.dart
+
 ## 2026-09-06 — Fix Ver cámara splash + SafeArea Llamadas (1.8.81+91)
 
 - **Tipo:** fix

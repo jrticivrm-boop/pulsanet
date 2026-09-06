@@ -10,6 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Panel web progresivo (móvil/tablet/desktop):** shell phone con bottom nav; inbox lista XOR hilo; llamadas/PTT con `100dvh` y unlock de audio unificado; Command Center (Mapa|Actividad) y LiveTrack bottom sheet en ≤960; Video limitado a 2 monitores en phone; PWA (`manifest` + offline shell + SW cache estático).
 - **Personas (web):** paleta global Ctrl+K / botón Personas; ficha Mensaje · Llamada · Video · Ver cámara; pestaña Personas en inbox; contactar desde mapa/usuarios/en línea.
 - **Banner de llamada entrante (web):** notificación flotante arriba/derecha para Contestar/Rechazar sin abrir el chat.
 - **Llamada perdida:** tras 5 timbres (~25 s) sin contestar, el servidor cuelga y notifica «Llamada perdida» al destino.
@@ -19,6 +20,9 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Llamadas web unificadas:** salida/entrada vía `PrivateCallHost`; DM con iconos directos (sin menú «Llamar ▾»).
 
 ### Fixed
+- **Llamadas APK:** no re-marcar Contestar encima de llamada activa; auricular por defecto en voz (no altavoz); radio ya no fuerza altavoz durante 1:1. APK **1.8.84+94**.
+- **Calidad de video:** prioriza resolución sobre FPS (`maintain-resolution`) y 3.2 Mbps en móvil y web; ya no baja a 360p borroso en LAN. APK **1.8.83+93**.
+- **Ver cámara frontal/trasera:** el switch ya no usa mute/unmute; recrea el track con la facing pedida. APK **1.8.82+92**.
 - **Ver cámara (APK splash) + cabecera Llamadas:** FCM remote cam ya no relaunch/Contestar con auto-accept; OTA no bloquea accept pendiente; FGS tipo `camera` con forceRestart; SafeArea en historial de llamadas. APK **1.8.81+91**.
 - **UI llamada de voz (web):** foto de perfil del interlocutor; texto y avatar ya no se solapan.
 

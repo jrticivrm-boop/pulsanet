@@ -11,16 +11,19 @@ import {
   persistPrivateCallLog,
   listPrivateCallHistory,
   listActivePrivateCalls,
-  privateCallRoom,
+  findBusyPrivateCallForUsers,
 } from '../services/dm.js';
 import { notifyUserDevices, notifyUserDevicesDataOnly } from '../services/fcm.js';
 import { voiceE2eeKeyForRoom } from '../services/voiceE2ee.js';
 
-const RING_TIMEOUT_MS = 45_000;
+/** ~5 timbres (≈5 s c/u) sin contestar → colgar + llamada perdida. */
+const RING_MS = 5_000;
+const RING_COUNT = 5;
+const RING_TIMEOUT_MS = RING_MS * RING_COUNT;
 const REMOTE_CAMERA_RING_MS = 120_000;
 const STALE_ACTIVE_MS = 90_000;
 const HARD_MAX_CALL_MS = 10 * 60 * 1000;
-const SWEEP_EVERY_MS = 5_000;
+const SWEEP_EVERY_MS = 2_000;
 
 function normalizeMode(raw) {
   const m = String(raw || '').toLowerCase();
@@ -70,63 +73,102 @@ async function issueCallCredentials(req, call, identity, displayName) {
   };
 }
 
-/** Cierra llamada, persiste historial y notifica a ambos extremos. */
-export async function finalizePrivateCall(io, callId, { reason = 'hangup', endedBy = null } = {}) {
-  const call = getPrivateCall(callId);
-  if (!call) return null;
+/**
+ * Cierra llamada, persiste log y notifica ambos lados.
+ * Si quedó sin contestar (timeout/no_answer) → push «Llamada perdida» al destino.
+ */
+export async function finalizePrivateCall(
+  io,
+  callId,
+  { reason = 'hangup', endedBy = null } = {}
+) {
   const ended = endPrivateCall(callId, { reason, endedBy });
-  if (ended?.call) {
-    await persistPrivateCallLog({
-      call: ended.call,
-      reason: ended.reason,
-      endedBy: ended.endedBy,
-    });
-  }
+  if (!ended?.call) return null;
+
+  const call = ended.call;
+  const outcome = await persistPrivateCallLog({
+    call,
+    reason: ended.reason,
+    endedBy: ended.endedBy,
+  });
+
   const payload = {
-    callId,
-    by: endedBy || null,
-    reason,
+    callId: call.id,
+    by: endedBy,
+    reason: ended.reason || reason,
     mode: call.mode || 'call',
+    outcome: outcome?.outcome || null,
   };
   io.to(`user:${call.callerId}`).emit('call:ended', payload);
   io.to(`user:${call.targetId}`).emit('call:ended', payload);
-  return ended;
+
+  const unanswered =
+    !call.answeredAt &&
+    (ended.reason === 'timeout' ||
+      ended.reason === 'no_answer' ||
+      (outcome && outcome.outcome === 'missed'));
+
+  if (unanswered && call.intent !== 'remote_camera') {
+    const isVideo = call.mode === 'video';
+    notifyUserDevices({
+      userId: call.targetId,
+      title: isVideo ? 'Videollamada perdida' : 'Llamada perdida',
+      body: call.callerName || 'Usuario',
+      data: {
+        type: 'missed_call',
+        callId: call.id,
+        callerId: call.callerId,
+        callerName: call.callerName || 'Usuario',
+        mode: call.mode || 'call',
+        peerId: call.callerId,
+      },
+    }).catch(() => {});
+  }
+
+  return { call, reason: ended.reason, endedBy: ended.endedBy, outcome };
 }
 
+/** Sweeper: 5 timbres sin respuesta → cuelga; activas huérfanas → cierra. */
 export function startPrivateCallSweeper(io) {
-  const tick = async () => {
+  setInterval(() => {
     const now = Date.now();
     for (const call of listActivePrivateCalls()) {
       const age = now - (call.createdAt || now);
-      const isRemoteCam = call.intent === 'remote_camera';
-      try {
-        if (call.status === 'ringing') {
-          const limit = isRemoteCam ? REMOTE_CAMERA_RING_MS : RING_TIMEOUT_MS;
-          if (age > limit) {
-            await finalizePrivateCall(io, call.id, { reason: 'timeout', endedBy: null });
-            continue;
-          }
+      if (age > HARD_MAX_CALL_MS) {
+        finalizePrivateCall(io, call.id, { reason: 'timeout', endedBy: null }).catch(
+          () => {}
+        );
+        continue;
+      }
+      if (call.status === 'ringing') {
+        const limit =
+          call.intent === 'remote_camera' ? REMOTE_CAMERA_RING_MS : RING_TIMEOUT_MS;
+        if (age >= limit) {
+          finalizePrivateCall(io, call.id, {
+            reason: 'timeout',
+            endedBy: null,
+          }).catch(() => {});
         }
-        if (call.status === 'active') {
-          const seen = call.lastSeenAt || {};
-          const callerSeen = seen[call.callerId] || 0;
-          const targetSeen = seen[call.targetId] || 0;
-          const bothStale =
-            now - callerSeen > STALE_ACTIVE_MS && now - targetSeen > STALE_ACTIVE_MS;
-          if (bothStale || age > HARD_MAX_CALL_MS) {
-            await finalizePrivateCall(io, call.id, { reason: 'timeout', endedBy: null });
-          }
+        continue;
+      }
+      if (call.status === 'active') {
+        const seen = call.lastSeenAt || {};
+        const callerSeen = seen[call.callerId] || call.createdAt || 0;
+        const targetSeen = seen[call.targetId] || call.answeredAt || call.createdAt || 0;
+        const bothStale =
+          now - callerSeen > STALE_ACTIVE_MS && now - targetSeen > STALE_ACTIVE_MS;
+        if (bothStale) {
+          finalizePrivateCall(io, call.id, {
+            reason: 'timeout',
+            endedBy: null,
+          }).catch(() => {});
         }
-      } catch (e) {
-        console.warn('[calls] sweeper', call.id, e?.message || e);
       }
     }
-  };
-  const handle = setInterval(() => {
-    tick().catch((e) => console.warn('[calls] sweeper tick', e?.message || e));
   }, SWEEP_EVERY_MS);
-  if (typeof handle.unref === 'function') handle.unref();
-  return handle;
+  console.log(
+    `Private call sweeper: ring ${RING_COUNT}×${RING_MS / 1000}s (${RING_TIMEOUT_MS}ms)`
+  );
 }
 
 export function createCallsRouter(io) {
@@ -155,6 +197,19 @@ export function createCallsRouter(io) {
       return res.status(503).json({ ok: false, error: 'LiveKit no configurado' });
     }
 
+    // Evita re-marcar: si cualquiera ya tiene llamada activa, no crear otra.
+    // (remote_camera puede coexistir en flujos de despacho — se permite).
+    if (intent !== 'remote_camera') {
+      const busy = findBusyPrivateCallForUsers(req.user.sub, peer.id);
+      if (busy) {
+        return res.status(409).json({
+          ok: false,
+          error: 'Ya hay una llamada en curso',
+          busyCallId: busy.id,
+        });
+      }
+    }
+
     const call = createPrivateCall({
       callerId: req.user.sub,
       callerName: req.user.displayName,
@@ -164,12 +219,6 @@ export function createCallsRouter(io) {
       intent,
       orgId: req.user.orgId,
     });
-    // Asegura sala única por callId (por si room vino vacío).
-    if (!call.room || !String(call.room).includes(String(call.id).replace(/-/g, '').slice(0, 12))) {
-      updatePrivateCall(call.id, {
-        room: privateCallRoom(call.callerId, call.targetId, call.mode, call.id),
-      });
-    }
 
     const creds = await issueCallCredentials(req, call, req.user.sub, req.user.displayName);
     const payload = serializeCall(call);
@@ -203,10 +252,9 @@ export function createCallsRouter(io) {
           : effectiveMode === 'video'
             ? `${call.callerName} te llama con video`
             : `${call.callerName} te está llamando`;
-      notifyUserDevices({
+      // Data-only: la app abre pantalla Contestar (no banner del sistema).
+      notifyUserDevicesDataOnly({
         userId: peer.id,
-        title: fcmTitle,
-        body: fcmBody,
         data: {
           type:
             effectiveMode === 'radio'
@@ -219,6 +267,8 @@ export function createCallsRouter(io) {
           callerName: call.callerName,
           mode: effectiveMode,
           intent: intent || '',
+          title: fcmTitle,
+          body: fcmBody,
         },
       }).catch(() => {});
     }

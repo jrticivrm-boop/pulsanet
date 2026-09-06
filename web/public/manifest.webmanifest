@@ -1,0 +1,26 @@
+{
+  "name": "TacticalPtx",
+  "short_name": "TacticalPtx",
+  "description": "Radio PTT, chat y despacho — cliente web de respaldo / mesa ligera.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0c1410",
+  "theme_color": "#243d20",
+  "lang": "es-MX",
+  "icons": [
+    {
+      "src": "/brand/tacticalptx.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/tacticalptx_round.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

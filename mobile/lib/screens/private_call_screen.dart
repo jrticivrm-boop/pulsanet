@@ -9,10 +9,12 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../api_client.dart';
 import '../audio_session_setup.dart';
 import '../channel_session.dart';
+import '../camera_session_gate.dart';
 import '../config.dart';
 import '../es_msg.dart';
 import '../livekit_e2ee.dart';
 import '../chat_message_banner.dart';
+import '../private_call_gate.dart';
 import '../private_call_stabilizer.dart';
 import '../theme.dart';
 import '../video_streaming_config.dart';
@@ -30,7 +32,9 @@ class PrivateCallScreen extends StatefulWidget {
     required this.role,
     this.peerId,
     this.e2eeKey,
+    this.e2ee = false,
     this.mode = 'call',
+    this.intent,
   });
 
   final ApiClient api;
@@ -41,12 +45,22 @@ class PrivateCallScreen extends StatefulWidget {
   final String url;
   final String role;
   final String? e2eeKey;
+  /// Si el API marcó `e2ee: true`, no conectar sin clave.
+  final bool e2ee;
 
   /// `call` = full-duplex; `video` = videollamada; `radio` = PTT (mic mute hasta mantener).
   final String mode;
 
+  /// `remote_camera` = despacho pide ver la cámara del dispositivo (preferir trasera).
+  final String? intent;
+
   /// true mientras la UI de llamada está montada (minimizada o completa).
-  static bool uiOpen = false;
+  static bool get uiOpen => PrivateCallGate.uiOpen;
+  static String? get activeCallId => PrivateCallGate.activeCallId;
+  static String? get activePeerId => PrivateCallGate.activePeerId;
+
+  static bool isBusyWith({String? callId, String? peerId}) =>
+      PrivateCallGate.isBusyWith(callId: callId, peerId: peerId);
 
   /// Ruta semi-transparente para poder minimizar sin cortar la llamada.
   static Route<void> route({required PrivateCallScreen child}) {
@@ -72,7 +86,8 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
   String _status = 'Conectando…';
   bool _muted = false;
   bool _minimized = false;
-  bool _speakerOn = true;
+  /// Voz: auricular por defecto. Video/radio: altavoz (manos libres).
+  late bool _speakerOn;
   bool _listenMuted = false;
   bool _pttHeld = false;
   bool _connected = false;
@@ -89,19 +104,39 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
   Timer? _tick;
   DateTime? _connectedAt;
   Duration _elapsed = Duration.zero;
+  int _connectAttempts = 0;
+  static const _maxConnectAttempts = 5;
   void Function(ChatMessageBannerPayload)? _bannerTapPrev;
 
   bool get _isRadio => widget.mode == 'radio';
   bool get _isVideo => widget.mode == 'video';
+  bool get _isRemoteCamera => widget.intent == 'remote_camera';
   bool get _showVideoStage => _isVideo || _cameraOn || _remoteVideo;
 
   @override
   void initState() {
     super.initState();
-    PrivateCallScreen.uiOpen = true;
+    _speakerOn = _isVideo || _isRadio;
+    if (_isRemoteCamera) {
+      _cameraPosition = CameraPosition.back;
+    }
+    final gateOwner =
+        _isRemoteCamera ? CameraOwner.remoteCam : CameraOwner.privateCall;
+    if (!CameraSessionGate.tryAcquire(gateOwner)) {
+      // No pelear con otra sesión de cámara; colgar en servidor y salir.
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try {
+          await widget.api.endPrivateCall(widget.callId, reason: 'hangup');
+        } catch (_) {}
+        if (mounted) Navigator.of(context).maybePop();
+      });
+      return;
+    }
+    PrivateCallGate.bind(callId: widget.callId, peerId: widget.peerId);
     _bannerTapPrev = ChatMessageBanner.instance.onTap;
     ChatMessageBanner.instance.onTap = _onBannerTap;
     _listenRemoteHangup();
+    _connectAttempts = 0;
     _connect();
   }
 
@@ -135,6 +170,12 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       if (id != null && id == widget.callId) {
         _closeFromRemote(reason: data['reason']?.toString() ?? 'hangup');
       }
+    });
+    socket.on('call:remote_control', (data) {
+      if (!_isRemoteCamera || data is! Map) return;
+      final id = data['callId']?.toString();
+      if (id != null && id.isNotEmpty && id != widget.callId) return;
+      unawaited(_applyRemoteControl(Map<String, dynamic>.from(data)));
     });
     socket.on('call:accepted', (data) {
       if (data is! Map || !mounted) return;
@@ -234,7 +275,9 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       setState(() {
         _status = reason == 'reject'
             ? (_isRadio ? 'Radio rechazada' : 'Llamada rechazada')
-            : (_isRadio ? 'Radio finalizada' : 'Llamada finalizada');
+            : (reason == 'timeout' || reason == 'no_answer')
+                ? 'Sin respuesta'
+                : (_isRadio ? 'Radio finalizada' : 'Llamada finalizada');
       });
     }
     try {
@@ -387,9 +430,46 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       if (mounted) setState(() => _cameraPosition = next);
       HapticFeedback.selectionClick();
     } catch (e) {
-      if (mounted) {
-        setState(() => _status = esMsg(e, 'No se pudo cambiar de cámara'));
+      // Fallback: reiniciar track (más fiable en algunos Android).
+      try {
+        await _room?.localParticipant?.setCameraEnabled(false);
+        _cam = null;
+        if (mounted) setState(() => _cameraOn = false);
+        _cameraPosition = next;
+        await _enableCamera();
+      } catch (err) {
+        if (mounted) {
+          setState(() => _status = esMsg(err, 'No se pudo cambiar de cámara'));
+        }
       }
+    }
+  }
+
+  /// Control remoto desde despacho (solo intent remote_camera). Nunca cuelga la llamada.
+  Future<void> _applyRemoteControl(Map<String, dynamic> data) async {
+    try {
+      final facingRaw = data['facing']?.toString();
+      if (facingRaw == 'front' || facingRaw == 'user') {
+        if (_cameraPosition != CameraPosition.front) {
+          _cameraPosition = CameraPosition.back; // fuerza flip path
+          await _flipCamera();
+        }
+      } else if (facingRaw == 'back' || facingRaw == 'environment') {
+        if (_cameraPosition != CameraPosition.back) {
+          _cameraPosition = CameraPosition.front;
+          await _flipCamera();
+        }
+      }
+      if (data.containsKey('mic')) {
+        final on = data['mic'] == true || data['mic'] == 'true' || data['mic'] == 1;
+        final lp = _room?.localParticipant;
+        if (lp != null) {
+          await lp.setMicrophoneEnabled(on);
+          if (mounted) setState(() => _muted = !on);
+        }
+      }
+    } catch (e) {
+      debugPrint('PrivateCallScreen._applyRemoteControl: $e');
     }
   }
 
@@ -408,7 +488,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       await widget.api.respondPrivateCallVideo(widget.callId, accept);
       if (accept) {
         await _enableCamera();
-        if (mounted) setState(() => _status = 'En llamada con ${widget.peerName}');
+        if (mounted) setState(() => _status = 'En llamada');
       }
     } catch (e) {
       if (mounted) setState(() => _status = esMsg(e, 'Error al responder solicitud'));
@@ -420,20 +500,32 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     LocalAudioTrack? mic;
     try {
       await ChannelSession.current?.pauseForPersonalRadio();
-      final e2ee = await buildVoiceE2eeOptions(widget.e2eeKey);
-      room = Room(roomOptions: RoomOptions(encryption: e2ee));
+      final e2ee = await buildVoiceE2eeOptions(
+        widget.e2eeKey,
+        required: widget.e2ee,
+      );
+      room = Room(roomOptions: streamingRoomOptions(encryption: e2ee));
       final listener = room.createListener();
+      Timer? remoteClearTimer;
       listener.on<TrackSubscribedEvent>((e) {
         if (_listenMuted && e.track is AudioTrack) {
           _applyListenMute();
         }
         if (e.track is VideoTrack) {
+          remoteClearTimer?.cancel();
           _onRemoteVideoTrack(e.track as VideoTrack);
         }
       });
       listener.on<TrackUnsubscribedEvent>((e) {
         if (e.track is VideoTrack) {
-          _onRemoteVideoTrack(null);
+          // Debounce: unsubscribes breves (capa simulcast) no deben apagar el tile.
+          remoteClearTimer?.cancel();
+          remoteClearTimer = Timer(const Duration(milliseconds: 2500), () {
+            if (!mounted || _closing) return;
+            if (identical(_remoteVideoTrack, e.track)) {
+              _onRemoteVideoTrack(null);
+            }
+          });
         }
       });
       _roomListener = listener;
@@ -447,15 +539,16 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       );
       await AudioSessionSetup.acquireVoice();
       await _applySpeaker(_speakerOn);
-      mic = await LocalAudioTrack.create(
-        const AudioCaptureOptions(
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          stopAudioCaptureOnMute: true,
-        ),
+      // Reaplicar tras un tick: Android a veces restaura ruta de radio/media.
+      unawaited(Future<void>.delayed(const Duration(milliseconds: 350), () async {
+        if (!mounted || _closing) return;
+        await _applySpeaker(_speakerOn);
+      }));
+      mic = await LocalAudioTrack.create(kCallAudioCapture);
+      await room.localParticipant?.publishAudioTrack(
+        mic,
+        publishOptions: kCallAudioPublish,
       );
-      await room.localParticipant?.publishAudioTrack(mic);
       if (_isRadio) {
         await mic.mute(stopOnMute: true);
       }
@@ -472,7 +565,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
         _room = room;
         _mic = mic;
         _muted = _isRadio;
-        _speakerOn = true;
+        // No forzar altavoz: respeta auricular por defecto en voz.
         if (widget.role == 'callee') {
           _markConnected();
           _status = _isRadio
@@ -501,7 +594,15 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
           if (mounted && !_closing) setState(() => _status = msg);
         },
         onRemoteEnd: () => _closeFromRemote(reason: 'peer_left'),
+        onGiveUp: () async {
+          if (_closing) return;
+          try {
+            await widget.api.endPrivateCall(widget.callId, reason: 'hangup');
+          } catch (_) {}
+          await _closeFromRemote(reason: 'give_up');
+        },
       )..attach(signalSocket: _signalSocket);
+      _connectAttempts = 0;
     } catch (e) {
       try {
         await mic?.stop();
@@ -515,11 +616,20 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       try {
         await _room?.disconnect();
       } catch (_) {}
-      if (!mounted) return;
+      if (!mounted || _closing) return;
+      _connectAttempts += 1;
+      if (_connectAttempts >= _maxConnectAttempts) {
+        setState(() => _status = 'Sin conexión');
+        try {
+          await widget.api.endPrivateCall(widget.callId, reason: 'hangup');
+        } catch (_) {}
+        if (mounted) Navigator.of(context).maybePop();
+        return;
+      }
       setState(() {
         _room = null;
         _mic = null;
-        _status = 'Sin conexión · reintentando…';
+        _status = 'Sin conexión · reintentando… ($_connectAttempts/$_maxConnectAttempts)';
       });
       await Future<void>.delayed(const Duration(seconds: 2));
       if (!mounted || _closing) return;
@@ -785,7 +895,10 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
 
   @override
   void dispose() {
-    PrivateCallScreen.uiOpen = false;
+    PrivateCallGate.clear(callId: widget.callId);
+    CameraSessionGate.release(
+      _isRemoteCamera ? CameraOwner.remoteCam : CameraOwner.privateCall,
+    );
     ChatMessageBanner.instance.onTap = _bannerTapPrev;
     _tick?.cancel();
     _stabilizer?.dispose();
@@ -872,7 +985,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       decoration: BoxDecoration(
         color: kInstCallBg,
         border: Border(
-          top: BorderSide(color: kInstOnPrimary.withValues(alpha: 0.08)),
+          top: BorderSide(color: kInstOnPrimary.withValues(alpha: 0.18)),
         ),
       ),
       child: Column(
@@ -1086,10 +1199,10 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     Widget? holdChild,
   }) {
     final bg = danger
-        ? kInstDanger
+        ? kInstDangerSoft
         : active
-            ? kInstOnPrimary
-            : kInstCallSurface;
+            ? kInstGoldSoft
+            : kInstCallSurfaceHi;
     final fg = danger
         ? kInstOnPrimary
         : active
@@ -1097,7 +1210,18 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
             : kInstOnPrimary;
     final button = Material(
       color: bg,
-      shape: const CircleBorder(),
+      elevation: danger || active ? 4 : 2,
+      shadowColor: Colors.black54,
+      shape: CircleBorder(
+        side: BorderSide(
+          color: danger
+              ? kInstOnPrimary.withValues(alpha: 0.25)
+              : active
+                  ? kInstGold.withValues(alpha: 0.55)
+                  : kInstOnPrimary.withValues(alpha: 0.22),
+          width: 1.2,
+        ),
+      ),
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: holdChild == null ? onTap : null,
@@ -1123,10 +1247,10 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
         Text(
           label,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: kInstOnPrimary.withValues(alpha: 0.85),
+          style: const TextStyle(
+            color: kInstOnPrimary,
             fontSize: 12,
-            fontWeight: FontWeight.w500,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],
@@ -1356,10 +1480,11 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
                                   ? 'Videollamada'
                                   : 'Llamada de voz',
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: kInstGoldSoft.withValues(alpha: 0.9),
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                          style: const TextStyle(
+                            color: kInstGoldSoft,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.2,
                           ),
                         ),
                       ),
@@ -1419,8 +1544,9 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
                               subtitle,
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: kInstOnPrimary.withValues(alpha: 0.55),
-                                fontSize: 14,
+                                color: kInstOnPrimary.withValues(alpha: 0.82),
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ],

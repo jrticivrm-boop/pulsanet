@@ -22,14 +22,15 @@ import {
   fetchRecordingBlobUrl,
   fetchPanicEvents,
   startPrivateCall,
-  endPrivateCall,
 } from '../api';
-import { warmUpVideoCallMedia } from '../callMedia';
-import PrivateCallOverlay from '../PrivateCallOverlay';
+import RemoteMonitorConference from './RemoteMonitorConference';
 import GroupVideoPanel from '../GroupVideoPanel';
+import { startVideoCall, startVoiceCall } from '../peerActions';
 import { esMsg } from '../esMsg';
 import { socketIoOptions, socketUrl } from '../socketConfig';
 import { unlockPanicAudio } from '../panicSound';
+import { unlockMediaAudio } from '../unlockMediaAudio';
+import { useIsPhone, useIsTabletDown } from '../useMediaQuery.js';
 import {
   LOCATION_POLL_MS,
   TRACK_POLL_MS,
@@ -44,7 +45,7 @@ import { mapAvatarIcon } from './mapAvatarIcon.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import { CursorZoom, MapCursorFix, MapSizeFix, SmoothMarker } from './mapLeafletUtils.jsx';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
-import { DEFAULT_MAP_TILE } from './mapTiles.js';
+import { DEFAULT_MAP_TILE, MAP_MAX_ZOOM, tileLayerProps } from './mapTiles.js';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -90,6 +91,8 @@ function pushEvent(setEvents, evt) {
 }
 
 export default function CommandCenter({ session }) {
+  const isPhone = useIsPhone();
+  const isTabletDown = useIsTabletDown();
   const [overview, setOverview] = useState(null);
   const [locations, setLocations] = useState([]);
   const { markerPhoto, listPhoto } = useMapAvatarPhotos(locations, session.token);
@@ -105,9 +108,11 @@ export default function CommandCenter({ session }) {
   const [recordings, setRecordings] = useState([]);
   const [playingId, setPlayingId] = useState(null);
   const [activePanics, setActivePanics] = useState([]);
-  const [peerCall, setPeerCall] = useState(null);
+  const [remoteMonitors, setRemoteMonitors] = useState([]);
   const [groupVideo, setGroupVideo] = useState(null);
   const [groupVideoLive, setGroupVideoLive] = useState({});
+  /** Tablet/phone: una superficie primaria (mapa | actividad). */
+  const [ccSurface, setCcSurface] = useState('map');
   const audioRef = useRef(null);
   const audioUrlRef = useRef(null);
 
@@ -164,7 +169,7 @@ export default function CommandCenter({ session }) {
 
   useEffect(() => {
     const unlock = () => {
-      unlockPanicAudio().catch(() => {});
+      unlockMediaAudio().catch(() => {});
     };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
@@ -450,14 +455,17 @@ export default function CommandCenter({ session }) {
     setCenterTarget({ lat: selected.lat, lng: selected.lng, t: Date.now() });
   }
 
-  async function startPersonCall(mode = 'call') {
-    const userId = selected?.userId;
-    const name = selected?.title || 'Usuario';
+  async function stackRemoteCamera(peer) {
+    const userId = peer?.id || peer?.userId;
+    const name = peer?.displayName || peer?.name || selected?.title || 'Usuario';
     if (!userId) return;
+    if (remoteMonitors.some((m) => m.peerId === userId)) return;
     try {
-      if (mode === 'video') await warmUpVideoCallMedia();
-      const data = await startPrivateCall(session.token, userId, { mode });
-      setPeerCall({
+      const data = await startPrivateCall(session.token, userId, {
+        mode: 'video',
+        intent: 'remote_camera',
+      });
+      const callPayload = {
         callId: data.call?.callId,
         peerId: userId,
         peerName: name,
@@ -465,13 +473,51 @@ export default function CommandCenter({ session }) {
         authToken: session.token,
         url: data.url,
         e2eeKey: data.e2eeKey,
+        e2ee: Boolean(data.e2ee),
         role: 'caller',
-        mode: mode === 'video' ? 'video' : 'call',
+        mode: 'video',
+        intent: 'remote_camera',
+      };
+      setRemoteMonitors((list) => {
+        const next = [...list, callPayload];
+        if (isPhone && next.length > 2) return next.slice(-2);
+        return next;
       });
     } catch (e) {
       setError(esMsg(e.message || e, 'No se pudo iniciar la llamada'));
     }
   }
+
+  function startPersonCall(mode = 'call', { intent } = {}) {
+    const userId = selected?.userId;
+    const name = selected?.title || 'Usuario';
+    if (!userId) return;
+    const peer = { id: userId, displayName: name };
+    if (intent === 'remote_camera') {
+      if (remoteMonitors.some((m) => m.peerId === userId)) return;
+      void stackRemoteCamera(peer);
+      return;
+    }
+    if (mode === 'video' && remoteMonitors.some((m) => m.peerId === userId)) {
+      setError('Ese dispositivo ya está en Ver cámara. Cuélgalo antes de videollamada.');
+      return;
+    }
+    if (mode === 'video') startVideoCall(peer);
+    else startVoiceCall(peer);
+  }
+
+  useEffect(() => {
+    const onRemote = (e) => {
+      const peer = e.detail?.peer;
+      if (!peer?.id) return;
+      e.detail.handled = true;
+      void stackRemoteCamera(peer);
+    };
+    window.addEventListener('tacticalptx:dispatch-remote-camera', onRemote);
+    return () => window.removeEventListener('tacticalptx:dispatch-remote-camera', onRemote);
+    // stackRemoteCamera cierra sobre remoteMonitors/session actuales
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.token, remoteMonitors.length]);
 
   useEffect(() => {
     const token = session?.token;
@@ -479,7 +525,7 @@ export default function CommandCenter({ session }) {
     const socket = io(socketUrl(), { ...socketIoOptions, auth: { token } });
     socket.on('call:ended', ({ callId }) => {
       if (!callId) return;
-      setPeerCall((c) => (String(c?.callId) === String(callId) ? null : c));
+      setRemoteMonitors((list) => list.filter((m) => String(m.callId) !== String(callId)));
     });
     return () => socket.disconnect();
   }, [session.token]);
@@ -575,19 +621,12 @@ export default function CommandCenter({ session }) {
         </div>
       )}
 
-      {peerCall?.mode === 'video' && (
-        <PrivateCallOverlay
-          call={peerCall}
-          layout="console"
-          onHangup={async (opts) => {
-            try {
-              if (peerCall.callId && opts?.remote !== true) {
-                await endPrivateCall(session.token, peerCall.callId, 'hangup');
-              }
-            } catch {
-              /* ignore */
-            }
-            setPeerCall(null);
+      {remoteMonitors.length > 0 && (
+        <RemoteMonitorConference
+          monitors={remoteMonitors}
+          sessionToken={session.token}
+          onHangupMonitor={(mon) => {
+            setRemoteMonitors((list) => list.filter((m) => String(m.callId) !== String(mon.callId)));
           }}
         />
       )}
@@ -603,7 +642,38 @@ export default function CommandCenter({ session }) {
         />
       )}
 
-      <div className={`cc-workspace-grid${peerCall?.mode === 'video' || groupVideo ? ' with-video' : ''}`}>
+      <div
+        className={[
+          'cc-workspace-grid',
+          remoteMonitors.length > 0 || groupVideo ? 'with-video' : '',
+          isTabletDown ? 'cc-workspace-grid--narrow' : '',
+          isTabletDown ? `is-surface-${ccSurface}` : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+      {isTabletDown && (
+        <div className="cc-surface-tabs" role="tablist" aria-label="Vista principal">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={ccSurface === 'map'}
+            className={`cc-surface-tab${ccSurface === 'map' ? ' active' : ''}`}
+            onClick={() => setCcSurface('map')}
+          >
+            Mapa
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={ccSurface === 'activity'}
+            className={`cc-surface-tab${ccSurface === 'activity' ? ' active' : ''}`}
+            onClick={() => setCcSurface('activity')}
+          >
+            Actividad
+          </button>
+        </div>
+      )}
       <div className="cc-upper">
         <section className="cc-panel cc-map-panel">
           <div className="cc-panel-head">
@@ -632,11 +702,14 @@ export default function CommandCenter({ session }) {
             </div>
           </div>
           <div className="cc-map-body">
-            <MapContainer center={GDL} zoom={12} scrollWheelZoom={false} style={{ height: '100%', width: '100%' }}>
-              <TileLayer
-                attribution={DEFAULT_MAP_TILE.attribution}
-                url={DEFAULT_MAP_TILE.url}
-              />
+            <MapContainer
+              center={GDL}
+              zoom={12}
+              maxZoom={MAP_MAX_ZOOM}
+              scrollWheelZoom={false}
+              style={{ height: '100%', width: '100%' }}
+            >
+              <TileLayer {...tileLayerProps(DEFAULT_MAP_TILE)} />
               <CursorZoom />
               <MapCursorFix />
               <MapSizeFix />
@@ -979,6 +1052,15 @@ export default function CommandCenter({ session }) {
                     <button
                       type="button"
                       className="cc-btn primary"
+                      onClick={() => startPersonCall('video', { intent: 'remote_camera' })}
+                      disabled={remoteMonitors.some((m) => m.peerId === selected.userId)}
+                      title="Activa la cámara del dispositivo (varias a la vez se apilan)"
+                    >
+                      {remoteMonitors.some((m) => m.peerId === selected.userId) ? 'En panel' : 'Ver cámara'}
+                    </button>
+                    <button
+                      type="button"
+                      className="cc-btn"
                       onClick={() => startPersonCall('video')}
                     >
                       Videollamada
@@ -994,22 +1076,6 @@ export default function CommandCenter({ session }) {
         </aside>
       </div>
       </div>
-      {peerCall && peerCall.mode !== 'video' && (
-        <PrivateCallOverlay
-          call={peerCall}
-          layout="overlay"
-          onHangup={async (opts) => {
-            try {
-              if (peerCall.callId && opts?.remote !== true) {
-                await endPrivateCall(session.token, peerCall.callId, 'hangup');
-              }
-            } catch {
-              /* ignore */
-            }
-            setPeerCall(null);
-          }}
-        />
-      )}
     </div>
   );
 }

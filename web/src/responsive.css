@@ -1,0 +1,67 @@
+/**
+ * Tokens de layout progresivo (Fase 0).
+ * Importar temprano desde main.jsx — no cambia visual desktop por sí solo.
+ */
+:root {
+  --bp-phone: 720px;
+  --bp-tablet: 960px;
+  --touch-min: 44px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  /* Altura de chrome móvil (bottom nav); 0 en desktop */
+  --mobile-nav-h: 0px;
+}
+
+html[data-layout='phone'] {
+  --mobile-nav-h: calc(3.5rem + var(--safe-bottom));
+}
+
+/* Utilidades mínimas — sin alterar shells existentes hasta Fase 1+ */
+.tp-safe-pad-x {
+  padding-left: max(0.75rem, var(--safe-left));
+  padding-right: max(0.75rem, var(--safe-right));
+}
+
+.tp-safe-pad-top {
+  padding-top: max(0.5rem, var(--safe-top));
+}
+
+.tp-safe-pad-bottom {
+  padding-bottom: max(0.5rem, var(--safe-bottom));
+}
+
+.tp-touch-target {
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+}
+
+@media (pointer: coarse) {
+  .tp-coarse-touch {
+    min-width: var(--touch-min);
+    min-height: var(--touch-min);
+  }
+
+  /* Fase 5: hit targets habituales sin depender de hover */
+  .cc-btn,
+  .btn,
+  .wa-inbox-tab,
+  .cc-phone-tab,
+  .lt-sheet-toggle,
+  .lt-filters-btn,
+  .lt-max-btn,
+  .incoming-call-banner-btn,
+  .wa-call-circle {
+    min-height: var(--touch-min);
+  }
+
+  .cc-mod-drag-handle {
+    display: none;
+  }
+}
+
+html[data-pointer='coarse'] .cc-mod-drag-handle {
+  display: none;
+}
+

@@ -2,22 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import WhatsAppChat from './WhatsAppChat';
 import DirectChat from './DirectChat';
-import PrivateCallOverlay from './PrivateCallOverlay';
 import { notifyIncomingMessage, setUnreadDocumentTitle, playMessageTone } from './appNotify';
 import { setActiveChatView, clearActiveChatView, showChatMessageToast, isViewingChat } from './chatNotify';
-import { warmUpVideoCallMedia } from './callMedia';
-import {
-  startPrivateCall,
-  endPrivateCall,
-} from './api';
 import { socketIoOptions, socketUrl } from './socketConfig';
 import StarIcon from './StarIcon';
-import { esMsg } from './esMsg';
 import PersonAvatar from './PersonAvatar';
+import { PEER_EVENTS, openPeoplePalette, startVideoCall, startVoiceCall } from './peerActions';
+import { useIsPhone } from './useMediaQuery.js';
 
 const FAV_KEY = 'tacticalptx_chat_favorites';
 const TABS = [
   { id: 'all', label: 'Todos' },
+  { id: 'people', label: 'Personas' },
   { id: 'unread', label: 'No leídos' },
   { id: 'favorites', label: 'Favoritos' },
   { id: 'groups', label: 'Grupos' },
@@ -94,30 +90,14 @@ export default function ChatInbox({
   const [dmMeta, setDmMeta] = useState({ conversations: [], contacts: [] });
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState('');
-  const [peerCall, setPeerCall] = useState(null);
   const [groupVideoLive, setGroupVideoLive] = useState({});
   const lastGroupMsgRef = useRef(null);
   const selectedRef = useRef(selected);
+  const isPhone = useIsPhone();
 
   useEffect(() => {
     selectedRef.current = selected;
   }, [selected]);
-
-  useEffect(() => {
-    const token = session?.token;
-    if (!token) return undefined;
-    const socket = io(socketUrl(), {
-      ...socketIoOptions,
-      auth: { token },
-    });
-    socket.on('call:ended', ({ callId }) => {
-      if (!callId) return;
-      setPeerCall((c) => (String(c?.callId) === String(callId) ? null : c));
-    });
-    return () => {
-      socket.disconnect();
-    };
-  }, [session?.token]);
 
   useEffect(() => {
     if (!group?.id) return;
@@ -127,6 +107,20 @@ export default function ChatInbox({
         id: group.id,
         name: group.name,
         avatarUrl: group.avatarUrl || null,
+      });
+      return;
+    }
+    // Phone: lista primero — no forzar hilo del canal de radio.
+    if (isPhone) {
+      setSelected((prev) => {
+        if (prev?.kind === 'group' && prev.id === group.id) {
+          return {
+            ...prev,
+            name: group.name,
+            avatarUrl: group.avatarUrl || prev.avatarUrl || null,
+          };
+        }
+        return prev;
       });
       return;
     }
@@ -146,7 +140,17 @@ export default function ChatInbox({
         avatarUrl: group.avatarUrl || null,
       };
     });
-  }, [group?.id, group?.name, group?.avatarUrl, channelScoped]);
+  }, [group?.id, group?.name, group?.avatarUrl, channelScoped, isPhone]);
+
+  // Bottom nav «Chats» / deep-link: volver a la lista en phone.
+  useEffect(() => {
+    const onInboxList = () => {
+      if (!isPhone || channelScoped) return;
+      setSelected(null);
+    };
+    window.addEventListener('tacticalptx:inbox-list', onInboxList);
+    return () => window.removeEventListener('tacticalptx:inbox-list', onInboxList);
+  }, [isPhone, channelScoped]);
 
   useEffect(() => {
     if (!focusPeerId) return;
@@ -174,6 +178,22 @@ export default function ChatInbox({
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    const onOpenDm = (e) => {
+      const peer = e.detail?.peer;
+      if (!peer?.id) return;
+      setSelected({
+        kind: 'dm',
+        id: peer.id,
+        name: peer.displayName || 'Chat',
+        avatarUrl: peer.avatarUrl || null,
+      });
+      clearUnread(`dm:${peer.id}`);
+    };
+    window.addEventListener(PEER_EVENTS.OPEN_DM, onOpenDm);
+    return () => window.removeEventListener(PEER_EVENTS.OPEN_DM, onOpenDm);
+  }, [clearUnread]);
 
   const openGroupVideo = useCallback((groupId, groupName) => {
     if (!groupId) return;
@@ -371,6 +391,7 @@ export default function ChatInbox({
     if (tab === 'unread') list = list.filter((r) => r.unread > 0);
     else if (tab === 'favorites') list = list.filter((r) => r.favorite);
     else if (tab === 'groups') list = list.filter((r) => r.kind === 'group');
+    else if (tab === 'people') list = list.filter((r) => r.kind === 'dm');
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter(
@@ -379,6 +400,7 @@ export default function ChatInbox({
     } else if (tab === 'all' || tab === 'favorites') {
       list = list.filter((r) => !r.isContactOnly || r.favorite || r.unread > 0);
     }
+    // Personas: mostrar todos los contactos/DM (incl. sin historial)
     return list;
   }, [rows, tab, query]);
 
@@ -396,6 +418,8 @@ export default function ChatInbox({
   );
 
   const hideSidebar = channelScoped && filtered.length <= 1;
+  const phoneThread = isPhone && Boolean(selected) && !hideSidebar;
+  const phoneListOnly = isPhone && !selected && !hideSidebar;
 
   function selectRow(row) {
     setSelected({
@@ -410,6 +434,19 @@ export default function ChatInbox({
     }
   }
 
+  function clearPhoneSelection() {
+    if (channelScoped && group?.id) {
+      setSelected({
+        kind: 'group',
+        id: group.id,
+        name: group.name,
+        avatarUrl: group.avatarUrl || null,
+      });
+      return;
+    }
+    setSelected(null);
+  }
+
   const isFavSelected =
     selected &&
     (selected.kind === 'group'
@@ -421,12 +458,33 @@ export default function ChatInbox({
   const visiblePeerId = showDm ? selected.id : null;
 
   return (
-    <div className={`wa-inbox${hideSidebar ? ' wa-inbox--single-channel' : ''}`}>
+    <div
+      className={[
+        'wa-inbox',
+        hideSidebar ? 'wa-inbox--single-channel' : '',
+        phoneThread ? 'wa-inbox--phone-thread' : '',
+        phoneListOnly ? 'wa-inbox--phone-list' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
       {!hideSidebar && (
       <aside className="wa-inbox-list" aria-label="Chats">
         <header className="wa-inbox-head">
-          <h2>Chats</h2>
-          <p>{channelScoped ? 'Canales seleccionados' : 'Grupos y mensajes directos'}</p>
+          <div>
+            <h2>Chats</h2>
+            <p>{channelScoped ? 'Canales seleccionados' : 'Grupos y mensajes directos'}</p>
+          </div>
+          {!channelScoped && (
+            <button
+              type="button"
+              className="btn ghost btn-personas"
+              title="Buscar personas (Ctrl+K)"
+              onClick={() => openPeoplePalette()}
+            >
+              Personas
+            </button>
+          )}
         </header>
 
         {!channelScoped && (
@@ -469,20 +527,27 @@ export default function ChatInbox({
                   ? 'Marca chats con la estrella para verlos aquí'
                   : tab === 'groups'
                     ? 'No hay grupos'
-                    : query.trim()
-                      ? 'Sin resultados'
-                      : 'Sin conversaciones'}
+                    : tab === 'people'
+                      ? query.trim()
+                        ? 'Sin resultados'
+                        : 'Sin contactos en la organización'
+                      : query.trim()
+                        ? 'Sin resultados'
+                        : 'Sin conversaciones'}
             </p>
           )}
           {filtered.map((row) => {
             const active = selected?.kind === row.kind && selected?.id === row.id;
             return (
-              <button
+              <div
                 key={row.key}
-                type="button"
                 className={`wa-inbox-row${active ? ' active' : ''}${row.unread ? ' unread' : ''}`}
-                onClick={() => selectRow(row)}
               >
+                <button
+                  type="button"
+                  className="wa-inbox-row-main"
+                  onClick={() => selectRow(row)}
+                >
                 <PersonAvatar
                   userId={row.kind === 'dm' ? row.id : null}
                   groupId={row.kind === 'group' ? row.id : null}
@@ -524,7 +589,32 @@ export default function ChatInbox({
                     </span>
                   </span>
                 </span>
-              </button>
+                </button>
+                {row.kind === 'dm' && (
+                  <span className="wa-inbox-row-actions">
+                    <button
+                      type="button"
+                      title="Llamada"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startVoiceCall({ id: row.id, displayName: row.name, avatarUrl: row.avatarUrl });
+                      }}
+                    >
+                      📞
+                    </button>
+                    <button
+                      type="button"
+                      title="Videollamada"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startVideoCall({ id: row.id, displayName: row.name, avatarUrl: row.avatarUrl });
+                      }}
+                    >
+                      📹
+                    </button>
+                  </span>
+                )}
+              </div>
             );
           })}
         </div>
@@ -532,23 +622,25 @@ export default function ChatInbox({
       )}
 
       <section className="wa-inbox-pane">
-        {showDm && channelScoped && (
+        {((showDm && channelScoped) || (isPhone && selected && !hideSidebar)) && (
           <div className="wa-inbox-pane-tools wa-inbox-pane-tools--back">
             <button
               type="button"
-              className="wa-inbox-back-btn"
+              className="wa-inbox-back-btn tp-coarse-touch"
               onClick={() => {
-                if (group?.id) {
+                if (showDm && channelScoped && group?.id) {
                   setSelected({
                     kind: 'group',
                     id: group.id,
                     name: group.name,
                     avatarUrl: group.avatarUrl || null,
                   });
+                  return;
                 }
+                clearPhoneSelection();
               }}
             >
-              ← Volver al canal
+              ← {showDm && channelScoped ? 'Volver al canal' : 'Chats'}
             </button>
           </div>
         )}
@@ -558,7 +650,11 @@ export default function ChatInbox({
               💬
             </div>
             <h3>TacticalPtx Chat</h3>
-            <p>Elige un chat o grupo a la izquierda para ver mensajes.</p>
+            <p>
+              {isPhone
+                ? 'Elige un chat o grupo de la lista.'
+                : 'Elige un chat o grupo a la izquierda para ver mensajes.'}
+            </p>
           </div>
         )}
 
@@ -606,65 +702,14 @@ export default function ChatInbox({
                 });
                 clearUnread(`dm:${peer.id}`);
               }}
-              onCallPeer={async (peer) => {
-                try {
-                  const data = await startPrivateCall(session.token, peer.id, { mode: 'call' });
-                  setPeerCall({
-                    callId: data.call?.callId,
-                    peerId: peer.id,
-                    peerName: peer.displayName || 'Usuario',
-                    token: data.token,
-                    authToken: session.token,
-                    url: data.url,
-                    e2eeKey: data.e2eeKey,
-                    role: 'caller',
-                    mode: 'call',
-                  });
-                } catch (e) {
-                  window.alert(esMsg(e.message || e, 'No se pudo iniciar la llamada'));
-                }
-              }}
-              onVideoPeer={async (peer) => {
-                try {
-                  await warmUpVideoCallMedia();
-                  const data = await startPrivateCall(session.token, peer.id, { mode: 'video' });
-                  setPeerCall({
-                    callId: data.call?.callId,
-                    peerId: peer.id,
-                    peerName: peer.displayName || 'Usuario',
-                    token: data.token,
-                    authToken: session.token,
-                    url: data.url,
-                    e2eeKey: data.e2eeKey,
-                    role: 'caller',
-                    mode: 'video',
-                  });
-                } catch (e) {
-                  window.alert(esMsg(e.message || e, 'No se pudo iniciar la videollamada'));
-                }
-              }}
+              onCallPeer={(peer) => startVoiceCall(peer)}
+              onVideoPeer={(peer) => startVideoCall(peer)}
               onGroupVideo={() =>
                 openGroupVideo(selected.id, selected.name || group?.name || 'Grupo')
               }
               groupVideoActive={Boolean(groupVideoLive[selected.id])}
             />
           </div>
-        )}
-
-        {peerCall && peerCall.mode !== 'radio' && (
-          <PrivateCallOverlay
-            call={peerCall}
-            onHangup={async (opts) => {
-              try {
-                if (peerCall.callId && opts?.remote !== true) {
-                  await endPrivateCall(session.token, peerCall.callId, 'hangup');
-                }
-              } catch {
-                /* ignore */
-              }
-              setPeerCall(null);
-            }}
-          />
         )}
 
         <div

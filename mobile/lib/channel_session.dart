@@ -11,12 +11,16 @@ import 'api_client.dart';
 import 'app_focus.dart';
 import 'audio_session_setup.dart';
 import 'config.dart';
+import 'incoming_call_wake.dart';
 import 'livekit_e2ee.dart';
 import 'location_heartbeat.dart';
 import 'chat_message_banner.dart';
 import 'message_tone.dart';
 import 'panic_vibration.dart';
+import 'private_call_gate.dart';
 import 'push_service.dart';
+import 'remote_camera_prefs.dart';
+import 'remote_camera_session.dart';
 import 'screens/group_video_screen.dart';
 
 const _kRadioListenMuteKey = 'tacticalptx_radio_mute';
@@ -349,28 +353,72 @@ class ChannelSession extends ChangeNotifier {
       })
       ..on('call:incoming', (data) {
         if (data is! Map) return;
-        incomingPrivateCall = Map<String, dynamic>.from(data);
-        notifyListeners();
-        final who = incomingPrivateCall?['callerName']?.toString() ?? 'Usuario';
-        final callId = incomingPrivateCall?['callId']?.toString() ?? '';
-        final mode = incomingPrivateCall?['mode']?.toString() ?? 'call';
+        final payload = Map<String, dynamic>.from(data);
+        final who = payload['callerName']?.toString() ?? 'Usuario';
+        final callId = payload['callId']?.toString() ?? '';
+        final callerId = payload['callerId']?.toString() ?? '';
+        final mode = payload['mode']?.toString() ?? 'call';
+        final intent = payload['intent']?.toString();
         final isRadio = mode == 'radio';
+        final isRemoteCam = intent == 'remote_camera';
         final isVideo = mode == 'video';
-        PushService.instance.showLocal(
-          title: isRadio
-              ? 'Radio personal'
-              : isVideo
-                  ? 'Videollamada'
-                  : 'Llamada privada',
-          body: isRadio
-              ? '$who te invita a radio 1:1'
-              : isVideo
-                  ? '$who te llama con video'
-                  : '$who te está llamando',
-          payload: 'call:$callId',
-          isCall: true,
-          callId: callId.isNotEmpty ? callId : null,
-        );
+        unawaited(() async {
+          // Ya en llamada (misma u otra): no re-marcar Contestar encima.
+          if (!isRemoteCam &&
+              PrivateCallGate.isBusyWith(callId: callId, peerId: callerId)) {
+            return;
+          }
+          // Auto-cámara: headless, sin ensuciar incomingPrivateCall (aislado de videollamada).
+          if (isRemoteCam && await RemoteCameraPrefs.canAutoAccept()) {
+            if (!RemoteCameraSession.instance.isActive) {
+              await RemoteCameraSession.instance.startSilent(
+                api: api,
+                call: payload,
+              );
+            }
+            return;
+          }
+          if (isRemoteCam && PrivateCallGate.uiOpen) {
+            // No mezclar solicitud de cámara con llamada 1:1 activa.
+            return;
+          }
+          incomingPrivateCall = payload;
+          notifyListeners();
+          // Traer UI Contestar al frente (no dejar solo el banner).
+          unawaited(IncomingCallWake.bringUiToFront());
+          final wakeData = Map<String, dynamic>.from(payload);
+          wakeData['type'] = isRadio
+              ? 'private_radio'
+              : isRemoteCam
+                  ? 'private_remote_camera'
+                  : isVideo
+                      ? 'private_video'
+                      : 'private_call';
+          unawaited(IncomingCallWake.persist(wakeData));
+          // Solo notificación con full-screen intent si la app está en segundo plano
+          // (Android la usa para abrir sobre bloqueo). En primer plano = solo pantalla.
+          if (appInBackground) {
+            await PushService.instance.showLocal(
+              title: isRadio
+                  ? 'Radio personal'
+                  : isRemoteCam
+                      ? 'Solicitud de cámara'
+                      : isVideo
+                          ? 'Videollamada'
+                          : 'Llamada privada',
+              body: isRadio
+                  ? '$who te invita a radio 1:1'
+                  : isRemoteCam
+                      ? '$who solicita ver la cámara de tu dispositivo'
+                      : isVideo
+                          ? '$who te llama con video'
+                          : '$who te está llamando',
+              payload: 'call:$callId',
+              isCall: true,
+              callId: callId.isNotEmpty ? callId : null,
+            );
+          }
+        }());
       })
       ..on('call:ended', (data) {
         if (data is! Map) return;
@@ -382,7 +430,13 @@ class ChannelSession extends ChangeNotifier {
         notifyListeners();
         if (id != null && id.isNotEmpty) {
           PushService.instance.clearConversationNotifications(callId: id);
+          if (RemoteCameraSession.instance.activeCallId == id) {
+            unawaited(RemoteCameraSession.instance.stop(reason: 'remote'));
+          }
         }
+      })
+      ..on('call:remote_control', (data) {
+        unawaited(RemoteCameraSession.instance.applyRemoteControl(data));
       })
       ..on('group:video_incoming', (data) {
         if (data is! Map) return;
@@ -806,6 +860,8 @@ class ChannelSession extends ChangeNotifier {
 
   /// Reaplica altavoz de radio / mute de escucha (p. ej. tras bloquear pantalla).
   Future<void> ensureBackgroundAudio() async {
+    // No pelear con la ruta de audio de una llamada 1:1 (auricular).
+    if (PrivateCallGate.uiOpen) return;
     if (_room == null || !livekitReady || listenMuted) return;
     await AudioSessionSetup.acquireRadio();
     if (!listenMuted) {
@@ -901,10 +957,12 @@ class ChannelSession extends ChangeNotifier {
     holding = false;
     await _muteMic();
     _socket?.emit('ptt:release', {'groupId': groupId});
-    await AudioSessionSetup.acquireRadio();
-    try {
-      await AudioManager.instance.setSpeakerOutputPreferred(true);
-    } catch (_) {}
+    if (!PrivateCallGate.uiOpen) {
+      await AudioSessionSetup.acquireRadio();
+      try {
+        await AudioManager.instance.setSpeakerOutputPreferred(true);
+      } catch (_) {}
+    }
     notifyListeners();
   }
 

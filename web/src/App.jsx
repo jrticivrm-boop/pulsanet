@@ -7,6 +7,9 @@ import { ensureNotifyServiceWorker } from './appNotify.js';
 import GlobalChatNotifyHost from './GlobalChatNotifyHost.jsx';
 import GroupVideoIncomingHost from './GroupVideoIncomingHost.jsx';
 import GroupVideoSessionHost from './GroupVideoSessionHost.jsx';
+import PrivateCallHost from './PrivateCallHost.jsx';
+import { PeerActionSheetHost } from './PeerActionSheet.jsx';
+import { PeoplePaletteHost } from './PeoplePalette.jsx';
 import RadioPage from './pages/RadioPage.jsx';
 import DispatchLayout from './dispatch/DispatchLayout.jsx';
 import CommandCenter from './dispatch/CommandCenter.jsx';
@@ -22,6 +25,7 @@ import ConfigLayout from './dispatch/ConfigLayout.jsx';
 import ConfigBackups from './dispatch/ConfigBackups.jsx';
 import ConfigAudit from './dispatch/ConfigAudit.jsx';
 import ConfigChannels from './dispatch/ConfigChannels.jsx';
+import { useLayoutDataAttrs } from './useMediaQuery.js';
 
 const STORAGE_KEY = 'tacticalptx_session';
 
@@ -101,6 +105,7 @@ function PasswordField({
 
 export default function App() {
   const [session, setSession] = useState(loadSession);
+  useLayoutDataAttrs();
 
   useEffect(() => {
     if (!session?.token) return;
@@ -154,6 +159,9 @@ export default function App() {
       {session?.token ? <GlobalChatNotifyHost session={session} /> : null}
       {session?.token ? <GroupVideoIncomingHost session={session} /> : null}
       {session?.token ? <GroupVideoSessionHost session={session} /> : null}
+      {session?.token ? <PrivateCallHost session={session} /> : null}
+      {session?.token ? <PeerActionSheetHost session={session} /> : null}
+      {session?.token ? <PeoplePaletteHost session={session} /> : null}
       <Routes>
       <Route
         path="/login"

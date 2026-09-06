@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, Link, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeToggle } from '../theme';
 import { fetchGroups, fetchAuthMe, persistSession, canManageUsers } from '../api';
 import { usePtt } from '../usePtt';
 import { useGpsReporter } from '../useGpsReporter';
 import { useDispatchListen } from '../useDispatchListen';
-import { unlockPanicAudio } from '../panicSound';
-import { unlockAppNotifyAudio } from '../appNotify';
+import { unlockMediaAudio } from '../unlockMediaAudio';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
 import DispatchPanicHost from './DispatchPanicHost.jsx';
 import RadioPage from '../pages/RadioPage.jsx';
+import { PEER_EVENTS, openPeoplePalette } from '../peerActions';
+import { useIsPhone, useIsCoarsePointer } from '../useMediaQuery.js';
 import './command-center.css';
 import '../institutional.css';
 import '../theme-contrast.css';
@@ -122,11 +123,38 @@ function ModIcon({ name }) {
 }
 
 const NAV = [
-  { to: '/despacho', end: true, label: 'Operaciones', hint: 'Consola PTT', icon: 'ops' },
-  { to: '/despacho/seguimiento', label: 'Seguimiento', hint: 'Ubicación en vivo', icon: 'track' },
-  { to: '/despacho/video', label: 'Video', hint: 'Cámara y transmisiones', icon: 'video' },
-  { to: '/despacho/mapa', label: 'Mapa en vivo', hint: 'Rutas y geocercas', icon: 'map' },
+  { id: 'ops', to: '/despacho', end: true, label: 'Operaciones', hint: 'Consola PTT', icon: 'ops' },
+  { id: 'track', to: '/despacho/seguimiento', label: 'Seguimiento', hint: 'Ubicación en vivo', icon: 'track' },
+  { id: 'video', to: '/despacho/video', label: 'Video', hint: 'Cámara y transmisiones', icon: 'video' },
+  { id: 'map', to: '/despacho/mapa', label: 'Mapa en vivo', hint: 'Rutas y geocercas', icon: 'map' },
+  { id: 'radio', to: '/despacho/radio', label: 'Radio PTT', hint: 'Hablar y chat', icon: 'radio' },
 ];
+
+const NAV_ORDER_KEY = 'tacticalptx_mod_nav_order';
+const DEFAULT_NAV_ORDER = ['ops', 'track', 'video', 'map', 'radio', 'catalogs', 'config'];
+
+function loadNavOrder() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(NAV_ORDER_KEY) || 'null');
+    if (!Array.isArray(raw) || !raw.length) return [...DEFAULT_NAV_ORDER];
+    const known = new Set(DEFAULT_NAV_ORDER);
+    const next = raw.filter((id) => known.has(id));
+    for (const id of DEFAULT_NAV_ORDER) {
+      if (!next.includes(id)) next.push(id);
+    }
+    return next;
+  } catch {
+    return [...DEFAULT_NAV_ORDER];
+  }
+}
+
+function saveNavOrder(order) {
+  try {
+    localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    /* ignore */
+  }
+}
 
 const CATALOG_LINKS = [
   { to: '/despacho/catalogos/grados-empleos', label: 'Grados y empleos', icon: 'users' },
@@ -150,6 +178,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
   const role = session.user.role;
   const roleLabel = ROLE_LABEL[role] || role;
   const location = useLocation();
+  const navigate = useNavigate();
   const onRadioPage = location.pathname.startsWith('/despacho/radio');
   const showSalir = canManageUsers(session.user);
   const [groups, setGroups] = useState([]);
@@ -162,9 +191,20 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       return false;
     }
   });
+  const [navOrder, setNavOrder] = useState(loadNavOrder);
+  const [dragId, setDragId] = useState(null);
+  const [overId, setOverId] = useState(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const isPhone = useIsPhone();
+  const isCoarse = useIsCoarsePointer();
 
   const ptt = usePtt({ token: session.token, user: session.user, group });
   useGpsReporter(session.token);
+
+  // Cerrar sheet «Más» al navegar.
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [location.pathname]);
 
   const listenGroups = groups.filter((g) => listenIds.includes(g.id));
   useDispatchListen({
@@ -173,6 +213,17 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     skipGroupId: group?.id,
     muted: ptt.listenMuted,
   });
+
+  useEffect(() => {
+    const onOpenDm = (e) => {
+      const peer = e.detail?.peer;
+      if (!peer?.id) return;
+      if (location.pathname.startsWith('/despacho/radio')) return;
+      navigate('/despacho/radio', { state: { focusPeerId: peer.id } });
+    };
+    window.addEventListener(PEER_EVENTS.OPEN_DM, onOpenDm);
+    return () => window.removeEventListener(PEER_EVENTS.OPEN_DM, onOpenDm);
+  }, [location.pathname, navigate]);
 
   const catalogsOpen =
     location.pathname.startsWith('/despacho/catalogos') ||
@@ -194,6 +245,180 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       }
       return next;
     });
+  }
+
+  function reorderNav(fromId, toId) {
+    if (!fromId || !toId || fromId === toId) return;
+    setNavOrder((prev) => {
+      const next = [...prev];
+      const from = next.indexOf(fromId);
+      const to = next.indexOf(toId);
+      if (from < 0 || to < 0) return prev;
+      next.splice(from, 1);
+      next.splice(to, 0, fromId);
+      saveNavOrder(next);
+      return next;
+    });
+  }
+
+  function onNavDragStart(e, id) {
+    if (isCoarse || isPhone) {
+      e.preventDefault();
+      return;
+    }
+    setDragId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+    try {
+      e.dataTransfer.setData('application/x-tacticalptx-nav', id);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onNavDragOver(e, id) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (overId !== id) setOverId(id);
+  }
+
+  function onNavDrop(e, id) {
+    e.preventDefault();
+    const from =
+      e.dataTransfer.getData('application/x-tacticalptx-nav') ||
+      e.dataTransfer.getData('text/plain') ||
+      dragId;
+    reorderNav(from, id);
+    setDragId(null);
+    setOverId(null);
+  }
+
+  function onNavDragEnd() {
+    setDragId(null);
+    setOverId(null);
+  }
+
+  function navSlotClass(id) {
+    return [
+      'cc-mod-slot',
+      dragId === id ? 'is-dragging' : '',
+      overId === id && dragId && overId !== dragId ? 'is-drag-over' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  function renderNavItem(id) {
+    const dragProps = {
+      onDragOver: (e) => onNavDragOver(e, id),
+      onDrop: (e) => onNavDrop(e, id),
+    };
+    const allowDrag = !isCoarse && !isPhone;
+    const handle = (
+      <span
+        className="cc-mod-drag-handle"
+        title={allowDrag ? 'Arrastrar para reordenar' : undefined}
+        aria-label={allowDrag ? 'Arrastrar para reordenar' : undefined}
+        aria-hidden={!allowDrag}
+        draggable={allowDrag}
+        onDragStart={(e) => {
+          if (!allowDrag) return;
+          e.stopPropagation();
+          onNavDragStart(e, id);
+        }}
+        onDragEnd={onNavDragEnd}
+        onClick={(e) => e.preventDefault()}
+      >
+        ⋮⋮
+      </span>
+    );
+
+    if (id === 'catalogs') {
+      return (
+        <div key={id} className={navSlotClass(id)} {...dragProps}>
+          <details className="cc-mod-group" open={catalogsOpen}>
+            <summary title="Catálogos">
+              {handle}
+              <span className="cc-mod-link-icon">
+                <ModIcon name="catalog" />
+              </span>
+              <span className="cc-mod-group-label">Catálogos</span>
+              <span className="cc-mod-group-chevron" aria-hidden="true" />
+            </summary>
+            <div className="cc-mod-sub">
+              {CATALOG_LINKS.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  title={item.label}
+                  className={({ isActive }) => (isActive ? 'active' : undefined)}
+                >
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name={item.icon} />
+                  </span>
+                  <span className="cc-mod-sub-label">{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </details>
+        </div>
+      );
+    }
+
+    if (id === 'config') {
+      if (!showConfig) return null;
+      return (
+        <div key={id} className={navSlotClass(id)} {...dragProps}>
+          <details className="cc-mod-group" open={configOpen}>
+            <summary title="Configuración">
+              {handle}
+              <span className="cc-mod-link-icon">
+                <ModIcon name="ops" />
+              </span>
+              <span className="cc-mod-group-label">Configuración</span>
+              <span className="cc-mod-group-chevron" aria-hidden="true" />
+            </summary>
+            <div className="cc-mod-sub">
+              {configLinks.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  title={item.label}
+                  className={({ isActive }) => (isActive ? 'active' : undefined)}
+                >
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name={item.icon} />
+                  </span>
+                  <span className="cc-mod-sub-label">{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </details>
+        </div>
+      );
+    }
+
+    const item = NAV.find((n) => n.id === id);
+    if (!item) return null;
+    return (
+      <div key={id} className={navSlotClass(id)} {...dragProps}>
+        <NavLink
+          to={item.to}
+          end={item.end}
+          title={item.label}
+          className={({ isActive }) => `cc-mod-link${isActive ? ' active' : ''}`}
+        >
+          {handle}
+          <span className="cc-mod-link-icon">
+            <ModIcon name={item.icon} />
+          </span>
+          <span className="cc-mod-link-text">
+            <span className="cc-mod-link-title">{item.label}</span>
+            <span className="cc-mod-link-hint">{item.hint}</span>
+          </span>
+        </NavLink>
+      </div>
+    );
   }
 
   useEffect(() => {
@@ -270,9 +495,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
 
   useEffect(() => {
     const unlock = () => {
-      unlockPanicAudio().catch(() => {});
-      unlockAppNotifyAudio().catch(() => {});
-      ptt.unlockAudio?.().catch(() => {});
+      unlockMediaAudio(() => ptt.unlockAudio?.()).catch(() => {});
     };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
@@ -346,8 +569,23 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     onListenChange,
   };
 
+  const path = location.pathname;
+  const tabRadio = path.startsWith('/despacho/radio');
+  const tabMore =
+    !tabRadio &&
+    (path === '/despacho' ||
+      path.startsWith('/despacho/seguimiento') ||
+      path.startsWith('/despacho/video') ||
+      path.startsWith('/despacho/mapa') ||
+      path.startsWith('/despacho/catalogos') ||
+      path.startsWith('/despacho/configuracion') ||
+      path.startsWith('/despacho/usuarios') ||
+      path.startsWith('/despacho/grupos'));
+
   return (
-    <div className={`cc-shell cc-shell--inst${railMini ? ' is-rail-mini' : ''}`}>
+    <div
+      className={`cc-shell cc-shell--inst${railMini ? ' is-rail-mini' : ''}${isPhone ? ' is-phone' : ''}${moreOpen ? ' is-more-open' : ''}`}
+    >
       <DispatchPanicHost
         session={session}
         channelPanic={ptt.incomingPanic}
@@ -357,7 +595,9 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       <header className="cc-topbar cc-topbar--inst">
         <div className="cc-top-left">
           <div>
-            <p className="cc-product">Centro de operaciones</p>
+            {!isPhone && (
+              <p className="cc-product">Centro de operaciones</p>
+            )}
             <div className="cc-brand">
               <span className="brand-tactical">Tactical</span>
               <span className="brand-ptx">Ptx</span>
@@ -365,140 +605,75 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
           </div>
         </div>
         <div className="cc-top-right">
+          {!isPhone && (
+            <button
+              type="button"
+              className="cc-btn ghost btn-personas"
+              title="Buscar personas (Ctrl+K)"
+              onClick={() => openPeoplePalette()}
+            >
+              Personas
+            </button>
+          )}
           <div className="cc-user-chip">
-            <span className="cc-user">{session.user.displayName}</span>
-            <span className={`cc-role-badge role-${role}`}>{roleLabel}</span>
+            {!isPhone && <span className="cc-user">{session.user.displayName}</span>}
+            <span className={`cc-role-badge role-${role}`}>{isPhone ? role : roleLabel}</span>
             <ThemeToggle className="cc-theme-toggle" />
           </div>
-          <nav className="cc-topnav-inst" aria-label="Accesos rápidos">
-            <Link to="/despacho/radio">Radio</Link>
-            {showSalir && (
-              <button type="button" className="nav-out" onClick={onLogout}>
-                Salir
-              </button>
-            )}
-          </nav>
+          {!isPhone && (
+            <nav className="cc-topnav-inst" aria-label="Accesos rápidos">
+              <Link to="/despacho/radio">Radio</Link>
+              {showSalir && (
+                <button type="button" className="nav-out" onClick={onLogout}>
+                  Salir
+                </button>
+              )}
+            </nav>
+          )}
         </div>
       </header>
 
       <div className="cc-shell-body">
-        <aside id="cc-mod-rail" className="cc-mod-rail" aria-label="Módulos">
-          <div className="cc-mod-rail-head">
-            <div className="cc-mod-rail-titles">
-              <p className="cc-mod-rail-kicker">Operación</p>
-              <h2 className="cc-mod-rail-title">Módulos</h2>
-            </div>
-            <button
-              type="button"
-              className={`cc-rail-chevron-btn${railMini ? ' is-mini' : ''}`}
-              onClick={toggleRail}
-              aria-expanded={!railMini}
-              aria-controls="cc-mod-rail"
-              title={railMini ? 'Expandir menú' : 'Contraer menú'}
-              aria-label={railMini ? 'Expandir menú' : 'Contraer menú'}
-            >
-              <span className="cc-rail-chevron" aria-hidden="true" />
-            </button>
-          </div>
-
-          <nav className="cc-mod-nav">
-            {NAV.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                title={item.label}
-                className={({ isActive }) => `cc-mod-link${isActive ? ' active' : ''}`}
-              >
-                <span className="cc-mod-link-icon">
-                  <ModIcon name={item.icon} />
-                </span>
-                <span className="cc-mod-link-text">
-                  <span className="cc-mod-link-title">{item.label}</span>
-                  <span className="cc-mod-link-hint">{item.hint}</span>
-                </span>
-              </NavLink>
-            ))}
-
-            <NavLink
-              to="/despacho/radio"
-              title="Radio PTT"
-              className={({ isActive }) => `cc-mod-link${isActive ? ' active' : ''}`}
-            >
-              <span className="cc-mod-link-icon">
-                <ModIcon name="radio" />
-              </span>
-              <span className="cc-mod-link-text">
-                <span className="cc-mod-link-title">Radio PTT</span>
-                <span className="cc-mod-link-hint">Hablar y chat</span>
-              </span>
-            </NavLink>
-
-            <details className="cc-mod-group" open={catalogsOpen}>
-              <summary title="Catálogos">
-                <span className="cc-mod-link-icon">
-                  <ModIcon name="catalog" />
-                </span>
-                <span className="cc-mod-group-label">Catálogos</span>
-                <span className="cc-mod-group-chevron" aria-hidden="true" />
-              </summary>
-              <div className="cc-mod-sub">
-                {CATALOG_LINKS.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    title={item.label}
-                    className={({ isActive }) => (isActive ? 'active' : undefined)}
-                  >
-                    <span className="cc-mod-link-icon">
-                      <ModIcon name={item.icon} />
-                    </span>
-                    <span className="cc-mod-sub-label">{item.label}</span>
-                  </NavLink>
-                ))}
+        {!isPhone && (
+          <aside id="cc-mod-rail" className="cc-mod-rail" aria-label="Módulos">
+            <div className="cc-mod-rail-head">
+              <div className="cc-mod-rail-titles">
+                <p className="cc-mod-rail-kicker">Operación</p>
+                <h2 className="cc-mod-rail-title">Módulos</h2>
               </div>
-            </details>
-
-            {showConfig && (
-              <details className="cc-mod-group" open={configOpen}>
-                <summary title="Configuración">
-                  <span className="cc-mod-link-icon">
-                    <ModIcon name="ops" />
-                  </span>
-                  <span className="cc-mod-group-label">Configuración</span>
-                  <span className="cc-mod-group-chevron" aria-hidden="true" />
-                </summary>
-                <div className="cc-mod-sub">
-                  {configLinks.map((item) => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      title={item.label}
-                      className={({ isActive }) => (isActive ? 'active' : undefined)}
-                    >
-                      <span className="cc-mod-link-icon">
-                        <ModIcon name={item.icon} />
-                      </span>
-                      <span className="cc-mod-sub-label">{item.label}</span>
-                    </NavLink>
-                  ))}
-                </div>
-              </details>
-            )}
-          </nav>
-
-          <div className="cc-mod-rail-foot">
-            <p className="cc-mod-link-hint cc-mod-rail-user">{session.user.displayName}</p>
-            {showSalir && (
-              <button type="button" className="cc-btn ghost cc-mod-logout" onClick={onLogout} title="Salir">
-                <span className="cc-mod-link-icon">
-                  <ModIcon name="logout" />
-                </span>
-                <span className="cc-mod-logout-label">Salir</span>
+              <button
+                type="button"
+                className={`cc-rail-chevron-btn${railMini ? ' is-mini' : ''}`}
+                onClick={toggleRail}
+                aria-expanded={!railMini}
+                aria-controls="cc-mod-rail"
+                title={railMini ? 'Expandir menú' : 'Contraer menú'}
+                aria-label={railMini ? 'Expandir menú' : 'Contraer menú'}
+              >
+                <span className="cc-rail-chevron" aria-hidden="true" />
               </button>
-            )}
-          </div>
-        </aside>
+            </div>
+
+            <nav
+              className="cc-mod-nav"
+              aria-label={isCoarse ? 'Módulos' : 'Módulos (arrastra para reordenar)'}
+            >
+              {navOrder.map((id) => renderNavItem(id))}
+            </nav>
+
+            <div className="cc-mod-rail-foot">
+              <p className="cc-mod-link-hint cc-mod-rail-user">{session.user.displayName}</p>
+              {showSalir && (
+                <button type="button" className="cc-btn ghost cc-mod-logout" onClick={onLogout} title="Salir">
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name="logout" />
+                  </span>
+                  <span className="cc-mod-logout-label">Salir</span>
+                </button>
+              )}
+            </div>
+          </aside>
+        )}
 
         <div className="cc-body">
           <div
@@ -528,7 +703,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
             </div>
             <button
               type="button"
-              className={`cc-ptt-mini${ptt.holding ? ' holding' : ''}`}
+              className={`cc-ptt-mini tp-coarse-touch${ptt.holding ? ' holding' : ''}`}
               disabled={!group || !ptt.livekitReady}
               onClick={(e) => {
                 e.preventDefault();
@@ -555,7 +730,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
             {!onRadioPage && (
               <button
                 type="button"
-                className="cc-radio-mute"
+                className="cc-radio-mute tp-coarse-touch"
                 onClick={() => {
                   ptt.unlockAudio?.().catch(() => {});
                   ptt.setListenMuted(!ptt.listenMuted);
@@ -579,8 +754,6 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
           </div>
 
           <main className="cc-main">
-            {/* Radio PTT se mantiene montado al cambiar de módulo (Seguimiento, etc.)
-                para no perder conversación, draft ni posición de scroll. */}
             <div
               className={`cc-radio-keepalive${onRadioPage ? '' : ' is-parked'}`}
               aria-hidden={!onRadioPage}
@@ -600,6 +773,132 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
           </main>
         </div>
       </div>
+
+      {isPhone && (
+        <>
+          {moreOpen && (
+            <button
+              type="button"
+              className="cc-phone-more-backdrop"
+              aria-label="Cerrar menú"
+              onClick={() => setMoreOpen(false)}
+            />
+          )}
+          <div
+            className={`cc-phone-more${moreOpen ? ' is-open' : ''}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Más módulos"
+            hidden={!moreOpen}
+          >
+            <div className="cc-phone-more-head">
+              <h2>Módulos</h2>
+              <button type="button" className="cc-btn ghost" onClick={() => setMoreOpen(false)}>
+                Cerrar
+              </button>
+            </div>
+            <nav className="cc-phone-more-nav" aria-label="Módulos">
+              {NAV.map((item) => (
+                <NavLink
+                  key={item.id}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) => `cc-phone-more-link${isActive ? ' active' : ''}`}
+                  onClick={() => setMoreOpen(false)}
+                >
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name={item.icon} />
+                  </span>
+                  <span>
+                    <strong>{item.label}</strong>
+                    <small>{item.hint}</small>
+                  </span>
+                </NavLink>
+              ))}
+              {CATALOG_LINKS.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => `cc-phone-more-link${isActive ? ' active' : ''}`}
+                  onClick={() => setMoreOpen(false)}
+                >
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name={item.icon} />
+                  </span>
+                  <span>
+                    <strong>{item.label}</strong>
+                    <small>Catálogos</small>
+                  </span>
+                </NavLink>
+              ))}
+              {configLinks.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => `cc-phone-more-link${isActive ? ' active' : ''}`}
+                  onClick={() => setMoreOpen(false)}
+                >
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name={item.icon} />
+                  </span>
+                  <span>
+                    <strong>{item.label}</strong>
+                    <small>Configuración</small>
+                  </span>
+                </NavLink>
+              ))}
+              {showSalir && (
+                <button type="button" className="cc-phone-more-link" onClick={onLogout}>
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name="logout" />
+                  </span>
+                  <span>
+                    <strong>Salir</strong>
+                    <small>Cerrar sesión</small>
+                  </span>
+                </button>
+              )}
+            </nav>
+          </div>
+
+          <nav className="cc-phone-tabbar" aria-label="Navegación principal">
+            <NavLink
+              to="/despacho/radio"
+              className={() => `cc-phone-tab${tabRadio ? ' active' : ''}`}
+            >
+              <ModIcon name="radio" />
+              <span>Radio</span>
+            </NavLink>
+            <NavLink
+              to="/despacho/radio"
+              className={() => `cc-phone-tab${tabRadio ? ' active' : ''}`}
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('tacticalptx:inbox-list'));
+              }}
+            >
+              <ModIcon name="groups" />
+              <span>Chats</span>
+            </NavLink>
+            <button
+              type="button"
+              className="cc-phone-tab"
+              onClick={() => openPeoplePalette()}
+            >
+              <ModIcon name="users" />
+              <span>Personas</span>
+            </button>
+            <button
+              type="button"
+              className={`cc-phone-tab${moreOpen || tabMore ? ' active' : ''}`}
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((v) => !v)}
+            >
+              <ModIcon name="ops" />
+              <span>Más</span>
+            </button>
+          </nav>
+        </>
+      )}
     </div>
   );
 }

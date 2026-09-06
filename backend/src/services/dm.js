@@ -19,14 +19,15 @@ export function dmSocketRoom(userA, userB) {
   return `dm:${dmPairKey(userA, userB)}`;
 }
 
-export function privateCallRoom(userA, userB, mode = 'call', callId = '') {
+export function privateCallRoom(userA, userB, mode = 'call', callId = null) {
   const m = String(mode || 'call').toLowerCase();
   const prefix = m === 'radio' ? 'radio' : m === 'video' ? 'video' : 'call';
-  const short = String(callId || '')
-    .replace(/-/g, '')
-    .slice(0, 12);
-  const base = `${prefix}_${dmPairKey(userA, userB)}`;
-  return short ? `${base}_${short}` : base;
+  const pair = dmPairKey(userA, userB);
+  // Sala única por llamada: evita colisión de publishers/E2EE entre sesiones.
+  const idPart = callId
+    ? `_${String(callId).replace(/-/g, '').slice(0, 16)}`
+    : '';
+  return `${prefix}_${pair}${idPart}`;
 }
 
 export async function assertSameOrgPeer(orgId, userId, peerId) {
@@ -377,7 +378,9 @@ const activeCalls = new Map();
 
 function computeCallOutcome(call, { reason = 'hangup', endedBy = null } = {}) {
   const answered = Boolean(call.answeredAt);
-  if (reason === 'reject') {
+  const r = String(reason || '').toLowerCase();
+  if (r === 'timeout' || r === 'no_answer') return 'missed';
+  if (r === 'reject') {
     if (answered) return 'completed';
     if (endedBy && endedBy === call.targetId) return 'rejected';
     return 'missed';
@@ -423,11 +426,10 @@ export function createPrivateCall({
   };
   activeCalls.set(id, call);
   touchPrivateCall(id, callerId);
+  for (const [cid, c] of activeCalls) {
+    if (Date.now() - c.createdAt > 10 * 60 * 1000) activeCalls.delete(cid);
+  }
   return call;
-}
-
-export function listActivePrivateCalls() {
-  return [...activeCalls.values()];
 }
 
 export function touchPrivateCall(id, userId) {
@@ -440,6 +442,22 @@ export function touchPrivateCall(id, userId) {
 
 export function getPrivateCall(id) {
   return activeCalls.get(id) || null;
+}
+
+/** Snapshot de llamadas en memoria (sweeper / diagnóstico). */
+export function listActivePrivateCalls() {
+  return [...activeCalls.values()];
+}
+
+/** Llamada activa (ringing/answered) que involucra a alguno de los usuarios. */
+export function findBusyPrivateCallForUsers(...userIds) {
+  const ids = new Set(userIds.map((u) => String(u || '')).filter(Boolean));
+  if (!ids.size) return null;
+  for (const c of activeCalls.values()) {
+    if (!c || c.status === 'ended') continue;
+    if (ids.has(String(c.callerId)) || ids.has(String(c.targetId))) return c;
+  }
+  return null;
 }
 
 export function updatePrivateCall(id, patch) {

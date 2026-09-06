@@ -1,24 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { io } from 'socket.io-client';
-import { acceptPrivateCall, endPrivateCall, startPrivateCall } from './api';
+import { acceptPrivateCall, endPrivateCall } from './api';
 import { notifyIncomingCall, stopCallRingtone } from './appNotify';
 import { warmUpVideoCallMedia } from './callMedia';
 import { esMsg } from './esMsg';
 import PersonAvatar from './PersonAvatar';
 import PrivateCallOverlay from './PrivateCallOverlay';
-import { PEER_EVENTS, publishCallActive } from './peerActions';
 import { socketIoOptions, socketUrl } from './socketConfig';
 
 /**
- * Host global de llamadas privadas: entrantes + salientes (voz/video/ver cámara 1:1).
- * Ver cámara multi-slot en Despacho sigue gestionándose en CommandCenter/DispatchVideo.
+ * Banner global de llamada entrante (arriba/costado) + overlay al contestar.
+ * Funciona en cualquier ruta sin abrir el panel de chat.
  */
-export default function PrivateCallHost({ session }) {
+export default function IncomingCallHost({ session }) {
   const [incoming, setIncoming] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
   const incomingRef = useRef(null);
   const activeRef = useRef(null);
 
@@ -28,7 +26,6 @@ export default function PrivateCallHost({ session }) {
 
   useEffect(() => {
     activeRef.current = activeCall;
-    publishCallActive(activeCall);
   }, [activeCall]);
 
   const clearIncoming = useCallback(() => {
@@ -47,17 +44,14 @@ export default function PrivateCallHost({ session }) {
         void endPrivateCall(token, payload.callId, 'reject').catch(() => {});
         return;
       }
-      // remote_camera silenciosa: la UI del dispositivo la maneja en móvil; en web banner si aplica
       if (activeRef.current?.callId) return;
       setIncoming(payload);
       setError('');
-      if (payload?.intent !== 'remote_camera') {
-        notifyIncomingCall({
-          callerName: payload?.callerName,
-          callId: payload?.callId,
-          mode: payload?.mode,
-        });
-      }
+      notifyIncomingCall({
+        callerName: payload?.callerName,
+        callId: payload?.callId,
+        mode: payload?.mode,
+      });
     };
 
     const onEnded = ({ callId }) => {
@@ -89,65 +83,6 @@ export default function PrivateCallHost({ session }) {
   }, [session?.token, clearIncoming]);
 
   useEffect(() => {
-    if (!session?.token) return undefined;
-
-    const onStart = async (e) => {
-      const peer = e.detail?.peer;
-      const mode = e.detail?.mode === 'video' ? 'video' : 'call';
-      const intent = e.detail?.intent || null;
-      if (!peer?.id) return;
-      // Multi-monitor despacho: CommandCenter / DispatchVideo pueden marcar handled.
-      // Si handled, no abrir overlay 1:1 (evita doble llamada).
-      if (intent === 'remote_camera') {
-        const detail = { peer, mode: 'video', intent, handled: false };
-        window.dispatchEvent(new CustomEvent('tacticalptx:dispatch-remote-camera', { detail }));
-        if (detail.handled === true) return;
-        await beginOutbound(peer, 'video', 'remote_camera');
-        return;
-      }
-      await beginOutbound(peer, mode, null);
-    };
-
-    async function beginOutbound(peer, mode, intent) {
-      if (busy || activeRef.current?.callId) {
-        setError('Ya hay una llamada en curso');
-        return;
-      }
-      setBusy(true);
-      setError('');
-      try {
-        if (mode === 'video') await warmUpVideoCallMedia();
-        const data = await startPrivateCall(session.token, peer.id, {
-          mode,
-          intent: intent || undefined,
-        });
-        setActiveCall({
-          callId: data.call?.callId,
-          peerId: peer.id,
-          peerName: peer.displayName || 'Usuario',
-          room: data.call?.room,
-          token: data.token,
-          authToken: session.token,
-          url: data.url,
-          e2eeKey: data.e2eeKey || null,
-          e2ee: Boolean(data.e2ee),
-          role: 'caller',
-          mode,
-          intent: intent || data.call?.intent || null,
-        });
-      } catch (err) {
-        setError(esMsg(err.message, 'No se pudo iniciar la llamada'));
-        window.setTimeout(() => setError(''), 4000);
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    window.addEventListener(PEER_EVENTS.START_CALL, onStart);
-    return () => window.removeEventListener(PEER_EVENTS.START_CALL, onStart);
-  }, [session?.token, busy]);
-
-  useEffect(() => {
     if (!incoming) return undefined;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
@@ -169,7 +104,9 @@ export default function PrivateCallHost({ session }) {
     const mode = incoming.mode === 'video' ? 'video' : 'call';
     stopCallRingtone();
     try {
-      if (mode === 'video') await warmUpVideoCallMedia();
+      if (mode === 'video') {
+        await warmUpVideoCallMedia();
+      }
       const data = await acceptPrivateCall(token, incoming.callId);
       setIncoming(null);
       setActiveCall({
@@ -218,7 +155,6 @@ export default function PrivateCallHost({ session }) {
 
   const banner =
     incoming &&
-    incoming.intent !== 'remote_camera' &&
     createPortal(
       <div
         className="incoming-call-banner"
@@ -258,21 +194,10 @@ export default function PrivateCallHost({ session }) {
     activeCall &&
     createPortal(<PrivateCallOverlay call={activeCall} onHangup={hangup} />, document.body);
 
-  const toastErr =
-    error &&
-    !incoming &&
-    createPortal(
-      <div className="peer-call-toast-err" role="status">
-        {error}
-      </div>,
-      document.body
-    );
-
   return (
     <>
       {banner}
       {overlay}
-      {toastErr}
     </>
   );
 }

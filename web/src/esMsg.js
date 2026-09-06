@@ -24,6 +24,16 @@ export function esMsg(raw, fallback = 'Ocurrió un error') {
   ) {
     return 'Micrófono bloqueado. Permite el acceso en el navegador y recarga la página.';
   }
+  if (/permission.*camera|camera.*permission|notallowederror.*video|video.*notallowed/i.test(s)) {
+    return 'Cámara bloqueada. Permite el acceso en el navegador y recarga la página.';
+  }
+  if (
+    /geolocation|position.*unavailable|location.*denied|user denied geolocation|only secure origins.*geolocation/i.test(
+      s
+    )
+  ) {
+    return 'Ubicación no disponible. Permite geolocalización (requiere HTTPS) o revisa el permiso del navegador.';
+  }
   if (/notreadableerror|track.?start|device in use|could not start/i.test(s)) {
     return 'No se pudo abrir el micrófono (puede estar en uso por otra aplicación).';
   }

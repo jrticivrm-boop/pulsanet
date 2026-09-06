@@ -9,9 +9,10 @@ import ChatInbox from '../ChatInbox';
 import ChannelMultiSelect from '../ChannelMultiSelect';
 import { unlockPanicAudio } from '../panicSound';
 import { openPanicLocation, isValidMapCoord } from '../panicMaps';
-import { unlockAppNotifyAudio } from '../appNotify';
+import { unlockMediaAudio } from '../unlockMediaAudio';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
 import { useDispatchListen } from '../useDispatchListen';
+import { openPeoplePalette, openPeerSheet } from '../peerActions';
 import BrandName from '../BrandName.jsx';
 import { esDeniedReason, esMsg } from '../esMsg';
 
@@ -134,8 +135,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   useEffect(() => {
     if (embedded) return undefined;
     const unlock = () => {
-      unlockPanicAudio().catch(() => {});
-      unlockAppNotifyAudio().catch(() => {});
+      unlockMediaAudio().catch(() => {});
     };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
@@ -186,7 +186,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   useEffect(() => {
     if (ptt.incomingPanic) {
       setPanicFlash(
-        `🚨 PÁNICO — ${ptt.incomingPanic.displayName}. Pulsa Enterado para silenciar en este equipo.`
+        `🚨 ALERTA — ${ptt.incomingPanic.displayName}. Pulsa Enterado para silenciar en este equipo.`
       );
     }
   }, [ptt.incomingPanic]);
@@ -222,6 +222,14 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
             <p className="user-line">{session.user.displayName}</p>
           </div>
           <div className="topbar-actions">
+            <button
+              type="button"
+              className="btn ghost btn-personas"
+              title="Buscar personas (Ctrl+K)"
+              onClick={() => openPeoplePalette()}
+            >
+              Personas
+            </button>
             <span className={`gps-pill ${gpsOk ? 'ok' : ''}`}>{gpsOk ? 'GPS activo' : 'GPS…'}</span>
             <ThemeToggle />
             {canDispatch(session.user) && (
@@ -308,7 +316,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
               <h2>En línea ({ptt.online.length})</h2>
               <ul className="online-list">
                 {ptt.online.length === 0 && <li className="muted">Nadie en el canal</li>}
-                {ptt.online.slice(0, 8).map((m) => (
+                {ptt.online.map((m) => (
                   <li key={m.userId} className={m.userId === session.user.id ? 'me' : ''}>
                     <span
                       className={`dot ${m.focus === 'background' ? 'away' : 'active'}`}
@@ -322,17 +330,20 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                       <button
                         type="button"
                         className="online-peer-btn"
-                        title="Mensaje o llamada personal"
-                        onClick={() => setFocusPeerId(m.userId)}
+                        title="Mensaje, llamada o video"
+                        onClick={() =>
+                          openPeerSheet({
+                            id: m.userId,
+                            displayName: m.displayName,
+                            avatarUrl: m.avatarUrl,
+                          })
+                        }
                       >
                         {m.displayName}
                       </button>
                     )}
                   </li>
                 ))}
-                {ptt.online.length > 8 && (
-                  <li className="muted">+{ptt.online.length - 8} más</li>
-                )}
               </ul>
             </div>
 
@@ -369,12 +380,12 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                 unlockPanicAudio().catch(() => {});
               }}
               onClick={onPanic}
-              title="Alerta de pánico — un clic envía la alerta"
+              title="Alertas — un clic envía la alerta"
             >
               <span className="panic-ico" aria-hidden="true">
                 ⚠
               </span>
-              <span>{ptt.panicSending ? '…' : 'PÁNICO'}</span>
+              <span>{ptt.panicSending ? '…' : 'Alertas'}</span>
             </button>
 
             <button
@@ -423,7 +434,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
             aria-label="Alerta de pánico"
           >
             <div className="radio-panic-modal">
-              <h2>ALERTA DE PÁNICO</h2>
+              <h2>ALERTA</h2>
               <p>
                 <strong>{ptt.incomingPanic.displayName}</strong> necesita ayuda en este canal.
                 <br />

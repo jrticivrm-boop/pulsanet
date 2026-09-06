@@ -18,6 +18,7 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import 'leaflet/dist/leaflet.css';
 import { fetchLocations, fetchOverview, fetchUserTrack, fetchGroupMembers, fetchPanicEvents } from '../api';
+import { openPeerSheet } from '../peerActions';
 import { socketIoOptions, socketUrl } from '../socketConfig';
 import {
   LOCATION_POLL_MS,
@@ -33,8 +34,9 @@ import { MapCoordsLink } from './MapCoordsLink.jsx';
 import { CursorZoom, MapCursorFix, MapSizeFix, SmoothMarker, smoothMapFocus, focusFromSearchParams } from './mapLeafletUtils.jsx';
 import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
-import { MAP_TILE_LAYERS } from './mapTiles.js';
+import { MAP_TILE_LAYERS, MAP_FIT_PEOPLE_MAX_ZOOM, MAP_FOCUS_MAX_ZOOM, MAP_MAX_ZOOM, tileLayerProps } from './mapTiles.js';
 import ivRmStates from './data/ivRmStates.json';
+import { useIsPhone } from '../useMediaQuery.js';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -99,7 +101,7 @@ function FlyToFocus({ target }) {
     if (doneKey.current === key) return;
     doneKey.current = key;
 
-    const zoom = Number.isFinite(target.zoom) ? target.zoom : 17;
+    const zoom = Number.isFinite(target.zoom) ? target.zoom : MAP_FOCUS_MAX_ZOOM;
     const lat = target.lat;
     const lng = target.lng;
 
@@ -151,10 +153,10 @@ function FitPeople({ positions, locked, scopeKey }) {
     if (locked || done.current || !positions?.length) return;
     done.current = true;
     if (positions.length === 1) {
-      map.setView(positions[0], 16);
+      map.setView(positions[0], MAP_FOCUS_MAX_ZOOM);
       return;
     }
-    map.fitBounds(L.latLngBounds(positions), { padding: [56, 56], maxZoom: 15 });
+    map.fitBounds(L.latLngBounds(positions), { padding: [56, 56], maxZoom: MAP_FIT_PEOPLE_MAX_ZOOM });
   }, [map, positions, locked, scopeKey]);
   return null;
 }
@@ -196,6 +198,7 @@ export default function LiveTrackMap({ session }) {
   const scopeMemberIdsRef = useRef(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const initialFocus = focusFromSearchParams(searchParams);
+  const isPhone = useIsPhone();
   const [locations, setLocations] = useState([]);
   const [onlineIds, setOnlineIds] = useState(new Set());
   const [selectedId, setSelectedId] = useState(() => initialFocus?.userId || '');
@@ -213,11 +216,19 @@ export default function LiveTrackMap({ session }) {
   const [trackScope, setTrackScope] = useState(null);
   const [sheetOpen, setSheetOpen] = useState(() => {
     try {
-      return localStorage.getItem('tacticalptx_lt_sheet') !== '0';
+      const stored = localStorage.getItem('tacticalptx_lt_sheet');
+      if (stored === '0') return false;
+      if (stored === '1') return true;
+    } catch {
+      /* ignore */
+    }
+    try {
+      return !window.matchMedia('(max-width: 720px)').matches;
     } catch {
       return true;
     }
   });
+  const [filtersOpen, setFiltersOpen] = useState(false);
   /** Punto forzado desde alerta de pánico (coords del evento, no solo GPS en vivo). */
   const [focusPin, setFocusPin] = useState(() =>
     initialFocus
@@ -610,7 +621,7 @@ export default function LiveTrackMap({ session }) {
   return (
     <div
       ref={pageRef}
-      className={`lt-page${maximized ? ' lt-page--maximized' : ''}${sheetOpen ? '' : ' lt-page--sheet-collapsed'}`}
+      className={`lt-page${maximized ? ' lt-page--maximized' : ''}${sheetOpen ? '' : ' lt-page--sheet-collapsed'}${isPhone ? ' lt-page--phone' : ''}`}
       data-esc-close={maximized ? '' : undefined}
     >
       <aside className={`lt-sheet${sheetOpen ? '' : ' is-collapsed'}`} aria-label="Lista de operadores">
@@ -737,6 +748,19 @@ export default function LiveTrackMap({ session }) {
                 {gpsStatusLine(selected.recordedAt, now)}
                 {selectedTrail.length > 1 ? ` (${selectedTrail.length} puntos)` : ''}
               </p>
+              <button
+                type="button"
+                className="cc-btn primary"
+                style={{ marginTop: '0.65rem', width: '100%' }}
+                onClick={() =>
+                  openPeerSheet({
+                    id: selected.userId,
+                    displayName: selected.displayName,
+                  })
+                }
+              >
+                Contactar
+              </button>
             </div>
           )}
         </div>
@@ -745,13 +769,31 @@ export default function LiveTrackMap({ session }) {
       <div className="lt-map-panel">
         <div className="lt-map">
           <div className="lt-map-chrome">
-            <div className="lt-layers" role="group" aria-label="Estilo de mapa">
+            {isPhone ? (
+              <button
+                type="button"
+                className={`lt-filters-btn${filtersOpen ? ' active' : ''}`}
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen((v) => !v)}
+              >
+                Capas
+              </button>
+            ) : null}
+            <div
+              className={`lt-layers${isPhone && !filtersOpen ? ' is-drawer-closed' : ''}`}
+              role="group"
+              aria-label="Estilo de mapa"
+              hidden={isPhone && !filtersOpen}
+            >
               {Object.entries(LAYERS).map(([key, meta]) => (
                 <button
                   key={key}
                   type="button"
                   className={layer === key ? 'active' : undefined}
-                  onClick={() => setLayer(key)}
+                  onClick={() => {
+                    setLayer(key);
+                    if (isPhone) setFiltersOpen(false);
+                  }}
                 >
                   {meta.label}
                 </button>
@@ -786,12 +828,13 @@ export default function LiveTrackMap({ session }) {
             className="lt-map-inner"
             center={IV_RM_CENTER}
             zoom={7}
+            maxZoom={MAP_MAX_ZOOM}
             scrollWheelZoom={false}
             doubleClickZoom
             zoomSnap={0.25}
             zoomDelta={0.5}
           >
-            <TileLayer attribution={tile.attribution} url={tile.url} key={layer} />
+            <TileLayer key={layer} {...tileLayerProps(tile)} />
             <GeoJSON
               key="iv-rm-states-v2"
               data={ivRmStates}

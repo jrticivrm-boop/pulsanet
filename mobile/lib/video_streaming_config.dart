@@ -1,37 +1,61 @@
 import 'package:livekit_client/livekit_client.dart';
 
-/// Preset HD 720p (16:9) para streaming 1:1 y grupal.
+/// Calidad despacho / 1:1: 720p @ ~3.2 Mbps, 30 FPS, VP8, sin simulcast.
+/// Audio alineado con PTT: sin NS agresivo ni DTX (más nítido, menos metálico).
+const int kStreamFps = 30;
+const int kStreamMaxBitrate = 3200 * 1000;
+
+const VideoParameters kVideoLayer720 = VideoParameters(
+  dimensions: VideoDimensionsPresets.h720_169,
+  encoding: VideoEncoding(maxBitrate: kStreamMaxBitrate, maxFramerate: kStreamFps),
+);
+
 CameraCaptureOptions streamingCameraCapture({
   CameraPosition position = CameraPosition.front,
+  VideoParameters params = kVideoLayer720,
 }) {
   return CameraCaptureOptions(
     cameraPosition: position,
-    params: VideoParametersPresets.h720_169,
+    params: params,
+    focusMode: CameraFocusMode.auto,
   );
 }
 
-/// Compat: captura frontal por defecto.
 final CameraCaptureOptions kStreamingCameraCapture = streamingCameraCapture();
 
-/// Opciones de sala LiveKit optimizadas para video (adaptive + simulcast).
+/// Captura de micrófono táctica (llamadas / PTT): AEC+AGC, sin NS agresivo.
+const AudioCaptureOptions kCallAudioCapture = AudioCaptureOptions(
+  echoCancellation: true,
+  noiseSuppression: false,
+  autoGainControl: true,
+  stopAudioCaptureOnMute: false,
+);
+
+const AudioPublishOptions kCallAudioPublish = AudioPublishOptions(
+  dtx: false,
+  red: false,
+  encoding: AudioEncoding.presetSpeech,
+);
+
 RoomOptions streamingRoomOptions({E2EEOptions? encryption}) {
   return RoomOptions(
+    // adaptiveStream ayuda en 4G (sin simulcast: una sola capa).
     adaptiveStream: true,
-    dynacast: true,
-    defaultAudioCaptureOptions: const AudioCaptureOptions(
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-      stopAudioCaptureOnMute: false,
-    ),
+    dynacast: false,
+    defaultAudioCaptureOptions: kCallAudioCapture,
     defaultCameraCaptureOptions: kStreamingCameraCapture,
+    defaultAudioPublishOptions: kCallAudioPublish,
     defaultVideoPublishOptions: const VideoPublishOptions(
-      simulcast: true,
-      videoSimulcastLayers: [
-        VideoParametersPresets.h180_169,
-        VideoParametersPresets.h360_169,
-        VideoParametersPresets.h720_169,
-      ],
+      videoCodec: 'vp8',
+      videoEncoding: VideoEncoding(
+        maxBitrate: kStreamMaxBitrate,
+        maxFramerate: kStreamFps,
+      ),
+      simulcast: false,
+      // Identificar personas/placas pesa más que la fluidez: el encoder baja
+      // FPS antes que reescalar a 360p (maintainFramerate se veía borroso).
+      degradationPreference: DegradationPreference.maintainResolution,
+      videoSimulcastLayers: [],
     ),
     encryption: encryption,
   );

@@ -311,6 +311,9 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     if (_privateCallDialogOpen || PrivateCallScreen.uiOpen) return;
     final pending = await IncomingCallWake.takePending();
     if (pending == null) return;
+    final callId = pending['callId']?.toString() ?? '';
+    final callerId = pending['callerId']?.toString() ?? '';
+    if (PrivateCallScreen.isBusyWith(callId: callId, peerId: callerId)) return;
     await _openIncomingCallFromPush(Map<String, dynamic>.from(pending));
   }
 
@@ -583,8 +586,14 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     if (session.incomingPrivateCall != null && !_privateCallDialogOpen) {
       final call = Map<String, dynamic>.from(session.incomingPrivateCall!);
       final intent = call['intent']?.toString();
+      final callId = call['callId']?.toString() ?? '';
+      final callerId = call['callerId']?.toString() ?? '';
       // Sesión headless ya activa: no abrir diálogo de “solicitud de cámara”.
       if (intent == 'remote_camera' && RemoteCameraSession.instance.isActive) {
+        session.incomingPrivateCall = null;
+      } else if (intent != 'remote_camera' &&
+          PrivateCallScreen.isBusyWith(callId: callId, peerId: callerId)) {
+        // Ya en llamada: no re-mostrar Contestar encima del mini-banner.
         session.incomingPrivateCall = null;
       } else {
         _privateCallDialogOpen = true;
@@ -701,9 +710,12 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
   /// Tap en push de llamada: abrir UI Contestar (no depender solo del socket).
   Future<void> _openIncomingCallFromPush(Map<String, dynamic> data) async {
     if (!mounted) return;
-    if (_privateCallDialogOpen || PrivateCallScreen.uiOpen) return;
-
     final callId = data['callId']?.toString() ?? '';
+    final callerId = data['callerId']?.toString() ?? '';
+    if (_privateCallDialogOpen ||
+        PrivateCallScreen.isBusyWith(callId: callId, peerId: callerId)) {
+      return;
+    }
     if (callId.isEmpty) return;
 
     final earlyIntent = data['intent']?.toString() ??
