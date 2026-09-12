@@ -40,8 +40,11 @@ export function esMsg(raw, fallback = 'Ocurrió un error') {
   if (/notfounderror|requested device not found|no device/i.test(s)) {
     return 'No se encontró micrófono en este equipo.';
   }
-  if (/overconstrained|constraint/i.test(s)) {
+  if (/overconstrained|constraint/i.test(s) && !/messages_target/i.test(s)) {
     return 'El micrófono no cumple los requisitos de audio.';
+  }
+  if (/messages_target|viola la restricci[oó]n.*messages_target|violates check constraint.*messages_target/i.test(s)) {
+    return 'No se pudo guardar el mensaje. Cierra el chat, ábrelo de nuevo e intenta otra vez.';
   }
   if (/aborterror|the operation was aborted/i.test(s)) {
     return 'Operación cancelada.';
@@ -72,6 +75,9 @@ export function esMsg(raw, fallback = 'Ocurrió un error') {
   }
   if (/^error\s*\d{3}$/i.test(s) || /^error \d+$/i.test(s)) {
     const code = s.replace(/\D/g, '');
+    if (code === '429') {
+      return 'Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.';
+    }
     return `Error del servidor (${code}).`;
   }
   if (lower === 'error' || lower === 'unknown error' || lower === 'unknown') {

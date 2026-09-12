@@ -12,6 +12,12 @@ import {
   listPrivateCallHistory,
   listActivePrivateCalls,
   findBusyPrivateCallForUsers,
+  isPrivateCallParticipant,
+  listPrivateCallParticipantIds,
+  serializePrivateCallParticipants,
+  markPrivateCallParticipantJoined,
+  invitePrivateCallParticipant,
+  leavePrivateCallParticipant,
 } from '../services/dm.js';
 import { notifyUserDevices, notifyUserDevicesDataOnly } from '../services/fcm.js';
 import { voiceE2eeKeyForRoom } from '../services/voiceE2ee.js';
@@ -21,9 +27,48 @@ const RING_MS = 5_000;
 const RING_COUNT = 5;
 const RING_TIMEOUT_MS = RING_MS * RING_COUNT;
 const REMOTE_CAMERA_RING_MS = 120_000;
-const STALE_ACTIVE_MS = 90_000;
+/** Sin latido de un lado → llamada huérfana (antes exigía ambos, y quedaba fantasma). */
+const STALE_ACTIVE_MS = 45_000;
 const HARD_MAX_CALL_MS = 10 * 60 * 1000;
 const SWEEP_EVERY_MS = 2_000;
+
+function lastSeenOf(call, userId, fallback = 0) {
+  const seen = call?.lastSeenAt || {};
+  return seen[userId] || fallback || 0;
+}
+
+/** true si la llamada ya no tiene presencia real y se puede liberar. */
+function isOrphanPrivateCall(call, now = Date.now()) {
+  if (!call || call.status === 'ended') return true;
+  const age = now - (call.createdAt || now);
+  if (age > HARD_MAX_CALL_MS) return true;
+  if (call.status === 'ringing') {
+    const limit =
+      call.intent === 'remote_camera' ? REMOTE_CAMERA_RING_MS : RING_TIMEOUT_MS;
+    return age >= limit;
+  }
+  if (call.status === 'active') {
+    const joined = listPrivateCallParticipantIds(call, { includeRinging: false });
+    if (!joined.length) return true;
+    // Nadie con latido reciente → huérfana (incluye 1:1 y multiparty).
+    return joined.every(
+      (uid) =>
+        now - lastSeenOf(call, uid, call.answeredAt || call.createdAt) >
+        STALE_ACTIVE_MS
+    );
+  }
+  return false;
+}
+
+function isSamePrivatePair(call, userA, userB) {
+  if (!call) return false;
+  const a = String(userA || '');
+  const b = String(userB || '');
+  return (
+    (String(call.callerId) === a && String(call.targetId) === b) ||
+    (String(call.callerId) === b && String(call.targetId) === a)
+  );
+}
 
 function normalizeMode(raw) {
   const m = String(raw || '').toLowerCase();
@@ -33,12 +78,15 @@ function normalizeMode(raw) {
 }
 
 function assertCallParticipant(call, userId) {
-  if (!call) return false;
-  return call.callerId === userId || call.targetId === userId;
+  return isPrivateCallParticipant(call, userId);
 }
 
 function peerUserId(call, userId) {
-  return call.callerId === userId ? call.targetId : call.callerId;
+  const me = String(userId || '');
+  if (String(call.callerId) === me) return call.targetId;
+  if (String(call.targetId) === me) return call.callerId;
+  const others = listPrivateCallParticipantIds(call).filter((id) => id !== me);
+  return others[0] || call.callerId;
 }
 
 function serializeCall(call) {
@@ -55,7 +103,14 @@ function serializeCall(call) {
     withVideo: Boolean(call.withVideo),
     videoRequest: call.videoRequest || null,
     createdAt: call.createdAt,
+    participants: serializePrivateCallParticipants(call),
   };
+}
+
+function emitToCallParticipants(io, call, event, payload) {
+  for (const uid of listPrivateCallParticipantIds(call, { includeRinging: true })) {
+    io.to(`user:${uid}`).emit(event, payload);
+  }
 }
 
 async function issueCallCredentials(req, call, identity, displayName) {
@@ -99,8 +154,7 @@ export async function finalizePrivateCall(
     mode: call.mode || 'call',
     outcome: outcome?.outcome || null,
   };
-  io.to(`user:${call.callerId}`).emit('call:ended', payload);
-  io.to(`user:${call.targetId}`).emit('call:ended', payload);
+  emitToCallParticipants(io, call, 'call:ended', payload);
 
   const unanswered =
     !call.answeredAt &&
@@ -152,12 +206,39 @@ export function startPrivateCallSweeper(io) {
         continue;
       }
       if (call.status === 'active') {
-        const seen = call.lastSeenAt || {};
-        const callerSeen = seen[call.callerId] || call.createdAt || 0;
-        const targetSeen = seen[call.targetId] || call.answeredAt || call.createdAt || 0;
-        const bothStale =
-          now - callerSeen > STALE_ACTIVE_MS && now - targetSeen > STALE_ACTIVE_MS;
-        if (bothStale) {
+        const joined = listPrivateCallParticipantIds(call, { includeRinging: false });
+        for (const uid of joined) {
+          const seen = lastSeenOf(call, uid, call.answeredAt || call.createdAt);
+          if (now - seen > STALE_ACTIVE_MS) {
+            leavePrivateCallParticipant(call, uid);
+            io.to(`user:${uid}`).emit('call:ended', {
+              callId: call.id,
+              reason: 'timeout',
+              mode: call.mode || 'call',
+            });
+            emitToCallParticipants(io, call, 'call:participant_left', {
+              callId: call.id,
+              userId: uid,
+              call: serializeCall(call),
+            });
+          }
+        }
+        // Invitados ringing demasiado tiempo → sacar
+        for (const p of serializePrivateCallParticipants(call)) {
+          if (p.status !== 'ringing') continue;
+          const parts = call.participants || {};
+          const invitedAt = parts[p.userId]?.invitedAt || call.createdAt || now;
+          if (now - invitedAt > RING_TIMEOUT_MS) {
+            leavePrivateCallParticipant(call, p.userId);
+            io.to(`user:${p.userId}`).emit('call:ended', {
+              callId: call.id,
+              reason: 'timeout',
+              mode: call.mode || 'call',
+            });
+          }
+        }
+        const still = listPrivateCallParticipantIds(call, { includeRinging: false });
+        if (still.length < 2 || isOrphanPrivateCall(call, now)) {
           finalizePrivateCall(io, call.id, {
             reason: 'timeout',
             endedBy: null,
@@ -199,14 +280,31 @@ export function createCallsRouter(io) {
 
     // Evita re-marcar: si cualquiera ya tiene llamada activa, no crear otra.
     // (remote_camera puede coexistir en flujos de despacho — se permite).
+    // Fantasmas / mismo par en ringing: liberar y continuar (UI cerrada sin /end).
     if (intent !== 'remote_camera') {
       const busy = findBusyPrivateCallForUsers(req.user.sub, peer.id);
       if (busy) {
-        return res.status(409).json({
-          ok: false,
-          error: 'Ya hay una llamada en curso',
-          busyCallId: busy.id,
-        });
+        const me = req.user.sub;
+        const samePair = isSamePrivatePair(busy, me, peer.id);
+        const imIn =
+          String(busy.callerId) === String(me) ||
+          String(busy.targetId) === String(me);
+        const canReplace =
+          (samePair &&
+            (busy.status === 'ringing' || isOrphanPrivateCall(busy))) ||
+          (imIn && isOrphanPrivateCall(busy));
+        if (canReplace) {
+          await finalizePrivateCall(io, busy.id, {
+            reason: 'hangup',
+            endedBy: me,
+          });
+        } else {
+          return res.status(409).json({
+            ok: false,
+            error: 'Ya hay una llamada en curso',
+            busyCallId: busy.id,
+          });
+        }
       }
     }
 
@@ -252,24 +350,30 @@ export function createCallsRouter(io) {
           : effectiveMode === 'video'
             ? `${call.callerName} te llama con video`
             : `${call.callerName} te está llamando`;
-      // Data-only: la app abre pantalla Contestar (no banner del sistema).
+      const fcmType =
+        effectiveMode === 'radio'
+          ? 'private_radio'
+          : effectiveMode === 'video'
+            ? 'private_video'
+            : 'private_call';
+      const fcmData = {
+        type: fcmType,
+        callId: call.id,
+        callerId: call.callerId,
+        callerName: call.callerName,
+        mode: effectiveMode,
+        intent: intent || '',
+      };
+      // Híbrido: bandeja del sistema (Doze/OEM). Data-only: Contestar / wake.
+      notifyUserDevices({
+        userId: peer.id,
+        title: fcmTitle,
+        body: fcmBody,
+        data: fcmData,
+      }).catch(() => {});
       notifyUserDevicesDataOnly({
         userId: peer.id,
-        data: {
-          type:
-            effectiveMode === 'radio'
-              ? 'private_radio'
-              : effectiveMode === 'video'
-                ? 'private_video'
-                : 'private_call',
-          callId: call.id,
-          callerId: call.callerId,
-          callerName: call.callerName,
-          mode: effectiveMode,
-          intent: intent || '',
-          title: fcmTitle,
-          body: fcmBody,
-        },
+        data: { ...fcmData, title: fcmTitle, body: fcmBody, wakeOnly: '1' },
       }).catch(() => {});
     }
 
@@ -301,13 +405,185 @@ export function createCallsRouter(io) {
       return res.status(503).json({ ok: false, error: 'LiveKit no configurado' });
     }
     updatePrivateCall(call.id, { status: 'active', answeredAt: Date.now() });
+    markPrivateCallParticipantJoined(call, req.user.sub, req.user.displayName);
+    // Ambos lados vivos: evita sweeper orphan si el caller aún no hizo ping.
     touchPrivateCall(call.id, req.user.sub);
+    touchPrivateCall(call.id, call.callerId);
     const creds = await issueCallCredentials(req, call, req.user.sub, req.user.displayName);
-    io.to(`user:${call.callerId}`).emit('call:accepted', {
+    emitToCallParticipants(io, call, 'call:accepted', {
       callId: call.id,
       by: req.user.sub,
       displayName: req.user.displayName,
       mode: call.mode || 'call',
+      call: serializeCall(call),
+    });
+    res.json({
+      ok: true,
+      call: serializeCall(call),
+      ...creds,
+    });
+  });
+
+  /**
+   * Anexar participante a videollamada (misma sala LiveKit / E2EE).
+   * Solo quien ya está joined puede invitar; el destino no debe estar ocupado.
+   */
+  router.post('/private/:id/invite', async (req, res) => {
+    const call = getPrivateCall(req.params.id);
+    if (!call) return res.status(404).json({ ok: false, error: 'Llamada no encontrada' });
+    if (!assertCallParticipant(call, req.user.sub)) {
+      return res.status(403).json({ ok: false, error: 'Sin permiso' });
+    }
+    const parts = call.participants || {};
+    const me = parts[String(req.user.sub)];
+    if (!me || me.status !== 'joined') {
+      return res.status(403).json({ ok: false, error: 'Debes estar en la llamada para invitar' });
+    }
+    if (call.mode !== 'video' && call.intent !== 'remote_camera') {
+      // Permitir también en voz por integridad futura; UX principal es video.
+    }
+    const targetUserId = req.body?.targetUserId;
+    const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, targetUserId);
+    if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    if (String(peer.id) === String(req.user.sub)) {
+      return res.status(400).json({ ok: false, error: 'No puedes invitarte a ti mismo' });
+    }
+
+    const busy = findBusyPrivateCallForUsers(peer.id);
+    if (busy && String(busy.id) !== String(call.id)) {
+      return res.status(409).json({
+        ok: false,
+        error: 'El usuario ya está en otra llamada',
+        busyCallId: busy.id,
+      });
+    }
+
+    const invited = invitePrivateCallParticipant(call, {
+      userId: peer.id,
+      displayName: peer.display_name,
+      invitedBy: req.user.sub,
+    });
+    if (invited?.error === 'already_in_call') {
+      return res.status(409).json({ ok: false, error: 'Ya está en esta llamada' });
+    }
+
+    const payload = {
+      ...serializeCall(call),
+      invitedBy: req.user.sub,
+      invitedByName: req.user.displayName,
+      inviteeId: peer.id,
+      inviteeName: peer.display_name,
+    };
+    io.to(`user:${peer.id}`).emit('call:invite', payload);
+    emitToCallParticipants(io, call, 'call:participant_invited', payload);
+
+    const isVideo = call.mode === 'video';
+    const inviteTitle = isVideo ? 'Te agregan a videollamada' : 'Te agregan a llamada';
+    const inviteBody = `${req.user.displayName || 'Usuario'} te invita`;
+    const inviteType = isVideo ? 'private_video_invite' : 'private_call_invite';
+    const inviteData = {
+      type: inviteType,
+      callId: call.id,
+      callerId: req.user.sub,
+      callerName: req.user.displayName || 'Usuario',
+      mode: call.mode || 'call',
+      intent: '',
+      isInvite: 'true',
+    };
+    notifyUserDevices({
+      userId: peer.id,
+      title: inviteTitle,
+      body: inviteBody,
+      data: inviteData,
+    }).catch(() => {});
+    notifyUserDevicesDataOnly({
+      userId: peer.id,
+      data: { ...inviteData, title: inviteTitle, body: inviteBody, wakeOnly: '1' },
+    }).catch(() => {});
+
+    res.status(201).json({ ok: true, call: serializeCall(call) });
+  });
+
+  /** Rechazar invitación sin colgar a los demás. */
+  router.post('/private/:id/decline-invite', async (req, res) => {
+    const call = getPrivateCall(req.params.id);
+    if (!call) return res.json({ ok: true, alreadyEnded: true });
+    if (!assertCallParticipant(call, req.user.sub)) {
+      return res.status(403).json({ ok: false, error: 'Sin permiso' });
+    }
+    const parts = call.participants || {};
+    const me = parts[String(req.user.sub)];
+    if (me?.status === 'joined' &&
+        (String(call.callerId) === String(req.user.sub) ||
+          String(call.targetId) === String(req.user.sub))) {
+      // Caller/callee originales: declinar = colgar.
+      await finalizePrivateCall(io, call.id, {
+        reason: 'reject',
+        endedBy: req.user.sub,
+      });
+      return res.json({ ok: true, ended: true });
+    }
+    leavePrivateCallParticipant(call, req.user.sub);
+    emitToCallParticipants(io, call, 'call:participant_left', {
+      callId: call.id,
+      userId: req.user.sub,
+      call: serializeCall(call),
+    });
+    res.json({ ok: true, ended: false });
+  });
+
+  /** Salir de la llamada (los demás siguen si quedan ≥2). */
+  router.post('/private/:id/leave', async (req, res) => {
+    const call = getPrivateCall(req.params.id);
+    if (!call) return res.json({ ok: true, alreadyEnded: true });
+    if (!assertCallParticipant(call, req.user.sub)) {
+      return res.status(403).json({ ok: false, error: 'Sin permiso' });
+    }
+    leavePrivateCallParticipant(call, req.user.sub);
+    io.to(`user:${req.user.sub}`).emit('call:ended', {
+      callId: call.id,
+      reason: 'hangup',
+      by: req.user.sub,
+      mode: call.mode || 'call',
+    });
+    const still = listPrivateCallParticipantIds(call, { includeRinging: false });
+    if (still.length < 2) {
+      await finalizePrivateCall(io, call.id, {
+        reason: 'hangup',
+        endedBy: req.user.sub,
+      });
+      return res.json({ ok: true, ended: true });
+    }
+    emitToCallParticipants(io, call, 'call:participant_left', {
+      callId: call.id,
+      userId: req.user.sub,
+      displayName: req.user.displayName,
+      call: serializeCall(call),
+    });
+    res.json({ ok: true, ended: false, call: serializeCall(call) });
+  });
+
+  /** Unirse tras invitación (guest) o re-entrar. */
+  router.post('/private/:id/join', async (req, res) => {
+    const call = getPrivateCall(req.params.id);
+    if (!call) return res.status(404).json({ ok: false, error: 'Llamada no encontrada' });
+    if (!assertCallParticipant(call, req.user.sub)) {
+      return res.status(403).json({ ok: false, error: 'No estás invitado a esta llamada' });
+    }
+    if (!isLiveKitConfigured()) {
+      return res.status(503).json({ ok: false, error: 'LiveKit no configurado' });
+    }
+    if (call.status === 'ringing' && String(call.targetId) === String(req.user.sub)) {
+      updatePrivateCall(call.id, { status: 'active', answeredAt: Date.now() });
+    }
+    markPrivateCallParticipantJoined(call, req.user.sub, req.user.displayName);
+    touchPrivateCall(call.id, req.user.sub);
+    const creds = await issueCallCredentials(req, call, req.user.sub, req.user.displayName);
+    emitToCallParticipants(io, call, 'call:participant_joined', {
+      callId: call.id,
+      userId: req.user.sub,
+      displayName: req.user.displayName,
+      call: serializeCall(call),
     });
     res.json({
       ok: true,

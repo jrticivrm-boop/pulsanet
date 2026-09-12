@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import { RoomEvent, Track, createLocalAudioTrack, AudioPresets } from 'livekit-client';
+import { RoomEvent, Track, createLocalAudioTrack, LocalAudioTrack, AudioPresets } from 'livekit-client';
 import { createEncryptedRoom } from './livekitE2ee';
 import { publicLiveKitUrl } from './livekitUrl';
 import {
@@ -18,6 +18,7 @@ import {
   patchPanicEvent,
 } from './api';
 import { socketIoOptions, socketUrl } from './socketConfig';
+import { socketAuth } from './deviceId';
 import { assertMediaDevices, createVoiceRecorder, VOICE_AUDIO_CONSTRAINTS } from './voiceRecord';
 import { playPanicAlarm, startPanicAlarm, stopPanicAlarm, unlockPanicAudio } from './panicSound';
 import { notifyBackgroundChat, notifyBackgroundPtt } from './backgroundKeepalive';
@@ -28,8 +29,15 @@ const SOCKET_URL = socketUrl();
 
 /**
  * Socket.IO (floor + presencia + chat) + LiveKit (audio).
+ * talkGroupIds: canales Hablar (PTT a todos). group = canal primario (chat/UI).
  */
-export function usePtt({ token, user, group, suppressChatNotify = false }) {
+export function usePtt({
+  token,
+  user,
+  group,
+  talkGroupIds,
+  suppressChatNotify = false,
+}) {
   const [connected, setConnected] = useState(false);
   const [livekitReady, setLivekitReady] = useState(false);
   const [speaking, setSpeaking] = useState(null);
@@ -48,10 +56,16 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
 
   const socketRef = useRef(null);
   const roomRef = useRef(null);
+  /** @type {React.MutableRefObject<Map<string, import('livekit-client').Room>>} */
+  const roomsByGroupRef = useRef(new Map());
+  /** @type {React.MutableRefObject<Map<string, import('livekit-client').LocalAudioTrack>>} */
+  const micsByGroupRef = useRef(new Map());
   const micRef = useRef(null);
   const holdingRef = useRef(false);
   const groupIdRef = useRef(group?.id);
   const tokenRef = useRef(token);
+  const talkGroupIdsRef = useRef([]);
+  const floorWaitRef = useRef({ requested: new Set(), granted: new Set(), denied: new Set() });
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const recordStartedAtRef = useRef(0);
@@ -65,21 +79,37 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
   });
   listenMutedRef.current = listenMuted;
 
+  const resolvedTalkIds = (
+    Array.isArray(talkGroupIds) && talkGroupIds.length
+      ? talkGroupIds
+      : group?.id
+        ? [group.id]
+        : []
+  ).filter(Boolean);
+  const talkIdsKey = resolvedTalkIds.slice().sort().join(',');
+
+  groupIdRef.current = group?.id;
+  tokenRef.current = token;
+  talkGroupIdsRef.current = resolvedTalkIds;
+
   const applyListenMute = useCallback((muted) => {
     document.querySelectorAll('[data-lk-audio]').forEach((el) => {
       el.muted = muted;
       el.volume = muted ? 0 : 1;
     });
-    const room = roomRef.current;
-    if (!room) return;
-    room.remoteParticipants.forEach((p) => {
-      p.audioTrackPublications.forEach((pub) => {
-        const t = pub.track;
-        if (t && typeof t.setVolume === 'function') {
-          t.setVolume(muted ? 0 : 1);
-        }
+    const applyRoom = (room) => {
+      if (!room) return;
+      room.remoteParticipants.forEach((p) => {
+        p.audioTrackPublications.forEach((pub) => {
+          const t = pub.track;
+          if (t && typeof t.setVolume === 'function') {
+            t.setVolume(muted ? 0 : 1);
+          }
+        });
       });
-    });
+    };
+    applyRoom(roomRef.current);
+    roomsByGroupRef.current.forEach((room) => applyRoom(room));
   }, []);
 
   const setListenMuted = useCallback(
@@ -103,14 +133,18 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
     } catch {
       /* ignore */
     }
+    for (const room of roomsByGroupRef.current.values()) {
+      try {
+        await room.startAudio();
+      } catch {
+        /* ignore */
+      }
+    }
     applyListenMute(listenMutedRef.current);
     document.querySelectorAll('[data-lk-audio]').forEach((el) => {
       el.play().catch(() => {});
     });
   }, [applyListenMute]);
-
-  groupIdRef.current = group?.id;
-  tokenRef.current = token;
 
   const stopRecorderAndUpload = useCallback(async () => {
     const rec = recorderRef.current;
@@ -170,183 +204,256 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
   }, []);
 
   const muteMic = useCallback(async () => {
-    // Subir grabación en paralelo: no retrasar el mute (siguiente PTT más ágil)
     void stopRecorderAndUpload();
-    const mic = micRef.current;
-    if (!mic) return;
-    try {
-      await mic.mute();
-    } catch {
-      /* ignore */
+    for (const mic of micsByGroupRef.current.values()) {
+      try {
+        await mic.mute();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (micRef.current && !micsByGroupRef.current.size) {
+      try {
+        await micRef.current.mute();
+      } catch {
+        /* ignore */
+      }
     }
   }, [stopRecorderAndUpload]);
 
   const teardownMic = useCallback(async () => {
     await stopRecorderAndUpload();
-    const room = roomRef.current;
-    const mic = micRef.current;
+    for (const [gid, mic] of [...micsByGroupRef.current.entries()]) {
+      const room = roomsByGroupRef.current.get(gid);
+      try {
+        await room?.localParticipant?.unpublishTrack(mic);
+      } catch {
+        /* ignore */
+      }
+      try {
+        mic.stop();
+      } catch {
+        /* ignore */
+      }
+      micsByGroupRef.current.delete(gid);
+    }
     micRef.current = null;
-    if (!mic) return;
-    try {
-      await room?.localParticipant?.unpublishTrack(mic);
-    } catch {
-      /* ignore */
-    }
-    try {
-      mic.stop();
-    } catch {
-      /* ignore */
-    }
   }, [stopRecorderAndUpload]);
 
-  /** Publica el mic muteado al entrar al canal (el grant solo hace unmute). */
-  const ensureMicReady = useCallback(async () => {
-    const room = roomRef.current;
-    if (!room || room.state !== 'connected') return;
-    if (micRef.current) return;
-    try {
-      assertMediaDevices();
-      const mic = await createLocalAudioTrack({
+  const publishMicToRoom = useCallback(async (room, gid) => {
+    if (!room || room.state !== 'connected') return null;
+    if (micsByGroupRef.current.has(gid)) return micsByGroupRef.current.get(gid);
+    assertMediaDevices();
+    let track;
+    if (!micRef.current) {
+      track = await createLocalAudioTrack({
         echoCancellation: VOICE_AUDIO_CONSTRAINTS.echoCancellation,
         noiseSuppression: VOICE_AUDIO_CONSTRAINTS.noiseSuppression,
         autoGainControl: VOICE_AUDIO_CONSTRAINTS.autoGainControl,
         channelCount: VOICE_AUDIO_CONSTRAINTS.channelCount,
       });
-      await mic.mute();
-      micRef.current = mic;
-      await room.localParticipant.publishTrack(mic, {
-        source: Track.Source.Microphone,
-        dtx: false,
-        red: false,
-        audioPreset: AudioPresets.speech,
-        stopMicTrackOnMute: false,
-      });
+      await track.mute();
+      micRef.current = track;
+    } else {
+      const clone = micRef.current.mediaStreamTrack.clone();
+      track = new LocalAudioTrack(clone, undefined, false);
+      await track.mute();
+    }
+    await room.localParticipant.publishTrack(track, {
+      source: Track.Source.Microphone,
+      dtx: false,
+      red: false,
+      audioPreset: AudioPresets.speech,
+      stopMicTrackOnMute: false,
+    });
+    micsByGroupRef.current.set(gid, track);
+    return track;
+  }, []);
+
+  /** Publica el mic muteado en todos los canales Hablar. */
+  const ensureMicReady = useCallback(async () => {
+    const entries = [...roomsByGroupRef.current.entries()];
+    if (!entries.length && roomRef.current) {
+      entries.push([groupIdRef.current, roomRef.current]);
+    }
+    if (!entries.length) return;
+    try {
+      for (const [gid, room] of entries) {
+        await publishMicToRoom(room, gid);
+      }
     } catch (err) {
       setError(esMsg(err.message || err.name, 'No se pudo activar el micrófono'));
       throw err;
     }
-  }, []);
+  }, [publishMicToRoom]);
 
   const startPublishing = useCallback(async () => {
-    const room = roomRef.current;
-    if (!room) return;
-    if (!micRef.current) {
-      await ensureMicReady();
+    await ensureMicReady();
+    for (const mic of micsByGroupRef.current.values()) {
+      try {
+        await mic.unmute();
+      } catch {
+        /* ignore */
+      }
     }
-    const mic = micRef.current;
-    if (!mic) return;
-    try {
-      await mic.unmute();
-    } catch {
-      /* ignore */
-    }
-    startRecorder(mic);
+    const master = micRef.current || [...micsByGroupRef.current.values()][0];
+    if (master) startRecorder(master);
   }, [ensureMicReady, startRecorder]);
 
-  const ensureLiveKit = useCallback(async () => {
-    const gid = groupIdRef.current;
-    const tok = tokenRef.current;
-    if (!gid || !tok) return;
-    if (roomRef.current?.state === 'connected') {
-      setLivekitReady(true);
-      try {
-        await ensureMicReady();
-      } catch {
-        /* mic bloqueado: se oye; PTT pedirá permiso al hablar */
+  const connectTalkRoom = useCallback(
+    async (gid, tok) => {
+      if (!gid || !tok) return null;
+      const existing = roomsByGroupRef.current.get(gid);
+      if (existing?.state === 'connected') return existing;
+
+      const lk = await fetchLiveKitToken(tok, gid);
+      if (existing) {
+        try {
+          existing.disconnect();
+        } catch {
+          /* ignore */
+        }
+        roomsByGroupRef.current.delete(gid);
       }
+
+      const room = await createEncryptedRoom(
+        {
+          adaptiveStream: false,
+          dynacast: false,
+          audioCaptureDefaults: {
+            echoCancellation: VOICE_AUDIO_CONSTRAINTS.echoCancellation,
+            noiseSuppression: VOICE_AUDIO_CONSTRAINTS.noiseSuppression,
+            autoGainControl: VOICE_AUDIO_CONSTRAINTS.autoGainControl,
+            channelCount: VOICE_AUDIO_CONSTRAINTS.channelCount,
+          },
+          publishDefaults: {
+            audioPreset: AudioPresets.speech,
+            dtx: false,
+            red: false,
+            stopMicTrackOnMute: false,
+          },
+        },
+        lk.e2eeKey
+      );
+
+      const attachRemote = (track) => {
+        if (track.kind !== Track.Kind.Audio) return;
+        if (track.attachedElements?.length) return;
+        const el = track.attach();
+        el.dataset.lkAudio = '1';
+        el.dataset.lkGroup = gid;
+        el.playsInline = true;
+        el.autoplay = true;
+        try {
+          el.preload = 'auto';
+        } catch {
+          /* ignore */
+        }
+        const muted = listenMutedRef.current;
+        el.muted = muted;
+        el.volume = muted ? 0 : 1;
+        if (typeof track.setVolume === 'function') {
+          track.setVolume(muted ? 0 : 1);
+        }
+        document.body.appendChild(el);
+        if (!muted) el.play().catch(() => {});
+      };
+      const kickRemoteAudio = () => {
+        document.querySelectorAll(`[data-lk-audio][data-lk-group="${gid}"]`).forEach((el) => {
+          if (listenMutedRef.current) return;
+          el.muted = false;
+          el.volume = 1;
+          el.play().catch(() => {});
+        });
+        try {
+          room.startAudio().catch(() => {});
+        } catch {
+          /* ignore */
+        }
+      };
+      room.on(RoomEvent.TrackSubscribed, attachRemote);
+      room.on(RoomEvent.TrackUnmuted, kickRemoteAudio);
+      room.on(RoomEvent.TrackUnsubscribed, (track) => {
+        track.detach().forEach((el) => el.remove());
+      });
+      room.on(RoomEvent.Disconnected, () => {
+        if (roomsByGroupRef.current.get(gid) === room) {
+          roomsByGroupRef.current.delete(gid);
+        }
+        if (roomRef.current === room) roomRef.current = null;
+        if (!roomsByGroupRef.current.size) setLivekitReady(false);
+      });
+      await room.connect(publicLiveKitUrl(lk.url), lk.token);
+      roomsByGroupRef.current.set(gid, room);
+      if (gid === groupIdRef.current) roomRef.current = room;
+      try {
+        await room.startAudio();
+      } catch {
+        /* gesto */
+      }
+      room.remoteParticipants.forEach((p) => {
+        p.audioTrackPublications.forEach((pub) => {
+          if (pub.track) attachRemote(pub.track);
+        });
+      });
+      applyListenMute(listenMutedRef.current);
+      kickRemoteAudio();
+      try {
+        await publishMicToRoom(room, gid);
+      } catch {
+        /* mic bloqueado */
+      }
+      return room;
+    },
+    [applyListenMute, publishMicToRoom]
+  );
+
+  const ensureLiveKit = useCallback(async () => {
+    const ids = talkGroupIdsRef.current;
+    const tok = tokenRef.current;
+    if (!tok || !ids.length) {
+      setLivekitReady(false);
       return;
     }
-    const lk = await fetchLiveKitToken(tok, gid);
-    if (roomRef.current) {
+
+    for (const [gid, room] of [...roomsByGroupRef.current.entries()]) {
+      if (ids.includes(gid)) continue;
+      const mic = micsByGroupRef.current.get(gid);
+      if (mic) {
+        try {
+          await room.localParticipant?.unpublishTrack(mic);
+        } catch {
+          /* ignore */
+        }
+        try {
+          mic.stop();
+        } catch {
+          /* ignore */
+        }
+        micsByGroupRef.current.delete(gid);
+        if (micRef.current === mic) micRef.current = null;
+      }
       try {
-        roomRef.current.disconnect();
+        room.disconnect();
       } catch {
         /* ignore */
       }
+      roomsByGroupRef.current.delete(gid);
+      document
+        .querySelectorAll(`[data-lk-audio][data-lk-group="${gid}"]`)
+        .forEach((el) => el.remove());
+      if (roomRef.current === room) roomRef.current = null;
     }
-    const room = await createEncryptedRoom(
-      {
-        adaptiveStream: false,
-        dynacast: false,
-        audioCaptureDefaults: {
-          echoCancellation: VOICE_AUDIO_CONSTRAINTS.echoCancellation,
-          noiseSuppression: VOICE_AUDIO_CONSTRAINTS.noiseSuppression,
-          autoGainControl: VOICE_AUDIO_CONSTRAINTS.autoGainControl,
-          channelCount: VOICE_AUDIO_CONSTRAINTS.channelCount,
-        },
-        publishDefaults: {
-          audioPreset: AudioPresets.speech,
-          dtx: false,
-          red: false,
-          stopMicTrackOnMute: false,
-        },
-      },
-      lk.e2eeKey
-    );
-    roomRef.current = room;
-    const attachRemote = (track) => {
-      if (track.kind !== Track.Kind.Audio) return;
-      if (track.attachedElements?.length) return;
-      const el = track.attach();
-      el.dataset.lkAudio = '1';
-      el.playsInline = true;
-      el.autoplay = true;
-      try {
-        el.preload = 'auto';
-      } catch {
-        /* ignore */
-      }
-      const muted = listenMutedRef.current;
-      el.muted = muted;
-      el.volume = muted ? 0 : 1;
-      if (typeof track.setVolume === 'function') {
-        track.setVolume(muted ? 0 : 1);
-      }
-      document.body.appendChild(el);
-      if (!muted) el.play().catch(() => {});
-    };
-    const kickRemoteAudio = () => {
-      document.querySelectorAll('[data-lk-audio]').forEach((el) => {
-        if (listenMutedRef.current) return;
-        el.muted = false;
-        el.volume = 1;
-        el.play().catch(() => {});
-      });
-      try {
-        room.startAudio().catch(() => {});
-      } catch {
-        /* ignore */
-      }
-    };
-    room.on(RoomEvent.TrackSubscribed, attachRemote);
-    room.on(RoomEvent.TrackUnmuted, kickRemoteAudio);
-    room.on(RoomEvent.TrackUnsubscribed, (track) => {
-      track.detach().forEach((el) => el.remove());
-    });
-    room.on(RoomEvent.Disconnected, () => {
-      setLivekitReady(false);
-    });
-    await room.connect(publicLiveKitUrl(lk.url), lk.token);
-    setLivekitReady(true);
+
+    for (const gid of ids) {
+      await connectTalkRoom(gid, tok);
+    }
+    if (!micRef.current) {
+      micRef.current = [...micsByGroupRef.current.values()][0] || null;
+    }
+    setLivekitReady(roomsByGroupRef.current.size > 0);
     setStatus((s) => (s === 'talking' ? s : 'ready'));
-    try {
-      await room.startAudio();
-    } catch {
-      /* el navegador pide gesto; el layout lo desbloquea */
-    }
-    room.remoteParticipants.forEach((p) => {
-      p.audioTrackPublications.forEach((pub) => {
-        if (pub.track) attachRemote(pub.track);
-      });
-    });
-    applyListenMute(listenMutedRef.current);
-    kickRemoteAudio();
-    try {
-      await ensureMicReady();
-    } catch {
-      /* mic bloqueado: canal listo para escuchar */
-    }
-  }, [ensureMicReady, applyListenMute]);
+  }, [connectTalkRoom]);
 
   useEffect(() => {
     if (!token || !group?.id) return undefined;
@@ -367,7 +474,7 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
       });
 
     const socket = io(SOCKET_URL, {
-      auth: { token },
+      auth: socketAuth(token),
       ...socketIoOptions,
     });
     socketRef.current = socket;
@@ -376,7 +483,11 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
       typeof document !== 'undefined' && document.hidden ? 'background' : 'foreground';
 
     const joinChannel = () => {
-      socket.emit('ptt:join', { groupId: group.id, focus: presenceFocus() });
+      const ids = new Set(talkGroupIdsRef.current);
+      if (group.id) ids.add(group.id);
+      for (const gid of ids) {
+        socket.emit('ptt:join', { groupId: gid, focus: presenceFocus() });
+      }
       if (['root', 'admin', 'zone_admin', 'unit_admin', 'dispatcher'].includes(user?.role)) {
         socket.emit('dispatch:join');
       }
@@ -384,7 +495,7 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
 
     const onVisibility = () => {
       if (socket.connected) {
-        socket.emit('presence:ping', { groupId: group.id, focus: presenceFocus() });
+        socket.emit('presence:ping', { focus: presenceFocus() });
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
@@ -437,33 +548,62 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
     });
 
     socket.on('ptt:granted', async ({ groupId }) => {
-      if (groupId !== group.id) return;
-      setDenied(null);
-      setHolding(true);
-      holdingRef.current = true;
-      setStatus('talking');
-      try {
-        // Mic ya debería estar publicado muteado; solo unmute
-        await startPublishing();
-      } catch (err) {
-        setError(esMsg(err.message || 'No se pudo publicar audio'));
-        socket.emit('ptt:release', { groupId: group.id });
+      const wait = floorWaitRef.current;
+      if (!wait.requested.has(groupId) && !talkGroupIdsRef.current.includes(groupId)) {
+        return;
       }
+      wait.granted.add(groupId);
+      wait.denied.delete(groupId);
+      setDenied(null);
+      if (!holdingRef.current) {
+        setHolding(true);
+        holdingRef.current = true;
+        setStatus('talking');
+        try {
+          await startPublishing();
+        } catch (err) {
+          setError(esMsg(err.message || 'No se pudo publicar audio'));
+          for (const gid of talkGroupIdsRef.current) {
+            socket.emit('ptt:release', { groupId: gid });
+          }
+          holdingRef.current = false;
+          setHolding(false);
+        }
+      }
+      setSpeaking({
+        userId: user?.id,
+        displayName: user?.displayName || 'Tú',
+        groupId,
+      });
     });
 
     socket.on('ptt:denied', ({ groupId, reason }) => {
-      if (groupId !== group.id) return;
-      setDenied({
-        reason:
-          reason === 'listen_only' ? 'solo escucha (sin PTT)' : 'ocupado',
-      });
-      setHolding(false);
-      holdingRef.current = false;
-      setStatus('listening');
+      const wait = floorWaitRef.current;
+      if (!wait.requested.has(groupId) && !talkGroupIdsRef.current.includes(groupId)) {
+        return;
+      }
+      wait.denied.add(groupId);
+      const allResolved =
+        wait.requested.size > 0 &&
+        [...wait.requested].every((id) => wait.granted.has(id) || wait.denied.has(id));
+      if (wait.granted.size === 0 && allResolved) {
+        setDenied({
+          reason:
+            reason === 'listen_only' ? 'solo escucha (sin PTT)' : 'ocupado',
+        });
+        setHolding(false);
+        holdingRef.current = false;
+        setStatus('listening');
+      }
     });
 
     socket.on('ptt:speaker', ({ groupId, userId, displayName }) => {
-      if (groupId !== group.id) return;
+      if (
+        groupId !== group.id &&
+        !talkGroupIdsRef.current.includes(groupId)
+      ) {
+        return;
+      }
       setSpeaking({ userId, displayName, groupId });
       if (userId !== user?.id) {
         notifyBackgroundPtt({ speakerName: displayName });
@@ -488,16 +628,18 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
     });
 
     socket.on('ptt:released', async ({ groupId }) => {
-      if (groupId !== group.id) return;
-      const wasMe = holdingRef.current;
-      setSpeaking(null);
-      if (wasMe) {
-        holdingRef.current = false;
-        setHolding(false);
-        await muteMic();
-      } else {
-        playChannelFreeTone({ soft: !document.hidden });
+      if (holdingRef.current && talkGroupIdsRef.current.includes(groupId)) {
+        floorWaitRef.current.granted.delete(groupId);
+        return;
       }
+      if (
+        groupId !== group.id &&
+        !talkGroupIdsRef.current.includes(groupId)
+      ) {
+        return;
+      }
+      setSpeaking((cur) => (cur?.groupId === groupId ? null : cur));
+      playChannelFreeTone({ soft: !document.hidden });
       setStatus('ready');
     });
 
@@ -631,11 +773,22 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
       clearInterval(ping);
       document.removeEventListener('visibilitychange', onVisibility);
       holdingRef.current = false;
-      socket.emit('ptt:leave', { groupId: group.id });
+      const leaveIds = new Set(talkGroupIdsRef.current);
+      if (group.id) leaveIds.add(group.id);
+      for (const gid of leaveIds) {
+        socket.emit('ptt:leave', { groupId: gid });
+      }
       socket.disconnect();
       socketRef.current = null;
       teardownMic();
-      roomRef.current?.disconnect();
+      for (const room of roomsByGroupRef.current.values()) {
+        try {
+          room.disconnect();
+        } catch {
+          /* ignore */
+        }
+      }
+      roomsByGroupRef.current.clear();
       roomRef.current = null;
       document.querySelectorAll('[data-lk-audio]').forEach((el) => el.remove());
       stopPanicAlarm();
@@ -649,27 +802,70 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
     };
   }, [token, group?.id, startPublishing, muteMic, teardownMic, ensureLiveKit, ensureMicReady, user?.id, user?.role]);
 
+  // Sincronizar salas LiveKit + joins al cambiar canales Hablar.
+  const prevTalkKeyRef = useRef('');
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket?.connected || !token) return undefined;
+    const prev = prevTalkKeyRef.current ? prevTalkKeyRef.current.split(',').filter(Boolean) : [];
+    const next = talkIdsKey ? talkIdsKey.split(',').filter(Boolean) : [];
+    prevTalkKeyRef.current = talkIdsKey;
+    for (const gid of prev) {
+      if (!next.includes(gid) && gid !== groupIdRef.current) {
+        socket.emit('ptt:leave', { groupId: gid });
+      }
+    }
+    const focus =
+      typeof document !== 'undefined' && document.hidden ? 'background' : 'foreground';
+    for (const gid of next) {
+      if (!prev.includes(gid)) {
+        socket.emit('ptt:join', { groupId: gid, focus });
+      }
+    }
+    void ensureLiveKit().catch(() => {});
+    return undefined;
+  }, [talkIdsKey, token, ensureLiveKit]);
+
   const press = useCallback(() => {
-    if (!socketRef.current?.connected || !group?.id || holdingRef.current) return;
+    const ids = talkGroupIdsRef.current;
+    if (!socketRef.current?.connected || !ids.length || holdingRef.current) return;
     unlockPanicAudio();
     setDenied(null);
-    // Precalentar mic en paralelo al request de floor (no await)
-    void ensureMicReady().catch(() => {
-      /* error ya en setError vía ensureMicReady */
-    });
-    socketRef.current.emit('ptt:request', { groupId: group.id });
-  }, [group?.id, ensureMicReady]);
+    floorWaitRef.current = {
+      requested: new Set(ids),
+      granted: new Set(),
+      denied: new Set(),
+    };
+    void ensureMicReady().catch(() => {});
+    void ensureLiveKit().catch(() => {});
+    for (const gid of ids) {
+      socketRef.current.emit('ptt:request', { groupId: gid });
+    }
+  }, [ensureMicReady, ensureLiveKit, talkIdsKey]);
 
   const release = useCallback(async () => {
-    if (!socketRef.current || !group?.id) return;
-    if (holdingRef.current) {
+    if (!socketRef.current) return;
+    const ids = new Set([
+      ...talkGroupIdsRef.current,
+      ...floorWaitRef.current.granted,
+      ...floorWaitRef.current.requested,
+    ]);
+    if (holdingRef.current || ids.size) {
       holdingRef.current = false;
       setHolding(false);
       await muteMic();
-      socketRef.current.emit('ptt:release', { groupId: group.id });
+      for (const gid of ids) {
+        socketRef.current.emit('ptt:release', { groupId: gid });
+      }
+      floorWaitRef.current = {
+        requested: new Set(),
+        granted: new Set(),
+        denied: new Set(),
+      };
       setStatus('ready');
+      setSpeaking(null);
     }
-  }, [group?.id, muteMic]);
+  }, [muteMic, talkIdsKey]);
 
   /** Toque / Espacio: 1.º al aire, 2.º libera. */
   const toggle = useCallback(() => {
@@ -854,8 +1050,9 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
   );
 
   const sendPanic = useCallback(
-    async ({ latitude, longitude, accuracyM, note } = {}) => {
-      if (!token || !group?.id || panicSending) return null;
+    async ({ groupIds, latitude, longitude, accuracyM, note } = {}) => {
+      const ids = (groupIds?.length ? groupIds : group?.id ? [group.id] : []).filter(Boolean);
+      if (!token || !ids.length || panicSending) return null;
       setPanicSending(true);
       setChatError(null);
       // Confirmación corta al emisor (no bucle; los demás sí hasta Enterado)
@@ -863,7 +1060,8 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
       unlockPanicAudio().catch(() => {});
       try {
         const data = await triggerPanic(token, {
-          groupId: group.id,
+          groupId: ids[0],
+          groupIds: ids,
           latitude,
           longitude,
           accuracyM,
@@ -955,6 +1153,7 @@ export function usePtt({ token, user, group, suppressChatNotify = false }) {
     online,
     messages,
     chatError,
+    clearChatError: () => setChatError(null),
     typingLabel,
     press,
     release,

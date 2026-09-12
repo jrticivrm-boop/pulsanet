@@ -1,6 +1,6 @@
 /**
  * Grados del Ejército Mexicano (Art. 129 LOEFAM), orden jerárquico decreciente.
- * `value` = abreviatura al aire (indicativo), ej. Cap. 1/o. Gomez
+ * `value` = abreviatura (ej. Cap. 1/o., Sgto. 1/o.).
  */
 export const EJERCITO_MEXICANO_GRADE_GROUPS = [
   {
@@ -31,7 +31,7 @@ export const EJERCITO_MEXICANO_GRADE_GROUPS = [
   {
     label: 'Tropa',
     options: [
-      { value: 'SGTO', label: 'Sargento (indicativo SGTO)' },
+      { value: 'SGTO', label: 'Sargento' },
       { value: 'Sgto. 1/o.', label: 'Sargento Primero' },
       { value: 'Sgto. 2/o.', label: 'Sargento Segundo' },
       { value: 'Cabo', label: 'Cabo' },

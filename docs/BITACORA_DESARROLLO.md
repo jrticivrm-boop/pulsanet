@@ -1,3 +1,48 @@
+## 2026-09-12 — Restaurar UI y features al estado del 11-sep ~15:41
+
+- **Tipo:** fix | ops
+- **Área:** web | backend
+- **Qué:**
+  - DuckDNS servía el `web/` del merge de las 08:34 (rama 6-sep), no el trabajo de `pulsanet-dev/frontend` + parches del 11.
+  - Restaurado el panel: mapa como inicio, catálogos (jerarquías/grados/empleos), admin (usuarios/grupos/sitios tácticos), config (canales 4 columnas, grabaciones, presencia, respaldos).
+  - Reaplicados parches del 11-sep hasta las 15:41: Escuchar/Hablar/Video/Alerta, Individual/Múltiple, PTT multi-canal, Radio (Enviar alerta / Audio / Videollamada).
+  - Backend alineado con `pulsanet-dev` (rutas presencia, sitios tácticos, migraciones 023–030).
+- **Por qué / notas:** El trabajo de ayer no estaba commiteado; un merge de esta mañana pisó `web/`. Copia previa en `Soporte/Logs/restore-sep11/`.
+- **Archivos / refs:** `web/src/**`, `backend/src/**`, `database/migrations/023–030`
+
+## 2026-09-12 — DuckDNS en blanco: faltaba RemoteMonitorConference
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - `https://pulsanet.duckdns.org/` devolvía HTML pero React no montaba (`#root` vacío).
+  - Vite fallaba al resolver `./RemoteMonitorConference` desde `DispatchVideo.jsx` / `CommandCenter.jsx` (archivo no estaba en el tip del merge).
+  - Restaurado `web/src/dispatch/RemoteMonitorConference.jsx` desde historial de agente; login vuelve a renderizar.
+- **Archivos / refs:** `web/src/dispatch/RemoteMonitorConference.jsx`
+
+## 2026-09-12 — Reinicio stack tras recuperación + fix FCM
+
+- **Tipo:** fix | ops
+- **Área:** backend | web | ops
+- **Qué:**
+  - Reiniciados API (:4000) y Web (:5173); health **1.8.84** ready.
+  - La rama recuperada importaba `notifyUserDevicesDataOnly` pero no existía → API no arrancaba; export añadido en `fcm.js`.
+  - `/api/group-video` responde (401 sin token = ruta viva).
+- **Archivos / refs:** `backend/src/services/fcm.js`, `infra/start-api.cmd`, `infra/start-web.cmd`
+
+## 2026-09-12 — Recuperación rama video-panic + anti-regresión
+
+- **Tipo:** fix | ops
+- **Área:** web | backend | mobile | docs
+- **Qué:**
+  - `main` estaba en **1.8.51** mientras el avance real vivía en `cursor/video-panic-stable-domain` (Video, cámara remota, layout moderno, DuckDNS, etc.).
+  - **Fast-forward** de esa rama a `main` (~17k líneas / 116 archivos).
+  - Reparado `mapTiles.js` incompleto en el tip (`tileLayerProps`, `mapWorldProps`, zoom, **sin atribución Leaflet**).
+  - Reaplicado cargo completo en pines + API ubicaciones.
+  - Regla Cursor **anti-regresión** (usuario + `.cursor/rules/anti-regresion.mdc`).
+- **Por qué / notas:** DuckDNS servía el tip viejo de `main`. PTT Individual/Múltiple puede seguir incompleto si solo existía en working tree no commiteado.
+- **Archivos / refs:** merge `cursor/video-panic-stable-domain`, `mapTiles.js`, `mapAvatarIcon.js`, `DispatchVideo.jsx`, `groupVideo.js`
+
 ## 2026-09-06 — Fix re-ring en llamada + altavoz por defecto (1.8.84+94)
 
 - **Tipo:** fix

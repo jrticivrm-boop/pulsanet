@@ -20,6 +20,15 @@ export const DEFAULT_GRADE_SEED = [
   { category: 'Puestos / salas', abbreviation: 'C.G.', name: 'Cuartel General', sortOrder: 220 },
 ];
 
+/** Jerarquías implícitas del seed de grados (catálogo editable). */
+export const DEFAULT_JERARQUIA_SEED = [
+  { name: 'Generales', sortOrder: 10 },
+  { name: 'Jefes', sortOrder: 20 },
+  { name: 'Oficiales', sortOrder: 30 },
+  { name: 'Tropa', sortOrder: 40 },
+  { name: 'Puestos / salas', sortOrder: 50 },
+];
+
 export const DEFAULT_EMPLEO_SEED = [
   'Infantería',
   'Caballería',

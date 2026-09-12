@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { canDispatch, canManageUsers, fetchGroups, fetchLiveKitStatus } from '../api';
@@ -17,6 +17,43 @@ import BrandName from '../BrandName.jsx';
 import { esDeniedReason, esMsg } from '../esMsg';
 
 const LISTEN_KEY = 'tacticalptx_listen_groups';
+const GROUP_KEY = 'tacticalptx_dispatch_group';
+const TALK_IDS_KEY = 'tacticalptx_talk_groups';
+const VIDEO_IDS_KEY = 'tacticalptx_video_groups';
+const ALERT_IDS_KEY = 'tacticalptx_alert_groups';
+const LISTEN_MODE_KEY = 'tacticalptx_listen_mode';
+const TALK_MODE_KEY = 'tacticalptx_talk_mode';
+const VIDEO_MODE_KEY = 'tacticalptx_video_mode';
+const ALERT_MODE_KEY = 'tacticalptx_alert_mode';
+const GROUP_ORDER_KEY = 'tacticalptx_group_order';
+
+function readJsonArray(key) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || 'null');
+    return Array.isArray(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function readMode(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    if (v === 'individual' || v === 'multiple') return v;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
+function pickTopId(ids, order) {
+  const set = new Set(ids || []);
+  if (!set.size) return '';
+  for (const id of order || []) {
+    if (set.has(id)) return id;
+  }
+  return [...set][0] || '';
+}
 
 export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   const outletCtx = useOutletContext() || {};
@@ -29,6 +66,22 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   const [localGroups, setLocalGroups] = useState([]);
   const [localGroup, setLocalGroup] = useState(null);
   const [localListenIds, setLocalListenIds] = useState([]);
+  const [localTalkIds, setLocalTalkIds] = useState([]);
+  const [localVideoIds, setLocalVideoIds] = useState([]);
+  const [localAlertIds, setLocalAlertIds] = useState([]);
+  const [localListenMode, setLocalListenMode] = useState(() =>
+    readMode(LISTEN_MODE_KEY, 'multiple')
+  );
+  const [localTalkMode, setLocalTalkMode] = useState(() =>
+    readMode(TALK_MODE_KEY, 'individual')
+  );
+  const [localVideoMode, setLocalVideoMode] = useState(() =>
+    readMode(VIDEO_MODE_KEY, 'individual')
+  );
+  const [localAlertMode, setLocalAlertMode] = useState(() =>
+    readMode(ALERT_MODE_KEY, 'individual')
+  );
+  const [localOrder, setLocalOrder] = useState([]);
   const [lkStatus, setLkStatus] = useState(null);
   const [err, setErr] = useState('');
   const [gpsOk, setGpsOk] = useState(false);
@@ -39,7 +92,15 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
 
   const groups = embedded ? dispatchCtx.groups || [] : localGroups;
   const group = embedded ? dispatchCtx.group : localGroup;
-  const listenIds = embedded ? dispatchCtx.listenIds || groups.map((g) => g.id) : localListenIds;
+  const listenIds = embedded ? dispatchCtx.listenIds || [] : localListenIds;
+  const talkIds = embedded ? dispatchCtx.talkIds || (group?.id ? [group.id] : []) : localTalkIds;
+  const videoIds = embedded ? dispatchCtx.videoIds || [] : localVideoIds;
+  const alertIds = embedded ? dispatchCtx.alertIds || [] : localAlertIds;
+  const listenMode = embedded ? dispatchCtx.listenMode || 'multiple' : localListenMode;
+  const talkMode = embedded ? dispatchCtx.talkMode || 'individual' : localTalkMode;
+  const videoMode = embedded ? dispatchCtx.videoMode || 'individual' : localVideoMode;
+  const alertMode = embedded ? dispatchCtx.alertMode || 'individual' : localAlertMode;
+  const groupOrder = embedded ? dispatchCtx.groupOrder || groups.map((g) => g.id) : localOrder;
 
   useEffect(() => {
     if (embedded) return undefined;
@@ -53,20 +114,66 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
         if (cancelled) return;
         const list = g.groups || [];
         setLocalGroups(list);
-        setLocalGroup(list[0] || null);
         setLkStatus(lk);
-        let savedListen = null;
-        try {
-          savedListen = JSON.parse(localStorage.getItem(LISTEN_KEY) || 'null');
-        } catch {
-          savedListen = null;
-        }
         const allIds = list.map((x) => x.id);
-        const next = Array.isArray(savedListen)
+        let order = readJsonArray(GROUP_ORDER_KEY) || [];
+        order = order.filter((id) => allIds.includes(id));
+        for (const id of allIds) if (!order.includes(id)) order.push(id);
+        setLocalOrder(order);
+
+        const savedListen = readJsonArray(LISTEN_KEY);
+        let nextListen = Array.isArray(savedListen)
           ? savedListen.filter((id) => allIds.includes(id))
           : allIds;
-        if (list[0] && !next.includes(list[0].id)) next.push(list[0].id);
-        setLocalListenIds(next.length ? next : allIds);
+        let nextTalk = readJsonArray(TALK_IDS_KEY);
+        if (!Array.isArray(nextTalk)) {
+          nextTalk = list[0]?.id ? [list[0].id] : [];
+        } else {
+          nextTalk = nextTalk.filter((id) => allIds.includes(id));
+        }
+        const modeL = readMode(LISTEN_MODE_KEY, 'multiple');
+        const modeT = readMode(TALK_MODE_KEY, 'individual');
+        const modeV = readMode(VIDEO_MODE_KEY, 'individual');
+        const modeA = readMode(ALERT_MODE_KEY, 'individual');
+        setLocalListenMode(modeL);
+        setLocalTalkMode(modeT);
+        setLocalVideoMode(modeV);
+        setLocalAlertMode(modeA);
+        if (modeL === 'individual') {
+          const one = pickTopId(nextListen, order);
+          nextListen = one ? [one] : [];
+        }
+        if (modeT === 'individual') {
+          const one = pickTopId(nextTalk, order);
+          nextTalk = one ? [one] : [];
+        }
+        let nextVideo = readJsonArray(VIDEO_IDS_KEY);
+        if (!Array.isArray(nextVideo)) nextVideo = [];
+        else nextVideo = nextVideo.filter((id) => allIds.includes(id));
+        if (modeV === 'individual') {
+          const one = pickTopId(nextVideo, order);
+          nextVideo = one ? [one] : [];
+        } else {
+          nextVideo = order.filter((id) => nextVideo.includes(id));
+        }
+        let nextAlert = readJsonArray(ALERT_IDS_KEY);
+        if (!Array.isArray(nextAlert)) nextAlert = [];
+        else nextAlert = nextAlert.filter((id) => allIds.includes(id));
+        if (modeA === 'individual') {
+          const one = pickTopId(nextAlert, order);
+          nextAlert = one ? [one] : [];
+        } else {
+          nextAlert = order.filter((id) => nextAlert.includes(id));
+        }
+        for (const id of nextTalk) {
+          if (!nextListen.includes(id)) nextListen.push(id);
+        }
+        setLocalListenIds(nextListen);
+        setLocalTalkIds(nextTalk);
+        setLocalVideoIds(nextVideo);
+        setLocalAlertIds(nextAlert);
+        const primary = pickTopId(nextTalk, order);
+        setLocalGroup(list.find((x) => x.id === primary) || null);
       } catch (e) {
         if (!cancelled) {
           setErr(e.message);
@@ -88,29 +195,63 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
     }
   }
 
+  function persistLocalTalk(ids) {
+    const valid = (ids || []).filter((id) => localGroups.some((g) => g.id === id));
+    setLocalTalkIds(valid);
+    const primary = pickTopId(valid, localOrder);
+    setLocalGroup(localGroups.find((g) => g.id === primary) || null);
+    try {
+      localStorage.setItem(TALK_IDS_KEY, JSON.stringify(valid));
+      localStorage.setItem(GROUP_KEY, primary || '');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function persistLocalVideo(ids) {
+    const valid = (ids || []).filter((id) => localGroups.some((g) => g.id === id));
+    const ordered = localOrder.length
+      ? localOrder.filter((id) => valid.includes(id))
+      : valid;
+    setLocalVideoIds(ordered);
+    try {
+      localStorage.setItem(VIDEO_IDS_KEY, JSON.stringify(ordered));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function persistLocalAlert(ids) {
+    const valid = (ids || []).filter((id) => localGroups.some((g) => g.id === id));
+    const ordered = localOrder.length
+      ? localOrder.filter((id) => valid.includes(id))
+      : valid;
+    setLocalAlertIds(ordered);
+    try {
+      localStorage.setItem(ALERT_IDS_KEY, JSON.stringify(ordered));
+    } catch {
+      /* ignore */
+    }
+  }
+
   function setGroupFromSelect(id) {
     setFocusPeerId(null);
     if (embedded) {
       dispatchCtx.onGroupChange?.(id);
       return;
     }
-    onGroupPick(localGroups, id, setLocalGroup);
-  }
-
-  const scopeGroupIds = useMemo(() => {
-    const ids = new Set();
-    if (group?.id) ids.add(group.id);
-    for (const id of listenIds || []) {
-      if (id) ids.add(id);
+    persistLocalTalk(id ? [id] : []);
+    if (id && !localListenIds.includes(id)) {
+      persistLocalListen([...localListenIds, id]);
     }
-    return [...ids];
-  }, [group?.id, listenIds]);
+  }
 
   /* Si está embebido en despacho, no abrir segundo PTT/LiveKit */
   const localPtt = usePtt({
     token: embedded ? '' : session.token,
     user: session.user,
     group: embedded ? null : localGroup,
+    talkGroupIds: embedded ? [] : localTalkIds,
     suppressChatNotify: !embedded,
   });
   const ptt = embedded ? dispatchCtx.ptt : localPtt;
@@ -119,7 +260,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   useDispatchListen({
     token: embedded ? '' : session.token,
     groups: embedded ? [] : listenGroups,
-    skipGroupId: embedded ? null : group?.id,
+    skipGroupIds: embedded ? [] : talkIds.length ? talkIds : group?.id ? [group.id] : [],
     muted: ptt.listenMuted,
   });
 
@@ -192,10 +333,14 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   }, [ptt.incomingPanic]);
 
   async function onPanic() {
-    if (!group?.id || ptt.panicSending) return;
+    if (!alertIds.length || ptt.panicSending) return;
     unlockPanicAudio().catch(() => {});
 
+    const ordered = groupOrder.length
+      ? groupOrder.filter((id) => alertIds.includes(id))
+      : alertIds;
     const event = await ptt.sendPanic({
+      groupIds: ordered,
       latitude: gpsRef.current.latitude,
       longitude: gpsRef.current.longitude,
       accuracyM: gpsRef.current.accuracyM,
@@ -250,62 +395,103 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
         <section className="radio-ops-deck" aria-label="Control de radio">
           <div className="radio-ops-meta">
             <div className="radio-ops-meta-row">
-              {embedded ? (
-                <label className="group-select">
-                  Hablar en
-                  <select
-                    value={group?.id || ''}
-                    onChange={(e) => setGroupFromSelect(e.target.value)}
-                  >
-                    {groups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <ChannelMultiSelect
-                  groups={groups}
-                  talkGroupId={group?.id}
-                  listenIds={listenIds}
-                  onTalkChange={setGroupFromSelect}
-                  onListenChange={
-                    embedded ? dispatchCtx.onListenChange : persistLocalListen
+              <ChannelMultiSelect
+                compact
+                showVideo
+                showAlert
+                groups={groups}
+                orderIds={groupOrder}
+                onOrderChange={(ids) => {
+                  if (embedded) {
+                    dispatchCtx.onGroupOrderChange?.(ids);
+                    return;
                   }
-                  label="Canales"
-                />
-              )}
-              <button
-                type="button"
-                className="btn ghost radio-group-video-btn"
-                disabled={!group?.id}
-                title="Transmisión de video del canal activo (no interrumpe el PTT)"
-                onClick={() =>
-                  window.dispatchEvent(
-                    new CustomEvent('tacticalptx:open-group-video', {
-                      detail: { groupId: group.id, groupName: group.name },
-                    })
-                  )
+                  setLocalOrder(ids);
+                  try {
+                    localStorage.setItem(GROUP_ORDER_KEY, JSON.stringify(ids));
+                  } catch {
+                    /* ignore */
+                  }
+                  if (localTalkIds.length) {
+                    const primary = pickTopId(localTalkIds, ids);
+                    setLocalGroup(localGroups.find((g) => g.id === primary) || null);
+                  }
+                  if (localVideoIds.length) {
+                    setLocalVideoIds(ids.filter((id) => localVideoIds.includes(id)));
+                  }
+                  if (localAlertIds.length) {
+                    setLocalAlertIds(ids.filter((id) => localAlertIds.includes(id)));
+                  }
+                }}
+                listenMode={listenMode}
+                talkMode={talkMode}
+                videoMode={videoMode}
+                alertMode={alertMode}
+                onListenModeChange={(m) => {
+                  if (embedded) {
+                    dispatchCtx.onListenModeChange?.(m);
+                    return;
+                  }
+                  setLocalListenMode(m);
+                  try {
+                    localStorage.setItem(LISTEN_MODE_KEY, m);
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                onTalkModeChange={(m) => {
+                  if (embedded) {
+                    dispatchCtx.onTalkModeChange?.(m);
+                    return;
+                  }
+                  setLocalTalkMode(m);
+                  try {
+                    localStorage.setItem(TALK_MODE_KEY, m);
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                onVideoModeChange={(m) => {
+                  if (embedded) {
+                    dispatchCtx.onVideoModeChange?.(m);
+                    return;
+                  }
+                  setLocalVideoMode(m);
+                  try {
+                    localStorage.setItem(VIDEO_MODE_KEY, m);
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                onAlertModeChange={(m) => {
+                  if (embedded) {
+                    dispatchCtx.onAlertModeChange?.(m);
+                    return;
+                  }
+                  setLocalAlertMode(m);
+                  try {
+                    localStorage.setItem(ALERT_MODE_KEY, m);
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                listenIds={listenIds}
+                talkIds={talkIds}
+                videoIds={videoIds}
+                alertIds={alertIds}
+                onListenChange={
+                  embedded ? dispatchCtx.onListenChange : persistLocalListen
                 }
-              >
-                Video en vivo
-              </button>
-              <ul className="status-list">
-                <li className={ptt.connected ? 'ok' : ''}>
-                  {ptt.connected ? 'Enlace ok' : 'Enlace…'}
-                </li>
-                <li className={ptt.livekitReady ? 'ok' : ''}>
-                  {ptt.livekitReady
-                    ? 'Audio ok'
-                    : lkStatus?.configured === false
-                      ? 'Sin audio'
-                      : 'Audio…'}
-                </li>
-                {embedded && (
-                  <li className={gpsOk ? 'ok' : ''}>{gpsOk ? 'GPS ok' : 'GPS…'}</li>
-                )}
-              </ul>
+                onTalkChange={
+                  embedded ? dispatchCtx.onTalkIdsChange : persistLocalTalk
+                }
+                onVideoChange={
+                  embedded ? dispatchCtx.onVideoIdsChange : persistLocalVideo
+                }
+                onAlertChange={
+                  embedded ? dispatchCtx.onAlertIdsChange : persistLocalAlert
+                }
+              />
             </div>
 
             <p className={`speaker radio-ops-speaker ${ptt.holding || ptt.speaking ? 'active' : ''}`}>
@@ -316,11 +502,19 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
               <h2>En línea ({ptt.online.length})</h2>
               <ul className="online-list">
                 {ptt.online.length === 0 && <li className="muted">Nadie en el canal</li>}
-                {ptt.online.map((m) => (
+                {ptt.online.map((m) => {
+                  const dot = 'active';
+                  const title =
+                    m.focus === 'service'
+                      ? 'En línea (segundo plano)'
+                      : m.focus === 'background'
+                        ? 'Minimizada'
+                        : 'En la app';
+                  return (
                   <li key={m.userId} className={m.userId === session.user.id ? 'me' : ''}>
                     <span
-                      className={`dot ${m.focus === 'background' ? 'away' : 'active'}`}
-                      title={m.focus === 'background' ? 'En segundo plano' : 'En la app'}
+                      className={`dot ${dot}`}
+                      title={title}
                     />
                     {m.userId === session.user.id ? (
                       <span>
@@ -343,7 +537,8 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                       </button>
                     )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
 
@@ -356,6 +551,85 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
           </div>
 
           <div className="radio-ops-ptt">
+            <div className="radio-ops-ptt-side" aria-label="Acciones de radio">
+              <button
+                type="button"
+                className="panic-btn radio-panic radio-ops-side-btn"
+                disabled={!alertIds.length || ptt.panicSending}
+                onPointerDown={() => {
+                  unlockPanicAudio().catch(() => {});
+                }}
+                onClick={onPanic}
+                title={
+                  alertIds.length
+                    ? alertIds.length > 1
+                      ? `Enviar alerta a ${alertIds.length} canales (1 aviso por persona)`
+                      : 'Enviar alerta — un clic envía la alerta al canal'
+                    : 'Selecciona al menos un canal en Alerta'
+                }
+              >
+                <span className="panic-ico" aria-hidden="true">
+                  ⚠
+                </span>
+                <span>{ptt.panicSending ? '…' : 'Enviar alerta'}</span>
+              </button>
+
+              <button
+                type="button"
+                className={`radio-listen-mute radio-ops-side-btn${ptt.listenMuted ? ' is-muted' : ''}`}
+                onClick={() => {
+                  ptt.unlockAudio?.().catch(() => {});
+                  ptt.setListenMuted(!ptt.listenMuted);
+                }}
+                disabled={!group}
+                aria-pressed={ptt.listenMuted}
+                title={
+                  ptt.listenMuted
+                    ? 'Audio desactivado — toca para oír el canal'
+                    : 'Audio activado — toca para dejar de oír el canal'
+                }
+              >
+                <span aria-hidden="true">{ptt.listenMuted ? '🔇' : '🔊'}</span>
+                <span>{ptt.listenMuted ? 'Audio desactivado' : 'Audio activado'}</span>
+              </button>
+
+              <button
+                type="button"
+                className="radio-video-call-btn radio-ops-side-btn"
+                disabled={!videoIds.length}
+                title={
+                  videoIds.length > 1
+                    ? `Videollamada unificada de ${videoIds.length} canales`
+                    : videoIds.length === 1
+                      ? 'Videollamada del canal seleccionado (no interrumpe el PTT)'
+                      : 'Selecciona al menos un canal en Video'
+                }
+                onClick={() => {
+                  const ordered = groupOrder.length
+                    ? groupOrder.filter((id) => videoIds.includes(id))
+                    : videoIds;
+                  const primary = ordered[0];
+                  if (!primary) return;
+                  const names = ordered
+                    .map((id) => groups.find((g) => g.id === id)?.name)
+                    .filter(Boolean);
+                  window.dispatchEvent(
+                    new CustomEvent('tacticalptx:open-group-video', {
+                      detail: {
+                        groupId: primary,
+                        groupIds: ordered,
+                        groupName:
+                          names.length > 1 ? names.join(' + ') : names[0] || 'Grupo',
+                      },
+                    })
+                  );
+                }}
+              >
+                <span aria-hidden="true">📹</span>
+                <span>Videollamada</span>
+              </button>
+            </div>
+
             <button
               type="button"
               className={`ptt-btn radio-ptt ${ptt.holding ? 'holding' : ''}`}
@@ -371,41 +645,6 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
               <span className="ptt-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
               <span className="ptt-sub">{ready ? (ptt.holding ? 'soltar' : 'tocar') : '…'}</span>
             </button>
-
-            <button
-              type="button"
-              className="panic-btn radio-panic"
-              disabled={!group?.id || ptt.panicSending}
-              onPointerDown={() => {
-                unlockPanicAudio().catch(() => {});
-              }}
-              onClick={onPanic}
-              title="Alertas — un clic envía la alerta"
-            >
-              <span className="panic-ico" aria-hidden="true">
-                ⚠
-              </span>
-              <span>{ptt.panicSending ? '…' : 'Alertas'}</span>
-            </button>
-
-            <button
-              type="button"
-              className={`radio-listen-mute${ptt.listenMuted ? ' is-muted' : ''}`}
-              onClick={() => {
-                ptt.unlockAudio?.().catch(() => {});
-                ptt.setListenMuted(!ptt.listenMuted);
-              }}
-              disabled={!group}
-              aria-pressed={ptt.listenMuted}
-              title={
-                ptt.listenMuted
-                  ? 'Activar audio del radio'
-                  : 'Silenciar radio — no oír a quien habla'
-              }
-            >
-              <span aria-hidden="true">{ptt.listenMuted ? '🔇' : '🔊'}</span>
-              <span>{ptt.listenMuted ? 'MUTE' : 'Silenciar'}</span>
-            </button>
           </div>
         </section>
 
@@ -419,7 +658,6 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
             focusPeerId={focusPeerId}
             focusGroupId={focusGroupId}
             chatPanelVisible={onRadioPage}
-            scopeGroupIds={scopeGroupIds}
           />
         </section>
       </div>
@@ -495,8 +733,4 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
         )}
     </div>
   );
-}
-
-function onGroupPick(groups, id, setGroup) {
-  setGroup(groups.find((g) => g.id === id) || null);
 }

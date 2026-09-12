@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { io } from 'socket.io-client';
-import { acceptPrivateCall, endPrivateCall, startPrivateCall } from './api';
+import { acceptPrivateCall, endPrivateCall, joinPrivateCall, declinePrivateCallInvite, leavePrivateCall, startPrivateCall } from './api';
 import { notifyIncomingCall, stopCallRingtone } from './appNotify';
 import { warmUpVideoCallMedia } from './callMedia';
 import { esMsg } from './esMsg';
@@ -49,7 +49,7 @@ export default function PrivateCallHost({ session }) {
       }
       // remote_camera silenciosa: la UI del dispositivo la maneja en móvil; en web banner si aplica
       if (activeRef.current?.callId) return;
-      setIncoming(payload);
+      setIncoming({ ...payload, isInvite: false });
       setError('');
       if (payload?.intent !== 'remote_camera') {
         notifyIncomingCall({
@@ -58,6 +58,26 @@ export default function PrivateCallHost({ session }) {
           mode: payload?.mode,
         });
       }
+    };
+
+    const onInvite = (payload) => {
+      if (!payload?.callId) return;
+      if (activeRef.current?.callId) return;
+      const callerId = payload.invitedBy || payload.callerId;
+      const callerName = payload.invitedByName || payload.callerName || 'Usuario';
+      setIncoming({
+        ...payload,
+        callerId,
+        callerName,
+        isInvite: true,
+        mode: payload.mode === 'video' ? 'video' : payload.mode || 'call',
+      });
+      setError('');
+      notifyIncomingCall({
+        callerName,
+        callId: payload.callId,
+        mode: payload.mode,
+      });
     };
 
     const onEnded = ({ callId }) => {
@@ -75,12 +95,14 @@ export default function PrivateCallHost({ session }) {
     };
 
     socket.on('call:incoming', onIncoming);
+    socket.on('call:invite', onInvite);
     socket.on('call:ended', onEnded);
     socket.on('call:accepted', onAccepted);
     socket.connect();
 
     return () => {
       socket.off('call:incoming', onIncoming);
+      socket.off('call:invite', onInvite);
       socket.off('call:ended', onEnded);
       socket.off('call:accepted', onAccepted);
       socket.disconnect();
@@ -128,6 +150,7 @@ export default function PrivateCallHost({ session }) {
           room: data.call?.room,
           token: data.token,
           authToken: session.token,
+          userId: session.user?.id,
           url: data.url,
           e2eeKey: data.e2eeKey || null,
           e2ee: Boolean(data.e2ee),
@@ -155,7 +178,11 @@ export default function PrivateCallHost({ session }) {
       const cur = incomingRef.current;
       if (!cur || !session?.token) return;
       stopCallRingtone();
-      void endPrivateCall(session.token, cur.callId, 'reject').catch(() => {});
+      if (cur.isInvite) {
+        void declinePrivateCallInvite(session.token, cur.callId).catch(() => {});
+      } else {
+        void endPrivateCall(session.token, cur.callId, 'reject').catch(() => {});
+      }
       setIncoming(null);
       setError('');
     };
@@ -170,7 +197,9 @@ export default function PrivateCallHost({ session }) {
     stopCallRingtone();
     try {
       if (mode === 'video') await warmUpVideoCallMedia();
-      const data = await acceptPrivateCall(token, incoming.callId);
+      const data = incoming.isInvite
+        ? await joinPrivateCall(token, incoming.callId)
+        : await acceptPrivateCall(token, incoming.callId);
       setIncoming(null);
       setActiveCall({
         callId: data.call.callId,
@@ -178,9 +207,10 @@ export default function PrivateCallHost({ session }) {
         room: data.call.room,
         token: data.token,
         authToken: token,
+        userId: session.user?.id,
         url: data.url,
         peerName: incoming.callerName,
-        role: 'callee',
+        role: incoming.isInvite ? 'guest' : 'callee',
         e2eeKey: data.e2eeKey || null,
         e2ee: Boolean(data.e2ee),
         mode,
@@ -195,7 +225,11 @@ export default function PrivateCallHost({ session }) {
     if (!incoming || !session?.token) return;
     stopCallRingtone();
     try {
-      await endPrivateCall(session.token, incoming.callId, 'reject');
+      if (incoming.isInvite) {
+        await declinePrivateCallInvite(session.token, incoming.callId);
+      } else {
+        await endPrivateCall(session.token, incoming.callId, 'reject');
+      }
     } catch {
       /* ignore */
     }
@@ -208,9 +242,13 @@ export default function PrivateCallHost({ session }) {
     stopCallRingtone();
     if (opts?.remote !== true) {
       try {
-        await endPrivateCall(session.token, activeCall.callId, 'hangup');
+        await leavePrivateCall(session.token, activeCall.callId);
       } catch {
-        /* ignore */
+        try {
+          await endPrivateCall(session.token, activeCall.callId, 'hangup');
+        } catch {
+          /* ignore */
+        }
       }
     }
     setActiveCall(null);
@@ -238,7 +276,13 @@ export default function PrivateCallHost({ session }) {
         <div className="incoming-call-banner-text">
           <strong>{incoming.callerName || 'Usuario'}</strong>
           <span>
-            {incoming.mode === 'video' ? 'Videollamada entrante' : 'Llamada de voz entrante'}
+            {incoming.isInvite
+              ? incoming.mode === 'video'
+                ? 'Te agregan a videollamada'
+                : 'Te agregan a llamada'
+              : incoming.mode === 'video'
+                ? 'Videollamada entrante'
+                : 'Llamada de voz entrante'}
           </span>
           {error ? <small className="incoming-call-banner-err">{error}</small> : null}
         </div>

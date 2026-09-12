@@ -1,4 +1,6 @@
 import L from 'leaflet';
+import { cargoLabelFromText } from './mapLabelUtils.js';
+import { presencePinClass, resolvePresenceStatus } from './presenceStatus.js';
 
 function escapeHtml(s) {
   return String(s || '')
@@ -19,32 +21,65 @@ function escapeCssUrl(url) {
 }
 
 /**
- * Pin de ubicación (gota / teardrop verde) con foto de perfil o inicial.
- * La punta inferior ancla la lat/lng exacta.
- * Con `panic: true` el anillo pasa a rojo y parpadea.
+ * Pin de ubicación (gota) con foto o inicial + etiqueta de Cargo debajo.
+ * @param {object} opts
+ * @param {string} [opts.name]
+ * @param {string} [opts.cargo]
+ * @param {boolean} [opts.showCargo]
+ * @param {boolean} [opts.live] — legado; preferir opts.presence
+ * @param {string} [opts.presence] — online|service|offline|stale
+ * @param {string} [opts.focus]
+ * @param {string} [opts.lastSeenAt]
+ * @param {number} [opts.offlineRedMinutes]
+ * @param {boolean} [opts.selected]
+ * @param {string} [opts.photoSrc]
+ * @param {boolean} [opts.panic] — pánico: color alerta + animación (sobrescribe presencia)
  */
-export function mapAvatarIcon({ name, live, selected, photoSrc, panic }) {
+export function mapAvatarIcon({
+  name,
+  cargo,
+  showCargo = true,
+  live,
+  presence,
+  focus,
+  lastSeenAt,
+  offlineRedMinutes,
+  selected,
+  photoSrc,
+  panic,
+}) {
   const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
-  const label = escapeHtml((name || '').trim().split(/\s+/)[0] || 'Operador');
   const hasPhoto = Boolean(photoSrc);
-  const showRings = Boolean(live || panic);
+  const status =
+    resolvePresenceStatus({
+      presence: presence || (live ? 'online' : undefined),
+      focus,
+      lastSeenAt,
+      offlineRedMinutes,
+    }) || (live ? 'online' : 'offline');
+  const pinPresence = presencePinClass(status);
+  const showRings = Boolean(status === 'online' || status === 'service' || panic);
+  const label = showCargo
+    ? cargoLabelFromText(cargo) || cargoLabelFromText(name)
+    : '';
   const face = hasPhoto
     ? `<span class="lt-wa-photo-bg" style="background-image:url('${escapeCssUrl(photoSrc)}')" aria-hidden="true"></span>`
     : `<span class="lt-wa-letter">${escapeHtml(initial)}</span>`;
-  const nameHtml = selected ? `<span class="lt-wa-name">${label}</span>` : '';
+  const labelHtml = label
+    ? `<span class="lt-wa-cargo">${escapeHtml(label)}</span>`
+    : '';
   const html = `
-    <div class="lt-wa${live ? ' is-live' : ''}${panic ? ' is-panic' : ''}${selected ? ' is-selected' : ''}${selected ? '' : ' lt-wa--compact'}">
+    <div class="lt-wa ${pinPresence}${panic ? ' is-panic' : ''}${selected ? ' is-selected' : ''}${selected ? '' : ' lt-wa--compact'}${label ? ' has-cargo' : ''}">
       ${showRings ? '<span class="lt-wa-ring" aria-hidden="true"></span><span class="lt-wa-ring lt-wa-ring--late" aria-hidden="true"></span>' : ''}
       <span class="lt-wa-pin${hasPhoto ? ' has-photo' : ''}" aria-hidden="true">
         <span class="lt-wa-pin-tip"></span>
         <span class="lt-wa-pin-face">${face}</span>
       </span>
-      ${nameHtml}
+      ${labelHtml}
     </div>`;
-  // Tamaño del DivIcon; ancla = punta del pin (centro-x, fondo)
-  const iconSize = selected ? [72, 86] : [52, 64];
-  const iconAnchor = selected ? [36, 78] : [26, 60];
-  const popupAnchor = selected ? [0, -70] : [0, -54];
+  const iconSize = selected ? [120, label ? 86 : 68] : [120, label ? 82 : 64];
+  const iconAnchor = selected ? [60, 64] : [60, 60];
+  const popupAnchor = selected ? [0, -58] : [0, -54];
   return L.divIcon({
     className: 'lt-div-icon',
     html,

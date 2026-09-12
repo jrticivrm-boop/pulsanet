@@ -2,8 +2,8 @@ import { Link, useOutletContext } from 'react-router-dom';
 import ChannelMultiSelect from '../ChannelMultiSelect';
 
 /**
- * Configuración → Canales: elegir en cuáles oír y en cuál hablar (PTT).
- * El estado vive en DispatchLayout (localStorage) y aplica a toda la consola.
+ * Configuración → Canales: Escuchar | Hablar | Video | Alerta.
+ * Estado en DispatchLayout (localStorage). Más adelante puede quedar solo en Radio.
  */
 export default function ConfigChannels() {
   const ctx = useOutletContext() || {};
@@ -11,28 +11,60 @@ export default function ConfigChannels() {
     groups = [],
     group,
     listenIds = [],
-    onGroupChange,
+    talkIds = [],
+    videoIds = [],
+    alertIds = [],
+    listenMode = 'multiple',
+    talkMode = 'individual',
+    videoMode = 'individual',
+    alertMode = 'individual',
+    groupOrder = [],
     onListenChange,
+    onTalkIdsChange,
+    onVideoIdsChange,
+    onAlertIdsChange,
+    onListenModeChange,
+    onTalkModeChange,
+    onVideoModeChange,
+    onAlertModeChange,
+    onGroupOrderChange,
   } = ctx;
 
   const listenCount = listenIds.length;
-  const talkName = group?.name || '—';
+  const talkLabel =
+    talkIds.length > 1
+      ? `${talkIds.length} canales (PTT: ${group?.name || '—'})`
+      : group?.name || 'Ninguno';
+  const videoLabel =
+    videoIds.length > 1
+      ? `${videoIds.length} canales`
+      : videoIds.length === 1
+        ? groups.find((g) => g.id === videoIds[0])?.name || '1 canal'
+        : 'Ninguno';
+  const alertLabel =
+    alertIds.length > 1
+      ? `${alertIds.length} canales`
+      : alertIds.length === 1
+        ? groups.find((g) => g.id === alertIds[0])?.name || '1 canal'
+        : 'Ninguno';
 
   return (
     <div className="cc-channels-cfg">
       <header className="cc-units-head cc-cat-compact-head">
         <div>
-          <h2>Canales a escuchar</h2>
+          <h2>Canales de radio</h2>
           <p className="cc-hint">
-            Marca los grupos/canales que quieres oír en la consola. El PTT solo
-            transmite en el canal «Hablar en». La selección se guarda en este
-            navegador.
+            Escuchar, Hablar, Video y Alerta. Vista: Columnas, Pestañas o Select en encabezado
+            (el panel se elige en la misma barra que Individual/Múltiple y se recuerda).
+            Individual = un canal (o Ninguno); Múltiple = varios. Video une miembros en una sala;
+            Alerta avisa 1 vez por persona. Arrastra para ordenar. Se guarda en este navegador.
           </p>
         </div>
         <p className="cc-units-summary">
-          Oyendo <strong>{listenCount}</strong>
-          {groups.length ? ` de ${groups.length}` : ''} · Hablar en:{' '}
-          <strong>{talkName}</strong>
+          Oye <strong>{listenCount}</strong>
+          {groups.length ? ` / ${groups.length}` : ''} · Habla:{' '}
+          <strong>{talkLabel}</strong> · Video: <strong>{videoLabel}</strong> · Alerta:{' '}
+          <strong>{alertLabel}</strong>
         </p>
       </header>
 
@@ -40,16 +72,32 @@ export default function ConfigChannels() {
         {groups.length === 0 ? (
           <p className="cc-hint">
             No hay canales en tu alcance. Revisa membresías en{' '}
-            <Link to="/despacho/catalogos/grupos">Catálogos → Grupos</Link>.
+            <Link to="/despacho/administracion/grupos">Administración → Grupos</Link>.
           </p>
         ) : (
           <ChannelMultiSelect
+            showVideo
+            showAlert
+            showLayoutSwitcher
             groups={groups}
-            talkGroupId={group?.id}
+            orderIds={groupOrder}
+            onOrderChange={onGroupOrderChange}
+            listenMode={listenMode}
+            talkMode={talkMode}
+            videoMode={videoMode}
+            alertMode={alertMode}
+            onListenModeChange={onListenModeChange}
+            onTalkModeChange={onTalkModeChange}
+            onVideoModeChange={onVideoModeChange}
+            onAlertModeChange={onAlertModeChange}
             listenIds={listenIds}
-            onTalkChange={onGroupChange}
+            talkIds={talkIds}
+            videoIds={videoIds}
+            alertIds={alertIds}
             onListenChange={onListenChange}
-            label="Grupos / canales"
+            onTalkChange={onTalkIdsChange}
+            onVideoChange={onVideoIdsChange}
+            onAlertChange={onAlertIdsChange}
           />
         )}
       </section>

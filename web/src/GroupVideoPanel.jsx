@@ -8,6 +8,7 @@ import { useGroupVideo } from './useGroupVideo';
 export default function GroupVideoPanel({
   token,
   groupId,
+  groupIds,
   groupName,
   onClose,
   onRemoteEnded,
@@ -16,6 +17,7 @@ export default function GroupVideoPanel({
   const gv = useGroupVideo({
     token,
     groupId,
+    groupIds,
     groupName,
     enabled: Boolean(token && groupId),
     onRemoteEnded,

@@ -5,6 +5,7 @@ import {
   Popup,
   Circle,
   Polyline,
+  ZoomControl,
   useMap,
 } from 'react-leaflet';
 import { io } from 'socket.io-client';
@@ -22,8 +23,7 @@ import {
   fetchRecordingBlobUrl,
   fetchPanicEvents,
   startPrivateCall,
-} from '../api';
-import RemoteMonitorConference from './RemoteMonitorConference';
+} from '../api';import RemoteMonitorConference from './RemoteMonitorConference';
 import GroupVideoPanel from '../GroupVideoPanel';
 import { startVideoCall, startVoiceCall } from '../peerActions';
 import { esMsg } from '../esMsg';
@@ -36,16 +36,25 @@ import {
   TRACK_POLL_MS,
   mergeLocations,
   upsertLocation,
-  isFresh,
   gpsStatusLine,
   recordedAtLocal,
 } from './liveTiming.js';
 import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
 import { mapAvatarIcon } from './mapAvatarIcon.js';
+import PresenceMapLegend, { countPresenceLegend } from './PresenceMapLegend.jsx';
+import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
-import { CursorZoom, MapCursorFix, MapSizeFix, SmoothMarker } from './mapLeafletUtils.jsx';
+import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, CargoZoomGate } from './mapLeafletUtils.jsx';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
-import { DEFAULT_MAP_TILE, MAP_MAX_ZOOM, tileLayerProps } from './mapTiles.js';
+import {
+  MAP_TILE_LAYERS,
+  MAP_MAX_ZOOM,
+  loadStoredMapLayer,
+  mapWorldProps,
+  tileLayerProps,
+} from './mapTiles.js';
+import { TacticalSitesLayer } from './TacticalSitesLayer.jsx';
+import { useTacticalSites } from './useTacticalSites.jsx';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -90,11 +99,16 @@ function pushEvent(setEvents, evt) {
   setEvents((prev) => [evt, ...prev].slice(0, MAX_EVENTS));
 }
 
+/**
+ * @deprecated Sustituido por Consola de Operaciones (DispatchMap en /despacho).
+ * Conservado para referencia / restauración desde Soporte/Respaldos/consola_ops_*.
+ */
 export default function CommandCenter({ session }) {
   const isPhone = useIsPhone();
   const isTabletDown = useIsTabletDown();
   const [overview, setOverview] = useState(null);
   const [locations, setLocations] = useState([]);
+  const [offlineRedMinutes, setOfflineRedMinutes] = useState(15);
   const { markerPhoto, listPhoto } = useMapAvatarPhotos(locations, session.token);
   const [geofences, setGeofences] = useState([]);
   const [events, setEvents] = useState([]);
@@ -115,10 +129,20 @@ export default function CommandCenter({ session }) {
   const [ccSurface, setCcSurface] = useState('map');
   const audioRef = useRef(null);
   const audioUrlRef = useRef(null);
+  const [mapLayer] = useState(() => loadStoredMapLayer());
+  const mapTile = MAP_TILE_LAYERS[mapLayer] || MAP_TILE_LAYERS.natural;
+  const { sites: tacticalSites, visibleGroupIds, iconBlobs, layerBar: tacticalLayerBar } = useTacticalSites(
+    session.token
+  );
 
   const panicUserIds = useMemo(
     () => new Set((activePanics || []).map((p) => p.userId).filter(Boolean)),
     [activePanics]
+  );
+
+  const presenceLegendCounts = useMemo(
+    () => countPresenceLegend(locations, panicUserIds, offlineRedMinutes),
+    [locations, panicUserIds, offlineRedMinutes]
   );
 
   const channelNameById = useMemo(() => {
@@ -157,6 +181,11 @@ export default function CommandCenter({ session }) {
     else errors.push(ov.reason?.message || 'No se pudo cargar canales');
     if (loc.status === 'fulfilled') {
       setLocations((prev) => mergeLocations(prev, loc.value?.locations || []));
+      if (loc.value?.presenceOfflineRedMinutes) {
+        setOfflineRedMinutes(loc.value.presenceOfflineRedMinutes);
+      } else if (ov.status === 'fulfilled' && ov.value?.overview?.presenceOfflineRedMinutes) {
+        setOfflineRedMinutes(ov.value.overview.presenceOfflineRedMinutes);
+      }
     } else errors.push(loc.reason?.message || 'No se pudo cargar GPS');
     if (gf.status === 'fulfilled') {
       setGeofences((gf.value?.geofences || []).filter((g) => g.isActive !== false));
@@ -488,6 +517,28 @@ export default function CommandCenter({ session }) {
     }
   }
 
+  async function pingSelectedLocation() {
+    const userId = selected?.userId;
+    if (!userId || locationPingBusy) return;
+    setLocationPingBusy(true);
+    setLocationPingHint('');
+    setError('');
+    try {
+      const res = await requestLocationPing(session.token, userId);
+      const fcm = res?.fcmSent ?? 0;
+      setLocationPingHint(
+        fcm > 0
+          ? 'Ping enviado (socket + push). Esperando GPS…'
+          : 'Ping por socket enviado. Si el teléfono está apagado, puede tardar o no llegar.'
+      );
+    } catch (e) {
+      setError(esMsg(e.message || e, 'No se pudo pedir la ubicación'));
+      setLocationPingHint('');
+    } finally {
+      setLocationPingBusy(false);
+    }
+  }
+
   function startPersonCall(mode = 'call', { intent } = {}) {
     const userId = selected?.userId;
     const name = selected?.title || 'Usuario';
@@ -584,7 +635,7 @@ export default function CommandCenter({ session }) {
         </div>
         <div className={`cc-kpi-item${activePanics.length ? ' hot panic' : ''}`}>
           <strong>{activePanics.length}</strong>
-          <span>Pánicos activos</span>
+          <span>Alertas activas</span>
         </div>
         <div className="cc-kpi-item">
           <strong>{recordings.length}</strong>
@@ -679,9 +730,10 @@ export default function CommandCenter({ session }) {
           <div className="cc-panel-head">
             <div>
               <h2>Mapa de unidades</h2>
-              <p className="cc-hint">Operadores con GPS · geocercas activas</p>
+              <p className="cc-hint">Operadores con GPS · geocercas · sitios tácticos</p>
             </div>
             <div className="cc-head-actions">
+              {tacticalLayerBar}
               <label className="cc-inline">
                 Ver ruta
                 <select
@@ -702,17 +754,23 @@ export default function CommandCenter({ session }) {
             </div>
           </div>
           <div className="cc-map-body">
+            <PresenceMapLegend overlay counts={presenceLegendCounts} />
             <MapContainer
               center={GDL}
               zoom={12}
               maxZoom={MAP_MAX_ZOOM}
+              zoomSnap={0.25}
+              zoomDelta={1}
+              {...mapWorldProps()}
               scrollWheelZoom={false}
               style={{ height: '100%', width: '100%' }}
             >
-              <TileLayer {...tileLayerProps(DEFAULT_MAP_TILE)} />
+              <TileLayer key={mapLayer} {...tileLayerProps(mapTile)} />
+              <ZoomControl position="bottomright" />
               <CursorZoom />
               <MapCursorFix />
               <MapSizeFix />
+              <MapWorldFillMinZoom />
               <CenterOn target={centerTarget} />
               {geofences.map((g) => (
                 <Circle
@@ -733,58 +791,78 @@ export default function CommandCenter({ session }) {
                   </Popup>
                 </Circle>
               ))}
-              {locations.map((loc) => {
-                const photo = markerPhoto(loc);
-                const isSelected = selected?.userId === loc.userId;
-                const inPanic = panicUserIds.has(loc.userId);
-                return (
-                <SmoothMarker
-                  key={loc.userId}
-                  position={[loc.latitude, loc.longitude]}
-                  icon={mapAvatarIcon({
-                    name: loc.displayName,
-                    live: isFresh(loc.recordedAt),
-                    selected: isSelected,
-                    photoSrc: photo,
-                    panic: inPanic,
-                  })}
-                  zIndexOffset={isSelected ? 900 : inPanic ? 400 : 0}
-                  eventHandlers={{
-                    click: () =>
-                      selectPerson({
-                        userId: loc.userId,
-                        name: loc.displayName,
-                        kind: 'presence',
-                        title: loc.displayName,
-                        subtitle: 'Ubicación en mapa',
-                        lat: loc.latitude,
-                        lng: loc.longitude,
-                        at: loc.recordedAt,
-                      }),
-                  }}
-                >
-                  <Popup>
-                    <strong>{loc.displayName}</strong>
-                    <br />
-                    {gpsStatusLine(loc.recordedAt)}
-                    {recordedAtLocal(loc.recordedAt) ? (
-                      <>
-                        <br />
-                        <span style={{ opacity: 0.75, fontSize: 12 }}>
-                          {recordedAtLocal(loc.recordedAt)}
-                        </span>
-                      </>
-                    ) : null}
-                    <br />
-                    <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
-                    <br />
-                    <button type="button" onClick={() => setTrackUserId(loc.userId)}>
-                      Ver ruta (8 h)
-                    </button>
-                  </Popup>
-                </SmoothMarker>
-                );
-              })}
+              <TacticalSitesLayer
+                sites={tacticalSites}
+                visibleGroupIds={visibleGroupIds}
+                iconBlobs={iconBlobs}
+              />
+              <CargoZoomGate>
+                {(showCargo) =>
+                  locations.map((loc) => {
+                    const photo = markerPhoto(loc);
+                    const isSelected = selected?.userId === loc.userId;
+                    const inPanic = panicUserIds.has(loc.userId);
+                    const status = resolvePresenceStatus({
+                      presence: loc.presence,
+                      focus: loc.focus,
+                      lastSeenAt: loc.lastSeenAt,
+                      offlineRedMinutes,
+                    });
+                    const isLive = status === 'online' || status === 'service';
+                    return (
+                      <SmoothMarker
+                        key={loc.userId}
+                        position={[loc.latitude, loc.longitude]}
+                        icon={mapAvatarIcon({
+                          name: loc.displayName,
+                          cargo: loc.cargo,
+                          showCargo,
+                          presence: status,
+                          selected: isSelected,
+                          photoSrc: photo,
+                          panic: inPanic,
+                        })}
+                        zIndexOffset={isSelected ? 900 : inPanic ? 400 : isLive ? 100 : 0}
+                        eventHandlers={{
+                          click: () =>
+                            selectPerson({
+                              userId: loc.userId,
+                              name: loc.displayName,
+                              kind: 'presence',
+                              title: loc.displayName,
+                              subtitle: PRESENCE_LABELS[status] || 'Ubicación en mapa',
+                              lat: loc.latitude,
+                              lng: loc.longitude,
+                              at: loc.recordedAt,
+                            }),
+                        }}
+                      >
+                        <Popup>
+                          <strong>{loc.displayName}</strong>
+                          <br />
+                          {PRESENCE_LABELS[status] || status}
+                          <br />
+                          {gpsStatusLine(loc.recordedAt)}
+                          {recordedAtLocal(loc.recordedAt) ? (
+                            <>
+                              <br />
+                              <span style={{ opacity: 0.75, fontSize: 12 }}>
+                                {recordedAtLocal(loc.recordedAt)}
+                              </span>
+                            </>
+                          ) : null}
+                          <br />
+                          <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
+                          <br />
+                          <button type="button" onClick={() => setTrackUserId(loc.userId)}>
+                            Ver ruta (8 h)
+                          </button>
+                        </Popup>
+                      </SmoothMarker>
+                    );
+                  })
+                }
+              </CargoZoomGate>
               {polyline.length > 0 && (
                 <>
                   <Polyline positions={polyline} pathOptions={{ color: '#3ecf9a', weight: 3 }} />
@@ -1068,6 +1146,9 @@ export default function CommandCenter({ session }) {
                   </>
                 )}
               </div>
+              {locationPingHint && selected?.userId && (
+                <p className="cc-hint">{locationPingHint}</p>
+              )}
               {selected.lat == null && selected.userId && (
                 <p className="cc-hint">Esta persona aún no reportó GPS.</p>
               )}

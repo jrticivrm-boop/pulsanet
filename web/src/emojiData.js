@@ -178,6 +178,42 @@ export function pushRecentEmoji(emoji) {
   return next;
 }
 
+/** Alias en español (búsqueda estilo WhatsApp). */
+const EMOJI_SEARCH_ALIASES = {
+  risa: ['😂', '🤣', '😄', '😆', '😁'],
+  feliz: ['😊', '😁', '😄', '🙂', '😃', '😀'],
+  triste: ['😢', '😭', '😞', '😔', '☹️', '🙁'],
+  enojo: ['😡', '😠', '🤬', '😤'],
+  amor: ['❤️', '😍', '🥰', '💕', '💖', '💗', '😘'],
+  corazon: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎'],
+  ok: ['👍', '👌', '✅', '✔️'],
+  bien: ['👍', '✅', '💪'],
+  mal: ['👎', '❌', '😢'],
+  gracias: ['🙏', '😊'],
+  hola: ['👋', '🙋'],
+  fuego: ['🔥'],
+  fuerza: ['💪', '✊'],
+  pensando: ['🤔', '💭'],
+  sueno: ['😴', '💤', '😪'],
+  comida: ['🍔', '🍕', '🍟', '🌮'],
+  cafe: ['☕'],
+  cerveza: ['🍺', '🍻'],
+  perro: ['🐶', '🐕'],
+  gato: ['🐱', '🐈'],
+  mexico: ['🇲🇽'],
+  bandera: ['🏳️', '🏴', '🏁', '🚩'],
+  alerta: ['⚠️', '🚨', '🛑'],
+  ubicacion: ['📍', '🗺️'],
+  radio: ['📻', '📡'],
+  telefono: ['📱', '📞'],
+  camara: ['📷', '📸'],
+  video: ['🎥', '📹'],
+  musica: ['🎵', '🎶', '🎧'],
+  fiesta: ['🎉', '🥳', '🎊'],
+  clap: ['👏'],
+  aplauso: ['👏'],
+};
+
 export function searchEmojis(query) {
   const q = String(query || '')
     .trim()
@@ -185,27 +221,22 @@ export function searchEmojis(query) {
   if (!q) return [];
   const out = [];
   const seen = new Set();
+  const add = (e) => {
+    if (!e || seen.has(e)) return;
+    seen.add(e);
+    out.push(e);
+  };
+  for (const [key, list] of Object.entries(EMOJI_SEARCH_ALIASES)) {
+    if (key.includes(q) || q.includes(key)) {
+      for (const e of list) add(e);
+    }
+  }
   for (const cat of EMOJI_CATEGORIES) {
     if (cat.id === 'recents') continue;
+    const labelHit = cat.label.toLowerCase().includes(q) || cat.id.includes(q);
     for (const e of cat.emojis) {
-      if (seen.has(e)) continue;
-      if (e.includes(q) || cat.label.toLowerCase().includes(q)) {
-        seen.add(e);
-        out.push(e);
-      }
+      if (labelHit || e.includes(query) || e.includes(q)) add(e);
     }
   }
-  // Búsqueda por carácter: si el query es un emoji parcial, incluir coincidencias
-  if (out.length === 0 && [...q].length <= 4) {
-    for (const cat of EMOJI_CATEGORIES) {
-      if (cat.id === 'recents') continue;
-      for (const e of cat.emojis) {
-        if (e.includes(query) && !seen.has(e)) {
-          seen.add(e);
-          out.push(e);
-        }
-      }
-    }
-  }
-  return out.slice(0, 120);
+  return out.slice(0, 160);
 }

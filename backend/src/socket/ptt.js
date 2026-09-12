@@ -38,7 +38,7 @@ export function registerPttHandlers(io) {
         socket.join(`group:${groupId}`);
         socket.data.activeGroup = groupId;
         const focusState = normalizePresenceFocus(focus, background);
-        await addPresence(groupId, user.sub, user.displayName, focusState, socket.id);
+        await addPresence(groupId, user.sub, user.displayName, focusState, socket.id, user.orgId);
         await broadcastPresence(io, groupId);
         emitDispatch(io, 'dispatch:presence', { groupId });
 
@@ -143,7 +143,8 @@ export function registerPttHandlers(io) {
           user.sub,
           user.displayName,
           focusState,
-          socket.id
+          socket.id,
+          user.orgId
         );
         const floor = await getFloor(gid);
         if (floor?.userId === user.sub) {
@@ -172,7 +173,7 @@ async function leaveGroup(socket, io, groupId, user) {
     socket.data.activeGroup = null;
   }
 
-  const { removedUser } = await removePresenceSocket(groupId, socket.id);
+  const { removedUser } = await removePresenceSocket(groupId, socket.id, user.orgId);
 
   // Liberar floor solo si este socket tenía el PTT o el usuario ya no tiene ningún dispositivo.
   if (socket.data.holdingFloor || removedUser) {

@@ -6,16 +6,20 @@ import { uploadMedia, classifyMedia, mediaPreviewLabel, sizeLimitError, LIMITS, 
 import {
   assertSameOrgPeer,
   listOrgContacts,
+  listSharedGroupContacts,
   listDmConversations,
   listDmMessages,
   insertDmMessage,
   dmSocketRoom,
   softDeleteDmMessage,
+  editDmMessage,
   clearDmThread,
   toggleDmReaction,
+  markDmMessagesDelivered,
 } from '../services/dm.js';
 import { getStickerById } from '../data/stickers.js';
 import { notifyUserDevices } from '../services/fcm.js';
+import { isDispatch } from '../services/roles.js';
 
 const MAX_BODY = 2000;
 
@@ -23,10 +27,21 @@ export function createDmRouter(io) {
   const router = Router();
   router.use(authMiddleware);
 
-  /** Contactos de la misma organización */
+  /** Contactos: shared = comparten grupo; org = toda la organización (despacho). */
   router.get('/contacts', async (req, res) => {
-    const contacts = await listOrgContacts(req.user.orgId, req.user.sub);
-    res.json({ ok: true, contacts });
+    const raw = String(req.query.scope || '').toLowerCase();
+    let scope = raw === 'org' || raw === 'shared' ? raw : '';
+    if (!scope) {
+      scope = isDispatch(req.user.role) ? 'org' : 'shared';
+    }
+    if (scope === 'org' && !isDispatch(req.user.role)) {
+      scope = 'shared';
+    }
+    const contacts =
+      scope === 'org'
+        ? await listOrgContacts(req.user.orgId, req.user.sub)
+        : await listSharedGroupContacts(req.user.orgId, req.user.sub);
+    res.json({ ok: true, scope, contacts });
   });
 
   /** Conversaciones DM recientes */
@@ -186,6 +201,28 @@ export function createDmRouter(io) {
     });
   });
 
+  /** Marcar entregados (llegó al dispositivo; 2 palomas grises) */
+  router.post('/:userId/messages/delivered', async (req, res) => {
+    const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);
+    if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    const messageIds = Array.isArray(req.body?.messageIds) ? req.body.messageIds : null;
+    const upTo = req.body?.upToMessageId || null;
+    const ids = await markDmMessagesDelivered({
+      readerId: req.user.sub,
+      peerId: peer.id,
+      messageIds,
+      upToMessageId: upTo,
+    });
+    if (ids.length) {
+      const room = dmSocketRoom(req.user.sub, peer.id);
+      io.to(room).emit('dm:delivery', {
+        peerId: req.user.sub,
+        messageIds: ids,
+      });
+    }
+    res.json({ ok: true, delivered: ids.length, messageIds: ids });
+  });
+
   /** Marcar leídos */
   router.post('/:userId/messages/read', async (req, res) => {
     const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);
@@ -205,12 +242,24 @@ export function createDmRouter(io) {
          ON CONFLICT DO NOTHING`,
         [r.id, req.user.sub]
       );
+      await query(
+        `INSERT INTO message_deliveries (message_id, user_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [r.id, req.user.sub]
+      );
     }
     const room = dmSocketRoom(req.user.sub, peer.id);
-    io.to(room).emit('dm:receipts', {
-      peerId: req.user.sub,
-      messageIds: rows.map((r) => r.id),
-    });
+    const messageIds = rows.map((r) => r.id);
+    if (messageIds.length) {
+      io.to(room).emit('dm:delivery', {
+        peerId: req.user.sub,
+        messageIds,
+      });
+      io.to(room).emit('dm:receipts', {
+        peerId: req.user.sub,
+        messageIds,
+      });
+    }
     res.json({ ok: true, read: rows.length });
   });
 
@@ -245,6 +294,27 @@ export function createDmRouter(io) {
       });
       const room = dmSocketRoom(req.user.sub, peer.id);
       io.to(room).emit('dm:deleted', msg);
+      res.json({ ok: true, message: msg });
+    } catch (err) {
+      const notFound = /no encontrado/i.test(err.message);
+      res.status(notFound ? 404 : 400).json({ ok: false, error: err.message });
+    }
+  });
+
+  /** Editar mensaje de texto DM */
+  router.patch('/:userId/messages/:messageId', async (req, res) => {
+    try {
+      const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);
+      if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+      const msg = await editDmMessage({
+        peerId: peer.id,
+        messageId: req.params.messageId,
+        userId: req.user.sub,
+        body: req.body?.body,
+        userRole: req.user.role,
+      });
+      const room = dmSocketRoom(req.user.sub, peer.id);
+      io.to(room).emit('dm:edited', msg);
       res.json({ ok: true, message: msg });
     } catch (err) {
       const notFound = /no encontrado/i.test(err.message);

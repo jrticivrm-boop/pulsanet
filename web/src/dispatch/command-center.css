@@ -70,6 +70,11 @@
   background: #dce4ea;
 }
 
+/* Sin caja Leaflet | © Esri… (attributionControl=false en mapWorldProps). */
+.cc-shell .leaflet-control-attribution {
+  display: none !important;
+}
+
 .cc-topbar {
   display: flex;
   align-items: center;
@@ -263,15 +268,15 @@
 }
 
 .cc-channels-cfg-card {
-  max-width: 40rem;
+  max-width: 56rem;
 }
 
 .cc-channels-cfg-card .channel-multi {
   margin: 0;
 }
 
-.cc-channels-cfg-card .channel-multi-list {
-  max-height: min(55vh, 28rem);
+.cc-channels-cfg-card .channel-dual-list {
+  max-height: min(28vh, 12.5rem);
   overflow: auto;
 }
 
@@ -500,6 +505,56 @@
   border-bottom: 1px solid var(--cc-border);
   background: var(--cc-bg);
   flex-shrink: 0;
+}
+
+/* Consola: título izq. + KPIs centrados verticalmente a la derecha */
+.dispatch-page.ops-console .ops-console-head {
+  align-items: center;
+  padding-top: 0;
+  padding-bottom: 0.55rem !important;
+  gap: 0.65rem 1rem;
+}
+
+.dispatch-page.ops-console .ops-console-head-title {
+  flex: 0 1 auto;
+  min-width: min(100%, 12rem);
+}
+
+.dispatch-page.ops-console .ops-console-kpi {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.4rem;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-bottom: none;
+  background: transparent;
+}
+
+.dispatch-page.ops-console .ops-console-kpi .cc-kpi-item {
+  min-width: 3.85rem;
+  padding: 0.32rem 0.5rem;
+}
+
+.dispatch-page.ops-console .ops-console-kpi .cc-kpi-status {
+  margin-left: 0;
+  width: auto;
+  align-self: center;
+}
+
+@media (max-width: 960px) {
+  .dispatch-page.ops-console .ops-console-head {
+    align-items: stretch;
+  }
+
+  .dispatch-page.ops-console .ops-console-kpi {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
 }
 
 .cc-kpi-item {
@@ -1348,10 +1403,10 @@
 }
 
 .cc-shell .map-toolbar.map-toolbar--spread {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.65rem 0.85rem;
-  align-items: end;
+  align-items: flex-end;
   width: 100%;
   margin: 0;
   flex-shrink: 0;
@@ -1359,6 +1414,12 @@
   border: 1px solid var(--cc-border);
   background: var(--cc-panel);
   box-sizing: border-box;
+  overflow: visible;
+}
+
+/* Consola: Mapas | Sitios | Operadores/Ruta/Horas/Geocerca */
+.cc-shell .map-toolbar.map-toolbar--ops {
+  align-items: stretch;
 }
 
 .cc-shell .map-toolbar--spread label.map-field {
@@ -1369,15 +1430,62 @@
   min-width: 0;
 }
 
+.cc-shell .map-toolbar--spread .map-field--layers {
+  flex: 1 1 11rem;
+  max-width: 20rem;
+  min-width: 9.5rem;
+  width: auto;
+  align-self: flex-end;
+  /* Columna centrada: MAPAS sobre el grupo Natural|Satélite|Claro */
+  align-items: center;
+  justify-items: stretch;
+}
+
+.cc-shell .map-toolbar--spread .map-field--layers > span {
+  width: 100%;
+  text-align: center;
+}
+
 .cc-shell .map-toolbar--spread .lt-layers {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.3rem;
   width: 100%;
+  min-width: 0;
 }
 
+/* Misma altura que .map-field select / .cc-tactical-ms-trigger / .map-action */
 .cc-shell .map-toolbar--spread .lt-layers button {
   width: 100%;
+  min-height: 2.45rem;
+  box-sizing: border-box;
+  padding: 0.5rem 0.35rem;
+}
+
+.cc-shell .map-toolbar--ops .cc-tactical-ms {
+  flex: 0 1 11rem;
+  min-width: 8.5rem;
+  align-self: flex-end;
+}
+
+.cc-shell .map-toolbar--ops .map-toolbar-trail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.75rem;
+  align-items: flex-end;
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.cc-shell .map-toolbar--ops .map-toolbar-trail .map-field {
+  flex: 1 1 7rem;
+  width: auto;
+}
+
+.cc-shell .map-toolbar--ops .map-toolbar-trail .map-action {
+  flex: 1 1 8rem;
+  width: auto;
+  max-width: 14rem;
 }
 
 .cc-shell .map-field {
@@ -1438,6 +1546,61 @@
 
 .cc-shell .map-form-actions button {
   min-height: 2.45rem;
+}
+
+/* Borrador geocerca: una sola fila (Nombre | Radio | hint | Guardar | Cancelar) */
+.cc-shell .geofence-form.map-toolbar--spread {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 0.55rem 0.75rem;
+}
+
+.cc-shell .geofence-form.map-toolbar--spread label.map-field {
+  width: auto;
+  min-width: 0;
+}
+
+.cc-shell .geofence-form.map-toolbar--spread label.map-field:first-of-type {
+  flex: 1 1 12rem;
+  max-width: 18rem;
+}
+
+.cc-shell .geofence-form.map-toolbar--spread label.map-field:nth-of-type(2) {
+  flex: 0 0 6.5rem;
+  width: 6.5rem;
+}
+
+.cc-shell .geofence-form .map-coords {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.cc-shell .geofence-form .map-form-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  width: auto;
+  margin-left: auto;
+}
+
+.cc-shell .geofence-form .map-form-actions button {
+  min-width: 5.5rem;
+  width: auto;
+  padding: 0 0.85rem;
+}
+
+@media (max-width: 720px) {
+  .cc-shell .geofence-form.map-toolbar--spread {
+    flex-wrap: wrap;
+  }
+
+  .cc-shell .geofence-form .map-form-actions {
+    margin-left: 0;
+  }
 }
 
 .cc-shell .map-sideband {
@@ -1527,22 +1690,27 @@
 }
 
 @media (max-width: 960px) {
-  .cc-shell .map-toolbar--spread {
-    grid-template-columns: 1fr 1fr;
+  .cc-shell .map-toolbar--spread .map-field--layers {
+    flex-basis: 100%;
+    max-width: none;
   }
 
-  .cc-shell .map-toolbar--spread .lt-layers {
-    grid-column: 1 / -1;
+  .cc-shell .map-toolbar--ops .map-toolbar-trail {
+    flex-basis: 100%;
   }
 
-  .cc-shell .map-action {
-    grid-column: 1 / -1;
+  .cc-shell .map-toolbar--ops .map-toolbar-trail .map-action {
+    max-width: none;
   }
 }
 
 @media (max-width: 560px) {
-  .cc-shell .map-toolbar--spread {
-    grid-template-columns: 1fr;
+  .cc-shell .map-toolbar--spread .map-field--layers,
+  .cc-shell .map-toolbar--ops .cc-tactical-ms,
+  .cc-shell .map-toolbar--ops .map-toolbar-trail .map-field,
+  .cc-shell .map-toolbar--ops .map-toolbar-trail .map-action {
+    flex-basis: 100%;
+    max-width: none;
   }
 }
 
@@ -2024,11 +2192,61 @@
   color: var(--cc-muted, #9aa8b5);
 }
 
+.cc-shell .admin-form .field span .cc-field-hint-inline {
+  display: inline;
+  margin: 0;
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-style: normal;
+  color: var(--cc-muted, #9aa8b5);
+}
+
 .cc-field-hint {
   display: block;
   margin-top: 0.35rem;
   font-size: 0.78rem;
   color: var(--cc-muted, #9aa8b5);
+}
+
+/* Matrícula partida (como Reclutamiento IV R.M.): letra estrecha + guion + números. */
+.cc-shell .admin-form .cc-matricula-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.cc-shell .admin-form .cc-matricula-letter {
+  width: 2.75rem !important;
+  flex: 0 0 2.75rem;
+  max-width: 2.75rem;
+  min-width: 2.75rem;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  text-align: center;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.cc-shell .admin-form .cc-matricula-sep {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--cc-muted, #9aa8b5);
+  line-height: 1;
+  user-select: none;
+}
+
+.cc-shell .admin-form .cc-matricula-digits {
+  flex: 1 1 auto;
+  width: auto !important;
+  min-width: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }
 
 .cc-group-check-list {
@@ -3175,9 +3393,11 @@
   z-index: 1000;
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 0.5rem;
   pointer-events: none;
+  /* Izquierda libre para leyenda de presencia; zoom Leaflet abajo-derecha */
+  padding-left: 0;
 }
 
 .lt-map-chrome .lt-layers {
@@ -3188,6 +3408,8 @@
   border-radius: 10px;
   padding: 0.25rem;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  /* Capas + maximizar a la derecha; izquierda libre para zoom Leaflet */
+  margin-left: auto;
 }
 
 [data-theme='dark'] .lt-map-chrome .lt-layers {
@@ -3206,7 +3428,9 @@
 }
 
 .lt-map-chrome > .lt-max-btn--map,
-.lt-map-chrome > .lt-max-hint {
+.lt-map-chrome > .lt-max-hint,
+.lt-map-chrome > .lt-filters-btn,
+.lt-map-chrome > .lt-state-legend {
   pointer-events: auto;
   flex-shrink: 0;
 }
@@ -3264,9 +3488,14 @@
   height: 100dvh;
   max-height: 100dvh;
   min-height: 100svh;
-  grid-template-columns: 1fr;
+  /* Debe ganar a .lt-page--sheet-collapsed (si no, el mapa cae en columna ~3.5rem y se ve verde) */
+  grid-template-columns: minmax(0, 1fr) !important;
   grid-template-rows: minmax(0, 1fr);
   background: var(--cc-call-bg, #0c1410);
+}
+
+.lt-page.lt-page--maximized.lt-page--sheet-collapsed {
+  grid-template-columns: minmax(0, 1fr) !important;
 }
 
 .lt-page--maximized .lt-sheet {
@@ -3275,11 +3504,19 @@
 
 .lt-page--maximized .lt-map-panel {
   padding: 0;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  grid-column: 1;
+  grid-row: 1;
 }
 
 .lt-page--maximized .lt-map {
   flex: 1;
   min-height: 0;
+  width: 100%;
+  height: 100%;
   border-radius: 0;
   border: none;
   box-shadow: none;
@@ -3287,8 +3524,9 @@
 
 .lt-page--maximized .lt-map .leaflet-container {
   height: 100% !important;
+  width: 100% !important;
   min-height: 0 !important;
-  max-height: 100vh;
+  max-height: none;
   border-radius: 0;
 }
 
@@ -3666,9 +3904,42 @@
   pointer-events: none;
 }
 
+.lt-wa.has-cargo {
+  width: 120px;
+}
+
 .lt-wa--compact {
   width: 52px;
   height: 64px;
+}
+
+.lt-wa--compact.has-cargo {
+  width: 120px;
+}
+
+.lt-wa-cargo {
+  margin-top: 2px;
+  max-width: 118px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(18, 24, 20, 0.48);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #f7faf5;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(0, 0, 0, 0.06);
+  letter-spacing: 0.015em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  z-index: 3;
 }
 
 .lt-wa-pin {
@@ -3800,6 +4071,144 @@
 
 .lt-wa.is-live .lt-wa-pin-face:not(:has(.lt-wa-photo-bg)) {
   background: #128c7e;
+}
+
+.lt-wa.is-service .lt-wa-pin {
+  --pin-green: #a16207;
+  --pin-rim: #fef9c3;
+}
+
+.lt-wa.is-service .lt-wa-pin-face:not(:has(.lt-wa-photo-bg)) {
+  background: #ca8a04;
+}
+
+.lt-wa.is-service .lt-wa-ring {
+  border-color: #eab308;
+}
+
+.lt-wa.is-offline .lt-wa-pin {
+  --pin-green: #6b7280;
+  --pin-rim: #e5e7eb;
+}
+
+.lt-wa.is-offline .lt-wa-pin-face:not(:has(.lt-wa-photo-bg)) {
+  background: #9ca3af;
+}
+
+.lt-wa.is-stale .lt-wa-pin {
+  --pin-green: #991b1b;
+  --pin-rim: #fecaca;
+}
+
+.lt-wa.is-stale .lt-wa-pin-face:not(:has(.lt-wa-photo-bg)) {
+  background: #dc2626;
+}
+
+/* Zoom Leaflet compacto (default ~30px → 26px) en mapas de despacho */
+.cc-shell .leaflet-control-zoom a,
+.map-frame .leaflet-control-zoom a,
+.cc-map-body .leaflet-control-zoom a,
+.lt-map .leaflet-control-zoom a {
+  width: 26px;
+  height: 26px;
+  line-height: 26px;
+  font-size: 15px;
+}
+
+.cc-shell .leaflet-control-zoom-in,
+.map-frame .leaflet-control-zoom-in,
+.cc-map-body .leaflet-control-zoom-in,
+.lt-map .leaflet-control-zoom-in {
+  font-size: 16px;
+}
+
+.presence-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
+  align-items: center;
+  align-content: center;
+  padding: 0.4rem 0.65rem;
+  margin: 0;
+  border-radius: 8px;
+  background: var(--cc-bg, #fff);
+  border: 1px solid var(--cc-border, #c5cebc);
+  font-size: 0.78rem;
+  color: var(--cc-text, #172015);
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+/*
+ * Overlay leyenda: esquina superior izquierda (el zoom Leaflet va abajo-derecha).
+ */
+.presence-map-legend--overlay {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 450;
+  height: auto;
+  max-width: calc(100% - 3rem);
+  flex-wrap: nowrap;
+  padding: 0.28rem 0.55rem;
+  gap: 0.22rem 0.55rem;
+  line-height: 1.15;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
+.presence-map-legend--overlay .presence-map-legend__item {
+  flex-shrink: 0;
+}
+
+@media (max-width: 560px) {
+  .presence-map-legend--overlay {
+    flex-wrap: wrap;
+    gap: 0.2rem 0.45rem;
+    padding: 0.22rem 0.4rem;
+    font-size: 0.72rem;
+  }
+}
+
+[data-theme='dark'] .presence-map-legend--overlay {
+  background: rgba(21, 32, 24, 0.92);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  color: var(--cc-text, #f4f6f2);
+}
+
+[data-theme='dark'] .presence-map-legend--overlay .presence-map-legend__count {
+  color: var(--cc-text, #f4f6f2);
+}
+
+.presence-map-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  white-space: nowrap;
+  line-height: 1.1;
+}
+
+.presence-map-legend__label {
+  display: inline;
+}
+
+.presence-map-legend__dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.presence-map-legend__count {
+  margin-left: 0.15rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 0.88rem;
+  color: var(--cc-text, #172015);
+  opacity: 1;
 }
 
 /* Pánico: círculo verde → rojo parpadeante (borde + punta + aros) */
@@ -4873,6 +5282,26 @@
   line-height: 1.3;
   max-width: 100%;
 }
+/* Reordenar chips: sin grab en reposo; manita solo mientras se arrastra.
+   HTML5 DnD ignora cursor del elemento: forzamos en html. */
+.cc-cat-item.is-draggable {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cc-cat-item.is-dragging {
+  opacity: 0.55;
+}
+.cc-cat-item.is-drag-over {
+  border-color: var(--cc-accent, #c4a35a);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cc-accent, #c4a35a) 55%, transparent);
+}
+html.cc-cat-dragging,
+html.cc-cat-dragging * {
+  /* SVG manita: en Win/Chrome el keyword grabbing a veces no se ve en DnD nativo */
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath fill='%23f5f5f5' stroke='%231a1a1a' stroke-width='1.5' d='M11 14V8.5a2 2 0 0 1 4 0V14m0-6.5a2 2 0 0 1 4 0V14m0-4.5a2 2 0 0 1 4 0V16m-12-1.5V16a7 7 0 0 0 14 0v-2.5a2.25 2.25 0 0 0-4.1-1.25M13 7.5a2 2 0 0 1 4 0V14'/%3E%3C/svg%3E")
+      10 6,
+    grabbing !important;
+}
 .cc-cat-item-abbr {
   flex: 0 0 auto;
   font-weight: 700;
@@ -5528,5 +5957,630 @@
 
   .cc-kpi {
     flex-wrap: wrap;
+  }
+}
+
+/* Sitios tácticos (POI) */
+.cc-tactical-sites {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+  height: 100%;
+}
+.cc-tactical-sites-grid {
+  display: grid;
+  grid-template-columns: minmax(14rem, 0.9fr) minmax(16rem, 1fr) minmax(18rem, 1.3fr);
+  gap: 0.75rem;
+  min-height: 22rem;
+  flex: 1;
+}
+.cc-tactical-panel,
+.cc-tactical-map-panel {
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cc-panel) 92%, transparent);
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+}
+.cc-tactical-panel h3,
+.cc-tactical-map-panel h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+.cc-tactical-colors {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  align-items: center;
+  position: relative;
+}
+.cc-tactical-color-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
+}
+.cc-tactical-color {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.cc-tactical-color.is-active {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px #111;
+}
+.cc-tactical-group-list,
+.cc-tactical-site-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+}
+.cc-tactical-group-list li,
+.cc-tactical-site-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.cc-tactical-group-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  text-align: left;
+  border: 1px solid var(--cc-border);
+  background: transparent;
+  color: inherit;
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.cc-tactical-group-btn.is-active {
+  border-color: var(--cc-accent, #c4a35a);
+  background: color-mix(in srgb, var(--cc-accent, #c4a35a) 18%, transparent);
+}
+.cc-tactical-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.cc-tactical-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-tactical-group-count {
+  font-size: 0.72rem;
+  color: var(--cc-muted);
+}
+.cc-tactical-site-list li > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.cc-tactical-site-list small {
+  color: var(--cc-muted);
+  font-size: 0.72rem;
+}
+.cc-tactical-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.cc-tactical-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--cc-muted);
+}
+.cc-tactical-form .cc-cat-input,
+.cc-tactical-field .cc-cat-input {
+  flex: none;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  color: var(--cc-text, inherit);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  padding: 0.32rem 0.5rem;
+  min-height: 2rem;
+  height: auto;
+}
+.cc-tactical-coords {
+  display: grid;
+  grid-template-columns: 1fr 1fr minmax(4.5rem, 5.5rem);
+  gap: 0.4rem;
+  align-items: end;
+}
+.cc-tactical-coord-input {
+  font-variant-numeric: tabular-nums;
+}
+.cc-tactical-textarea {
+  resize: vertical;
+  min-height: 3.1rem;
+  max-height: 9rem;
+  font-family: inherit;
+  line-height: 1.4;
+  field-sizing: content;
+}
+.cc-tactical-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  padding-top: 0.15rem;
+}
+.cc-tactical-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--cc-muted);
+}
+.cc-tactical-map {
+  flex: 1;
+  min-height: 16rem;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--cc-border);
+}
+.cc-tactical-map-panel.is-pick .cc-tactical-map {
+  outline: 1px dashed color-mix(in srgb, var(--cc-accent, #c4a35a) 70%, transparent);
+}
+/* Multi-select Sitios (misma familia visual que map-field / Ruta) */
+.cc-shell .map-toolbar--spread .cc-tactical-ms {
+  display: grid;
+  gap: 0.25rem;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+/* Panel Ruta: toolbar limpiar + opción deshabilitada al tope */
+.cc-route-ms-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem 0.35rem;
+  border-bottom: 1px solid var(--cc-border, #c5cebc);
+  position: sticky;
+  top: 0;
+  background: var(--cc-bg, #fff);
+  z-index: 1;
+}
+.cc-route-ms-hint {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--cc-muted, #5c6b55);
+}
+.cc-route-ms-clear {
+  border: none;
+  background: transparent;
+  color: var(--cc-accent-ink, #3d4a38);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.15rem 0.25rem;
+}
+.cc-route-ms-clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cc-route-ms-clear:not(:disabled):hover {
+  text-decoration: underline;
+}
+.cc-route-ms-empty {
+  padding: 0.75rem 0.65rem;
+  font-size: 0.85rem;
+  color: var(--cc-muted, #5c6b55);
+}
+.cc-tactical-ms-option.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.cc-route-ms-panel {
+  max-height: min(22rem, 55vh);
+  overflow: auto;
+}
+
+.cc-tactical-ms-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: 2.45rem;
+  box-sizing: border-box;
+  background: var(--cc-bg);
+  color: var(--cc-text);
+  border: 1px solid var(--cc-border);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+.cc-tactical-ms-trigger.is-open,
+.cc-tactical-ms-trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cc-accent, #c4a35a) 55%, transparent);
+  outline-offset: 1px;
+}
+.cc-tactical-ms-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cc-text);
+  font-size: 0.88rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.cc-shell .map-field .cc-tactical-ms-value {
+  color: var(--cc-text);
+  font-size: 0.88rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.cc-tactical-ms-caret {
+  flex-shrink: 0;
+  opacity: 0.65;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+.cc-tactical-ms-panel {
+  max-height: min(16rem, 45vh);
+  overflow: auto;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.45rem 0.4rem 0.55rem;
+  border: 1px solid var(--cc-border, #c5cebc);
+  border-radius: 10px;
+  /* Opaco siempre (portal puede salir de .cc-shell y perder variables) */
+  background: #f8f9f5;
+  background: var(--cc-panel, #f8f9f5);
+  color: var(--cc-text, #1a2418);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+  opacity: 1;
+  isolation: isolate;
+}
+.cc-shell[data-theme='dark'] .cc-tactical-ms-panel,
+html.tp-theme-dark .cc-tactical-ms-panel,
+body.tp-theme-dark .cc-tactical-ms-panel {
+  background: #152018;
+  border-color: #2a3a2c;
+  color: #e8eee4;
+}
+.cc-tactical-ms-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.4rem 0.45rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.86rem;
+  color: inherit;
+  background: transparent;
+}
+.cc-tactical-ms-option:hover {
+  background: #ebe8dc;
+}
+.cc-tactical-ms-option.is-on {
+  background: #e4e0d0;
+}
+.cc-shell[data-theme='dark'] .cc-tactical-ms-option:hover,
+html.tp-theme-dark .cc-tactical-ms-option:hover,
+body.tp-theme-dark .cc-tactical-ms-option:hover {
+  background: #1c2e19;
+}
+.cc-shell[data-theme='dark'] .cc-tactical-ms-option.is-on,
+html.tp-theme-dark .cc-tactical-ms-option.is-on,
+body.tp-theme-dark .cc-tactical-ms-option.is-on {
+  background: #243625;
+}
+/* Evitar que .map-toolbar input { width:100% } aplasté el nombre */
+.cc-shell .map-toolbar .cc-tactical-ms-option input[type='checkbox'],
+.cc-shell .map-toolbar--spread .cc-tactical-ms-option input[type='checkbox'],
+.cc-tactical-ms-option input[type='checkbox'] {
+  width: 1rem !important;
+  min-width: 1rem;
+  max-width: 1rem;
+  height: 1rem;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: var(--cc-accent, #c4a35a);
+}
+.cc-shell .map-field .cc-tactical-ms-option .cc-tactical-ms-name,
+.cc-tactical-ms-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cc-text);
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.cc-shell .map-field .cc-tactical-ms-option .cc-tactical-dot {
+  flex: 0 0 auto;
+}
+/* Sitios tácticos — catálogo simple (sin mapa embebido) */
+.cc-tactical-sites--simple {
+  max-width: 980px;
+}
+.cc-tactical-simple-grid {
+  display: grid;
+  grid-template-columns: minmax(15rem, 0.9fr) minmax(20rem, 1.2fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+.cc-tactical-select-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+.cc-tactical-select-row .cc-cat-input {
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  width: auto;
+}
+.cc-tactical-new-group {
+  margin-top: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--cc-border);
+}
+.cc-tactical-new-group .cc-cat-toolbar {
+  margin-bottom: 0;
+}
+.cc-tactical-field-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--cc-muted);
+  margin-bottom: 0.3rem;
+}
+.cc-tactical-list-title {
+  margin-top: 0.75rem !important;
+}
+.cc-tactical-editing-banner {
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  background: color-mix(in srgb, var(--cc-accent, #c4a35a) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cc-accent, #c4a35a) 40%, transparent);
+}
+.cc-tactical-site-list li {
+  border: 1px solid var(--cc-border);
+  border-radius: 8px;
+  padding: 0.15rem 0.2rem 0.15rem 0.35rem;
+  background: color-mix(in srgb, var(--cc-panel-2, var(--cc-panel)) 70%, transparent);
+}
+.cc-tactical-site-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0.3rem 0.2rem;
+  font: inherit;
+}
+.cc-tactical-site-pick strong {
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+.cc-tactical-site-list li.is-editing {
+  border-color: var(--cc-accent, #c4a35a);
+  background: color-mix(in srgb, var(--cc-accent, #c4a35a) 12%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cc-accent, #c4a35a) 35%, transparent);
+}
+.cc-tactical-icon-card {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 0.75rem 0 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px dashed color-mix(in srgb, var(--cc-accent, #c4a35a) 45%, var(--cc-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cc-bg, transparent) 45%, var(--cc-panel));
+}
+.cc-tactical-icon-card.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.cc-tactical-icon-card--group {
+  margin-top: 0.65rem;
+  margin-bottom: 0.15rem;
+}
+.cc-tactical-icon-preview-wrap {
+  flex: 0 0 auto;
+  width: 4.25rem;
+  height: 4.25rem;
+  border-radius: 50%;
+  border: 2px solid var(--cc-border);
+  background: color-mix(in srgb, var(--cc-panel-2, var(--cc-panel)) 80%, transparent);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 12%, transparent);
+}
+.cc-tactical-icon-preview-wrap.has-icon {
+  border-color: color-mix(in srgb, var(--cc-accent, #c4a35a) 55%, var(--cc-border));
+  background: #0b1218;
+}
+.cc-tactical-icon-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cc-tactical-icon-placeholder {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  background: var(--cc-tactical-dot, var(--cc-accent, #c4a35a));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-tactical-dot, var(--cc-accent, #c4a35a)) 28%, transparent);
+}
+.cc-tactical-icon-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: 0;
+  flex: 1;
+}
+.cc-tactical-icon-title {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--cc-text, inherit);
+}
+.cc-tactical-icon-actions .cc-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+.cc-tactical-icon-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+.cc-tactical-icon-btns .cc-btn.is-disabled,
+.cc-tactical-icon-btns label.cc-btn:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.cc-tactical-icon-fname {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  color: var(--cc-muted);
+}
+.cc-tactical-field-hint {
+  display: block;
+  margin-top: 0.28rem;
+  font-size: 0.72rem;
+  color: var(--cc-muted);
+  line-height: 1.3;
+}
+.cc-tactical-map-icon {
+  background: transparent !important;
+  border: none !important;
+}
+.cc-tactical-map-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 120px;
+  pointer-events: none;
+}
+.cc-tactical-map-pin-img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 2px solid #111;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  background: #fff;
+  flex-shrink: 0;
+}
+.cc-tactical-map-dot {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #111;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+}
+.cc-tactical-map-label {
+  margin-top: 3px;
+  max-width: 118px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(18, 24, 20, 0.48);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #f7faf5;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 0 0 1px rgba(0, 0, 0, 0.06);
+  letter-spacing: 0.015em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+@media (max-width: 900px) {
+  .cc-tactical-simple-grid {
+    grid-template-columns: 1fr;
+  }
+  .cc-tactical-coords {
+    grid-template-columns: 1fr 1fr;
+  }
+  .cc-tactical-coords .cc-tactical-field:last-child {
+    grid-column: 1 / -1;
+    max-width: 8rem;
+  }
+}
+@media (max-width: 520px) {
+  .cc-tactical-icon-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .cc-tactical-coords {
+    grid-template-columns: 1fr;
+  }
+  .cc-tactical-coords .cc-tactical-field:last-child {
+    max-width: none;
   }
 }

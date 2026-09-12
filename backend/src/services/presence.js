@@ -1,13 +1,18 @@
 import {
   FLOOR_TTL_SEC,
+  PRESENCE_SERVICE_STALE_MS,
   PRESENCE_STALE_MS,
   floorKey,
   getRedis,
+  orgPresenceKey,
+  orgPresenceTsKey,
   presenceKey,
   presenceSocketsKey,
   presenceTsKey,
 } from '../redis.js';
 import { query } from '../db.js';
+
+const FOCUS_RANK = { foreground: 3, background: 2, service: 1 };
 
 export async function getFloor(groupId) {
   const raw = await getRedis().get(floorKey(groupId));
@@ -51,7 +56,6 @@ export async function setFloor(groupId, speaker) {
 }
 
 export async function clearFloor(groupId, userId) {
-  // Compare-and-del atómico: evita borrar el floor de otro speaker tras carrera TTL/SET NX.
   const script = `
     local raw = redis.call('GET', KEYS[1])
     if not raw then return 0 end
@@ -71,15 +75,70 @@ export async function refreshFloorTtl(groupId) {
 
 /** @param {unknown} focus @param {boolean} [backgroundFlag] */
 export function normalizePresenceFocus(focus, backgroundFlag) {
+  if (focus === 'service') return 'service';
   if (backgroundFlag === true) return 'background';
   if (focus === 'background' || focus === true) return 'background';
   return 'foreground';
 }
 
+/** Mejor focus entre varios sockets / fuentes. */
+export function pickBestFocus(focuses) {
+  let best = 'service';
+  let bestRank = 0;
+  for (const f of focuses || []) {
+    const focus = normalizePresenceFocus(f);
+    const rank = FOCUS_RANK[focus] || 0;
+    if (rank > bestRank) {
+      bestRank = rank;
+      best = focus;
+    }
+  }
+  return bestRank ? best : 'foreground';
+}
+
+/**
+ * Color/estado unificado mapa + chat.
+ * online (verde) = app abierta, minimizada o FGS alcanzable;
+ * offline (gris) = desconectado; stale (rojo) = desconectado > umbral.
+ * (Ya no se distingue «En espera» / service en UI.)
+ */
+export function resolvePresenceStatus({ focus = null, lastSeenAt = null, offlineRedMs, now = Date.now() }) {
+  const f = focus ? normalizePresenceFocus(focus) : null;
+  if (f === 'foreground' || f === 'background' || f === 'service') return 'online';
+  const redMs = Math.max(60_000, Number(offlineRedMs) || 15 * 60_000);
+  let seenMs = null;
+  if (lastSeenAt != null) {
+    const t = lastSeenAt instanceof Date ? lastSeenAt.getTime() : Date.parse(String(lastSeenAt));
+    if (!Number.isNaN(t)) seenMs = t;
+  }
+  if (seenMs != null && now - seenMs >= redMs) return 'stale';
+  return 'offline';
+}
+
+export async function getOrgPresenceOfflineRedMs(orgId) {
+  const { rows } = await query(
+    `SELECT presence_offline_red_minutes FROM organizations WHERE id = $1`,
+    [orgId]
+  );
+  const minutes = Number(rows[0]?.presence_offline_red_minutes);
+  const safe = Number.isFinite(minutes) && minutes >= 1 ? minutes : 15;
+  return safe * 60_000;
+}
+
+export async function touchLastSeen(userId) {
+  if (!userId) return;
+  try {
+    await query(`UPDATE users SET last_seen_at = NOW() WHERE id = $1`, [userId]);
+  } catch {
+    /* ignore */
+  }
+}
+
 function encodePresenceValue(displayName, focus) {
+  const f = normalizePresenceFocus(focus);
   return JSON.stringify({
     displayName: displayName || 'Usuario',
-    focus: focus === 'background' ? 'background' : 'foreground',
+    focus: f,
   });
 }
 
@@ -91,7 +150,7 @@ function decodePresenceValue(raw) {
       const o = JSON.parse(raw);
       return {
         displayName: o.displayName || 'Usuario',
-        focus: o.focus === 'background' ? 'background' : 'foreground',
+        focus: normalizePresenceFocus(o.focus),
       };
     } catch {
       /* fallthrough */
@@ -106,11 +165,17 @@ function decodeSocketPresence(raw) {
     return {
       userId: String(o?.userId || ''),
       displayName: o?.displayName || 'Usuario',
-      focus: o?.focus === 'background' ? 'background' : 'foreground',
+      focus: normalizePresenceFocus(o?.focus),
     };
   } catch {
     return null;
   }
+}
+
+function staleCutoffForFocus(focus, now = Date.now()) {
+  const f = normalizePresenceFocus(focus);
+  const window = f === 'service' ? PRESENCE_SERVICE_STALE_MS : PRESENCE_STALE_MS;
+  return now - window;
 }
 
 async function listSocketEntries(groupId) {
@@ -125,7 +190,7 @@ async function listSocketEntries(groupId) {
 
 /**
  * Agrega displayName/focus del usuario a partir de todos sus sockets en el grupo.
- * foreground gana si algún dispositivo está en primer plano.
+ * foreground > background > service.
  */
 async function writeAggregatedUser(groupId, userId, entriesForUser) {
   const redis = getRedis();
@@ -142,9 +207,7 @@ async function writeAggregatedUser(groupId, userId, entriesForUser) {
   const prev = decodePresenceValue(prevRaw);
   const displayName =
     entriesForUser.find((e) => e.displayName)?.displayName || prev.displayName || 'Usuario';
-  const focus = entriesForUser.some((e) => e.focus === 'foreground')
-    ? 'foreground'
-    : 'background';
+  const focus = pickBestFocus(entriesForUser.map((e) => e.focus));
   const focusChanged = !prevRaw || prev.focus !== focus;
   const now = String(Date.now());
   const pipe = redis.pipeline();
@@ -156,12 +219,35 @@ async function writeAggregatedUser(groupId, userId, entriesForUser) {
   return { focusChanged, removed: false };
 }
 
+async function writeOrgPresence(orgId, userId, displayName, focus) {
+  if (!orgId || !userId) return;
+  const redis = getRedis();
+  const key = orgPresenceKey(orgId);
+  const tsKey = orgPresenceTsKey(orgId);
+  const now = String(Date.now());
+  const pipe = redis.pipeline();
+  pipe.hset(key, String(userId), encodePresenceValue(displayName, focus));
+  pipe.hset(tsKey, String(userId), now);
+  pipe.expire(key, 86400);
+  pipe.expire(tsKey, 86400);
+  await pipe.exec();
+}
+
+async function clearOrgPresence(orgId, userId) {
+  if (!orgId || !userId) return;
+  const redis = getRedis();
+  const pipe = redis.pipeline();
+  pipe.hdel(orgPresenceKey(orgId), String(userId));
+  pipe.hdel(orgPresenceTsKey(orgId), String(userId));
+  await pipe.exec();
+}
+
 /**
  * Registra presencia de un socket (multi-dispositivo).
  * @param {string} [socketId] si falta, comportamiento legado (1 entrada por user).
  * @returns {Promise<{ focusChanged: boolean }>}
  */
-export async function addPresence(groupId, userId, displayName, focus = 'foreground', socketId = null) {
+export async function addPresence(groupId, userId, displayName, focus = 'foreground', socketId = null, orgId = null) {
   const redis = getRedis();
   const normalized = normalizePresenceFocus(focus);
   const uid = String(userId);
@@ -171,6 +257,17 @@ export async function addPresence(groupId, userId, displayName, focus = 'foregro
     const tsKey = presenceTsKey(groupId);
     const prevRaw = await redis.hget(key, uid);
     const prev = decodePresenceValue(prevRaw);
+    // No degradar UI (fg/bg) a service si el heartbeat llega mientras aún hay UI reciente.
+    if (
+      normalized === 'service' &&
+      prevRaw &&
+      (prev.focus === 'foreground' || prev.focus === 'background')
+    ) {
+      const ts = parseInt((await redis.hget(tsKey, uid)) || '0', 10);
+      if (ts >= Date.now() - PRESENCE_STALE_MS) {
+        return { focusChanged: false };
+      }
+    }
     const focusChanged = !prevRaw || prev.focus !== normalized;
     const now = String(Date.now());
     const pipe = redis.pipeline();
@@ -179,6 +276,7 @@ export async function addPresence(groupId, userId, displayName, focus = 'foregro
     pipe.expire(key, 86400);
     pipe.expire(tsKey, 86400);
     await pipe.exec();
+    if (orgId) await writeOrgPresence(orgId, uid, displayName, normalized);
     return { focusChanged };
   }
 
@@ -197,6 +295,10 @@ export async function addPresence(groupId, userId, displayName, focus = 'foregro
   const all = await listSocketEntries(groupId);
   const mine = all.filter((e) => e.userId === uid);
   const { focusChanged } = await writeAggregatedUser(groupId, uid, mine);
+  if (orgId) {
+    const best = pickBestFocus(mine.map((e) => e.focus));
+    await writeOrgPresence(orgId, uid, displayName, best);
+  }
   return { focusChanged };
 }
 
@@ -204,7 +306,7 @@ export async function addPresence(groupId, userId, displayName, focus = 'foregro
  * Quita solo este socket. Si el user aún tiene otros sockets en el grupo, permanece online.
  * @returns {Promise<{ removedUser: boolean, userId: string|null, focusChanged: boolean }>}
  */
-export async function removePresenceSocket(groupId, socketId) {
+export async function removePresenceSocket(groupId, socketId, orgId = null) {
   if (!socketId) {
     return { removedUser: false, userId: null, focusChanged: false };
   }
@@ -222,6 +324,13 @@ export async function removePresenceSocket(groupId, socketId) {
   }
   const remaining = (await listSocketEntries(groupId)).filter((e) => e.userId === userId);
   const { focusChanged, removed } = await writeAggregatedUser(groupId, userId, remaining);
+  if (removed) {
+    await touchLastSeen(userId);
+    // Si no queda en ningún grupo online, se limpia en markUserOfflineIfIdle vía caller.
+  } else if (orgId) {
+    const best = pickBestFocus(remaining.map((e) => e.focus));
+    await writeOrgPresence(orgId, userId, parsed.displayName, best);
+  }
   return { removedUser: Boolean(removed), userId, focusChanged };
 }
 
@@ -237,6 +346,7 @@ export async function removePresence(groupId, userId) {
   pipe.hdel(presenceKey(groupId), uid);
   pipe.hdel(presenceTsKey(groupId), uid);
   await pipe.exec();
+  await touchLastSeen(uid);
 }
 
 /**
@@ -259,14 +369,14 @@ export async function listPresence(groupId) {
   const key = presenceKey(groupId);
   const tsKey = presenceTsKey(groupId);
   const [map, tsMap] = await Promise.all([redis.hgetall(key), redis.hgetall(tsKey)]);
-  const cutoff = Date.now() - PRESENCE_STALE_MS;
+  const now = Date.now();
   const members = [];
   const stale = [];
 
   for (const [userId, raw] of Object.entries(map || {})) {
+    const { displayName, focus } = decodePresenceValue(raw);
     const ts = parseInt(tsMap?.[userId] || '0', 10);
-    if (ts >= cutoff) {
-      const { displayName, focus } = decodePresenceValue(raw);
+    if (ts >= staleCutoffForFocus(focus, now)) {
       members.push({ userId, displayName, focus });
     } else {
       stale.push(userId);
@@ -277,16 +387,77 @@ export async function listPresence(groupId) {
     const pipe = redis.pipeline();
     pipe.hdel(key, ...stale);
     pipe.hdel(tsKey, ...stale);
-    // Limpia sockets de usuarios stale
     const sockKey = presenceSocketsKey(groupId);
     const entries = await listSocketEntries(groupId);
     const staleSet = new Set(stale);
     const deadSocks = entries.filter((e) => staleSet.has(e.userId)).map((e) => e.socketId);
     if (deadSocks.length) pipe.hdel(sockKey, ...deadSocks);
     await pipe.exec();
+    for (const uid of stale) {
+      await touchLastSeen(uid);
+    }
   }
 
   return members;
+}
+
+/** Presencia org-wide (canales + FGS). */
+export async function listOrgPresence(orgId) {
+  const redis = getRedis();
+  const key = orgPresenceKey(orgId);
+  const tsKey = orgPresenceTsKey(orgId);
+  const [map, tsMap] = await Promise.all([redis.hgetall(key), redis.hgetall(tsKey)]);
+  const now = Date.now();
+  const members = [];
+  const stale = [];
+  for (const [userId, raw] of Object.entries(map || {})) {
+    const { displayName, focus } = decodePresenceValue(raw);
+    const ts = parseInt(tsMap?.[userId] || '0', 10);
+    if (ts >= staleCutoffForFocus(focus, now)) {
+      members.push({ userId, displayName, focus });
+    } else {
+      stale.push(userId);
+    }
+  }
+  if (stale.length) {
+    const pipe = redis.pipeline();
+    pipe.hdel(key, ...stale);
+    pipe.hdel(tsKey, ...stale);
+    await pipe.exec();
+    for (const uid of stale) await touchLastSeen(uid);
+  }
+  return members;
+}
+
+/**
+ * Heartbeat FGS: marca focus=service en org + grupos del usuario (sin socket).
+ * No degrada si ya hay UI (fg/bg) fresca.
+ */
+export async function heartbeatServicePresence({ orgId, userId, displayName }) {
+  const uid = String(userId);
+  const name = displayName || 'Usuario';
+  await writeOrgPresence(orgId, uid, name, 'service');
+
+  const { rows } = await query(
+    `SELECT gm.group_id
+     FROM group_members gm
+     INNER JOIN groups g ON g.id = gm.group_id
+     WHERE gm.user_id = $1 AND g.organization_id = $2 AND g.is_active = TRUE`,
+    [uid, orgId]
+  );
+
+  let anyChanged = false;
+  for (const row of rows) {
+    const { focusChanged } = await addPresence(row.group_id, uid, name, 'service', null, orgId);
+    if (focusChanged) anyChanged = true;
+  }
+  await touchLastSeen(uid);
+  return { focusChanged: anyChanged, groupIds: rows.map((r) => r.group_id) };
+}
+
+export async function clearOrgPresenceForUser(orgId, userId) {
+  await clearOrgPresence(orgId, userId);
+  await touchLastSeen(userId);
 }
 
 export async function broadcastPresence(io, groupId) {

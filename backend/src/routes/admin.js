@@ -2,9 +2,15 @@ import bcrypt from 'bcrypt';
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { listKeysByScan } from '../redis.js';
-import { query } from '../db.js';
+import { query, pool } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { getFloor, listPresence } from '../services/presence.js';
+import { getFloor, listOrgPresence, listPresence, pickBestFocus, resolvePresenceStatus } from '../services/presence.js';
+import {
+  clampGpsIntervalSec,
+  clampGpsMaxAccuracyM,
+  getOrgGpsSettings,
+  normalizeGpsSettings,
+} from '../services/orgGpsSettings.js';
 import { logActivity } from '../services/activity.js';
 import { isAdmin, isDispatch, isRoot, isZoneAdmin, isUnitAdmin, canManageUsers, ORG_ROLES, defaultVisibilityFlags } from '../services/roles.js';
 import { buildUsername, buildCallSign, buildDisplayName } from '../services/rfcUsername.js';
@@ -18,6 +24,8 @@ import {
   sniffUploadedAvatar,
 } from './me.js';
 import { storedUploadRel } from '../services/uploads.js';
+import { parseMatricula } from '../services/matricula.js';
+import { unlockUserLogin, clientIpFromReq } from '../services/intrusion.js';
 import fs from 'fs';
 
 export const adminRouter = Router();
@@ -75,6 +83,10 @@ function mapUser(u) {
     isActive: u.is_active,
     canReceivePanic: u.can_receive_panic,
     mustChangePassword: Boolean(u.must_change_password),
+    loginFailCount: u.login_fail_count != null ? Number(u.login_fail_count) : 0,
+    loginLocked: Boolean(u.login_locked_at),
+    loginLockedAt: u.login_locked_at || null,
+    loginLockedReason: u.login_locked_reason || null,
     unitId: u.unit_id || null,
     adminScopeUnitId: u.admin_scope_unit_id || null,
     unitName: u.unit_name || null,
@@ -109,6 +121,13 @@ adminRouter.get('/overview', async (req, res) => {
     [orgId]
   );
 
+  const { rows: orgs } = await query(
+    `SELECT presence_offline_red_minutes FROM organizations WHERE id = $1`,
+    [orgId]
+  );
+  const offlineRedMinutes = Number(orgs[0]?.presence_offline_red_minutes) || 15;
+  const offlineRedMs = offlineRedMinutes * 60_000;
+
   const { rows: groups } = await query(
     `SELECT id, name, livekit_room, is_active
      FROM groups WHERE organization_id = $1 AND is_active = TRUE
@@ -117,12 +136,24 @@ adminRouter.get('/overview', async (req, res) => {
   );
 
   const channels = [];
-  const onlineUserIds = new Set();
+  /** @type {Map<string, { userId: string, displayName: string, focus: string }>} */
+  const presenceByUser = new Map();
 
   for (const g of groups) {
     const members = await listPresence(g.id);
     const floor = await getFloor(g.id);
-    members.forEach((m) => onlineUserIds.add(m.userId));
+    for (const m of members) {
+      const prev = presenceByUser.get(m.userId);
+      if (!prev) {
+        presenceByUser.set(m.userId, { ...m });
+      } else {
+        presenceByUser.set(m.userId, {
+          userId: m.userId,
+          displayName: m.displayName || prev.displayName,
+          focus: pickBestFocus([prev.focus, m.focus]),
+        });
+      }
+    }
     channels.push({
       id: g.id,
       name: g.name,
@@ -133,14 +164,150 @@ adminRouter.get('/overview', async (req, res) => {
     });
   }
 
+  // FGS / org-wide (p.ej. sin canal activo)
+  try {
+    const orgMembers = await listOrgPresence(orgId);
+    for (const m of orgMembers) {
+      const prev = presenceByUser.get(m.userId);
+      if (!prev) {
+        presenceByUser.set(m.userId, { ...m });
+      } else {
+        presenceByUser.set(m.userId, {
+          userId: m.userId,
+          displayName: m.displayName || prev.displayName,
+          focus: pickBestFocus([prev.focus, m.focus]),
+        });
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const presence = {};
+  for (const [userId, m] of presenceByUser) {
+    presence[userId] = {
+      userId,
+      displayName: m.displayName,
+      focus: m.focus,
+      status: resolvePresenceStatus({ focus: m.focus, offlineRedMs }),
+    };
+  }
+
   res.json({
     ok: true,
     overview: {
       usersTotal: users[0]?.total || 0,
       usersActive: users[0]?.active || 0,
-      onlineCount: onlineUserIds.size,
+      onlineCount: presenceByUser.size,
       groupsCount: groups.length,
       channels,
+      presence,
+      presenceOfflineRedMinutes: offlineRedMinutes,
+    },
+  });
+});
+
+/** Preferencias de org: presencia + GPS. */
+adminRouter.get('/org-settings', requireAdmin, async (req, res) => {
+  const { rows } = await query(
+    `SELECT presence_offline_red_minutes, gps_max_accuracy_m, gps_interval_sec
+     FROM organizations WHERE id = $1`,
+    [req.user.orgId]
+  );
+  const gps = normalizeGpsSettings(rows[0] || {});
+  res.json({
+    ok: true,
+    settings: {
+      presenceOfflineRedMinutes: Number(rows[0]?.presence_offline_red_minutes) || 15,
+      gpsMaxAccuracyM: gps.maxAccuracyM,
+      gpsIntervalSec: gps.intervalSec,
+    },
+  });
+});
+
+adminRouter.patch('/org-settings', requireAdmin, async (req, res) => {
+  const body = req.body || {};
+  const updates = [];
+  const params = [req.user.orgId];
+  const meta = {};
+
+  if (body.presenceOfflineRedMinutes != null) {
+    const minutes = parseInt(body.presenceOfflineRedMinutes, 10);
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 10080) {
+      return res.status(400).json({
+        ok: false,
+        error: 'presenceOfflineRedMinutes debe ser entre 1 y 10080 (minutos)',
+      });
+    }
+    params.push(minutes);
+    updates.push(`presence_offline_red_minutes = $${params.length}`);
+    meta.presenceOfflineRedMinutes = minutes;
+  }
+
+  if (body.gpsMaxAccuracyM != null) {
+    const acc = clampGpsMaxAccuracyM(body.gpsMaxAccuracyM);
+    if (acc == null) {
+      return res.status(400).json({
+        ok: false,
+        error: 'gpsMaxAccuracyM debe ser entre 10 y 200 (metros)',
+      });
+    }
+    params.push(acc);
+    updates.push(`gps_max_accuracy_m = $${params.length}`);
+    meta.gpsMaxAccuracyM = acc;
+  }
+
+  if (body.gpsIntervalSec != null) {
+    const sec = clampGpsIntervalSec(body.gpsIntervalSec);
+    if (sec == null) {
+      return res.status(400).json({
+        ok: false,
+        error: 'gpsIntervalSec debe ser entre 2 y 60 (segundos)',
+      });
+    }
+    params.push(sec);
+    updates.push(`gps_interval_sec = $${params.length}`);
+    meta.gpsIntervalSec = sec;
+  }
+
+  if (!updates.length) {
+    const gps = await getOrgGpsSettings(req.user.orgId);
+    const { rows } = await query(
+      `SELECT presence_offline_red_minutes FROM organizations WHERE id = $1`,
+      [req.user.orgId]
+    );
+    return res.json({
+      ok: true,
+      settings: {
+        presenceOfflineRedMinutes: Number(rows[0]?.presence_offline_red_minutes) || 15,
+        gpsMaxAccuracyM: gps.maxAccuracyM,
+        gpsIntervalSec: gps.intervalSec,
+      },
+    });
+  }
+
+  const { rows } = await query(
+    `UPDATE organizations
+     SET ${updates.join(', ')}, updated_at = NOW()
+     WHERE id = $1
+     RETURNING presence_offline_red_minutes, gps_max_accuracy_m, gps_interval_sec`,
+    params
+  );
+  await logActivity({
+    organizationId: req.user.orgId,
+    actorId: req.user.sub,
+    action: 'org.settings',
+    entityType: 'organization',
+    entityId: req.user.orgId,
+    meta,
+  });
+  const gps = normalizeGpsSettings(rows[0] || {});
+  res.json({
+    ok: true,
+    settings: {
+      presenceOfflineRedMinutes: Number(rows[0]?.presence_offline_red_minutes) || 15,
+      gpsMaxAccuracyM: gps.maxAccuracyM,
+      gpsIntervalSec: gps.intervalSec,
     },
   });
 });
@@ -232,6 +399,7 @@ adminRouter.get('/users', async (req, res) => {
   const { rows } = await query(
     `SELECT u.id, u.username, u.email, u.display_name, u.role, u.is_active, u.can_receive_panic,
             u.must_change_password, u.last_seen_at,
+            u.login_fail_count, u.login_locked_at, u.login_locked_reason,
             u.grade, u.specialty, u.cargo, u.given_names, u.paternal_surname, u.maternal_surname, u.matricula,
             u.unit_id, u.admin_scope_unit_id,
             u.can_see_region, u.can_see_zones, u.can_see_units,
@@ -258,12 +426,20 @@ adminRouter.get('/users', async (req, res) => {
   res.json({ ok: true, users: rows.map(mapUser) });
 });
 
-/** Vista previa: usuario login + indicativo al aire (Cap. Gomez). */
+/** Vista previa: usuario login + indicativo (grado + apellido[, cargo]). */
 adminRouter.post('/users/preview-username', requireUserManager, async (req, res) => {
   try {
     const body = req.body || {};
-    const built = await buildUsername(body, (candidate) =>
-      isUsernameTaken(req.user.orgId, candidate)
+    const built = await buildUsername(
+      {
+        givenNames: body.givenNames,
+        paternalSurname: body.paternalSurname,
+        maternalSurname: body.maternalSurname,
+        grade: body.grade,
+        cargo: body.cargo,
+        specialty: body.specialty,
+      },
+      (candidate) => isUsernameTaken(req.user.orgId, candidate)
     );
     res.json({
       ok: true,
@@ -289,9 +465,6 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
     specialty,
     cargo,
     matricula,
-    displayName: displayNameIn,
-    callSign: callSignIn,
-    callSignDetail: callSignDetailIn,
     unitId: unitIdIn,
     adminScopeUnitId: adminScopeIn,
     canSeeRegion: canSeeRegionIn,
@@ -381,12 +554,14 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
   const gradeTrim = String(grade || '').trim();
   const specialtyTrim = String(specialty || '').trim() || null;
   const cargoTrim = String(cargo || '').trim() || null;
-  const matriculaTrim = String(matricula || '').trim();
+  let matriculaTrim;
+  try {
+    matriculaTrim = parseMatricula(matricula);
+  } catch (err) {
+    return res.status(400).json({ ok: false, error: err.message || 'Matrícula inválida' });
+  }
   if (!gradeTrim) {
     return res.status(400).json({ ok: false, error: 'Grado es requerido' });
-  }
-  if (!matriculaTrim) {
-    return res.status(400).json({ ok: false, error: 'Matrícula es requerida' });
   }
 
   let built;
@@ -399,8 +574,6 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
         grade: gradeTrim,
         specialty: specialtyTrim,
         cargo: cargoTrim,
-        callSign: callSignIn,
-        callSignDetail: callSignDetailIn,
       },
       (candidate) => isUsernameTaken(req.user.orgId, candidate)
     );
@@ -409,9 +582,9 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
   }
 
   const username = built.username;
-  const displayName = String(displayNameIn || built.displayName || '').trim();
+  const displayName = String(built.displayName || '').trim();
   if (!displayName) {
-    return res.status(400).json({ ok: false, error: 'Indicativo (nombre al aire) es requerido' });
+    return res.status(400).json({ ok: false, error: 'Indicativo requerido' });
   }
   const email = `${username}@tacticalptx.local`;
   const temporaryPassword = generateTemporaryPassword();
@@ -538,11 +711,42 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
   }
 });
 
+adminRouter.post('/users/:id/unlock-login', requireUserManager, async (req, res) => {
+  const scope = await loadAdminScope(req.user);
+  const { rows: existing } = await query(
+    `SELECT id, role, unit_id, admin_scope_unit_id, username, login_locked_at
+     FROM users WHERE id = $1 AND organization_id = $2`,
+    [req.params.id, req.user.orgId]
+  );
+  if (!existing[0]) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+  if (!scope.orgWide) {
+    const inScope =
+      (existing[0].unit_id && scope.unitIds.includes(existing[0].unit_id)) ||
+      (existing[0].admin_scope_unit_id && scope.unitIds.includes(existing[0].admin_scope_unit_id));
+    if (!inScope) {
+      return res.status(403).json({ ok: false, error: 'Usuario fuera de tu alcance' });
+    }
+  }
+  if (existing[0].role === 'root' && !isRoot(req.user.role)) {
+    return res.status(403).json({ ok: false, error: 'Solo root puede desbloquear un root' });
+  }
+  try {
+    const out = await unlockUserLogin({
+      userId: req.params.id,
+      orgId: req.user.orgId,
+      actorId: req.user.sub,
+      sourceIp: clientIpFromReq(req),
+    });
+    res.json({ ok: true, ...out });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message || 'No se pudo desbloquear' });
+  }
+});
+
 adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
   const {
     isActive,
     role,
-    displayName,
     canReceivePanic,
     password,
     resetPassword,
@@ -558,8 +762,6 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     paternalSurname: paternalSurnameIn,
     maternalSurname: maternalSurnameIn,
     matricula: matriculaIn,
-    callSign: callSignIn,
-    callSignDetail: callSignDetailIn,
   } = req.body || {};
 
   const { rows: existing } = await query(
@@ -612,8 +814,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     givenNamesIn !== undefined ||
     paternalSurnameIn !== undefined ||
     maternalSurnameIn !== undefined ||
-    matriculaIn !== undefined ||
-    displayName !== undefined;
+    matriculaIn !== undefined;
 
   let nextGrade = existing[0].grade;
   let nextSpecialty = existing[0].specialty;
@@ -633,7 +834,13 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     if (maternalSurnameIn !== undefined) {
       nextMaternal = String(maternalSurnameIn || '').trim() || null;
     }
-    if (matriculaIn !== undefined) nextMatricula = String(matriculaIn || '').trim() || null;
+    if (matriculaIn !== undefined) {
+      try {
+        nextMatricula = parseMatricula(matriculaIn);
+      } catch (err) {
+        return res.status(400).json({ ok: false, error: err.message || 'Matrícula inválida' });
+      }
+    }
 
     if (!nextGrade) {
       return res.status(400).json({ ok: false, error: 'Grado es requerido' });
@@ -658,19 +865,11 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     }
 
     try {
-      if (typeof displayName === 'string' && displayName.trim()) {
-        nextDisplayName = displayName.trim();
-      } else {
-        nextDisplayName = buildCallSign({
-          grade: nextGrade,
-          paternalSurname: nextPaternal,
-          cargo: nextCargo,
-          specialty: nextSpecialty,
-          callSign: callSignIn,
-          callSignDetail: callSignDetailIn,
-        });
-      }
-      // Validar nombre completo (también fuerza reglas de apellido)
+      nextDisplayName = buildCallSign({
+        grade: nextGrade,
+        paternalSurname: nextPaternal,
+        cargo: nextCargo,
+      });
       buildDisplayName({
         givenNames: nextGiven,
         paternalSurname: nextPaternal,
@@ -726,7 +925,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
       req.params.id,
       typeof isActive === 'boolean' ? isActive : null,
       role || null,
-      identityPatch ? nextDisplayName : displayName?.trim() || null,
+      identityPatch ? nextDisplayName : null,
       typeof canReceivePanic === 'boolean' ? canReceivePanic : null,
       passwordHash,
       req.user.orgId,
@@ -807,21 +1006,50 @@ adminRouter.delete('/users/:id', requireUserManager, async (req, res) => {
     return res.status(403).json({ ok: false, error: 'Sin permiso' });
   }
 
-  const { rows } = await query(
-    `DELETE FROM users WHERE id = $1 AND organization_id = $2
-     RETURNING id, username, email, role`,
-    [req.params.id, req.user.orgId]
-  );
-  if (!rows[0]) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
-  await logActivity({
-    organizationId: req.user.orgId,
-    actorId: req.user.sub,
-    action: 'user.delete',
-    entityType: 'user',
-    entityId: rows[0].id,
-    meta: { username: rows[0].username, role: rows[0].role },
-  });
-  res.json({ ok: true });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // DM: sender_id ON DELETE SET NULL rompería messages_target (exige sender en DM).
+    await client.query(
+      `DELETE FROM messages
+       WHERE group_id IS NULL
+         AND (sender_id = $1 OR recipient_id = $1)`,
+      [req.params.id]
+    );
+    const { rows } = await client.query(
+      `DELETE FROM users WHERE id = $1 AND organization_id = $2
+       RETURNING id, username, email, role`,
+      [req.params.id, req.user.orgId]
+    );
+    if (!rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    }
+    await client.query('COMMIT');
+
+    await logActivity({
+      organizationId: req.user.orgId,
+      actorId: req.user.sub,
+      action: 'user.delete',
+      entityType: 'user',
+      entityId: rows[0].id,
+      meta: { username: rows[0].username, role: rows[0].role },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* ignore */
+    }
+    console.error('user.delete:', err.message);
+    res.status(500).json({
+      ok: false,
+      error: 'No se pudo eliminar el usuario (hay datos vinculados). Intenta de nuevo o desactívalo.',
+    });
+  } finally {
+    client.release();
+  }
 });
 
 /** Exportación CSV de usuarios (alcance v1) */

@@ -67,7 +67,8 @@ export default function PeoplePalette({ session, open, onClose, initialQuery = '
     if (!open || !session?.token) return undefined;
     let cancelled = false;
     setLoading(true);
-    fetchContacts(session.token)
+    const scope = canDispatch(session.user) ? 'org' : 'shared';
+    fetchContacts(session.token, { scope })
       .then((data) => {
         if (!cancelled) setContacts(data.contacts || []);
       })
@@ -80,18 +81,16 @@ export default function PeoplePalette({ session, open, onClose, initialQuery = '
     return () => {
       cancelled = true;
     };
-  }, [open, session?.token]);
+  }, [open, session?.token, session?.user]);
 
+  // Esc lo cierra GlobalEscapeClose vía data-esc-close-btn (captura);
+  // también escuchamos el bus por si el diálogo no tiene botón clickable.
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose?.();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const onEscClose = () => onClose?.();
+    const root = document.querySelector('.people-palette[data-esc-close]');
+    root?.addEventListener('tacticalptx:esc-close', onEscClose);
+    return () => root?.removeEventListener('tacticalptx:esc-close', onEscClose);
   }, [open, onClose]);
 
   const filtered = useMemo(() => {
@@ -129,13 +128,28 @@ export default function PeoplePalette({ session, open, onClose, initialQuery = '
         if (e.target === e.currentTarget) onClose?.();
       }}
     >
-      <div className="people-palette" role="dialog" aria-modal="true" aria-label="Personas">
+      <div
+        className="people-palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Personas"
+        data-esc-close=""
+      >
         <header className="people-palette-head">
           <div>
             <h2>Personas</h2>
             <p>Buscar · mensaje · llamada · video{allowCam ? ' · ver cámara' : ''}</p>
           </div>
-          <kbd className="people-palette-kbd">Esc</kbd>
+          <button
+            type="button"
+            className="people-palette-kbd"
+            data-esc-close-btn=""
+            aria-label="Cerrar"
+            title="Cerrar (Esc)"
+            onClick={() => onClose?.()}
+          >
+            Esc
+          </button>
         </header>
         <div className="people-palette-search">
           <input

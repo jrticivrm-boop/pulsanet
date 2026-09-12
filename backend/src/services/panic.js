@@ -98,7 +98,7 @@ export async function triggerPanic({
       groupId,
       senderId: userId,
       type: 'system',
-      body: `🚨 PÁNICO — ${displayName || 'Usuario'}`,
+      body: `🚨 ALERTA — ${displayName || 'Usuario'}`,
     });
     io.to(`group:${groupId}`).emit('chat:message', systemMsg);
   } catch (err) {
@@ -109,7 +109,7 @@ export async function triggerPanic({
   io.to(`group:${groupId}`).emit('panic:alert', event);
   await emitPanicToGroupMembers(io, 'dispatch:panic', event, groupId);
 
-  const title = '🚨 ALERTA DE PÁNICO';
+  const title = '🚨 ALERTA';
   const body = `${displayName || 'Usuario'} — ${event.groupName || 'canal'}`;
   const data = {
     type: 'panic',

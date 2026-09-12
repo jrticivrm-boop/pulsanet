@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   RoomEvent,
   Track,
-  VideoPresets,
   createLocalAudioTrack,
   createLocalVideoTrack,
   AudioPresets,
@@ -14,25 +13,25 @@ import { esMsg } from './esMsg';
 import { assertMediaDevices } from './voiceRecord';
 import { warmUpVideoCallMedia } from './callMedia';
 import { socketIoOptions, socketUrl } from './socketConfig';
-import { mergeStreamingRoomOptions, getVideoCaptureDefaults, oppositeFacingMode } from './videoStreaming';
+import {
+  mergeStreamingRoomOptions,
+  oppositeFacingMode,
+  getVideoCaptureDefaults,
+  isCameraTrackDead,
+  createStreamingVideoTrack as openStreamingCam,
+} from './videoStreaming';
 import {
   joinGroupVideo,
   leaveGroupVideo,
   endGroupVideo,
   pingGroupVideo,
+  startGroupVideoMulti,
 } from './api';
 
 const PING_MS = 15000;
 
 async function createStreamingVideoTrack(facingMode = 'user') {
-  try {
-    return await createLocalVideoTrack(getVideoCaptureDefaults(facingMode));
-  } catch {
-    return await createLocalVideoTrack({
-      facingMode: facingMode === 'environment' ? 'environment' : 'user',
-      resolution: VideoPresets.h540.resolution,
-    });
-  }
+  return openStreamingCam(createLocalVideoTrack, facingMode);
 }
 
 function readCameraTrack(participant) {
@@ -44,7 +43,7 @@ function readCameraTrack(participant) {
 /**
  * Hook de video grupal — sala LiveKit paralela al PTT (no modifica usePtt).
  */
-export function useGroupVideo({ token, groupId, groupName, enabled, onRemoteEnded }) {
+export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, onRemoteEnded }) {
   const [status, setStatus] = useState('');
   const [active, setActive] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
@@ -81,14 +80,16 @@ export function useGroupVideo({ token, groupId, groupName, enabled, onRemoteEnde
     let localTrack = camRef.current || readCameraTrack(room.localParticipant);
     if (localTrack && !camRef.current) camRef.current = localTrack;
 
-    remotes.push({
-      id: 'local',
-      name: 'Tú',
-      track: localTrack,
-      isLocal: true,
-      muted,
-    });
-    setTiles(remotes);
+    setTiles([
+      {
+        id: 'local',
+        name: 'Tú',
+        track: localTrack,
+        isLocal: true,
+        muted,
+      },
+      ...remotes,
+    ]);
   }, [muted]);
 
   rebuildRef.current = rebuildTiles;
@@ -129,6 +130,7 @@ export function useGroupVideo({ token, groupId, groupName, enabled, onRemoteEnde
 
   const bindRoomEvents = useCallback((room) => {
     const onVideoChange = () => rebuildRef.current();
+    let unsubTimer = null;
     const onAudioSubscribed = (track) => {
       if (track.kind !== Track.Kind.Audio) return;
       const el = track.attach();
@@ -139,10 +141,16 @@ export function useGroupVideo({ token, groupId, groupName, enabled, onRemoteEnde
 
     room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
       if (track.kind === Track.Kind.Audio) onAudioSubscribed(track);
-      if (track.kind === Track.Kind.Video) onVideoChange();
+      if (track.kind === Track.Kind.Video) {
+        window.clearTimeout(unsubTimer);
+        onVideoChange();
+      }
     });
     room.on(RoomEvent.TrackUnsubscribed, (track) => {
-      if (track.kind === Track.Kind.Video) onVideoChange();
+      if (track.kind !== Track.Kind.Video) return;
+      // Debounce rebuild: unsubscribes breves no deben vaciar el mosaico.
+      window.clearTimeout(unsubTimer);
+      unsubTimer = window.setTimeout(() => onVideoChange(), 1200);
     });
     room.on(RoomEvent.LocalTrackPublished, onVideoChange);
     room.on(RoomEvent.LocalTrackUnpublished, onVideoChange);
@@ -155,7 +163,41 @@ export function useGroupVideo({ token, groupId, groupName, enabled, onRemoteEnde
       setParticipantCount(room.remoteParticipants.size + 1);
     });
     room.on(RoomEvent.Reconnecting, () => setStatus('Reconectando…'));
-    room.on(RoomEvent.Reconnected, () => setStatus('Transmisión activa'));
+    room.on(RoomEvent.Reconnected, () => {
+      setStatus('Transmisión activa');
+      window.clearTimeout(room._tpxGroupRepublish);
+      room._tpxGroupRepublish = window.setTimeout(() => {
+        void (async () => {
+          try {
+            if (!isCameraTrackDead(camRef.current)) {
+              rebuildRef.current();
+              return;
+            }
+            const dead = camRef.current;
+            if (dead) {
+              try {
+                await room.localParticipant.unpublishTrack(dead, true);
+              } catch {
+                /* ignore */
+              }
+              try {
+                dead.stop();
+              } catch {
+                /* ignore */
+              }
+              camRef.current = null;
+            }
+            const fresh = await createStreamingVideoTrack(facingModeRef.current);
+            camRef.current = fresh;
+            await room.localParticipant.publishTrack(fresh, { source: Track.Source.Camera });
+            setCameraOn(true);
+          } catch {
+            setCameraOn(false);
+          }
+          rebuildRef.current();
+        })();
+      }, 900);
+    });
     room.on(RoomEvent.Disconnected, () => {
       if (!closingRef.current) setStatus('Desconectado');
     });
@@ -166,8 +208,17 @@ export function useGroupVideo({ token, groupId, groupName, enabled, onRemoteEnde
     setStatus('Conectando transmisión…');
     try {
       await warmUpVideoCallMedia();
-      const data = await joinGroupVideo(token, groupId);
-      const room = await createEncryptedRoom(mergeStreamingRoomOptions(), data.e2eeKey);
+      const ids = (groupIds || []).map(String).filter(Boolean);
+      const data =
+        ids.length > 1
+          ? await startGroupVideoMulti(token, ids)
+          : await joinGroupVideo(token, groupId);
+      const joinId = data.session?.groupId || groupId;
+      const room = await createEncryptedRoom(
+        mergeStreamingRoomOptions(),
+        data.e2eeKey,
+        { requireKey: data.e2ee === true },
+      );
       roomRef.current = room;
       bindRoomEvents(room);
 
@@ -176,13 +227,15 @@ export function useGroupVideo({ token, groupId, groupName, enabled, onRemoteEnde
 
       const mic = await createLocalAudioTrack({
         echoCancellation: true,
-        noiseSuppression: true,
+        noiseSuppression: false,
         autoGainControl: true,
       });
       micRef.current = mic;
       await room.localParticipant.publishTrack(mic, {
         source: Track.Source.Microphone,
         audioPreset: AudioPresets.speech,
+        dtx: false,
+        red: false,
       });
 
       let cam = null;
@@ -199,10 +252,10 @@ export function useGroupVideo({ token, groupId, groupName, enabled, onRemoteEnde
       setMuted(false);
       setActive(true);
       setParticipantCount(data.session?.participantCount || 1);
-      if (cam) setStatus(`Transmisión · ${groupName || 'Grupo'}`);
+      if (cam) setStatus(`Transmisión · ${data.session?.groupName || groupName || 'Grupo'}`);
 
       pingRef.current = setInterval(() => {
-        pingGroupVideo(token, groupId).catch(() => {});
+        pingGroupVideo(token, joinId).catch(() => {});
       }, PING_MS);
 
       rebuildRef.current();
@@ -212,7 +265,7 @@ export function useGroupVideo({ token, groupId, groupName, enabled, onRemoteEnde
       await teardown();
       return false;
     }
-  }, [token, groupId, groupName, bindRoomEvents, teardown]);
+  }, [token, groupId, groupIds, groupName, bindRoomEvents, teardown]);
 
   const disconnect = useCallback(async ({ skipServer = false } = {}) => {
     if (closingRef.current) return;

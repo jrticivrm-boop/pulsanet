@@ -9,6 +9,7 @@ import {
   Polyline,
   Popup,
   GeoJSON,
+  ZoomControl,
   useMap,
 } from 'react-leaflet';
 import { io } from 'socket.io-client';
@@ -19,6 +20,7 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import 'leaflet/dist/leaflet.css';
 import { fetchLocations, fetchOverview, fetchUserTrack, fetchGroupMembers, fetchPanicEvents } from '../api';
 import { openPeerSheet } from '../peerActions';
+import { esMsg } from '../esMsg';
 import { socketIoOptions, socketUrl } from '../socketConfig';
 import {
   LOCATION_POLL_MS,
@@ -27,14 +29,29 @@ import {
   isFresh,
   mergeLocations,
   recordedAtLocal,
+  recordedAtMs,
   upsertLocation,
 } from './liveTiming.js';
+import { isAbsurdGpsJump } from '../gpsQuality.js';
 import { mapAvatarIcon } from './mapAvatarIcon.js';
+import PresenceMapLegend, { countPresenceLegend } from './PresenceMapLegend.jsx';
+import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
-import { CursorZoom, MapCursorFix, MapSizeFix, SmoothMarker, smoothMapFocus, focusFromSearchParams } from './mapLeafletUtils.jsx';
+import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, smoothMapFocus, focusFromSearchParams, loadMapView, PersistMapView, CargoZoomGate } from './mapLeafletUtils.jsx';
 import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
-import { MAP_TILE_LAYERS, MAP_FIT_PEOPLE_MAX_ZOOM, MAP_FOCUS_MAX_ZOOM, MAP_MAX_ZOOM, tileLayerProps } from './mapTiles.js';
+import {
+  MAP_TILE_LAYERS,
+  MAP_FIT_PEOPLE_MAX_ZOOM,
+  MAP_FOCUS_MAX_ZOOM,
+  MAP_MAX_ZOOM,
+  loadStoredMapLayer,
+  mapWorldProps,
+  storeMapLayer,
+  tileLayerProps,
+} from './mapTiles.js';
+import { TacticalSitesLayer } from './TacticalSitesLayer.jsx';
+import { useTacticalSites } from './useTacticalSites.jsx';
 import ivRmStates from './data/ivRmStates.json';
 import { useIsPhone } from '../useMediaQuery.js';
 
@@ -47,6 +64,7 @@ L.Icon.Default.mergeOptions({
 
 /** Centro aproximado IV R.M. (NL / Tamaulipas / SLP). */
 const IV_RM_CENTER = [24.15, -99.55];
+const MAP_VIEW_KEY = 'tacticalptx_map_view_track';
 const SOCKET_URL = socketUrl();
 const TRAIL_MAX = 180;
 
@@ -128,8 +146,16 @@ function FlyToFocus({ target }) {
 function InvalidateOnLayout({ tick }) {
   const map = useMap();
   useEffect(() => {
-    const id = window.setTimeout(() => map.invalidateSize({ animate: false }), 80);
-    return () => clearTimeout(id);
+    const run = () => {
+      try {
+        map.invalidateSize({ animate: false });
+      } catch {
+        /* ignore */
+      }
+    };
+    run();
+    const ids = [50, 120, 280].map((ms) => window.setTimeout(run, ms));
+    return () => ids.forEach((id) => window.clearTimeout(id));
   }, [map, tick]);
   useEffect(() => {
     const onFs = () => map.invalidateSize({ animate: false });
@@ -198,14 +224,29 @@ export default function LiveTrackMap({ session }) {
   const scopeMemberIdsRef = useRef(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const initialFocus = focusFromSearchParams(searchParams);
+  const savedView = useMemo(
+    () => (initialFocus ? null : loadMapView(MAP_VIEW_KEY)),
+    // solo al montar / si hay foco por URL
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
   const isPhone = useIsPhone();
   const [locations, setLocations] = useState([]);
   const [onlineIds, setOnlineIds] = useState(new Set());
+  const [offlineRedMinutes, setOfflineRedMinutes] = useState(15);
   const [selectedId, setSelectedId] = useState(() => initialFocus?.userId || '');
   const [follow, setFollow] = useState(true);
+  const [locationPingBusy, setLocationPingBusy] = useState(false);
+  const [locationPingHint, setLocationPingHint] = useState('');
   const [trails, setTrails] = useState({});
   const [historyTrack, setHistoryTrack] = useState([]);
-  const [layer, setLayer] = useState('natural');
+  const [layer, setLayer] = useState(() => loadStoredMapLayer());
+  useEffect(() => {
+    storeMapLayer(layer);
+  }, [layer]);
+  const { sites: tacticalSites, visibleGroupIds, iconBlobs } = useTacticalSites(
+    session.token
+  );
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [live, setLive] = useState(false);
@@ -399,6 +440,9 @@ export default function LiveTrackMap({ session }) {
         (c.online || []).forEach((m) => ids.add(m.userId));
       });
       setOnlineIds(ids);
+      setOfflineRedMinutes(
+        loc.presenceOfflineRedMinutes || ov.overview?.presenceOfflineRedMinutes || 15
+      );
       setPanicUserIds(
         (() => {
           const next = new Set();
@@ -456,10 +500,32 @@ export default function LiveTrackMap({ session }) {
         if (!loc?.userId) return;
         const allowed = scopeMemberIdsRef.current;
         if (allowed && !allowed.has(loc.userId)) return;
-        setLocations((prev) => upsertLocation(prev, loc));
-        setTrails((prev) =>
-          appendTrail(prev, loc.userId, Number(loc.latitude), Number(loc.longitude))
-        );
+        let accepted = true;
+        setLocations((prev) => {
+          const old = prev.find((l) => l.userId === loc.userId);
+          if (
+            old &&
+            isAbsurdGpsJump(
+              old,
+              {
+                latitude: Number(loc.latitude),
+                longitude: Number(loc.longitude),
+                accuracyM: loc.accuracyM,
+                recordedAt: loc.recordedAt || new Date().toISOString(),
+              },
+              recordedAtMs
+            )
+          ) {
+            accepted = false;
+            return prev;
+          }
+          return upsertLocation(prev, loc);
+        });
+        if (accepted) {
+          setTrails((prev) =>
+            appendTrail(prev, loc.userId, Number(loc.latitude), Number(loc.longitude))
+          );
+        }
       })();
     });
     socket.on('dispatch:presence', () => reload());
@@ -569,6 +635,11 @@ export default function LiveTrackMap({ session }) {
     [people, now]
   );
 
+  const presenceLegendCounts = useMemo(
+    () => countPresenceLegend(people, panicUserIds, offlineRedMinutes),
+    [people, panicUserIds, offlineRedMinutes]
+  );
+
   const positions = useMemo(
     () => people.map((p) => [p.latitude, p.longitude]),
     [people]
@@ -576,6 +647,10 @@ export default function LiveTrackMap({ session }) {
 
   const selected = people.find((p) => p.userId === selectedId) || null;
   const selectedTrail = selectedId ? trails[selectedId] || historyTrack : [];
+
+  useEffect(() => {
+    setLocationPingHint('');
+  }, [selectedId]);
 
   const trackScopeLabel = useMemo(() => {
     if (scopeGroupIds?.length && dispatchCtx.groups?.length) {
@@ -694,7 +769,14 @@ export default function LiveTrackMap({ session }) {
             )}
             {people.map((p) => {
               const fresh = isFresh(p.recordedAt, now);
-              const online = onlineIds.has(p.userId);
+              const status = resolvePresenceStatus({
+                presence: p.presence,
+                focus: p.focus,
+                lastSeenAt: p.lastSeenAt,
+                offlineRedMinutes,
+                now,
+              });
+              const online = status === 'online' || status === 'service' || onlineIds.has(p.userId);
               const photo = listPhoto(p);
               return (
                 <li key={p.userId}>
@@ -715,12 +797,12 @@ export default function LiveTrackMap({ session }) {
                       <strong>{p.displayName}</strong>
                       <em>
                         {gpsStatusLine(p.recordedAt, now)}
-                        {online ? ' · En radio' : ''}
+                        {` · ${PRESENCE_LABELS[status] || status}`}
                         {p.accuracyM != null ? ` · ±${Math.round(p.accuracyM)} m` : ''}
                       </em>
                     </span>
-                    <span className={`lt-status-pill${fresh ? ' on' : ''}`}>
-                      {fresh ? 'En vivo' : 'Última'}
+                    <span className={`lt-status-pill${online ? ' on' : ''}`}>
+                      {online ? 'En línea' : 'Off'}
                     </span>
                   </button>
                 </li>
@@ -761,6 +843,11 @@ export default function LiveTrackMap({ session }) {
               >
                 Contactar
               </button>
+              {locationPingHint ? (
+                <p className="lt-detail-hint" style={{ marginTop: '0.45rem', fontSize: '0.85rem' }}>
+                  {locationPingHint}
+                </p>
+              ) : null}
             </div>
           )}
         </div>
@@ -799,6 +886,7 @@ export default function LiveTrackMap({ session }) {
                 </button>
               ))}
             </div>
+            {/* Temporal: ocultar selector SITIOS en Seguimiento */}
             <button
               type="button"
               className="lt-max-btn lt-max-btn--map"
@@ -824,17 +912,24 @@ export default function LiveTrackMap({ session }) {
               </span>
             </div>
           </div>
+          <PresenceMapLegend overlay counts={presenceLegendCounts} />
           <MapContainer
             className="lt-map-inner"
-            center={IV_RM_CENTER}
-            zoom={7}
+            center={
+              initialFocus
+                ? [initialFocus.lat, initialFocus.lng]
+                : savedView?.center || IV_RM_CENTER
+            }
+            zoom={initialFocus?.zoom ?? savedView?.zoom ?? 7}
             maxZoom={MAP_MAX_ZOOM}
+            {...mapWorldProps()}
             scrollWheelZoom={false}
             doubleClickZoom
             zoomSnap={0.25}
-            zoomDelta={0.5}
+            zoomDelta={1}
           >
             <TileLayer key={layer} {...tileLayerProps(tile)} />
+            <ZoomControl position="bottomright" />
             <GeoJSON
               key="iv-rm-states-v2"
               data={ivRmStates}
@@ -845,19 +940,26 @@ export default function LiveTrackMap({ session }) {
             <MapCursorFix />
             <InvalidateOnLayout tick={(maximized ? 1 : 0) + (sheetOpen ? 0 : 2)} />
             <MapSizeFix />
+            <MapWorldFillMinZoom />
+            <PersistMapView storageKey={MAP_VIEW_KEY} />
+            <TacticalSitesLayer
+              sites={tacticalSites}
+              visibleGroupIds={visibleGroupIds}
+              iconBlobs={iconBlobs}
+            />
           <FlyToFocus target={focusPin} />
           <FollowSelected
             target={followTarget}
             enabled={Boolean(selectedId && follow && !focusLock)}
           />
-          {!selectedId && !focusPin && people.length > 0 && (
+          {!selectedId && !focusPin && !savedView && people.length > 0 && (
             <FitPeople
               positions={positions}
               locked={Boolean(selectedId || focusPin)}
               scopeKey={scopeKey}
             />
           )}
-          {people.length === 0 && !focusPin && <FitIvRmStates enabled />}
+          {people.length === 0 && !focusPin && !savedView && <FitIvRmStates enabled />}
           {focusPin ? (
             <CircleMarker
               center={[focusPin.lat, focusPin.lng]}
@@ -889,43 +991,58 @@ export default function LiveTrackMap({ session }) {
               }}
             />
           ) : null}
-          {people.map((p) => {
-            const fresh = isFresh(p.recordedAt, now);
-            const selected = p.userId === selectedId;
-            const photo = markerPhoto(p);
-            const inPanic = panicUserIds.has(p.userId);
-            return (
-              <SmoothMarker
-                key={p.userId}
-                position={[Number(p.latitude), Number(p.longitude)]}
-                zIndexOffset={selected ? 900 : inPanic ? 400 : fresh ? 100 : 0}
-                icon={mapAvatarIcon({
-                  name: p.displayName,
-                  live: fresh,
-                  selected,
-                  photoSrc: photo,
-                  panic: inPanic,
-                })}
-                eventHandlers={{ click: () => focusPerson(p) }}
-              >
-                <Popup>
-                  <strong>{p.displayName}</strong>
-                  <br />
-                  {gpsStatusLine(p.recordedAt, now)}
-                  {recordedAtLocal(p.recordedAt) ? (
-                    <>
+          <CargoZoomGate>
+            {(showCargo) =>
+              people.map((p) => {
+                const selected = p.userId === selectedId;
+                const photo = markerPhoto(p);
+                const inPanic = panicUserIds.has(p.userId);
+                const status = resolvePresenceStatus({
+                  presence: p.presence,
+                  focus: p.focus,
+                  lastSeenAt: p.lastSeenAt,
+                  offlineRedMinutes,
+                  now,
+                });
+                const isLive = status === 'online' || status === 'service';
+                return (
+                  <SmoothMarker
+                    key={p.userId}
+                    position={[Number(p.latitude), Number(p.longitude)]}
+                    zIndexOffset={selected ? 900 : inPanic ? 400 : isLive ? 100 : 0}
+                    icon={mapAvatarIcon({
+                      name: p.displayName,
+                      cargo: p.cargo,
+                      showCargo,
+                      presence: status,
+                      selected,
+                      photoSrc: photo,
+                      panic: inPanic,
+                    })}
+                    eventHandlers={{ click: () => focusPerson(p) }}
+                  >
+                    <Popup>
+                      <strong>{p.displayName}</strong>
                       <br />
-                      <span style={{ opacity: 0.75, fontSize: 12 }}>
-                        {recordedAtLocal(p.recordedAt)}
-                      </span>
-                    </>
-                  ) : null}
-                  <br />
-                  <MapCoordsLink lat={p.latitude} lng={p.longitude} />
-                </Popup>
-              </SmoothMarker>
-            );
-          })}
+                      {PRESENCE_LABELS[status] || status}
+                      <br />
+                      {gpsStatusLine(p.recordedAt, now)}
+                      {recordedAtLocal(p.recordedAt) ? (
+                        <>
+                          <br />
+                          <span style={{ opacity: 0.75, fontSize: 12 }}>
+                            {recordedAtLocal(p.recordedAt)}
+                          </span>
+                        </>
+                      ) : null}
+                      <br />
+                      <MapCoordsLink lat={p.latitude} lng={p.longitude} />
+                    </Popup>
+                  </SmoothMarker>
+                );
+              })
+            }
+          </CargoZoomGate>
           {people.map((p) =>
             p.accuracyM > 0 ? (
               <Circle

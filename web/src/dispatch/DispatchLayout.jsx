@@ -26,7 +26,43 @@ const ROLE_LABEL = {
 
 const LISTEN_KEY = 'tacticalptx_listen_groups';
 const GROUP_KEY = 'tacticalptx_dispatch_group';
+const TALK_IDS_KEY = 'tacticalptx_talk_groups';
+const VIDEO_IDS_KEY = 'tacticalptx_video_groups';
+const ALERT_IDS_KEY = 'tacticalptx_alert_groups';
+const LISTEN_MODE_KEY = 'tacticalptx_listen_mode';
+const TALK_MODE_KEY = 'tacticalptx_talk_mode';
+const VIDEO_MODE_KEY = 'tacticalptx_video_mode';
+const ALERT_MODE_KEY = 'tacticalptx_alert_mode';
+const GROUP_ORDER_KEY = 'tacticalptx_group_order';
 const RAIL_MINI_KEY = 'tacticalptx_mod_rail_hidden';
+
+function readJsonArray(key) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || 'null');
+    return Array.isArray(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function readMode(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    if (v === 'individual' || v === 'multiple') return v;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
+function pickTopId(ids, order) {
+  const set = new Set(ids || []);
+  if (!set.size) return '';
+  for (const id of order || []) {
+    if (set.has(id)) return id;
+  }
+  return [...set][0] || '';
+}
 
 function ModIcon({ name }) {
   const common = {
@@ -123,21 +159,28 @@ function ModIcon({ name }) {
 }
 
 const NAV = [
-  { id: 'ops', to: '/despacho', end: true, label: 'Operaciones', hint: 'Consola PTT', icon: 'ops' },
+  {
+    id: 'ops',
+    to: '/despacho',
+    end: true,
+    label: 'Consola de Operaciones',
+    hint: 'Indicadores y mapa en vivo',
+    icon: 'ops',
+  },
   { id: 'track', to: '/despacho/seguimiento', label: 'Seguimiento', hint: 'Ubicación en vivo', icon: 'track' },
   { id: 'video', to: '/despacho/video', label: 'Video', hint: 'Cámara y transmisiones', icon: 'video' },
-  { id: 'map', to: '/despacho/mapa', label: 'Mapa en vivo', hint: 'Rutas y geocercas', icon: 'map' },
   { id: 'radio', to: '/despacho/radio', label: 'Radio PTT', hint: 'Hablar y chat', icon: 'radio' },
 ];
 
 const NAV_ORDER_KEY = 'tacticalptx_mod_nav_order';
-const DEFAULT_NAV_ORDER = ['ops', 'track', 'video', 'map', 'radio', 'catalogs', 'config'];
+const DEFAULT_NAV_ORDER = ['ops', 'track', 'video', 'radio', 'catalogs', 'admin', 'config'];
 
 function loadNavOrder() {
   try {
     const raw = JSON.parse(localStorage.getItem(NAV_ORDER_KEY) || 'null');
     if (!Array.isArray(raw) || !raw.length) return [...DEFAULT_NAV_ORDER];
     const known = new Set(DEFAULT_NAV_ORDER);
+    // Quitar ítems obsoletos (p. ej. «map» tras fusionar Mapa en vivo)
     const next = raw.filter((id) => known.has(id));
     for (const id of DEFAULT_NAV_ORDER) {
       if (!next.includes(id)) next.push(id);
@@ -157,14 +200,26 @@ function saveNavOrder(order) {
 }
 
 const CATALOG_LINKS = [
-  { to: '/despacho/catalogos/grados-empleos', label: 'Grados y empleos', icon: 'users' },
+  { to: '/despacho/catalogos/jerarquias', label: 'Jerarquías', icon: 'catalog' },
+  { to: '/despacho/catalogos/grados', label: 'Grados', icon: 'users' },
+  { to: '/despacho/catalogos/empleos', label: 'Empleos', icon: 'users' },
   { to: '/despacho/catalogos/dependencias', label: 'Dependencias', icon: 'groups' },
-  { to: '/despacho/catalogos/usuarios', label: 'Usuarios', icon: 'users' },
-  { to: '/despacho/catalogos/grupos', label: 'Grupos', icon: 'groups' },
+];
+
+const ADMIN_LINKS = [
+  { to: '/despacho/administracion/usuarios', label: 'Usuarios', icon: 'users' },
+  { to: '/despacho/administracion/grupos', label: 'Grupos', icon: 'groups' },
+  { to: '/despacho/administracion/sitios-tacticos', label: 'Sitios tácticos', icon: 'catalog' },
 ];
 
 const CONFIG_LINKS = [
   { to: '/despacho/configuracion/canales', label: 'Canales', icon: 'radio', allRoles: true },
+  {
+    to: '/despacho/configuracion/grabaciones',
+    label: 'Grabaciones',
+    icon: 'radio',
+    allRoles: true,
+  },
   { to: '/despacho/configuracion/respaldos', label: 'Respaldos', icon: 'catalog', adminOnly: true },
   {
     to: '/despacho/configuracion/auditoria',
@@ -184,6 +239,14 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
   const [groups, setGroups] = useState([]);
   const [group, setGroup] = useState(null);
   const [listenIds, setListenIds] = useState([]);
+  const [talkIds, setTalkIds] = useState([]);
+  const [videoIds, setVideoIds] = useState([]);
+  const [alertIds, setAlertIds] = useState([]);
+  const [listenMode, setListenMode] = useState(() => readMode(LISTEN_MODE_KEY, 'multiple'));
+  const [talkMode, setTalkMode] = useState(() => readMode(TALK_MODE_KEY, 'individual'));
+  const [videoMode, setVideoMode] = useState(() => readMode(VIDEO_MODE_KEY, 'individual'));
+  const [alertMode, setAlertMode] = useState(() => readMode(ALERT_MODE_KEY, 'individual'));
+  const [groupOrder, setGroupOrder] = useState([]);
   const [railMini, setRailMini] = useState(() => {
     try {
       return localStorage.getItem(RAIL_MINI_KEY) === '1';
@@ -198,7 +261,12 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
   const isPhone = useIsPhone();
   const isCoarse = useIsCoarsePointer();
 
-  const ptt = usePtt({ token: session.token, user: session.user, group });
+  const ptt = usePtt({
+    token: session.token,
+    user: session.user,
+    group,
+    talkGroupIds: talkIds,
+  });
   useGpsReporter(session.token);
 
   // Cerrar sheet «Más» al navegar.
@@ -207,10 +275,11 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
   }, [location.pathname]);
 
   const listenGroups = groups.filter((g) => listenIds.includes(g.id));
+  const skipListenIds = talkIds.length ? talkIds : group?.id ? [group.id] : [];
   useDispatchListen({
     token: session.token,
     groups: listenGroups,
-    skipGroupId: group?.id,
+    skipGroupIds: skipListenIds,
     muted: ptt.listenMuted,
   });
 
@@ -225,8 +294,9 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     return () => window.removeEventListener(PEER_EVENTS.OPEN_DM, onOpenDm);
   }, [location.pathname, navigate]);
 
-  const catalogsOpen =
-    location.pathname.startsWith('/despacho/catalogos') ||
+  const catalogsOpen = location.pathname.startsWith('/despacho/catalogos');
+  const adminOpen =
+    location.pathname.startsWith('/despacho/administracion') ||
     location.pathname.startsWith('/despacho/usuarios') ||
     location.pathname.startsWith('/despacho/grupos');
   const configOpen = location.pathname.startsWith('/despacho/configuracion');
@@ -365,6 +435,38 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       );
     }
 
+    if (id === 'admin') {
+      return (
+        <div key={id} className={navSlotClass(id)} {...dragProps}>
+          <details className="cc-mod-group" open={adminOpen}>
+            <summary title="Administración">
+              {handle}
+              <span className="cc-mod-link-icon">
+                <ModIcon name="users" />
+              </span>
+              <span className="cc-mod-group-label">Administración</span>
+              <span className="cc-mod-group-chevron" aria-hidden="true" />
+            </summary>
+            <div className="cc-mod-sub">
+              {ADMIN_LINKS.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  title={item.label}
+                  className={({ isActive }) => (isActive ? 'active' : undefined)}
+                >
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name={item.icon} />
+                  </span>
+                  <span className="cc-mod-sub-label">{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </details>
+        </div>
+      );
+    }
+
     if (id === 'config') {
       if (!showConfig) return null;
       return (
@@ -451,31 +553,110 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
         if (cancelled) return;
         const list = data.groups || [];
         setGroups(list);
-        let saved = null;
-        try {
-          saved = localStorage.getItem(GROUP_KEY);
-        } catch {
-          saved = null;
-        }
-        const savedGroup = list.find((g) => g.id === saved);
-        const ops = list.find((g) => !/^general$/i.test(g.name || ''));
-        const nextGroup = savedGroup || ops || list[0] || null;
-        setGroup(nextGroup);
-
-        let savedListen = null;
-        try {
-          savedListen = JSON.parse(localStorage.getItem(LISTEN_KEY) || 'null');
-        } catch {
-          savedListen = null;
-        }
         const allIds = list.map((x) => x.id);
-        const nextListen = Array.isArray(savedListen)
+
+        let savedOrder = readJsonArray(GROUP_ORDER_KEY) || [];
+        savedOrder = savedOrder.filter((id) => allIds.includes(id));
+        for (const id of allIds) {
+          if (!savedOrder.includes(id)) savedOrder.push(id);
+        }
+        setGroupOrder(savedOrder);
+
+        const savedListen = readJsonArray(LISTEN_KEY);
+        let nextListen = Array.isArray(savedListen)
           ? savedListen.filter((id) => allIds.includes(id))
           : allIds;
-        if (nextGroup?.id && !nextListen.includes(nextGroup.id)) {
-          nextListen.push(nextGroup.id);
+
+        const savedTalk = readJsonArray(TALK_IDS_KEY);
+        let nextTalk = Array.isArray(savedTalk)
+          ? savedTalk.filter((id) => allIds.includes(id))
+          : null;
+
+        let savedGroupId = null;
+        try {
+          savedGroupId = localStorage.getItem(GROUP_KEY);
+        } catch {
+          savedGroupId = null;
         }
-        setListenIds(nextListen.length ? nextListen : allIds);
+        // Compat: GROUP_KEY vacío = Ninguno; null ausente = migrar.
+        if (nextTalk == null) {
+          if (savedGroupId === '') {
+            nextTalk = [];
+          } else if (savedGroupId && allIds.includes(savedGroupId)) {
+            nextTalk = [savedGroupId];
+          } else {
+            const ops = list.find((g) => !/^general$/i.test(g.name || ''));
+            nextTalk = ops?.id ? [ops.id] : allIds[0] ? [allIds[0]] : [];
+          }
+        }
+
+        const modeListen = readMode(LISTEN_MODE_KEY, 'multiple');
+        const modeTalk = readMode(TALK_MODE_KEY, 'individual');
+        const modeVideo = readMode(VIDEO_MODE_KEY, 'individual');
+        const modeAlert = readMode(ALERT_MODE_KEY, 'individual');
+        setListenMode(modeListen);
+        setTalkMode(modeTalk);
+        setVideoMode(modeVideo);
+        setAlertMode(modeAlert);
+
+        if (modeListen === 'individual') {
+          const one = pickTopId(nextListen, savedOrder);
+          nextListen = one ? [one] : [];
+        }
+        if (modeTalk === 'individual') {
+          const one = pickTopId(nextTalk, savedOrder);
+          nextTalk = one ? [one] : [];
+        }
+
+        let nextVideo = readJsonArray(VIDEO_IDS_KEY);
+        if (!Array.isArray(nextVideo)) {
+          nextVideo = [];
+        } else {
+          nextVideo = nextVideo.filter((id) => allIds.includes(id));
+        }
+        if (modeVideo === 'individual') {
+          const one = pickTopId(nextVideo, savedOrder);
+          nextVideo = one ? [one] : [];
+        } else {
+          nextVideo = savedOrder.filter((id) => nextVideo.includes(id));
+        }
+
+        let nextAlert = readJsonArray(ALERT_IDS_KEY);
+        if (!Array.isArray(nextAlert)) {
+          nextAlert = [];
+        } else {
+          nextAlert = nextAlert.filter((id) => allIds.includes(id));
+        }
+        if (modeAlert === 'individual') {
+          const one = pickTopId(nextAlert, savedOrder);
+          nextAlert = one ? [one] : [];
+        } else {
+          nextAlert = savedOrder.filter((id) => nextAlert.includes(id));
+        }
+
+        // Hablar ⇒ oír
+        for (const id of nextTalk) {
+          if (!nextListen.includes(id)) nextListen.push(id);
+        }
+
+        setListenIds(nextListen);
+        setTalkIds(nextTalk);
+        setVideoIds(nextVideo);
+        setAlertIds(nextAlert);
+        const primaryId = pickTopId(nextTalk, savedOrder);
+        setGroup(list.find((g) => g.id === primaryId) || null);
+
+        try {
+          localStorage.setItem(LISTEN_KEY, JSON.stringify(nextListen));
+          localStorage.setItem(TALK_IDS_KEY, JSON.stringify(nextTalk));
+          localStorage.setItem(VIDEO_IDS_KEY, JSON.stringify(nextVideo));
+          localStorage.setItem(ALERT_IDS_KEY, JSON.stringify(nextAlert));
+          localStorage.setItem(GROUP_ORDER_KEY, JSON.stringify(savedOrder));
+          if (primaryId) localStorage.setItem(GROUP_KEY, primaryId);
+          else localStorage.setItem(GROUP_KEY, '');
+        } catch {
+          /* ignore */
+        }
       })
       .catch((e) => {
         if (/token|autoriz/i.test(e.message)) onLogout();
@@ -521,16 +702,28 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     };
   }, [ptt.toggle]);
 
-  function onGroupChange(id) {
-    const next = groups.find((g) => g.id === id) || null;
-    setGroup(next);
+  function applyTalkIds(ids) {
+    const valid = (ids || []).filter((id) => groups.some((g) => g.id === id));
+    setTalkIds(valid);
+    const primaryId = pickTopId(valid, groupOrder);
+    setGroup(groups.find((g) => g.id === primaryId) || null);
     try {
-      if (next?.id) localStorage.setItem(GROUP_KEY, next.id);
+      localStorage.setItem(TALK_IDS_KEY, JSON.stringify(valid));
+      localStorage.setItem(GROUP_KEY, primaryId || '');
     } catch {
       /* ignore */
     }
-    if (next?.id && !listenIds.includes(next.id)) {
-      onListenChange([...listenIds, next.id]);
+  }
+
+  function onGroupChange(id) {
+    // Compat API: un id o '' → talk individual
+    if (!id) {
+      applyTalkIds([]);
+      return;
+    }
+    applyTalkIds([id]);
+    if (!listenIds.includes(id)) {
+      onListenChange([...listenIds, id]);
     }
   }
 
@@ -540,6 +733,109 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       localStorage.setItem(LISTEN_KEY, JSON.stringify(ids));
     } catch {
       /* ignore */
+    }
+  }
+
+  function onTalkIdsChange(ids) {
+    applyTalkIds(ids);
+  }
+
+  function onListenModeChange(mode) {
+    setListenMode(mode);
+    try {
+      localStorage.setItem(LISTEN_MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onTalkModeChange(mode) {
+    setTalkMode(mode);
+    try {
+      localStorage.setItem(TALK_MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onVideoIdsChange(ids) {
+    const valid = (ids || []).filter((id) => groups.some((g) => g.id === id));
+    const ordered = groupOrder.length
+      ? groupOrder.filter((id) => valid.includes(id))
+      : valid;
+    setVideoIds(ordered);
+    try {
+      localStorage.setItem(VIDEO_IDS_KEY, JSON.stringify(ordered));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onVideoModeChange(mode) {
+    setVideoMode(mode);
+    try {
+      localStorage.setItem(VIDEO_MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onAlertIdsChange(ids) {
+    const valid = (ids || []).filter((id) => groups.some((g) => g.id === id));
+    const ordered = groupOrder.length
+      ? groupOrder.filter((id) => valid.includes(id))
+      : valid;
+    setAlertIds(ordered);
+    try {
+      localStorage.setItem(ALERT_IDS_KEY, JSON.stringify(ordered));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onAlertModeChange(mode) {
+    setAlertMode(mode);
+    try {
+      localStorage.setItem(ALERT_MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onGroupOrderChange(ids) {
+    setGroupOrder(ids);
+    try {
+      localStorage.setItem(GROUP_ORDER_KEY, JSON.stringify(ids));
+    } catch {
+      /* ignore */
+    }
+    // Recalcular PTT primario según nuevo orden
+    if (talkIds.length) {
+      const primaryId = pickTopId(talkIds, ids);
+      setGroup(groups.find((g) => g.id === primaryId) || null);
+      try {
+        localStorage.setItem(GROUP_KEY, primaryId || '');
+      } catch {
+        /* ignore */
+      }
+    }
+    if (videoIds.length) {
+      const nextVideo = ids.filter((id) => videoIds.includes(id));
+      setVideoIds(nextVideo);
+      try {
+        localStorage.setItem(VIDEO_IDS_KEY, JSON.stringify(nextVideo));
+      } catch {
+        /* ignore */
+      }
+    }
+    if (alertIds.length) {
+      const nextAlert = ids.filter((id) => alertIds.includes(id));
+      setAlertIds(nextAlert);
+      try {
+        localStorage.setItem(ALERT_IDS_KEY, JSON.stringify(nextAlert));
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -556,7 +852,9 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
           : `${ptt.speaking.displayName} habla`
         : ptt.livekitReady
           ? 'Canal libre'
-          : 'Conectando…';
+          : group
+            ? 'Conectando…'
+            : 'Sin canal PTT';
 
   const outletContext = {
     session,
@@ -565,8 +863,24 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     groups,
     group,
     listenIds,
+    talkIds,
+    videoIds,
+    alertIds,
+    listenMode,
+    talkMode,
+    videoMode,
+    alertMode,
+    groupOrder,
     onGroupChange,
     onListenChange,
+    onTalkIdsChange,
+    onVideoIdsChange,
+    onAlertIdsChange,
+    onListenModeChange,
+    onTalkModeChange,
+    onVideoModeChange,
+    onAlertModeChange,
+    onGroupOrderChange,
   };
 
   const path = location.pathname;
@@ -578,6 +892,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       path.startsWith('/despacho/video') ||
       path.startsWith('/despacho/mapa') ||
       path.startsWith('/despacho/catalogos') ||
+      path.startsWith('/despacho/administracion') ||
       path.startsWith('/despacho/configuracion') ||
       path.startsWith('/despacho/usuarios') ||
       path.startsWith('/despacho/grupos'));
@@ -605,16 +920,6 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
           </div>
         </div>
         <div className="cc-top-right">
-          {!isPhone && (
-            <button
-              type="button"
-              className="cc-btn ghost btn-personas"
-              title="Buscar personas (Ctrl+K)"
-              onClick={() => openPeoplePalette()}
-            >
-              Personas
-            </button>
-          )}
           <div className="cc-user-chip">
             {!isPhone && <span className="cc-user">{session.user.displayName}</span>}
             <span className={`cc-role-badge role-${role}`}>{isPhone ? role : roleLabel}</span>
@@ -622,6 +927,14 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
           </div>
           {!isPhone && (
             <nav className="cc-topnav-inst" aria-label="Accesos rápidos">
+              <button
+                type="button"
+                className="nav-personas"
+                title="Buscar personas (Ctrl+K)"
+                onClick={() => openPeoplePalette()}
+              >
+                Personas
+              </button>
               <Link to="/despacho/radio">Radio</Link>
               {showSalir && (
                 <button type="button" className="nav-out" onClick={onLogout}>
@@ -690,14 +1003,28 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                   className="cc-radio-dock-ch-link"
                   title="Elegir canales a oír y canal de PTT"
                 >
-                  <span className="cc-radio-dock-ch">{group.name}</span>
+                  <span className="cc-radio-dock-ch">
+                    {talkIds.length > 1
+                      ? `PTT → ${talkIds.length} · ${group.name}`
+                      : group.name}
+                  </span>
                   <span className="cc-radio-dock-listen">
                     Oye {listenIds.length || 0}
                     {groups.length ? `/${groups.length}` : ''}
                   </span>
                 </Link>
               ) : (
-                <span className="cc-radio-dock-ch">Sin canal</span>
+                <Link
+                  to="/despacho/configuracion/canales"
+                  className="cc-radio-dock-ch-link"
+                  title="Elegir canal de PTT"
+                >
+                  <span className="cc-radio-dock-ch">Sin canal PTT</span>
+                  <span className="cc-radio-dock-listen">
+                    Oye {listenIds.length || 0}
+                    {groups.length ? `/${groups.length}` : ''}
+                  </span>
+                </Link>
               )}
               <span className="cc-radio-dock-status">{speaker}</span>
             </div>
@@ -828,6 +1155,22 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                   <span>
                     <strong>{item.label}</strong>
                     <small>Catálogos</small>
+                  </span>
+                </NavLink>
+              ))}
+              {ADMIN_LINKS.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => `cc-phone-more-link${isActive ? ' active' : ''}`}
+                  onClick={() => setMoreOpen(false)}
+                >
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name={item.icon} />
+                  </span>
+                  <span>
+                    <strong>{item.label}</strong>
+                    <small>Administración</small>
                   </span>
                 </NavLink>
               ))}

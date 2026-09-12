@@ -158,7 +158,7 @@ export default function CatalogGradesEmpleos({ session }) {
         }
         setDialog({
           title: 'Abreviatura',
-          message: `Indicativo para «${name}»`,
+          message: `Abreviatura para «${name}»`,
           promptDefault: g.abbreviation,
           promptLabel: 'Abreviatura',
           confirmLabel: 'Guardar',

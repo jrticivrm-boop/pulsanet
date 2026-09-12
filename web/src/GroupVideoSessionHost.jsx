@@ -21,12 +21,13 @@ export default function GroupVideoSessionHost({ session }) {
   useEffect(() => {
     const onOpen = async (ev) => {
       const detail = ev?.detail || {};
-      const groupId = detail.groupId;
+      const groupId = detail.groupId || detail.groupIds?.[0];
       if (!groupId) return;
       try {
         await warmUpVideoCallMedia();
         setActive({
           groupId,
+          groupIds: detail.groupIds?.length ? detail.groupIds : [groupId],
           groupName: detail.groupName || 'Grupo',
           layout: detail.layout === 'console' ? 'console' : 'overlay',
         });
@@ -62,6 +63,7 @@ export default function GroupVideoSessionHost({ session }) {
     <GroupVideoPanel
       token={session.token}
       groupId={active.groupId}
+      groupIds={active.groupIds}
       groupName={active.groupName}
       layout={active.layout}
       onClose={close}

@@ -88,10 +88,18 @@ export function createMessagesRouter(io) {
     const readMap = await loadReadReceipts(ids);
     for (const m of messages) {
       m.reactions = reactMap.get(m.id) || [];
-      const r = readMap.get(m.id) || { readCount: 0, peerCount: 0 };
+      const r = readMap.get(m.id) || {
+        readCount: 0,
+        peerCount: 0,
+        deliveredCount: 0,
+      };
       m.readCount = r.readCount;
       m.peerCount = r.peerCount;
       m.readFully = r.peerCount > 0 && r.readCount >= r.peerCount;
+      m.deliveredCount = r.deliveredCount || 0;
+      m.delivered =
+        m.readFully ||
+        (r.peerCount > 0 && m.deliveredCount >= r.peerCount);
     }
 
     res.json({ ok: true, messages });

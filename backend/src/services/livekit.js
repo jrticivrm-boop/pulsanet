@@ -103,7 +103,8 @@ export async function createRoomToken({
   const at = new AccessToken(config.livekit.apiKey, config.livekit.apiSecret, {
     identity: String(identity),
     name: displayName || String(identity),
-    ttl: '2h',
+    // 1h: menos ventana de reuso; refresh de llamada renueva.
+    ttl: '1h',
   });
 
   at.addGrant({

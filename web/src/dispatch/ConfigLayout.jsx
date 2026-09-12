@@ -24,12 +24,26 @@ export default function ConfigLayout({ session }) {
           >
             Canales
           </NavLink>
+          <NavLink
+            to="/despacho/configuracion/grabaciones"
+            className={({ isActive }) => (isActive ? 'active' : undefined)}
+          >
+            Grabaciones
+          </NavLink>
           {admin && (
             <NavLink
               to="/despacho/configuracion/respaldos"
               className={({ isActive }) => (isActive ? 'active' : undefined)}
             >
               Respaldos
+            </NavLink>
+          )}
+          {admin && (
+            <NavLink
+              to="/despacho/configuracion/presencia"
+              className={({ isActive }) => (isActive ? 'active' : undefined)}
+            >
+              Presencia
             </NavLink>
           )}
           {admin && (

@@ -5,6 +5,7 @@ import {
   fetchAdminGroups,
   fetchAdminUsers,
   canManageUsers,
+  unlockAdminUserLogin,
   isRootUser,
   patchAdminUser,
   previewAdminUsername,
@@ -13,6 +14,8 @@ import {
   fetchGradesEmpleos,
 } from '../api';
 import { EJERCITO_MEXICANO_GRADE_GROUPS } from './armyGrades.js';
+import { formatMatriculaInput, isValidMatricula, matriculaDigitMax, splitMatricula } from '../matricula.js';
+import { openPeerSheet } from '../peerActions';
 
 const ROLE_OPTIONS = [
   { value: 'operator', label: 'Operador' },
@@ -31,8 +34,6 @@ const EMPTY_FORM = {
   paternalSurname: '',
   maternalSurname: '',
   matricula: '',
-  callSign: '',
-  callSignDetail: '',
   role: 'operator',
   regionId: '',
   zoneId: '',
@@ -45,28 +46,6 @@ const EMPTY_FORM = {
 
 function fieldFilled(value) {
   return String(value || '').trim().length > 0;
-}
-
-/** Indicativo final: «SGTO GOMEZ» o «S.O. IV R.M. (SALA DE OPERACIONES IV R.M.)» */
-function composeCallSignDisplay(callSign, detail) {
-  const base = String(callSign || '').trim();
-  if (!base) return '';
-  const d = String(detail || '')
-    .trim()
-    .replace(/^\(+/, '')
-    .replace(/\)+$/, '')
-    .trim();
-  return d ? `${base} (${d})` : base;
-}
-
-function splitCallSignDisplay(displayName) {
-  const raw = String(displayName || '').trim();
-  if (!raw) return { callSign: '', callSignDetail: '' };
-  const m = raw.match(/^(.*?)\s*\((.+)\)\s*$/);
-  if (m) {
-    return { callSign: m[1].trim(), callSignDetail: m[2].trim() };
-  }
-  return { callSign: raw, callSignDetail: '' };
 }
 
 function CreateStepIndicator({ step, editMode = false }) {
@@ -184,6 +163,7 @@ function UserCard({
   onChangeRole,
   onToggleVisibility,
   onToggleActive,
+  onUnlockLogin,
   onResetPassword,
   onTogglePanicPerm,
   onRemoveUser,
@@ -213,6 +193,11 @@ function UserCard({
           <span className={`status-pill cc-user-status ${u.isActive ? 'on' : 'off'}`}>
             {u.isActive ? 'Activo' : 'Inactivo'}
           </span>
+          {u.loginLocked ? (
+            <span className="status-pill cc-user-status off" title={u.loginLockedReason || 'Bloqueo por intentos'}>
+              Login bloqueado
+            </span>
+          ) : null}
         </div>
 
         <div className="cc-user-card-fields">
@@ -279,14 +264,32 @@ function UserCard({
         </div>
       </div>
 
-      {canEdit && (
-        <footer className="cc-user-card-actions">
+      <footer className="cc-user-card-actions">
+        <button
+          type="button"
+          className="cc-btn primary cc-btn-sm"
+          onClick={() =>
+            openPeerSheet({
+              id: u.id,
+              displayName: u.displayName || u.fullName || u.username,
+            })
+          }
+        >
+          Contactar
+        </button>
+        {canEdit && (
+          <>
           <button type="button" className="cc-btn ghost cc-btn-sm" onClick={() => onEdit(u)}>
             Editar
           </button>
           <button type="button" className="cc-btn ghost cc-btn-sm" onClick={() => onToggleActive(u)}>
             {u.isActive ? 'Desactivar' : 'Activar'}
           </button>
+          {u.loginLocked && (
+            <button type="button" className="cc-btn primary cc-btn-sm" onClick={() => onUnlockLogin(u)}>
+              Desbloquear login
+            </button>
+          )}
           <button type="button" className="cc-btn ghost cc-btn-sm" onClick={() => onResetPassword(u)}>
             Restablecer clave
           </button>
@@ -300,8 +303,9 @@ function UserCard({
               Eliminar
             </button>
           )}
-        </footer>
-      )}
+          </>
+        )}
+      </footer>
     </li>
   );
 }
@@ -315,8 +319,6 @@ export default function DispatchUsers({ session }) {
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
   const [preview, setPreview] = useState({ username: '', displayName: '', fullName: '' });
-  /** Si el admin editó el indicativo a mano, no sobrescribir con la sugerencia automática. */
-  const [callSignLocked, setCallSignLocked] = useState(false);
   const [step, setStep] = useState('datos'); // 'datos' | 'adscripcion' | 'grupos'
   const [selectedGroupIds, setSelectedGroupIds] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -336,10 +338,7 @@ export default function DispatchUsers({ session }) {
   const canManage = canManageUsers(session.user);
   const isRoot = isRootUser(session.user);
 
-  const composedDisplayName = useMemo(
-    () => composeCallSignDisplay(form.callSign, form.callSignDetail),
-    [form.callSign, form.callSignDetail]
-  );
+  const composedDisplayName = preview.displayName || '';
 
   const previewKey = useMemo(
     () =>
@@ -418,7 +417,17 @@ export default function DispatchUsers({ session }) {
           if (!map.has(key)) map.set(key, []);
           map.get(key).push({ value: g.abbreviation, label: g.name });
         }
-        setGradeGroups([...map.entries()].map(([label, options]) => ({ label, options })));
+        const order = new Map((catData.jerarquias || []).map((j, i) => [j.name, i]));
+        setGradeGroups(
+          [...map.entries()]
+            .sort((a, b) => {
+              const ia = order.has(a[0]) ? order.get(a[0]) : 999;
+              const ib = order.has(b[0]) ? order.get(b[0]) : 999;
+              if (ia !== ib) return ia - ib;
+              return a[0].localeCompare(b[0], 'es');
+            })
+            .map(([label, options]) => ({ label, options }))
+        );
       }
       setEmpleos(catData?.empleos || []);
       setError('');
@@ -443,9 +452,7 @@ export default function DispatchUsers({ session }) {
   function openEditModal(u) {
     if (!canManage) return;
     const path = findOrgPath(orgTree, u.unitId, u.adminScopeUnitId);
-    const split = splitCallSignDisplay(u.displayName);
     setEditingUser(u);
-    setCallSignLocked(true);
     setForm({
       grade: u.grade || '',
       specialty: u.specialty || '',
@@ -453,9 +460,7 @@ export default function DispatchUsers({ session }) {
       givenNames: u.givenNames || '',
       paternalSurname: u.paternalSurname || '',
       maternalSurname: u.maternalSurname || '',
-      matricula: u.matricula || '',
-      callSign: split.callSign,
-      callSignDetail: split.callSignDetail,
+      matricula: formatMatriculaInput(u.matricula || ''),
       role: u.role || 'operator',
       regionId: path.regionId || '',
       zoneId: path.zoneId || '',
@@ -488,9 +493,6 @@ export default function DispatchUsers({ session }) {
     if (!form.grade.trim() || !form.givenNames.trim() || !form.paternalSurname.trim()) {
       if (!editingUser) {
         setPreview({ username: '', displayName: '', fullName: '' });
-        if (!callSignLocked) {
-          setForm((f) => ({ ...f, callSign: '' }));
-        }
       }
       return;
     }
@@ -502,25 +504,12 @@ export default function DispatchUsers({ session }) {
         paternalSurname: form.paternalSurname,
         maternalSurname: form.maternalSurname,
         cargo: form.cargo,
-        callSign: callSignLocked ? form.callSign : undefined,
-        callSignDetail: form.callSignDetail,
       })
         .then((data) => {
           if (cancelled) return;
-          const short = data.callSignShort || data.callSign || data.displayName || '';
-          if (!callSignLocked) {
-            setForm((f) => ({ ...f, callSign: short }));
-          }
           setPreview({
             username: editingUser?.username || data.username || '',
-            displayName:
-              composeCallSignDisplay(
-                callSignLocked ? form.callSign : short,
-                form.callSignDetail
-              ) ||
-              data.displayName ||
-              data.callSign ||
-              '',
+            displayName: data.displayName || data.callSign || '',
             fullName: data.fullName || '',
           });
         })
@@ -534,21 +523,11 @@ export default function DispatchUsers({ session }) {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [
-    previewKey,
-    canManage,
-    session.token,
-    createOpen,
-    editingUser,
-    callSignLocked,
-    form.callSign,
-    form.callSignDetail,
-  ]);
+  }, [previewKey, canManage, session.token, createOpen, editingUser]);
 
   function resetCreateFlow() {
     setForm(EMPTY_FORM);
     setPreview({ username: '', displayName: '', fullName: '' });
-    setCallSignLocked(false);
     setStep('datos');
     setSelectedGroupIds([]);
   }
@@ -559,8 +538,16 @@ export default function DispatchUsers({ session }) {
       setError('Completa grado y matrícula.');
       return;
     }
+    if (!isValidMatricula(form.matricula)) {
+      const { letter } = splitMatricula(form.matricula);
+      const max = matriculaDigitMax(letter || 'B');
+      setError(
+        `Matrícula inválida: A-/B-/C-/D- y ${max} números (ej. ${letter === 'A' ? 'A-12345678' : 'D-1412643'}).`,
+      );
+      return;
+    }
     if (!preview.username || !composedDisplayName) {
-      setError('Completa grado, nombre, apellido e indicativo al aire.');
+      setError('Completa grado, nombre y apellido paterno.');
       return;
     }
     setError('');
@@ -598,6 +585,14 @@ export default function DispatchUsers({ session }) {
 
   async function onSaveEdit() {
     if (!editingUser) return;
+    if (!isValidMatricula(form.matricula)) {
+      const { letter } = splitMatricula(form.matricula);
+      const max = matriculaDigitMax(letter || 'B');
+      setError(
+        `Matrícula inválida: A-/B-/C-/D- y ${max} números (ej. ${letter === 'A' ? 'A-12345678' : 'D-1412643'}).`,
+      );
+      return;
+    }
     setBusy(true);
     try {
       const adminScopeUnitId =
@@ -613,11 +608,8 @@ export default function DispatchUsers({ session }) {
         givenNames: form.givenNames,
         paternalSurname: form.paternalSurname,
         maternalSurname: form.maternalSurname || null,
-        matricula: form.matricula,
+        matricula: formatMatriculaInput(form.matricula),
         role: form.role,
-        displayName: composedDisplayName || undefined,
-        callSign: form.callSign || undefined,
-        callSignDetail: form.callSignDetail || undefined,
         unitId: form.unitId || null,
         adminScopeUnitId,
         canSeeRegion: form.canSeeRegion,
@@ -648,9 +640,7 @@ export default function DispatchUsers({ session }) {
             : form.adminScopeUnitId || undefined;
       const created = await createAdminUser(session.token, {
         ...form,
-        displayName: composedDisplayName,
-        callSign: form.callSign,
-        callSignDetail: form.callSignDetail || undefined,
+        matricula: formatMatriculaInput(form.matricula),
         unitId: form.unitId || undefined,
         adminScopeUnitId,
         canSeeRegion: form.canSeeRegion,
@@ -683,6 +673,16 @@ export default function DispatchUsers({ session }) {
     try {
       await patchAdminUser(session.token, u.id, { isActive: !u.isActive });
       await reload({ silent: true });
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function unlockLogin(u) {
+    try {
+      await unlockAdminUserLogin(session.token, u.id);
+      await reload({ silent: true });
+      setError('');
     } catch (err) {
       setError(err.message);
     }
@@ -818,9 +818,9 @@ export default function DispatchUsers({ session }) {
       { label: 'Grado', ok: fieldFilled(form.grade) },
       { label: 'Nombre(s)', ok: fieldFilled(form.givenNames) },
       { label: 'Apellido paterno', ok: fieldFilled(form.paternalSurname) },
-      { label: 'Matrícula', ok: fieldFilled(form.matricula) },
+      { label: 'Matrícula', ok: isValidMatricula(form.matricula) },
       { label: 'Usuario generado', ok: fieldFilled(preview.username) },
-      { label: 'Indicativo al aire', ok: fieldFilled(composedDisplayName) },
+      { label: 'Indicativo', ok: fieldFilled(composedDisplayName) },
     ],
     [form, preview, composedDisplayName]
   );
@@ -841,12 +841,7 @@ export default function DispatchUsers({ session }) {
       <header className="dispatch-header cc-cat-compact-head">
         <div>
           <h1>Usuarios</h1>
-          <p className="cc-page-sub">
-            En chat y radio figura el <strong>indicativo</strong> (ej.{' '}
-            <strong>SGTO GOMEZ</strong>, <strong>B.O. LINARES</strong>,{' '}
-            <strong>S.O. IV R.M. (SALA DE OPERACIONES IV R.M.)</strong>). El login
-            (ggomezd2) solo sirve para entrar.
-          </p>
+          <p className="cc-page-sub">Alta y administración de operadores.</p>
         </div>
         <div className="cc-users-header-actions">
           {canManage && (
@@ -961,6 +956,7 @@ export default function DispatchUsers({ session }) {
                 onChangeRole={changeRole}
                 onToggleVisibility={toggleVisibility}
                 onToggleActive={toggleActive}
+                onUnlockLogin={unlockLogin}
                 onResetPassword={resetPassword}
                 onTogglePanicPerm={togglePanicPerm}
                 onRemoveUser={removeUser}
@@ -974,8 +970,6 @@ export default function DispatchUsers({ session }) {
         <div
           className="sys-modal-backdrop"
           role="presentation"
-          onClick={closeCreateModal}
-          data-esc-close
         >
           <div
             className="sys-modal sys-modal--lg cc-users-create-modal"
@@ -991,7 +985,6 @@ export default function DispatchUsers({ session }) {
               <button
                 type="button"
                 className="sys-modal-x"
-                data-esc-close-btn
                 aria-label="Cerrar"
                 onClick={closeCreateModal}
               >
@@ -1059,10 +1052,31 @@ export default function DispatchUsers({ session }) {
                     )}
                   </label>
                   <label className="field">
-                    <span>Matrícula *</span>
+                    <span>
+                      Matrícula *{' '}
+                      <em className="cc-field-hint-inline">A=8 · B-/C-/D =7</em>
+                    </span>
                     <input
                       value={form.matricula}
-                      onChange={(e) => setForm({ ...form, matricula: e.target.value })}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          matricula: formatMatriculaInput(e.target.value, {
+                            prev: form.matricula,
+                          }),
+                        })
+                      }
+                      onBlur={(e) =>
+                        setForm({
+                          ...form,
+                          matricula: formatMatriculaInput(e.target.value),
+                        })
+                      }
+                      placeholder="D-"
+                      inputMode="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      title="Primero letra A/B/C/D; el guion se inserta solo. Backspace borra letra+guion. A=8 / BCD=7"
                       required
                     />
                   </label>
@@ -1142,74 +1156,34 @@ export default function DispatchUsers({ session }) {
                     <input
                       value={form.cargo}
                       onChange={(e) => setForm({ ...form, cargo: e.target.value })}
-                      placeholder="Opcional — Jfe. Rgnl. TIC, Op. Radio…"
+                      placeholder="desarrollador, Op. Radio…"
                     />
                   </label>
                 </div>
               </section>
 
               <section className="cc-form-section cc-form-preview">
-                <h3 className="cc-form-section-title">Identificador en chat y radio</h3>
-                <p className="cc-group-pick-hint">
-                  Sugerido: <strong>grado + apellido</strong> en mayúsculas (ej. SGTO GOMEZ).
-                  Puedes editarlo (B.O. LINARES) y agregar detalle entre paréntesis
-                  (S.O. IV R.M. → Sala de Operaciones…).
-                </p>
+                <h3 className="cc-form-section-title">Identificador</h3>
                 <div className="cc-form-grid">
                   <label className="field">
                     <span>Usuario de acceso (login)</span>
                     <input
                       value={preview.username}
                       readOnly
-                      placeholder="Automático al completar nombre y grado"
+                      placeholder="Automático"
                       className="cc-input-readonly"
                     />
-                    {editingUser ? (
-                      <span className="cc-field-hint">El usuario de acceso no cambia al editar.</span>
-                    ) : null}
                   </label>
                   <label className="field">
-                    <span>Indicativo al aire</span>
+                    <span>Se muestra como</span>
                     <input
-                      value={form.callSign}
-                      onChange={(e) => {
-                        setCallSignLocked(true);
-                        setForm({ ...form, callSign: e.target.value });
-                      }}
-                      placeholder="SGTO GOMEZ · B.O. LINARES · S.O. IV R.M."
-                      className="cc-preview-callsign"
+                      value={composedDisplayName}
+                      readOnly
+                      placeholder="Sgto. 1/o. Gomez, desarrollador"
+                      className="cc-input-readonly cc-preview-callsign"
                     />
-                  </label>
-                  <label className="field cc-form-span-2">
-                    <span>Detalle / expansión (opcional)</span>
-                    <input
-                      value={form.callSignDetail}
-                      onChange={(e) => setForm({ ...form, callSignDetail: e.target.value })}
-                      placeholder="SALA DE OPERACIONES IV R.M."
-                    />
-                    <span className="cc-field-hint">
-                      Se muestra como:{' '}
-                      <strong>{composedDisplayName || '—'}</strong>
-                    </span>
                   </label>
                 </div>
-                {!callSignLocked && form.grade && form.paternalSurname ? (
-                  <p className="cc-field-hint" style={{ marginTop: '0.5rem' }}>
-                    Indicativo sugerido automáticamente. Edítalo para fijarlo.
-                  </p>
-                ) : null}
-                {callSignLocked ? (
-                  <button
-                    type="button"
-                    className="cc-btn ghost"
-                    style={{ marginTop: '0.5rem' }}
-                    onClick={() => {
-                      setCallSignLocked(false);
-                    }}
-                  >
-                    Volver a sugerencia automática
-                  </button>
-                ) : null}
               </section>
 
               <div className="field field-actions cc-form-actions">
@@ -1219,7 +1193,7 @@ export default function DispatchUsers({ session }) {
                   disabled={
                     !preview.username ||
                     !composedDisplayName ||
-                    !form.matricula.trim()
+                    !isValidMatricula(form.matricula)
                   }
                 >
                   Continuar a adscripción →
@@ -1462,18 +1436,12 @@ export default function DispatchUsers({ session }) {
       )}
 
       {credModal && (
-        <div
-          className="sys-modal-backdrop"
-          role="presentation"
-          onClick={() => setCredModal(null)}
-          data-esc-close
-        >
+        <div className="sys-modal-backdrop" role="presentation" data-esc-close>
           <div
             className="sys-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="cred-modal-title"
-            onClick={(e) => e.stopPropagation()}
           >
             <header className="sys-modal-head">
               <h2 id="cred-modal-title">{credModal.title}</h2>
@@ -1530,18 +1498,12 @@ export default function DispatchUsers({ session }) {
       )}
 
       {confirmModal && (
-        <div
-          className="sys-modal-backdrop"
-          role="presentation"
-          onClick={() => setConfirmModal(null)}
-          data-esc-close
-        >
+        <div className="sys-modal-backdrop" role="presentation" data-esc-close>
           <div
             className="sys-modal sys-modal--sm"
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-modal-title"
-            onClick={(e) => e.stopPropagation()}
           >
             <header className="sys-modal-head">
               <h2 id="confirm-modal-title">{confirmModal.title}</h2>

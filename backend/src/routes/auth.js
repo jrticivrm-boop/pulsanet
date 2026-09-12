@@ -11,9 +11,17 @@ import { validateNewPassword } from '../services/tempPassword.js';
 import { exportWireKeyB64, isWireEncryptionEnabled } from '../services/wireCrypto.js';
 import {
   isLockdownActive,
-  registerAuthFailure,
+  registerLoginFailure,
+  loginFailureClientPayload,
+  clearLoginFailuresForUser,
+  clientIpFromReq,
 } from '../services/intrusion.js';
 import { mintAvatarTicket } from '../services/avatarTicket.js';
+import { isAdmin } from '../services/roles.js';
+import {
+  normalizeDeviceId,
+  notifySessionReplaced,
+} from '../services/sessionPolicy.js';
 
 export const authRouter = Router();
 
@@ -50,13 +58,14 @@ function parseDurationToMs(spec) {
   return n * (mult[u] || mult.d);
 }
 
-async function issueRefreshToken(userId) {
+async function issueRefreshToken(userId, deviceId = null) {
   const raw = crypto.randomBytes(48).toString('hex');
   const tokenHash = hashToken(raw);
   const expiresAt = new Date(Date.now() + parseDurationToMs(config.jwtRefreshExpiresIn));
   await query(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
-    [userId, tokenHash, expiresAt]
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, device_id)
+     VALUES ($1, $2, $3, $4)`,
+    [userId, tokenHash, expiresAt, deviceId]
   );
   return raw;
 }
@@ -99,7 +108,7 @@ function sessionExtras(user) {
 }
 
 const USER_SELECT =
-  'id, organization_id, username, email, password_hash, display_name, role, is_active, can_receive_panic, must_change_password, avatar_url, unit_id, admin_scope_unit_id, can_see_region, can_see_zones, can_see_units';
+  'id, organization_id, username, email, password_hash, display_name, role, is_active, can_receive_panic, must_change_password, avatar_url, unit_id, admin_scope_unit_id, can_see_region, can_see_zones, can_see_units, login_fail_count, login_locked_at, login_locked_reason';
 
 authRouter.post('/login', loginLimiter, async (req, res) => {
   const { password } = req.body || {};
@@ -112,39 +121,7 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
   const isEmail = loginRaw.includes('@');
   const username = normalizeUsername(loginRaw);
 
-  const { rows } = await query(
-    isEmail
-      ? `SELECT ${USER_SELECT} FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`
-      : `SELECT ${USER_SELECT} FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
-    [isEmail ? loginRaw.toLowerCase() : username]
-  );
-
-  const user = rows[0];
-  if (!user || !user.is_active) {
-    const trip = await registerAuthFailure(req, { username: loginRaw });
-    if (trip.tripped) {
-      return res.status(503).json({
-        ok: false,
-        error: 'Servicio bloqueado por seguridad (lockdown)',
-        lockdown: true,
-      });
-    }
-    return res.status(401).json({ ok: false, error: 'Credenciales inválidas' });
-  }
-
-  const match = await bcrypt.compare(password, user.password_hash);
-  if (!match) {
-    const trip = await registerAuthFailure(req, { username: user.username });
-    if (trip.tripped) {
-      return res.status(503).json({
-        ok: false,
-        error: 'Servicio bloqueado por seguridad (lockdown)',
-        lockdown: true,
-      });
-    }
-    return res.status(401).json({ ok: false, error: 'Credenciales inválidas' });
-  }
-
+  // Lockdown global solo emergencia manual — sigue bloqueando login si está activo
   if (await isLockdownActive()) {
     return res.status(503).json({
       ok: false,
@@ -153,18 +130,98 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
     });
   }
 
+  let user;
+  try {
+    const { rows } = await query(
+      isEmail
+        ? `SELECT ${USER_SELECT} FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`
+        : `SELECT ${USER_SELECT} FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
+      [isEmail ? loginRaw.toLowerCase() : username]
+    );
+    user = rows[0];
+  } catch (err) {
+    // Compat: si aún no corrió migración 030, reintentar sin columnas nuevas
+    if (String(err.message || '').includes('login_locked') || String(err.code) === '42703') {
+      const { rows } = await query(
+        isEmail
+          ? `SELECT id, organization_id, username, email, password_hash, display_name, role, is_active, can_receive_panic, must_change_password, avatar_url, unit_id, admin_scope_unit_id, can_see_region, can_see_zones, can_see_units FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`
+          : `SELECT id, organization_id, username, email, password_hash, display_name, role, is_active, can_receive_panic, must_change_password, avatar_url, unit_id, admin_scope_unit_id, can_see_region, can_see_zones, can_see_units FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
+        [isEmail ? loginRaw.toLowerCase() : username]
+      );
+      user = rows[0];
+    } else {
+      throw err;
+    }
+  }
+
+  if (user?.login_locked_at) {
+    return res.status(423).json({
+      ok: false,
+      error:
+        'Tu usuario ha sido bloqueado por exceso de intentos. Contacta a un administrador para liberarlo.',
+      code: 'USER_LOCKED',
+      locked: true,
+      warn: true,
+      attemptsRemaining: 0,
+    });
+  }
+
+  if (!user || !user.is_active) {
+    const result = await registerLoginFailure(req, {
+      user: null,
+      usernameAttempt: loginRaw,
+    });
+    const { status, body } = loginFailureClientPayload(result);
+    return res.status(status).json(body);
+  }
+
+  const match = await bcrypt.compare(password, user.password_hash);
+  if (!match) {
+    const result = await registerLoginFailure(req, { user });
+    const { status, body } = loginFailureClientPayload(result);
+    return res.status(status).json(body);
+  }
+
+  await clearLoginFailuresForUser(user);
+
   await query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [user.id]);
+
+  const deviceId = normalizeDeviceId(req.body?.deviceId);
+
+  // No-admin/root: una sesión por dispositivo. Solo revoca OTROS equipos.
+  // Sin deviceId (cliente viejo): no tumbar sesiones abiertas (web/app siguen dentro).
+  let singleSession = false;
+  if (!isAdmin(user.role) && deviceId) {
+    singleSession = true;
+    await query(
+      `DELETE FROM refresh_tokens
+       WHERE user_id = $1 AND (device_id IS NULL OR device_id <> $2)`,
+      [user.id, deviceId]
+    );
+    await query(`DELETE FROM refresh_tokens WHERE user_id = $1 AND device_id = $2`, [
+      user.id,
+      deviceId,
+    ]);
+    await notifySessionReplaced(user.id, user.role, { exceptDeviceId: deviceId });
+  }
+
   await logActivity({
     organizationId: user.organization_id,
     actorId: user.id,
     action: 'auth.login',
     entityType: 'user',
     entityId: user.id,
-    meta: { username: user.username, mustChangePassword: Boolean(user.must_change_password) },
+    meta: {
+      username: user.username,
+      mustChangePassword: Boolean(user.must_change_password),
+      singleSession,
+      deviceId: deviceId || null,
+      sourceIp: clientIpFromReq(req),
+    },
   });
 
   const token = signAccessToken(user);
-  const refreshToken = await issueRefreshToken(user.id);
+  const refreshToken = await issueRefreshToken(user.id, deviceId);
   res.json({
     ok: true,
     token,
@@ -190,10 +247,11 @@ authRouter.post('/refresh', async (req, res) => {
 
   const tokenHash = hashToken(raw);
   const { rows } = await query(
-    `SELECT rt.id, rt.user_id, rt.expires_at,
+    `SELECT rt.id, rt.user_id, rt.expires_at, rt.device_id,
             u.id AS uid, u.organization_id, u.username, u.email, u.display_name, u.role, u.is_active,
             u.can_receive_panic, u.must_change_password, u.password_hash, u.avatar_url,
-            u.unit_id, u.admin_scope_unit_id, u.can_see_region, u.can_see_zones, u.can_see_units
+            u.unit_id, u.admin_scope_unit_id, u.can_see_region, u.can_see_zones, u.can_see_units,
+            u.login_locked_at
      FROM refresh_tokens rt
      INNER JOIN users u ON u.id = rt.user_id
      WHERE rt.token_hash = $1`,
@@ -203,6 +261,16 @@ authRouter.post('/refresh', async (req, res) => {
   const row = rows[0];
   if (!row || !row.is_active) {
     return res.status(401).json({ ok: false, error: 'Refresh inválido' });
+  }
+  if (row.login_locked_at) {
+    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [row.uid]);
+    return res.status(423).json({
+      ok: false,
+      error:
+        'Tu usuario ha sido bloqueado por exceso de intentos. Contacta a un administrador para liberarlo.',
+      code: 'USER_LOCKED',
+      locked: true,
+    });
   }
   if (new Date(row.expires_at) < new Date()) {
     await query('DELETE FROM refresh_tokens WHERE id = $1', [row.id]);
@@ -227,8 +295,10 @@ authRouter.post('/refresh', async (req, res) => {
     can_see_zones: row.can_see_zones,
     can_see_units: row.can_see_units,
   };
+  const deviceId =
+    normalizeDeviceId(req.body?.deviceId) || normalizeDeviceId(row.device_id);
   const token = signAccessToken(user);
-  const refreshToken = await issueRefreshToken(user.id);
+  const refreshToken = await issueRefreshToken(user.id, deviceId);
 
   res.json({
     ok: true,
@@ -333,8 +403,9 @@ authRouter.post('/change-password', authMiddleware, async (req, res) => {
     ...user,
     must_change_password: false,
   };
+  const deviceId = normalizeDeviceId(req.body?.deviceId);
   const token = signAccessToken(refreshed);
-  const refreshToken = await issueRefreshToken(user.id);
+  const refreshToken = await issueRefreshToken(user.id, deviceId);
 
   res.json({
     ok: true,

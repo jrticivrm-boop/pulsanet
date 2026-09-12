@@ -9,6 +9,9 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Restored
+- **Panel despacho (11-sep ~15:41):** consola con mapa de inicio, catálogos (jerarquías/grados/empleos), administración (usuarios/grupos/sitios tácticos), config (canales Escuchar/Hablar/Video/Alerta, grabaciones, presencia) y PTT Individual/Múltiple. Evita que un merge de `main` viejo vuelva a servir la consola del 6-sep.
+
 ### Added
 - **Panel web progresivo (móvil/tablet/desktop):** shell phone con bottom nav; inbox lista XOR hilo; llamadas/PTT con `100dvh` y unlock de audio unificado; Command Center (Mapa|Actividad) y LiveTrack bottom sheet en ≤960; Video limitado a 2 monitores en phone; PWA (`manifest` + offline shell + SW cache estático).
 - **Personas (web):** paleta global Ctrl+K / botón Personas; ficha Mensaje · Llamada · Video · Ver cámara; pestaña Personas en inbox; contactar desde mapa/usuarios/en línea.

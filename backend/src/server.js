@@ -1,3 +1,12 @@
+/**
+ * TacticalPtx API — punto de entrada HTTP + Socket.IO
+ *
+ * Secciones:
+ *  - Config / TLS / Express (helmet, CORS, rate-limit, lockdown)
+ *  - Rutas REST (/api/*): auth, grupos, chat, llamadas, GPS, admin, OTA…
+ *  - Socket.IO: PTT, chat, DM, despacho, política de sesión
+ *  - Arranque: Redis, FCM, LiveKit, respaldos programados
+ */
 import http from 'http';
 import https from 'https';
 import express from 'express';
@@ -16,6 +25,7 @@ import { createMessagesRouter, createMediaRouter } from './routes/messages.js';
 import { adminRouter } from './routes/admin.js';
 import { createLocationsRouter } from './routes/locations.js';
 import { geofencesRouter } from './routes/geofences.js';
+import { tacticalSitesRouter } from './routes/tacticalSites.js';
 import { createRecordingsRouter } from './routes/recordings.js';
 import { createMetricsRouter } from './routes/metrics.js';
 import { devicesRouter } from './routes/devices.js';
@@ -34,8 +44,10 @@ import { createMeRouter, createAvatarsRouter } from './routes/me.js';
 import { createAppUpdateRouter } from './routes/appUpdate.js';
 import { catalogsRouter } from './routes/catalogs.js';
 import { backupsRouter } from './routes/backups.js';
+import { createPresenceRouter } from './routes/presence.js';
 import { isLiveKitConfigured } from './services/livekit.js';
 import { startBackupScheduler } from './services/backup.js';
+import { bindSessionIo, normalizeDeviceId } from './services/sessionPolicy.js';
 
 import { connectRedis, isRedisReady } from './redis.js';
 import { inc } from './services/metrics.js';
@@ -46,6 +58,7 @@ import { isWireEncryptionEnabled } from './services/wireCrypto.js';
 import { isContentEncryptionReady } from './services/contentCrypto.js';
 import { isVoiceE2eeReady } from './services/voiceE2ee.js';
 
+// --- HTTP(S) + Express ---
 const app = express();
 const tlsOptions = loadTlsOptions();
 const server = tlsOptions
@@ -81,6 +94,16 @@ app.use(
     max: config.rateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
+    // Salud y OTA tienen su propio control; no gastar el cupo global (NAT).
+    skip: (req) => {
+      const p = req.path || '';
+      return (
+        p === '/api/health' ||
+        p.startsWith('/api/health/') ||
+        p === '/api/app' ||
+        p.startsWith('/api/app/')
+      );
+    },
   })
 );
 app.use(lockdownGuard);
@@ -119,7 +142,9 @@ app.use('/api/admin', wrapRouterAsync(adminRouter));
 app.use('/api/catalogs', wrapRouterAsync(catalogsRouter));
 app.use('/api/backups', wrapRouterAsync(backupsRouter));
 app.use('/api/locations', locationsRouter);
+app.use('/api/presence', wrapRouterAsync(createPresenceRouter(io)));
 app.use('/api/geofences', wrapRouterAsync(geofencesRouter));
+app.use('/api/tactical-sites', wrapRouterAsync(tacticalSitesRouter));
 app.use('/api/recordings', recordingsRouter);
 app.use('/api/devices', wrapRouterAsync(devicesRouter));
 app.use('/api/stickers', wrapRouterAsync(stickersRouter));
@@ -151,6 +176,7 @@ io.use((socket, next) => {
         displayName: user.displayName || 'Usuario',
         orgId: user.orgId,
       };
+      socket.data.deviceId = normalizeDeviceId(socket.handshake.auth?.deviceId);
       next();
     })
     .catch((err) => {
@@ -164,6 +190,10 @@ io.on('connection', (socket) => {
   const user = socket.data.user;
   if (user?.sub) {
     socket.join(`user:${user.sub}`);
+  }
+  // Avisos de abuso de login (admin / despacho)
+  if (user?.role && (user.role === 'root' || user.role === 'admin' || user.role === 'zone_admin' || user.role === 'unit_admin' || user.role === 'dispatcher')) {
+    socket.join('security:alerts');
   }
   socket.on('disconnect', () => inc('socketDisconnects'));
 });
@@ -196,6 +226,7 @@ async function start() {
 
   const scheme = tlsOptions ? 'https' : 'http';
   bindIntrusionIo(io);
+  bindSessionIo(io);
   server.listen(config.port, () => {
     console.log(
       `TacticalPtx API v${config.version} [${config.nodeEnv}] → ${scheme}://localhost:${config.port}`

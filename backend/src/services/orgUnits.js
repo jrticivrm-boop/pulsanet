@@ -136,14 +136,16 @@ export async function getUserUnitId(userId) {
   return rows[0]?.unit_id || null;
 }
 
-/**
- * Canales donde el usuario es miembro explícito (group_members).
- */
+const GROUP_MEMBER_COUNT_SQL =
+  `(SELECT COUNT(*)::int FROM group_members gmc WHERE gmc.group_id = g.id) AS member_count`;
+
+/** Canales donde el usuario es miembro explícito (group_members). */
 export async function listMemberGroups(user) {
   if (!user?.sub) return [];
   const { rows } = await query(
     `SELECT g.id, g.name, g.description, g.livekit_room, g.is_active, g.unit_id, g.avatar_url,
-            gm.role AS member_role
+            gm.role AS member_role,
+            ${GROUP_MEMBER_COUNT_SQL}
      FROM groups g
      INNER JOIN group_members gm ON gm.group_id = g.id
      WHERE gm.user_id = $1 AND g.is_active = TRUE`,
@@ -179,7 +181,8 @@ export async function listVisibleGroups(user) {
   if (canRegion) {
     const { rows } = await query(
       `SELECT g.id, g.name, g.description, g.livekit_room, g.is_active, g.unit_id, g.avatar_url,
-              'leader'::text AS member_role
+              'leader'::text AS member_role,
+              ${GROUP_MEMBER_COUNT_SQL}
        FROM groups g
        WHERE g.organization_id = $1 AND g.is_active = TRUE`,
       [user.orgId]
@@ -210,7 +213,8 @@ export async function listVisibleGroups(user) {
     if (scopeIds.length) {
       const { rows } = await query(
         `SELECT g.id, g.name, g.description, g.livekit_room, g.is_active, g.unit_id, g.avatar_url,
-                'leader'::text AS member_role
+                'leader'::text AS member_role,
+                ${GROUP_MEMBER_COUNT_SQL}
          FROM groups g
          WHERE g.organization_id = $1 AND g.is_active = TRUE
            AND g.unit_id = ANY($2::uuid[])`,
@@ -224,7 +228,8 @@ export async function listVisibleGroups(user) {
     if (unitId) {
       const { rows } = await query(
         `SELECT g.id, g.name, g.description, g.livekit_room, g.is_active, g.unit_id, g.avatar_url,
-                'leader'::text AS member_role
+                'leader'::text AS member_role,
+                ${GROUP_MEMBER_COUNT_SQL}
          FROM groups g
          WHERE g.organization_id = $1 AND g.is_active = TRUE AND g.unit_id = $2`,
         [user.orgId, unitId]

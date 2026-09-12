@@ -10,13 +10,50 @@ import {
   listVisibleGroups,
   unitInTrackScope,
 } from '../services/orgUnits.js';
-
+import {
+  getOrgPresenceOfflineRedMs,
+  listOrgPresence,
+  listPresence,
+  pickBestFocus,
+  resolvePresenceStatus,
+} from '../services/presence.js';
 
 function toIsoUtc(value) {
   if (value == null) return null;
   if (value instanceof Date) return value.toISOString();
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+async function buildOrgPresenceMap(orgId) {
+  /** @type {Map<string, { userId: string, displayName: string, focus: string }>} */
+  const presenceByUser = new Map();
+  const { rows: groups } = await query(
+    `SELECT id FROM groups WHERE organization_id = $1 AND is_active = TRUE`,
+    [orgId]
+  );
+  for (const g of groups) {
+    const members = await listPresence(g.id);
+    for (const m of members) {
+      const prev = presenceByUser.get(m.userId);
+      presenceByUser.set(
+        m.userId,
+        prev ? { ...m, focus: pickBestFocus([prev.focus, m.focus]) } : m
+      );
+    }
+  }
+  try {
+    for (const m of await listOrgPresence(orgId)) {
+      const prev = presenceByUser.get(m.userId);
+      presenceByUser.set(
+        m.userId,
+        prev ? { ...m, focus: pickBestFocus([prev.focus, m.focus]) } : m
+      );
+    }
+  } catch {
+    /* ignore */
+  }
+  return presenceByUser;
 }
 
 export function createLocationsRouter(io) {
@@ -66,7 +103,8 @@ export function createLocationsRouter(io) {
     }
 
     const { rows } = await query(
-      `SELECT u.id AS user_id, u.display_name, u.role, u.is_active, u.avatar_url, u.unit_id,
+      `SELECT u.id AS user_id, u.display_name, u.cargo, u.role, u.is_active, u.avatar_url, u.unit_id,
+              u.last_seen_at,
               l.latitude, l.longitude, l.accuracy_m, l.recorded_at
        FROM users u
        INNER JOIN user_last_location l ON l.user_id = u.id
@@ -76,6 +114,11 @@ export function createLocationsRouter(io) {
        ORDER BY u.display_name`,
       params
     );
+
+    const offlineRedMs = await getOrgPresenceOfflineRedMs(req.user.orgId);
+    const presenceByUser = await buildOrgPresenceMap(req.user.orgId);
+    const now = Date.now();
+
     res.json({
       ok: true,
       scope: {
@@ -84,19 +127,34 @@ export function createLocationsRouter(io) {
         unitCount: scope.orgWide ? null : scope.unitIds.length,
         groupIds: rawGroupIds.length ? rawGroupIds.filter(Boolean) : null,
       },
-      locations: rows.map((r) => ({
-        userId: r.user_id,
-        displayName: r.display_name,
-        role: r.role,
-        unitId: r.unit_id || null,
-        avatarUrl: r.avatar_url
-          ? `/api/avatars/file/${encodeURIComponent(r.avatar_url)}`
-          : null,
-        latitude: r.latitude,
-        longitude: r.longitude,
-        accuracyM: r.accuracy_m,
-        recordedAt: toIsoUtc(r.recorded_at),
-      })),
+      presenceOfflineRedMinutes: Math.round(offlineRedMs / 60_000),
+      locations: rows.map((r) => {
+        const online = presenceByUser.get(r.user_id);
+        const focus = online?.focus || null;
+        const lastSeenAt = toIsoUtc(r.last_seen_at);
+        return {
+          userId: r.user_id,
+          displayName: r.display_name,
+          cargo: r.cargo || null,
+          role: r.role,
+          unitId: r.unit_id || null,
+          avatarUrl: r.avatar_url
+            ? `/api/avatars/file/${encodeURIComponent(r.avatar_url)}`
+            : null,
+          latitude: r.latitude,
+          longitude: r.longitude,
+          accuracyM: r.accuracy_m,
+          recordedAt: toIsoUtc(r.recorded_at),
+          lastSeenAt,
+          focus,
+          presence: resolvePresenceStatus({
+            focus,
+            lastSeenAt,
+            offlineRedMs,
+            now,
+          }),
+        };
+      }),
     });
   });
 
@@ -159,13 +217,15 @@ export function createLocationsRouter(io) {
       [req.user.sub, latitude, longitude, accuracyM ?? null]
     );
 
-    const { rows: me } = await query(`SELECT avatar_url, unit_id FROM users WHERE id = $1`, [
-      req.user.sub,
-    ]);
+    const { rows: me } = await query(
+      `SELECT avatar_url, unit_id, cargo FROM users WHERE id = $1`,
+      [req.user.sub]
+    );
     const avatarUrl = me[0]?.avatar_url
       ? `/api/avatars/file/${encodeURIComponent(me[0].avatar_url)}`
       : null;
     const unitId = me[0]?.unit_id || (await getUserUnitId(req.user.sub));
+    const cargo = me[0]?.cargo || null;
 
     const loc = rows[0];
     emitDispatchTrack(
@@ -174,6 +234,7 @@ export function createLocationsRouter(io) {
       {
         userId: req.user.sub,
         displayName: req.user.displayName || null,
+        cargo,
         unitId: unitId || null,
         avatarUrl,
         latitude: loc.latitude,

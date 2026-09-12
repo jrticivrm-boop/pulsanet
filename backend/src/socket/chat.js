@@ -5,6 +5,7 @@ import { notifyGroupMembers } from '../services/fcm.js';
 import { getStickerById } from '../data/stickers.js';
 import { isModerator, isRoot } from '../services/roles.js';
 import { openMessageBody, sealMessageBody } from '../services/contentCrypto.js';
+import { friendlyMessageDbError } from '../services/messageErrors.js';
 
 const MAX_BODY = 2000;
 
@@ -95,7 +96,10 @@ export function registerChatHandlers(io) {
           },
         }).catch(() => {});
       } catch (err) {
-        socket.emit('chat:error', { error: err.message, clientMsgId });
+        socket.emit('chat:error', {
+          error: friendlyMessageDbError(err),
+          clientMsgId,
+        });
       }
     });
 
@@ -126,7 +130,7 @@ export function registerChatHandlers(io) {
         });
         io.to(`group:${groupId}`).emit('chat:deleted', msg);
       } catch (err) {
-        socket.emit('chat:error', { error: err.message });
+        socket.emit('chat:error', { error: friendlyMessageDbError(err, err.message) });
       }
     });
 
@@ -141,7 +145,7 @@ export function registerChatHandlers(io) {
         });
         io.to(`group:${groupId}`).emit('chat:reaction', payload);
       } catch (err) {
-        socket.emit('chat:error', { error: err.message });
+        socket.emit('chat:error', { error: friendlyMessageDbError(err, err.message) });
       }
     });
 
@@ -164,7 +168,7 @@ export function registerChatHandlers(io) {
           data: { type: 'chat', messageId: msg.id, groupId },
         }).catch(() => {});
       } catch (err) {
-        socket.emit('chat:error', { error: err.message });
+        socket.emit('chat:error', { error: friendlyMessageDbError(err, err.message) });
       }
     });
 
@@ -174,6 +178,23 @@ export function registerChatHandlers(io) {
         const payload = await markGroupMessagesRead({
           groupId,
           userId: user.sub,
+          upToMessageId: upToMessageId || null,
+        });
+        if (payload.updates?.length) {
+          io.to(`group:${groupId}`).emit('chat:receipts', payload);
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+
+    socket.on('chat:delivered', async ({ groupId, messageIds, upToMessageId }) => {
+      if (!groupId) return;
+      try {
+        const payload = await markGroupMessagesDelivered({
+          groupId,
+          userId: user.sub,
+          messageIds: Array.isArray(messageIds) ? messageIds : null,
           upToMessageId: upToMessageId || null,
         });
         if (payload.updates?.length) {
@@ -198,6 +219,9 @@ export async function insertGroupMessage({
   replyToId = null,
   displayName = null,
 }) {
+  if (!groupId) throw new Error('Canal no válido');
+  if (!senderId) throw new Error('Sesión inválida — vuelve a iniciar sesión');
+
   let safeReply = null;
   let reply = null;
   if (replyToId) {
@@ -223,24 +247,29 @@ export async function insertGroupMessage({
 
   const sealedBody = sealMessageBody(type, body);
 
-  const { rows } = await query(
-    `INSERT INTO messages (
-       group_id, sender_id, type, body, media_url, media_mime, media_name, media_size, reply_to_id
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     RETURNING id, group_id, sender_id, type, body, media_url, media_mime, media_name, media_size,
-               reply_to_id, edited_at, deleted_at, created_at`,
-    [
-      groupId,
-      senderId,
-      type,
-      sealedBody,
-      mediaUrl,
-      mediaMime,
-      mediaName,
-      mediaSize,
-      safeReply,
-    ]
-  );
+  let rows;
+  try {
+    ({ rows } = await query(
+      `INSERT INTO messages (
+         group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size, reply_to_id
+       ) VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, group_id, sender_id, type, body, media_url, media_mime, media_name, media_size,
+                 reply_to_id, edited_at, deleted_at, created_at`,
+      [
+        groupId,
+        senderId,
+        type,
+        sealedBody,
+        mediaUrl,
+        mediaMime,
+        mediaName,
+        mediaSize,
+        safeReply,
+      ]
+    ));
+  } catch (err) {
+    throw new Error(friendlyMessageDbError(err));
+  }
 
   // Ruta rápida: mensaje recién creado no tiene reacciones ni lecturas.
   let name = displayName;
@@ -491,14 +520,26 @@ export async function markGroupMessagesRead({ groupId, userId, upToMessageId = n
      ON CONFLICT DO NOTHING`,
     [ids, userId]
   );
+  await query(
+    `INSERT INTO message_deliveries (message_id, user_id)
+     SELECT unnest($1::uuid[]), $2
+     ON CONFLICT DO NOTHING`,
+    [ids, userId]
+  );
 
   const receipts = await loadReadReceipts(ids);
   const updates = ids.map((messageId) => {
-    const r = receipts.get(messageId) || { readCount: 0, peerCount: 0 };
+    const r = receipts.get(messageId) || {
+      readCount: 0,
+      peerCount: 0,
+      deliveredCount: 0,
+    };
     return {
       messageId,
       readCount: r.readCount,
       readFully: r.peerCount > 0 && r.readCount >= r.peerCount,
+      deliveredCount: r.deliveredCount,
+      delivered: r.peerCount > 0 && r.deliveredCount >= r.peerCount,
     };
   });
 
@@ -506,7 +547,76 @@ export async function markGroupMessagesRead({ groupId, userId, upToMessageId = n
 }
 
 /**
- * @returns {Map<string, { readCount: number, peerCount: number }>}
+ * Marca mensajes de grupo como entregados al dispositivo.
+ */
+export async function markGroupMessagesDelivered({
+  groupId,
+  userId,
+  messageIds = null,
+  upToMessageId = null,
+}) {
+  const ok = await assertGroupMember(groupId, userId);
+  if (!ok) throw new Error('No eres miembro');
+
+  let ids = Array.isArray(messageIds)
+    ? messageIds.map((x) => String(x || '')).filter(Boolean)
+    : [];
+  if (!ids.length) {
+    let upToCreated = null;
+    if (upToMessageId) {
+      const { rows } = await query(
+        `SELECT created_at FROM messages WHERE id = $1 AND group_id = $2`,
+        [upToMessageId, groupId]
+      );
+      upToCreated = rows[0]?.created_at || null;
+    }
+    const { rows: targets } = await query(
+      `SELECT m.id
+       FROM messages m
+       WHERE m.group_id = $1
+         AND m.sender_id IS DISTINCT FROM $2
+         AND m.deleted_at IS NULL
+         AND m.type <> 'system'
+         AND ($3::timestamptz IS NULL OR m.created_at <= $3)
+         AND NOT EXISTS (
+           SELECT 1 FROM message_deliveries d
+           WHERE d.message_id = m.id AND d.user_id = $2
+         )
+       ORDER BY m.created_at DESC
+       LIMIT 80`,
+      [groupId, userId, upToCreated]
+    );
+    ids = targets.map((t) => t.id);
+  }
+  if (!ids.length) return { groupId, updates: [] };
+
+  await query(
+    `INSERT INTO message_deliveries (message_id, user_id)
+     SELECT unnest($1::uuid[]), $2
+     ON CONFLICT DO NOTHING`,
+    [ids, userId]
+  );
+
+  const receipts = await loadReadReceipts(ids);
+  const updates = ids.map((messageId) => {
+    const r = receipts.get(messageId) || {
+      readCount: 0,
+      peerCount: 0,
+      deliveredCount: 0,
+    };
+    return {
+      messageId,
+      readCount: r.readCount,
+      readFully: r.peerCount > 0 && r.readCount >= r.peerCount,
+      deliveredCount: r.deliveredCount,
+      delivered: r.peerCount > 0 && r.deliveredCount >= r.peerCount,
+    };
+  });
+  return { groupId, updates };
+}
+
+/**
+ * @returns {Map<string, { readCount: number, peerCount: number, deliveredCount: number }>}
  */
 export async function loadReadReceipts(messageIds) {
   const map = new Map();
@@ -517,7 +627,9 @@ export async function loadReadReceipts(messageIds) {
             (SELECT COUNT(*)::int FROM group_members gm
              WHERE gm.group_id = m.group_id AND gm.user_id IS DISTINCT FROM m.sender_id) AS peer_count,
             (SELECT COUNT(*)::int FROM message_reads mr
-             WHERE mr.message_id = m.id AND mr.user_id IS DISTINCT FROM m.sender_id) AS read_count
+             WHERE mr.message_id = m.id AND mr.user_id IS DISTINCT FROM m.sender_id) AS read_count,
+            (SELECT COUNT(*)::int FROM message_deliveries md
+             WHERE md.message_id = m.id AND md.user_id IS DISTINCT FROM m.sender_id) AS delivered_count
      FROM messages m
      WHERE m.id = ANY($1::uuid[])`,
     [messageIds]
@@ -527,6 +639,7 @@ export async function loadReadReceipts(messageIds) {
     map.set(r.id, {
       readCount: r.read_count || 0,
       peerCount: r.peer_count || 0,
+      deliveredCount: r.delivered_count || 0,
     });
   }
   return map;
@@ -567,15 +680,25 @@ export async function hydrateMessage(row, viewerUserId = null) {
     const map = await loadReactionsSummary([row.id], viewerUserId);
     msg.reactions = map.get(row.id) || [];
     const receipts = await loadReadReceipts([row.id]);
-    const r = receipts.get(row.id) || { readCount: 0, peerCount: 0 };
+    const r = receipts.get(row.id) || {
+      readCount: 0,
+      peerCount: 0,
+      deliveredCount: 0,
+    };
     msg.readCount = r.readCount;
     msg.peerCount = r.peerCount;
     msg.readFully = r.peerCount > 0 && r.readCount >= r.peerCount;
+    msg.deliveredCount = r.deliveredCount || 0;
+    msg.delivered =
+      msg.readFully ||
+      (r.peerCount > 0 && msg.deliveredCount >= r.peerCount);
   } else {
     msg.reactions = [];
     msg.readCount = 0;
     msg.peerCount = 0;
     msg.readFully = false;
+    msg.deliveredCount = 0;
+    msg.delivered = false;
   }
   return msg;
 }
@@ -621,6 +744,8 @@ export function formatMessage(row, displayName, reply = null, reactions = [], se
     readCount: 0,
     peerCount: 0,
     readFully: false,
+    deliveredCount: 0,
+    delivered: false,
     createdAt: row.created_at,
   };
 }

@@ -4,10 +4,21 @@ import { RESILIENT_ROOM_OPTIONS } from './privateCallStabilizer.js';
 /**
  * Crea una Room LiveKit con E2EE de aplicación cuando el API entrega e2eeKey.
  * WebRTC ya usa DTLS-SRTP; esto cifra medios antes del SFU.
+ *
+ * @param {object} [baseOptions]
+ * @param {string|null|undefined} e2eeKey
+ * @param {{ requireKey?: boolean }} [opts] — si requireKey y no hay clave, falla (no SRTP-only).
  */
-export async function createEncryptedRoom(baseOptions = {}, e2eeKey) {
+export async function createEncryptedRoom(baseOptions = {}, e2eeKey, opts = {}) {
   const merged = { ...RESILIENT_ROOM_OPTIONS, ...baseOptions };
+  const requireKey = Boolean(opts.requireKey);
+
   if (!e2eeKey) {
+    if (requireKey) {
+      throw new Error(
+        'Cifrado E2EE obligatorio: el servidor no entregó clave de voz.'
+      );
+    }
     return new Room(merged);
   }
 

@@ -1,3 +1,5 @@
+import { isAbsurdGpsJump } from '../gpsQuality.js';
+
 /** Tiempos alineados con el latido GPS de la app (LocationHeartbeat ~5 s). */
 export const GPS_HEARTBEAT_MS = 5_000;
 /** Poll de lista de ubicaciones en mapas de despacho. */
@@ -96,11 +98,28 @@ export function mergeLocations(prev, incoming) {
     if (!loc?.userId) continue;
     const old = map.get(loc.userId);
     if (!old || recordedAtMs(loc.recordedAt) >= recordedAtMs(old.recordedAt)) {
-      map.set(loc.userId, {
+      const next = {
         ...loc,
         displayName: loc.displayName || old?.displayName || loc.userId,
+        cargo: loc.cargo ?? old?.cargo ?? null,
         avatarUrl: loc.avatarUrl ?? old?.avatarUrl ?? null,
-      });
+      };
+      if (old && isAbsurdGpsJump(old, next, recordedAtMs)) {
+        // Conserva posición previa; actualiza avatar/nombre/cargo si vino en el poll.
+        let patched = old;
+        if (loc.avatarUrl && !old.avatarUrl) {
+          patched = { ...patched, avatarUrl: loc.avatarUrl };
+        }
+        if (loc.displayName && loc.displayName !== old.displayName) {
+          patched = { ...patched, displayName: loc.displayName };
+        }
+        if (loc.cargo && loc.cargo !== old.cargo) {
+          patched = { ...patched, cargo: loc.cargo };
+        }
+        if (patched !== old) map.set(loc.userId, patched);
+        continue;
+      }
+      map.set(loc.userId, next);
     } else if (loc.avatarUrl && !old.avatarUrl) {
       map.set(loc.userId, { ...old, avatarUrl: loc.avatarUrl });
     }
@@ -111,17 +130,20 @@ export function mergeLocations(prev, incoming) {
 export function upsertLocation(prev, payload) {
   if (!payload?.userId) return prev || [];
   const old = (prev || []).find((l) => l.userId === payload.userId);
+  const nextLoc = {
+    userId: payload.userId,
+    displayName: payload.displayName || old?.displayName || payload.userId,
+    cargo: payload.cargo ?? old?.cargo ?? null,
+    avatarUrl: payload.avatarUrl ?? old?.avatarUrl ?? null,
+    latitude: Number(payload.latitude),
+    longitude: Number(payload.longitude),
+    accuracyM: payload.accuracyM,
+    recordedAt: payload.recordedAt || new Date().toISOString(),
+  };
+  // Evita teletransporte en mapa si el salto es absurdo y la accuracy empeora.
+  if (old && isAbsurdGpsJump(old, nextLoc, recordedAtMs)) {
+    return prev || [];
+  }
   const rest = (prev || []).filter((l) => l.userId !== payload.userId);
-  return [
-    ...rest,
-    {
-      userId: payload.userId,
-      displayName: payload.displayName || old?.displayName || payload.userId,
-      avatarUrl: payload.avatarUrl ?? old?.avatarUrl ?? null,
-      latitude: Number(payload.latitude),
-      longitude: Number(payload.longitude),
-      accuracyM: payload.accuracyM,
-      recordedAt: payload.recordedAt || new Date().toISOString(),
-    },
-  ];
+  return [...rest, nextLoc];
 }

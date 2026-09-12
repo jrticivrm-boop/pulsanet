@@ -1,22 +1,34 @@
 import { NavLink, Outlet, Navigate, useLocation } from 'react-router-dom';
 
 const TABS = [
-  { to: '/despacho/catalogos/grados-empleos', label: 'Grados y empleos' },
+  { to: '/despacho/catalogos/jerarquias', label: 'Jerarquías' },
+  { to: '/despacho/catalogos/grados', label: 'Grados' },
+  { to: '/despacho/catalogos/empleos', label: 'Empleos' },
   { to: '/despacho/catalogos/dependencias', label: 'Dependencias' },
-  { to: '/despacho/catalogos/usuarios', label: 'Usuarios' },
-  { to: '/despacho/catalogos/grupos', label: 'Grupos' },
 ];
 
 export default function CatalogsLayout() {
   const { pathname } = useLocation();
   if (pathname === '/despacho/catalogos' || pathname === '/despacho/catalogos/') {
-    return <Navigate to="/despacho/catalogos/dependencias" replace />;
+    return <Navigate to="/despacho/catalogos/jerarquias" replace />;
   }
   if (pathname.startsWith('/despacho/catalogos/geocercas')) {
-    return <Navigate to="/despacho/mapa" replace />;
+    return <Navigate to="/despacho" replace />;
   }
   if (pathname.startsWith('/despacho/catalogos/unidades')) {
     return <Navigate to="/despacho/catalogos/dependencias" replace />;
+  }
+  if (pathname.startsWith('/despacho/catalogos/grados-empleos')) {
+    return <Navigate to="/despacho/catalogos/grados" replace />;
+  }
+  if (pathname.startsWith('/despacho/catalogos/usuarios')) {
+    return <Navigate to="/despacho/administracion/usuarios" replace />;
+  }
+  if (pathname.startsWith('/despacho/catalogos/grupos')) {
+    return <Navigate to="/despacho/administracion/grupos" replace />;
+  }
+  if (pathname.startsWith('/despacho/catalogos/sitios-tacticos')) {
+    return <Navigate to="/despacho/administracion/sitios-tacticos" replace />;
   }
 
   return (
@@ -24,7 +36,7 @@ export default function CatalogsLayout() {
       <header className="cc-catalogs-head">
         <div>
           <h1>Catálogos</h1>
-          <p>Grados, empleos, dependencias militares, usuarios y canales.</p>
+          <p>Jerarquías, grados, empleos y dependencias.</p>
         </div>
         <nav className="cc-catalogs-tabs" aria-label="Catálogos">
           {TABS.map((t) => (

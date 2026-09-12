@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ChatMedia from './ChatMedia';
 import AppDialog from './AppDialog';
-import { fetchMediaBlobUrl } from './api';
+import { fetchGroupMembers, fetchMediaBlobUrl } from './api';
 import {
   clampMenuPos,
   copyImageFromObjectUrl,
@@ -18,6 +18,8 @@ import { filesFromClipboard, isImageFile } from './mediaComposerUtils';
 import { createVoiceRecorder, getVoiceStream, voiceFileExtension } from './voiceRecord';
 import WaEmojiPicker from './WaEmojiPicker';
 import PersonAvatar from './PersonAvatar';
+import StarIcon from './StarIcon';
+import { openPeerSheet as openGlobalPeerSheet, startVideoCall, startVoiceCall } from './peerActions';
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
@@ -58,6 +60,7 @@ export default function WhatsAppChat({
   typingLabel = '',
   messages = [],
   chatError,
+  onDismissChatError,
   onSend,
   onSendMedia,
   onSendSticker,
@@ -72,6 +75,8 @@ export default function WhatsAppChat({
   onGroupVideo,
   groupVideoActive = false,
   chatActive = true,
+  favorite = false,
+  onToggleFavorite,
 }) {
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState(null);
@@ -90,9 +95,17 @@ export default function WhatsAppChat({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [peerMenu, setPeerMenu] = useState(null); // { userId, displayName, x, y }
   const [showMembers, setShowMembers] = useState(false);
+  const [roster, setRoster] = useState([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
   const [imageGallery, setImageGallery] = useState(null); // { items, index }
   const [mediaComposer, setMediaComposer] = useState(null); // { key, files, caption }
   const actionHintTimer = useRef(null);
+
+  useEffect(() => {
+    if (!chatError) return undefined;
+    const t = window.setTimeout(() => onDismissChatError?.(), 6000);
+    return () => window.clearTimeout(t);
+  }, [chatError, onDismissChatError]);
 
   function openImageGallery(m) {
     closeMsgMenu();
@@ -125,11 +138,23 @@ export default function WhatsAppChat({
 
   const members = useMemo(() => {
     const map = new Map();
+    for (const r of roster || []) {
+      if (r?.id && r.id !== userId) {
+        map.set(r.id, {
+          displayName: r.display_name || r.displayName || r.username || 'Usuario',
+          avatarUrl: r.avatarUrl || null,
+          username: r.username || null,
+        });
+      }
+    }
     for (const m of onlineMembers || []) {
-      if (m?.userId) {
+      if (m?.userId && m.userId !== userId) {
+        const prev = map.get(m.userId) || {};
         map.set(m.userId, {
-          displayName: m.displayName || 'Usuario',
-          avatarUrl: m.avatarUrl || null,
+          displayName: m.displayName || prev.displayName || 'Usuario',
+          avatarUrl: m.avatarUrl || prev.avatarUrl || null,
+          username: prev.username || null,
+          online: true,
         });
       }
     }
@@ -143,14 +168,40 @@ export default function WhatsAppChat({
         }
       }
     }
-    return [...map.entries()].map(([userId, meta]) => ({
-      userId,
-      displayName: meta.displayName,
-      avatarUrl: meta.avatarUrl,
-    }));
-  }, [onlineMembers, messages, userId]);
+    return [...map.entries()]
+      .map(([uid, meta]) => ({
+        userId: uid,
+        displayName: meta.displayName,
+        avatarUrl: meta.avatarUrl,
+        username: meta.username,
+        online: Boolean(meta.online),
+      }))
+      .sort((a, b) => {
+        if (a.online !== b.online) return a.online ? -1 : 1;
+        return String(a.displayName).localeCompare(String(b.displayName), 'es');
+      });
+  }, [roster, onlineMembers, messages, userId]);
 
-  function openPeerSheet(peerUserId, displayName, evt) {
+  useEffect(() => {
+    if (!showMembers || !groupId || !token) return undefined;
+    let cancelled = false;
+    setRosterLoading(true);
+    fetchGroupMembers(token, groupId)
+      .then((data) => {
+        if (!cancelled) setRoster(data.members || []);
+      })
+      .catch(() => {
+        if (!cancelled) setRoster([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRosterLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showMembers, groupId, token]);
+
+  function openPeerMenu(peerUserId, displayName, evt) {
     if (!peerUserId || peerUserId === userId) return;
     if (!onOpenDm && !onCallPeer && !onVideoPeer) return;
     evt?.preventDefault?.();
@@ -391,6 +442,12 @@ export default function WhatsAppChat({
       files,
       caption: caption ?? draft,
     });
+  }
+
+  function takeFilesFromInput(input) {
+    const files = Array.from(input?.files || []);
+    if (input) input.value = '';
+    return files;
   }
 
   function onComposerPaste(e) {
@@ -639,6 +696,17 @@ export default function WhatsAppChat({
           </button>
         </div>
         <div className="wa-header-actions">
+          {onToggleFavorite && (
+            <button
+              type="button"
+              className={`wa-inbox-fav-btn${favorite ? ' on' : ''}`}
+              onClick={onToggleFavorite}
+              title={favorite ? 'Quitar de favoritos' : 'Favorito'}
+              aria-label="Favorito"
+            >
+              <StarIcon size="1rem" />
+            </button>
+          )}
           {onGroupVideo && (
             <button
               type="button"
@@ -664,23 +732,71 @@ export default function WhatsAppChat({
       {showMembers && (
         <div className="wa-members-panel" onMouseDown={(e) => e.stopPropagation()}>
           <strong>Miembros</strong>
-          {members.length === 0 && <p className="wa-empty">Nadie más en el canal ahora</p>}
+          {rosterLoading && <p className="wa-empty">Cargando…</p>}
+          {!rosterLoading && members.length === 0 && (
+            <p className="wa-empty">Sin miembros visibles</p>
+          )}
           {members.map((m) => (
-            <button
-              key={m.userId}
-              type="button"
-              className="wa-member-row"
-              onClick={(e) => openPeerSheet(m.userId, m.displayName, e)}
-            >
-              <PersonAvatar
-                userId={m.userId}
-                name={m.displayName}
-                avatarUrl={m.avatarUrl}
-                token={token}
-                className="wa-member-list-avatar"
-              />
-              <span>{m.displayName}</span>
-            </button>
+            <div key={m.userId} className="wa-member-row">
+              <button
+                type="button"
+                className="wa-member-row-main"
+                onClick={() =>
+                  openGlobalPeerSheet({
+                    id: m.userId,
+                    displayName: m.displayName,
+                    avatarUrl: m.avatarUrl,
+                    username: m.username,
+                  })
+                }
+              >
+                <PersonAvatar
+                  userId={m.userId}
+                  name={m.displayName}
+                  avatarUrl={m.avatarUrl}
+                  token={token}
+                  className="wa-member-list-avatar"
+                />
+                <span>
+                  {m.displayName}
+                  {m.online ? ' · en línea' : ''}
+                </span>
+              </button>
+              <span className="wa-member-row-actions">
+                {onOpenDm && (
+                  <button
+                    type="button"
+                    title="Mensaje"
+                    onClick={() => {
+                      onOpenDm({ id: m.userId, displayName: m.displayName });
+                      setShowMembers(false);
+                    }}
+                  >
+                    💬
+                  </button>
+                )}
+                <button
+                  type="button"
+                  title="Llamada"
+                  onClick={() => {
+                    startVoiceCall({ id: m.userId, displayName: m.displayName, avatarUrl: m.avatarUrl });
+                    setShowMembers(false);
+                  }}
+                >
+                  📞
+                </button>
+                <button
+                  type="button"
+                  title="Videollamada"
+                  onClick={() => {
+                    startVideoCall({ id: m.userId, displayName: m.displayName, avatarUrl: m.avatarUrl });
+                    setShowMembers(false);
+                  }}
+                >
+                  📹
+                </button>
+              </span>
+            </div>
           ))}
         </div>
       )}
@@ -770,7 +886,8 @@ export default function WhatsAppChat({
             prev.type !== 'system' &&
             prev.senderId === m.senderId;
           if (!deleted && m.type === 'system') {
-            const isPanic = (m.body || '').includes('PÁNICO');
+            const isPanic =
+              (m.body || '').includes('PÁNICO') || (m.body || '').includes('ALERTA');
             return (
               <div key={m.id} className={`wa-row system${isPanic ? ' panic' : ''}`}>
                 <p className="wa-system-msg">{m.body}</p>
@@ -795,7 +912,7 @@ export default function WhatsAppChat({
                       type="button"
                       className="wa-bubble-avatar-btn"
                       title={m.displayName || 'Operador'}
-                      onClick={(e) => openPeerSheet(m.senderId, m.displayName, e)}
+                      onClick={(e) => openPeerMenu(m.senderId, m.displayName, e)}
                     >
                       <PersonAvatar
                         userId={m.senderId}
@@ -815,7 +932,7 @@ export default function WhatsAppChat({
                     <button
                       type="button"
                       className="wa-name wa-name-btn"
-                      onClick={(e) => openPeerSheet(m.senderId, m.displayName, e)}
+                      onClick={(e) => openPeerMenu(m.senderId, m.displayName, e)}
                     >
                       {m.displayName}
                     </button>
@@ -992,9 +1109,17 @@ export default function WhatsAppChat({
         </p>
       )}
 
-      {chatError && <p className="error wa-error">{chatError}</p>}
-
       <div className="wa-composer-wrap">
+        {chatError && (
+          <button
+            type="button"
+            className="composer-error-balloon"
+            onClick={() => onDismissChatError?.()}
+            title="Cerrar"
+          >
+            {chatError}
+          </button>
+        )}
         <WaEmojiPicker
           token={token}
           open={showPicker && !editing}
@@ -1012,8 +1137,7 @@ export default function WhatsAppChat({
             accept="image/*"
             multiple
             onChange={(e) => {
-              const list = e.target.files;
-              e.target.value = '';
+              const list = takeFilesFromInput(e.target);
               openImages(list);
             }}
           />
@@ -1024,8 +1148,7 @@ export default function WhatsAppChat({
             accept="image/*"
             capture="environment"
             onChange={(e) => {
-              const list = e.target.files;
-              e.target.value = '';
+              const list = takeFilesFromInput(e.target);
               openImages(list);
             }}
           />
@@ -1035,8 +1158,7 @@ export default function WhatsAppChat({
             className="sr-only"
             accept={VIDEO_ACCEPT}
             onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = '';
+              const [f] = takeFilesFromInput(e.target);
               pickFile(f, 'video');
             }}
           />
@@ -1046,8 +1168,7 @@ export default function WhatsAppChat({
             className="sr-only"
             accept={DOC_ACCEPT}
             onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = '';
+              const [f] = takeFilesFromInput(e.target);
               pickFile(f, classifyUploadFile(f));
             }}
           />

@@ -4,6 +4,7 @@ import {
   QUICK_EMOJIS,
   canvasToBlob,
   enhanceCanvas,
+  isImageFile,
   loadImageFromFile,
   mosaicAt,
   uid,
@@ -148,7 +149,7 @@ export default function MediaComposerModal({
   useEffect(() => {
     if (!open) return undefined;
     const list = (initialFiles || [])
-      .filter((f) => f?.type?.startsWith('image/'))
+      .filter((f) => f && (f.type?.startsWith('image/') || isImageFile(f)))
       .map((file) => ({
         id: uid(),
         file,
@@ -565,6 +566,12 @@ export default function MediaComposerModal({
             className="media-composer-caption"
             value={caption}
             onChange={(e) => setCaption(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!sending && items.length) void handleSend();
+              }
+            }}
             placeholder="Escribe un mensaje"
             maxLength={2000}
             autoFocus

@@ -20,7 +20,11 @@ const ACTION_LABELS = {
   'geofence.create': 'Alta de geocerca',
   'geofence.update': 'Edición de geocerca',
   'geofence.delete': 'Baja de geocerca',
-  'security.lockdown': 'Bloqueo de seguridad',
+  'security.lockdown': 'Bloqueo de seguridad (emergencia)',
+  'security.login_warn': 'Aviso: intentos de ingreso',
+  'security.user_locked': 'Usuario bloqueado por intentos',
+  'security.user_unlocked': 'Usuario desbloqueado (login)',
+  'org.settings': 'Configuración de organización',
   'backup.run': 'Respaldo ejecutado',
   'backup.restore': 'Restauración de respaldo',
 };

@@ -1,4 +1,5 @@
 import { esMsg } from './esMsg';
+import { getDeviceId } from './deviceId';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const STORAGE_KEY = 'tacticalptx_session';
@@ -37,7 +38,10 @@ async function tryRefreshStoredSession() {
     const data = await fetch(`${API_BASE}/api/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: session.refreshToken }),
+      body: JSON.stringify({
+        refreshToken: session.refreshToken,
+        deviceId: getDeviceId() || undefined,
+      }),
     }).then((r) => r.json());
     if (!data.ok) return null;
     const next = {
@@ -75,12 +79,36 @@ export function changePassword(token, { currentPassword, newPassword }) {
   return api('/api/auth/change-password', {
     token,
     method: 'POST',
-    body: { currentPassword, newPassword },
+    body: {
+      currentPassword,
+      newPassword,
+      deviceId: getDeviceId() || undefined,
+    },
   });
 }
 
-export function login(username, password) {
-  return api('/api/auth/login', { method: 'POST', body: { username, password } });
+export async function login(username, password) {
+  const headers = { 'Content-Type': 'application/json' };
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      username,
+      password,
+      deviceId: getDeviceId() || undefined,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(esMsg(data.error || `Error ${res.status}`));
+    err.code = data.code;
+    err.warn = Boolean(data.warn);
+    err.locked = Boolean(data.locked);
+    err.attemptsRemaining = data.attemptsRemaining;
+    err.lockdown = Boolean(data.lockdown);
+    throw err;
+  }
+  return data;
 }
 
 export function fetchAuthMe(token) {
@@ -88,7 +116,10 @@ export function fetchAuthMe(token) {
 }
 
 export function refreshAuth(refreshToken) {
-  return api('/api/auth/refresh', { method: 'POST', body: { refreshToken } });
+  return api('/api/auth/refresh', {
+    method: 'POST',
+    body: { refreshToken, deviceId: getDeviceId() || undefined },
+  });
 }
 
 export function fetchGroups(token) {
@@ -107,8 +138,9 @@ export function fetchLiveKitStatus(token) {
   return api('/api/livekit/status', { token });
 }
 
-export function fetchContacts(token) {
-  return api('/api/dm/contacts', { token });
+export function fetchContacts(token, { scope } = {}) {
+  const q = scope ? `?scope=${encodeURIComponent(scope)}` : '';
+  return api(`/api/dm/contacts${q}`, { token });
 }
 
 export function fetchDmConversations(token) {
@@ -127,12 +159,37 @@ export function sendDmMessage(token, userId, body, { replyToId } = {}) {
   });
 }
 
-export function startPrivateCall(token, targetUserId, { mode = 'call' } = {}) {
+export function editDmMessage(token, userId, messageId, body) {
+  return api(`/api/dm/${userId}/messages/${messageId}`, {
+    token,
+    method: 'PATCH',
+    body: { body },
+  });
+}
+
+export function deleteDmMessage(token, userId, messageId) {
+  return api(`/api/dm/${userId}/messages/${messageId}`, {
+    token,
+    method: 'DELETE',
+  });
+}
+
+export function reactToDmMessage(token, userId, messageId, emoji) {
+  return api(`/api/dm/${userId}/messages/${messageId}/reactions`, {
+    token,
+    method: 'POST',
+    body: { emoji },
+  });
+}
+
+export function startPrivateCall(token, targetUserId, { mode = 'call', intent } = {}) {
   const m = mode === 'radio' ? 'radio' : mode === 'video' ? 'video' : 'call';
+  const body = { targetUserId, mode: m };
+  if (intent === 'remote_camera') body.intent = 'remote_camera';
   return api('/api/calls/private', {
     token,
     method: 'POST',
-    body: { targetUserId, mode: m },
+    body,
   });
 }
 
@@ -160,6 +217,30 @@ export function endPrivateCall(token, callId, reason = 'hangup') {
   });
 }
 
+/** Anexar participante a llamada/videollamada en curso. */
+export function invitePrivateCallParticipant(token, callId, targetUserId) {
+  return api(`/api/calls/private/${callId}/invite`, {
+    token,
+    method: 'POST',
+    body: { targetUserId },
+  });
+}
+
+/** Unirse tras invitación (guest) o re-entrar. */
+export function joinPrivateCall(token, callId) {
+  return api(`/api/calls/private/${callId}/join`, { token, method: 'POST' });
+}
+
+/** Rechazar invitación sin colgar a los demás. */
+export function declinePrivateCallInvite(token, callId) {
+  return api(`/api/calls/private/${callId}/decline-invite`, { token, method: 'POST' });
+}
+
+/** Salir de la llamada (los demás siguen si quedan ≥2). */
+export function leavePrivateCall(token, callId) {
+  return api(`/api/calls/private/${callId}/leave`, { token, method: 'POST' });
+}
+
 export function requestPrivateCallVideo(token, callId) {
   return api(`/api/calls/private/${callId}/video/request`, { token, method: 'POST' });
 }
@@ -176,12 +257,38 @@ export function stopPrivateCallVideo(token, callId) {
   return api(`/api/calls/private/${callId}/video/stop`, { token, method: 'POST' });
 }
 
+/** Control remoto de cámara/mic del dispositivo (Ver cámara). */
+export function controlRemoteCamera(token, callId, { facing, mic, cmdId } = {}) {
+  const body = {};
+  if (facing != null) body.facing = facing;
+  if (mic != null) body.mic = Boolean(mic);
+  if (cmdId != null) body.cmdId = cmdId;
+  return api(`/api/calls/private/${callId}/remote-control`, {
+    token,
+    method: 'POST',
+    body,
+  });
+}
+
 export function fetchGroupVideoStatus(token, groupId) {
   return api(`/api/group-video/${groupId}/status`, { token });
 }
 
-export function startGroupVideo(token, groupId) {
-  return api(`/api/group-video/${groupId}/start`, { token, method: 'POST' });
+export function startGroupVideo(token, groupId, { groupIds } = {}) {
+  return api(`/api/group-video/${groupId}/start`, {
+    token,
+    method: 'POST',
+    body: groupIds?.length ? { groupIds } : undefined,
+  });
+}
+
+/** Videollamada unificada: miembros de varios grupos en una sola sala. */
+export function startGroupVideoMulti(token, groupIds) {
+  return api('/api/group-video/multi/start', {
+    token,
+    method: 'POST',
+    body: { groupIds },
+  });
 }
 
 export function joinGroupVideo(token, groupId) {
@@ -275,6 +382,19 @@ export function fetchOverview(token) {
   return api('/api/admin/overview', { token });
 }
 
+export function fetchOrgSettings(token) {
+  return api('/api/admin/org-settings', { token });
+}
+
+export function patchOrgSettings(token, body) {
+  return api('/api/admin/org-settings', { token, method: 'PATCH', body });
+}
+
+/** Ajustes GPS de la org (cualquier sesión autenticada). */
+export function fetchGpsSettings(token) {
+  return api('/api/me/gps-settings', { token });
+}
+
 export function fetchAdminUsers(token) {
   return api('/api/admin/users', { token });
 }
@@ -289,6 +409,10 @@ export function createAdminUser(token, payload) {
 
 export function patchAdminUser(token, id, payload) {
   return api(`/api/admin/users/${id}`, { token, method: 'PATCH', body: payload });
+}
+
+export function unlockAdminUserLogin(token, id) {
+  return api(`/api/admin/users/${id}/unlock-login`, { token, method: 'POST', body: {} });
 }
 
 export function deleteAdminUser(token, id) {
@@ -331,8 +455,32 @@ export function fetchGradesEmpleos(token) {
   return api('/api/catalogs/grades-empleos', { token });
 }
 
+export function fetchCatalogJerarquias(token) {
+  return api('/api/catalogs/jerarquias', { token });
+}
+
+export function createCatalogJerarquia(token, body) {
+  return api('/api/catalogs/jerarquias', { token, method: 'POST', body });
+}
+
+export function patchCatalogJerarquia(token, id, body) {
+  return api(`/api/catalogs/jerarquias/${id}`, { token, method: 'PATCH', body });
+}
+
+export function reorderCatalogJerarquias(token, ids) {
+  return api('/api/catalogs/jerarquias/reorder', { token, method: 'POST', body: { ids } });
+}
+
+export function deleteCatalogJerarquia(token, id) {
+  return api(`/api/catalogs/jerarquias/${id}`, { token, method: 'DELETE' });
+}
+
 export function createCatalogGrade(token, body) {
   return api('/api/catalogs/grades', { token, method: 'POST', body });
+}
+
+export function reorderCatalogGrades(token, ids) {
+  return api('/api/catalogs/grades/reorder', { token, method: 'POST', body: { ids } });
 }
 
 export function patchCatalogGrade(token, id, body) {
@@ -580,6 +728,62 @@ export function updateGeofence(token, id, body) {
 
 export function deleteGeofence(token, id) {
   return api(`/api/geofences/${id}`, { token, method: 'DELETE' });
+}
+
+/** Sitios tácticos / POI agrupados */
+export function fetchTacticalSiteGroups(token) {
+  return api('/api/tactical-sites/groups', { token });
+}
+
+export function createTacticalSiteGroup(token, body) {
+  return api('/api/tactical-sites/groups', { token, method: 'POST', body });
+}
+
+export function patchTacticalSiteGroup(token, id, body) {
+  return api(`/api/tactical-sites/groups/${id}`, { token, method: 'PATCH', body });
+}
+
+export function deleteTacticalSiteGroup(token, id) {
+  return api(`/api/tactical-sites/groups/${id}`, { token, method: 'DELETE' });
+}
+
+export function fetchTacticalSites(token, { groupId } = {}) {
+  const q = new URLSearchParams();
+  if (groupId) q.set('groupId', groupId);
+  const qs = q.toString();
+  return api(`/api/tactical-sites${qs ? `?${qs}` : ''}`, { token });
+}
+
+export function createTacticalSite(token, body) {
+  return api('/api/tactical-sites', { token, method: 'POST', body });
+}
+
+export function patchTacticalSite(token, id, body) {
+  return api(`/api/tactical-sites/${id}`, { token, method: 'PATCH', body });
+}
+
+export function deleteTacticalSite(token, id) {
+  return api(`/api/tactical-sites/${id}`, { token, method: 'DELETE' });
+}
+
+export async function uploadTacticalSiteGroupIcon(token, groupId, file) {
+  const form = new FormData();
+  form.append('icon', file);
+  const res = await fetch(
+    `${API_BASE}/api/tactical-sites/groups/${encodeURIComponent(groupId)}/icon`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(esMsg(data.error || `Error ${res.status}`));
+  return data;
+}
+
+export function deleteTacticalSiteGroupIcon(token, groupId) {
+  return api(`/api/tactical-sites/groups/${groupId}/icon`, { token, method: 'DELETE' });
 }
 
 export function fetchRecordings(token, { hours = 24, groupId } = {}) {

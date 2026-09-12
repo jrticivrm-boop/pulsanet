@@ -62,11 +62,12 @@ export default function GroupVideoIncomingHost({ session }) {
     if (!incoming?.groupId) return;
     stopCallRingtone();
     const gid = incoming.groupId;
+    const gids = incoming.groupIds?.length ? incoming.groupIds : [gid];
     const gname = incoming.groupName;
     setIncoming(null);
     window.dispatchEvent(
       new CustomEvent('tacticalptx:open-group-video', {
-        detail: { groupId: gid, groupName: gname },
+        detail: { groupId: gid, groupIds: gids, groupName: gname },
       })
     );
     const radioPath = canDispatch(session.user) ? '/despacho/radio' : '/radio';

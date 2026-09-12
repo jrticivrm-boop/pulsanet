@@ -1,4 +1,4 @@
-import { isDispatch } from '../services/roles.js';
+import { isDispatch, canManageUsers } from '../services/roles.js';
 import { packWireEvent } from '../services/wireCrypto.js';
 import { loadTrackScope } from '../services/orgUnits.js';
 
@@ -31,6 +31,9 @@ export function registerDispatchHandlers(io) {
         return;
       }
       socket.join('dispatch');
+      if (canManageUsers(user.role) || isDispatch(user.role)) {
+        socket.join('security:alerts');
+      }
 
       try {
         const scope = await loadTrackScope(user);

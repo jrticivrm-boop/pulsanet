@@ -156,6 +156,8 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
     data?.type === 'private_call' ||
     data?.type === 'private_radio' ||
     data?.type === 'private_video' ||
+    data?.type === 'private_call_invite' ||
+    data?.type === 'private_video_invite' ||
     data?.type === 'group_video';
 
   const notifTag =
@@ -181,7 +183,7 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
       priority: 'high',
       ...(notifTag ? { collapseKey: notifTag } : {}),
       notification: {
-        channelId: isCallPush ? 'tacticalptx_calls' : 'tacticalptx_alerts_radio',
+        channelId: isCallPush ? 'tacticalptx_calls_v2' : 'tacticalptx_alerts_radio',
         sound: isCallPush ? 'default' : 'tactical_msg',
         ...(notifTag ? { tag: notifTag } : {}),
         ...(isCallPush
@@ -237,6 +239,56 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
 }
 
 /**
+ * Data-only (sin notification): despierta la app sin banner/sonido/vibración.
+ * Usado p.ej. para «Ver cámara» con pantalla bloqueada.
+ */
+export async function notifyUserDevicesDataOnly({ userId, data = {} }) {
+  if (!ready) return { sent: 0, skipped: true };
+
+  const { rows } = await query(
+    `SELECT fcm_token FROM devices
+     WHERE user_id = $1 AND is_active = TRUE AND fcm_token IS NOT NULL`,
+    [userId]
+  );
+  const tokens = [...new Set(rows.map((r) => r.fcm_token).filter(Boolean))];
+  if (!tokens.length) return { sent: 0, error: 'Sin dispositivos registrados' };
+
+  const payload = {
+    data: Object.fromEntries(
+      Object.entries(data).map(([k, v]) => [k, String(v ?? '')])
+    ),
+    android: {
+      priority: 'high',
+      ttl: 120000,
+    },
+    apns: {
+      headers: {
+        'apns-priority': '5',
+        'apns-push-type': 'background',
+      },
+      payload: {
+        aps: {
+          'content-available': 1,
+        },
+      },
+    },
+  };
+
+  let sent = 0;
+  try {
+    const res = await admin.messaging().sendEachForMulticast({
+      tokens,
+      ...payload,
+    });
+    sent = res.successCount;
+  } catch (err) {
+    console.error('FCM data-only:', err.message);
+    return { sent: 0, error: err.message };
+  }
+  return { sent };
+}
+
+/**
  * Invita a miembros del grupo a una transmisión en vivo (canal de llamadas).
  */
 export async function notifyGroupVideoInvite({
@@ -283,7 +335,7 @@ export async function notifyGroupVideoInvite({
       priority: 'high',
       collapseKey: `gvideo:${groupId}`,
       notification: {
-        channelId: 'tacticalptx_calls',
+        channelId: 'tacticalptx_calls_v2',
         sound: 'default',
         tag: `gvideo:${groupId}`,
         priority: 'max',

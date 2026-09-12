@@ -5,6 +5,8 @@ import { config } from '../config.js';
  * Clave compartida por room LiveKit (PTT / llamada).
  * Los clientes la usan con ExternalE2EEKeyProvider / BaseKeyProvider.
  * WebRTC ya lleva DTLS-SRTP; esto añade cifrado de aplicación encima del SFU.
+ *
+ * v3: room incluye callId → clave distinta por sesión (mejor integridad).
  */
 function resolveVoiceSecret() {
   const fromEnv = process.env.LIVEKIT_E2EE_SECRET?.trim();
@@ -28,6 +30,6 @@ export function voiceE2eeKeyForRoom(roomName) {
   if (config.isProd && !process.env.LIVEKIT_E2EE_SECRET?.trim()) return null;
   return crypto
     .createHmac('sha256', resolveVoiceSecret())
-    .update(`lk-e2ee-v2:${String(roomName)}`)
+    .update(`lk-e2ee-v3:${String(roomName)}`)
     .digest('base64url');
 }

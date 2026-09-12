@@ -21,19 +21,34 @@ function attachRemoteAudio(track, muted) {
 }
 
 /**
- * Consola: escucha LiveKit de los canales que NO están sintonizados en el dock.
- * Identidad distinta (`:listen:`) para no expulsar la sesión PTT del despachador.
+ * Consola: escucha LiveKit de canales marcados en Escuchar que NO están
+ * en Hablar (esos los cubre usePtt con identidad publicable).
  */
-export function useDispatchListen({ token, groups, skipGroupId, muted }) {
+export function useDispatchListen({
+  token,
+  groups,
+  skipGroupId,
+  skipGroupIds,
+  muted,
+}) {
   const mutedRef = useRef(Boolean(muted));
   mutedRef.current = Boolean(muted);
   const groupsRef = useRef(groups);
   groupsRef.current = groups;
 
+  const skipSet = new Set(
+    (skipGroupIds?.length
+      ? skipGroupIds
+      : skipGroupId
+        ? [skipGroupId]
+        : []
+    ).filter(Boolean)
+  );
+  const skipKey = [...skipSet].sort().join(',');
   const groupKey = (groups || []).map((g) => g.id).sort().join(',');
 
   useEffect(() => {
-    if (!token || !skipGroupId || !groupKey) return undefined;
+    if (!token || !groupKey) return undefined;
     let cancelled = false;
     const rooms = [];
 
@@ -42,7 +57,7 @@ export function useDispatchListen({ token, groups, skipGroupId, muted }) {
     (async () => {
       const list = groupsRef.current || [];
       for (const g of list) {
-        if (!g?.id || g.id === skipGroupId) continue;
+        if (!g?.id || skipSet.has(g.id)) continue;
         try {
           const lk = await fetchLiveKitToken(token, g.id, { listenOnly: true });
           if (cancelled) return;
@@ -75,7 +90,9 @@ export function useDispatchListen({ token, groups, skipGroupId, muted }) {
         }
       });
     };
-  }, [token, skipGroupId, groupKey]);
+    // skipSet derived from skipKey
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, skipKey, groupKey]);
 
   useEffect(() => {
     document.querySelectorAll('[data-lk-audio]').forEach((el) => {

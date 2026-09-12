@@ -9,15 +9,21 @@ import StarIcon from './StarIcon';
 import PersonAvatar from './PersonAvatar';
 import { PEER_EVENTS, openPeoplePalette, startVideoCall, startVoiceCall } from './peerActions';
 import { useIsPhone } from './useMediaQuery.js';
+import NewChatSheet from './NewChatSheet.jsx';
 
 const FAV_KEY = 'tacticalptx_chat_favorites';
 const TABS = [
   { id: 'all', label: 'Todos' },
-  { id: 'people', label: 'Personas' },
   { id: 'unread', label: 'No leídos' },
   { id: 'favorites', label: 'Favoritos' },
   { id: 'groups', label: 'Grupos' },
 ];
+
+function isMemberGroup(g) {
+  if (typeof g?.is_member === 'boolean') return g.is_member;
+  if (typeof g?.isMember === 'boolean') return g.isMember;
+  return true;
+}
 
 function loadFavorites() {
   try {
@@ -81,9 +87,9 @@ export default function ChatInbox({
   focusGroupId,
   chatPanelVisible = true,
   /** Solo chats de estos canales (Hablar en + escucha). Oculta DMs y otros grupos. */
-  scopeGroupIds = null,
+  scopeGroupIds: _scopeGroupIds = null,
 }) {
-  const channelScoped = Array.isArray(scopeGroupIds) && scopeGroupIds.length > 0;
+  // scopeGroupIds: reservado (antes filtraba por canales de radio). Inbox WA = todos los grupos miembro + DM.
   const [tab, setTab] = useState('all');
   const [favorites, setFavorites] = useState(loadFavorites);
   const [unread, setUnread] = useState({});
@@ -91,6 +97,7 @@ export default function ChatInbox({
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState('');
   const [groupVideoLive, setGroupVideoLive] = useState({});
+  const [newChatOpen, setNewChatOpen] = useState(false);
   const lastGroupMsgRef = useRef(null);
   const selectedRef = useRef(selected);
   const isPhone = useIsPhone();
@@ -99,33 +106,10 @@ export default function ChatInbox({
     selectedRef.current = selected;
   }, [selected]);
 
+  // WhatsApp: no forzar el canal de radio como chat abierto (lista primero).
   useEffect(() => {
     if (!group?.id) return;
-    if (channelScoped) {
-      setSelected({
-        kind: 'group',
-        id: group.id,
-        name: group.name,
-        avatarUrl: group.avatarUrl || null,
-      });
-      return;
-    }
-    // Phone: lista primero — no forzar hilo del canal de radio.
-    if (isPhone) {
-      setSelected((prev) => {
-        if (prev?.kind === 'group' && prev.id === group.id) {
-          return {
-            ...prev,
-            name: group.name,
-            avatarUrl: group.avatarUrl || prev.avatarUrl || null,
-          };
-        }
-        return prev;
-      });
-      return;
-    }
     setSelected((prev) => {
-      if (prev?.kind === 'dm') return prev;
       if (prev?.kind === 'group' && prev.id === group.id) {
         return {
           ...prev,
@@ -133,24 +117,26 @@ export default function ChatInbox({
           avatarUrl: group.avatarUrl || prev.avatarUrl || null,
         };
       }
-      return {
-        kind: 'group',
-        id: group.id,
-        name: group.name,
-        avatarUrl: group.avatarUrl || null,
-      };
+      return prev;
     });
-  }, [group?.id, group?.name, group?.avatarUrl, channelScoped, isPhone]);
+  }, [group?.id, group?.name, group?.avatarUrl]);
+
+  // Si te sacan de un grupo, quitarlo de la selección (DM viejos se mantienen).
+  useEffect(() => {
+    if (selected?.kind !== 'group') return;
+    const still = groups.some((g) => g.id === selected.id && isMemberGroup(g));
+    if (!still) setSelected(null);
+  }, [groups, selected]);
 
   // Bottom nav «Chats» / deep-link: volver a la lista en phone.
   useEffect(() => {
     const onInboxList = () => {
-      if (!isPhone || channelScoped) return;
+      if (!isPhone) return;
       setSelected(null);
     };
     window.addEventListener('tacticalptx:inbox-list', onInboxList);
     return () => window.removeEventListener('tacticalptx:inbox-list', onInboxList);
-  }, [isPhone, channelScoped]);
+  }, [isPhone]);
 
   useEffect(() => {
     if (!focusPeerId) return;
@@ -320,15 +306,14 @@ export default function ChatInbox({
 
   const rows = useMemo(() => {
     const items = [];
-    const visibleGroups = channelScoped
-      ? groups.filter((g) => scopeGroupIds.includes(g.id))
-      : groups;
+    const chatGroups = groups.filter(isMemberGroup);
 
-    for (const g of visibleGroups) {
+    for (const g of chatGroups) {
       const isCurrent = g.id === group?.id;
       const last = isCurrent
         ? [...(ptt?.messages || [])].reverse().find((m) => !m.isDeleted)
         : null;
+      const memberCount = Number(g.memberCount ?? g.member_count);
       items.push({
         key: `group:${g.id}`,
         kind: 'group',
@@ -339,39 +324,23 @@ export default function ChatInbox({
         at: last?.createdAt || null,
         unread: unread[`group:${g.id}`] || 0,
         favorite: favorites.group.includes(g.id),
+        memberCount: Number.isFinite(memberCount) && memberCount > 0 ? memberCount : null,
       });
     }
 
-    if (!channelScoped) {
-      for (const c of dmMeta.conversations) {
-        items.push({
-          key: `dm:${c.peerId}`,
-          kind: 'dm',
-          id: c.peerId,
-          name: c.peerName,
-          avatarUrl: c.peerAvatarUrl || null,
-          preview: previewText(c.lastMessage),
-          at: c.lastMessage?.createdAt || null,
-          unread: unread[`dm:${c.peerId}`] || 0,
-          favorite: favorites.dm.includes(c.peerId),
-        });
-      }
-
-      for (const c of dmMeta.contacts) {
-        if (items.some((i) => i.kind === 'dm' && i.id === c.id)) continue;
-        items.push({
-          key: `dm:${c.id}`,
-          kind: 'dm',
-          id: c.id,
-          name: c.displayName,
-          avatarUrl: c.avatarUrl || null,
-          preview: 'Toca para escribir',
-          at: null,
-          unread: unread[`dm:${c.id}`] || 0,
-          favorite: favorites.dm.includes(c.id),
-          isContactOnly: true,
-        });
-      }
+    // Solo conversaciones con historial (estilo WhatsApp). Contactos nuevos → «Nuevo chat».
+    for (const c of dmMeta.conversations) {
+      items.push({
+        key: `dm:${c.peerId}`,
+        kind: 'dm',
+        id: c.peerId,
+        name: c.peerName,
+        avatarUrl: c.peerAvatarUrl || null,
+        preview: previewText(c.lastMessage),
+        at: c.lastMessage?.createdAt || null,
+        unread: unread[`dm:${c.peerId}`] || 0,
+        favorite: favorites.dm.includes(c.peerId),
+      });
     }
 
     items.sort((a, b) => {
@@ -379,47 +348,33 @@ export default function ChatInbox({
       const ta = a.at ? new Date(a.at).getTime() : 0;
       const tb = b.at ? new Date(b.at).getTime() : 0;
       if (tb !== ta) return tb - ta;
-      if (a.isContactOnly !== b.isContactOnly) return a.isContactOnly ? 1 : -1;
       return String(a.name).localeCompare(String(b.name), 'es');
     });
 
     return items;
-  }, [groups, group?.id, ptt?.messages, dmMeta, unread, favorites, channelScoped, scopeGroupIds]);
+  }, [groups, group?.id, ptt?.messages, dmMeta.conversations, unread, favorites]);
 
   const filtered = useMemo(() => {
     let list = rows;
     if (tab === 'unread') list = list.filter((r) => r.unread > 0);
     else if (tab === 'favorites') list = list.filter((r) => r.favorite);
     else if (tab === 'groups') list = list.filter((r) => r.kind === 'group');
-    else if (tab === 'people') list = list.filter((r) => r.kind === 'dm');
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter(
         (r) => r.name.toLowerCase().includes(q) || String(r.preview).toLowerCase().includes(q)
       );
-    } else if (tab === 'all' || tab === 'favorites') {
-      list = list.filter((r) => !r.isContactOnly || r.favorite || r.unread > 0);
     }
-    // Personas: mostrar todos los contactos/DM (incl. sin historial)
     return list;
   }, [rows, tab, query]);
 
   const totalUnread = useMemo(
-    () =>
-      Object.entries(unread).reduce((sum, [key, n]) => {
-        if (channelScoped && !key.startsWith('group:')) return sum;
-        if (channelScoped) {
-          const gid = key.slice(6);
-          if (!scopeGroupIds.includes(gid)) return sum;
-        }
-        return sum + (n || 0);
-      }, 0),
-    [unread, channelScoped, scopeGroupIds]
+    () => Object.values(unread).reduce((sum, n) => sum + (n || 0), 0),
+    [unread]
   );
 
-  const hideSidebar = channelScoped && filtered.length <= 1;
-  const phoneThread = isPhone && Boolean(selected) && !hideSidebar;
-  const phoneListOnly = isPhone && !selected && !hideSidebar;
+  const phoneThread = isPhone && Boolean(selected);
+  const phoneListOnly = isPhone && !selected;
 
   function selectRow(row) {
     setSelected({
@@ -435,15 +390,6 @@ export default function ChatInbox({
   }
 
   function clearPhoneSelection() {
-    if (channelScoped && group?.id) {
-      setSelected({
-        kind: 'group',
-        id: group.id,
-        name: group.name,
-        avatarUrl: group.avatarUrl || null,
-      });
-      return;
-    }
     setSelected(null);
   }
 
@@ -461,21 +407,28 @@ export default function ChatInbox({
     <div
       className={[
         'wa-inbox',
-        hideSidebar ? 'wa-inbox--single-channel' : '',
         phoneThread ? 'wa-inbox--phone-thread' : '',
         phoneListOnly ? 'wa-inbox--phone-list' : '',
       ]
         .filter(Boolean)
         .join(' ')}
     >
-      {!hideSidebar && (
       <aside className="wa-inbox-list" aria-label="Chats">
         <header className="wa-inbox-head">
           <div>
             <h2>Chats</h2>
-            <p>{channelScoped ? 'Canales seleccionados' : 'Grupos y mensajes directos'}</p>
+            <p>Grupos y mensajes directos</p>
           </div>
-          {!channelScoped && (
+          <div className="wa-inbox-head-actions">
+            <button
+              type="button"
+              className="wa-inbox-new-btn"
+              title="Nuevo chat"
+              aria-label="Nuevo chat"
+              onClick={() => setNewChatOpen(true)}
+            >
+              +
+            </button>
             <button
               type="button"
               className="btn ghost btn-personas"
@@ -484,10 +437,9 @@ export default function ChatInbox({
             >
               Personas
             </button>
-          )}
+          </div>
         </header>
 
-        {!channelScoped && (
         <div className="wa-inbox-tabs" role="tablist" aria-label="Filtros de chat">
           {TABS.map((t) => (
             <button
@@ -505,35 +457,29 @@ export default function ChatInbox({
             </button>
           ))}
         </div>
-        )}
 
         <div className="wa-inbox-search">
           <input
+            type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={channelScoped ? 'Buscar en canales…' : 'Buscar o empezar chat…'}
-            aria-label="Buscar chat"
+            placeholder="Buscar un chat o iniciar uno nuevo"
+            aria-label="Buscar chats"
           />
         </div>
 
         <div className="wa-inbox-scroll">
           {filtered.length === 0 && (
             <p className="wa-inbox-empty">
-              {channelScoped
-                ? 'Sin canales en escucha'
-                : tab === 'unread'
+              {tab === 'unread'
                 ? 'No hay chats sin leer'
                 : tab === 'favorites'
                   ? 'Marca chats con la estrella para verlos aquí'
                   : tab === 'groups'
                     ? 'No hay grupos'
-                    : tab === 'people'
-                      ? query.trim()
-                        ? 'Sin resultados'
-                        : 'Sin contactos en la organización'
-                      : query.trim()
-                        ? 'Sin resultados'
-                        : 'Sin conversaciones'}
+                    : query.trim()
+                      ? 'Sin resultados'
+                      : 'Sin conversaciones. Pulsa + para iniciar un chat.'}
             </p>
           )}
           {filtered.map((row) => {
@@ -558,7 +504,14 @@ export default function ChatInbox({
                 />
                 <span className="wa-inbox-main">
                   <span className="wa-inbox-top">
-                    <strong>{row.name}</strong>
+                    <span className="wa-inbox-title">
+                      <strong>{row.name}</strong>
+                      {row.kind === 'group' && row.memberCount != null && (
+                        <span className="wa-inbox-members">
+                          {row.memberCount} integrante{row.memberCount === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </span>
                     <time>{formatListTime(row.at)}</time>
                   </span>
                   <span className="wa-inbox-bottom">
@@ -619,28 +572,19 @@ export default function ChatInbox({
           })}
         </div>
       </aside>
-      )}
 
       <section className="wa-inbox-pane">
-        {((showDm && channelScoped) || (isPhone && selected && !hideSidebar)) && (
-          <div className="wa-inbox-pane-tools wa-inbox-pane-tools--back">
+        {isPhone && selected && (
+          <div className="wa-inbox-pane-tools--back">
             <button
               type="button"
               className="wa-inbox-back-btn tp-coarse-touch"
-              onClick={() => {
-                if (showDm && channelScoped && group?.id) {
-                  setSelected({
-                    kind: 'group',
-                    id: group.id,
-                    name: group.name,
-                    avatarUrl: group.avatarUrl || null,
-                  });
-                  return;
-                }
-                clearPhoneSelection();
-              }}
+              onClick={clearPhoneSelection}
             >
-              ← {showDm && channelScoped ? 'Volver al canal' : 'Chats'}
+              <span className="wa-inbox-back-ico" aria-hidden="true">
+                ←
+              </span>
+              <span>Chats</span>
             </button>
           </div>
         )}
@@ -652,24 +596,22 @@ export default function ChatInbox({
             <h3>TacticalPtx Chat</h3>
             <p>
               {isPhone
-                ? 'Elige un chat o grupo de la lista.'
-                : 'Elige un chat o grupo a la izquierda para ver mensajes.'}
+                ? 'Elige un chat o grupo de la lista, o pulsa + para escribir a alguien.'
+                : 'Elige una conversación a la izquierda, o pulsa + para un nuevo mensaje.'}
             </p>
+            <button
+              type="button"
+              className="btn primary"
+              style={{ marginTop: '1rem' }}
+              onClick={() => setNewChatOpen(true)}
+            >
+              Nuevo chat
+            </button>
           </div>
         )}
 
         {showGroup && (
           <div className="wa-inbox-group-wrap">
-            <div className="wa-inbox-pane-tools">
-              <button
-                type="button"
-                className={`wa-inbox-fav-btn${isFavSelected ? ' on' : ''}`}
-                onClick={() => toggleFavorite('group', selected.id)}
-                title="Favorito"
-              >
-                <StarIcon size="1rem" />
-              </button>
-            </div>
             <WhatsAppChat
               token={session.token}
               userId={session.user.id}
@@ -682,6 +624,7 @@ export default function ChatInbox({
               typingLabel={ptt.typingLabel}
               messages={ptt.messages}
               chatError={ptt.chatError}
+              onDismissChatError={ptt.clearChatError}
               chatActive={chatPanelVisible}
               onSend={(text, opts) => ptt.postChat(text, opts)}
               onSendMedia={(file, opts) => ptt.postMedia(file, opts)}
@@ -708,6 +651,8 @@ export default function ChatInbox({
                 openGroupVideo(selected.id, selected.name || group?.name || 'Grupo')
               }
               groupVideoActive={Boolean(groupVideoLive[selected.id])}
+              favorite={isFavSelected}
+              onToggleFavorite={() => toggleFavorite('group', selected.id)}
             />
           </div>
         )}
@@ -748,6 +693,22 @@ export default function ChatInbox({
           />
         </div>
       </section>
+
+      <NewChatSheet
+        session={session}
+        open={newChatOpen}
+        onClose={() => setNewChatOpen(false)}
+        onPick={(peer) => {
+          setSelected({
+            kind: 'dm',
+            id: peer.id,
+            name: peer.displayName || 'Chat',
+            avatarUrl: peer.avatarUrl || null,
+          });
+          clearUnread(`dm:${peer.id}`);
+          setTab('all');
+        }}
+      />
     </div>
   );
 }

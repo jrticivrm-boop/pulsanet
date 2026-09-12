@@ -33,6 +33,8 @@ groupsRouter.get('/', async (req, res) => {
         unit_id: g.unit_id || null,
         member_role: g.member_role || 'member',
         is_member: memberIds.has(g.id),
+        member_count: Number(g.member_count) || 0,
+        memberCount: Number(g.member_count) || 0,
         avatarUrl: mapAvatarUrl(g.avatar_url),
       })),
     });

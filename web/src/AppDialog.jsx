@@ -42,6 +42,7 @@ export default function AppDialog({
 
   useEffect(() => {
     if (!open) return undefined;
+    // Escape = misma acción que la X / Cancelar (no cierra por clic fuera).
     const onKey = (e) => {
       if (e.key === 'Escape' && !busy) {
         e.preventDefault();
@@ -64,20 +65,12 @@ export default function AppDialog({
   }
 
   return (
-    <div
-      className="sys-modal-backdrop"
-      role="presentation"
-      onClick={() => {
-        if (!busy) onCancel?.();
-      }}
-      data-esc-close
-    >
+    <div className="sys-modal-backdrop" role="presentation" data-esc-close>
       <div
         className="sys-modal sys-modal--sm"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        onClick={(e) => e.stopPropagation()}
       >
         <header className="sys-modal-head">
           <h2 id={titleId}>{title}</h2>

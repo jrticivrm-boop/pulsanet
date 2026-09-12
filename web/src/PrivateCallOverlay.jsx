@@ -13,6 +13,8 @@ import {
   respondPrivateCallVideo,
   stopPrivateCallVideo,
   refreshPrivateCall,
+  controlRemoteCamera,
+  endPrivateCall,
 } from './api';
 import { createEncryptedRoom } from './livekitE2ee';
 import { publicLiveKitUrl } from './livekitUrl';
@@ -22,10 +24,12 @@ import { socketIoOptions, socketUrl } from './socketConfig';
 import { setPrivateCallUiOpen } from './privateCallUi';
 import { warmUpVideoCallMedia } from './callMedia';
 import { showChatMessageToast } from './chatNotify';
-import VideoConferenceMosaic from './VideoConferenceMosaic';
+import VideoConferenceMosaic, { VideoSizeSegment } from './VideoConferenceMosaic';
 import { usePrivateCallTiles } from './usePrivateCallTiles';
 import { attachPrivateCallStabilizer } from './privateCallStabilizer';
-import { mergeStreamingRoomOptions, getVideoCaptureDefaults, oppositeFacingMode } from './videoStreaming';
+import { mergeStreamingRoomOptions, getVideoCaptureDefaults, oppositeFacingMode, createStreamingVideoTrack, isCameraTrackDead } from './videoStreaming';
+import PersonAvatar from './PersonAvatar';
+import CallAddParticipantSheet from './CallAddParticipantSheet';
 
 function previewFromMessage(message) {
   if (!message) return 'Nuevo mensaje';
@@ -38,15 +42,41 @@ function previewFromMessage(message) {
   return 'Nuevo mensaje';
 }
 
+function formatCallElapsed(totalSec) {
+  const s = Math.max(0, Math.floor(Number(totalSec) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  }
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
 /**
  * Overlay llamada / videollamada / radio privada 1:1 (LiveKit + E2EE).
- * layout: `overlay` (fullscreen portal) | `console` (panel embebido en despacho)
+ * layout: `overlay` | `console` | `slot` (celda de conferencia multi-cámara)
  */
-export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' }) {
+export default function PrivateCallOverlay({
+  call,
+  onHangup,
+  layout = 'overlay',
+  selected = false,
+  onSelect,
+}) {
   const isRadio = call?.mode === 'radio';
   const isVideo = call?.mode === 'video';
+  const isRemoteCamera = call?.intent === 'remote_camera';
+  /** Despacho pide ver cámara del dispositivo: no publica cam local por defecto. */
+  const isMonitorCaller = isRemoteCamera && call?.role === 'caller';
   const isConsole = layout === 'console';
-  const [status, setStatus] = useState('Conectando…');
+  const isSlot = layout === 'slot';
+  const [status, setStatus] = useState(
+    isMonitorCaller ? 'Solicitando cámara…' : 'Conectando…'
+  );
+  const [callConnected, setCallConnected] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const connectedAtRef = useRef(null);
   const [muted, setMuted] = useState(true);
   const [pttHeld, setPttHeld] = useState(false);
   const [minimized, setMinimized] = useState(false);
@@ -54,24 +84,49 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
   const [facingMode, setFacingMode] = useState('user');
   const [videoRequest, setVideoRequest] = useState(null);
   const [expanded, setExpanded] = useState(false);
+  /** Tamaño del video en Expandir: sm | md | lg | xl | fill */
+  const [panelSize, setPanelSize] = useState('fill');
+  const soloHeight =
+    panelSize === 'sm'
+      ? '42%'
+      : panelSize === 'md'
+        ? '58%'
+        : panelSize === 'lg'
+          ? '72%'
+          : panelSize === 'fill'
+            ? '100%'
+            : '88%';
+  /** Control remoto del dispositivo (monitor). */
+  const [remoteFacing, setRemoteFacing] = useState('back');
+  const [remoteMic, setRemoteMic] = useState(false);
+  const [remoteCtrlBusy, setRemoteCtrlBusy] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [invitedIds, setInvitedIds] = useState([]);
   const roomRef = useRef(null);
   const micRef = useRef(null);
   const camRef = useRef(null);
   const facingModeRef = useRef('user');
   const audioEls = useRef([]);
   const closingRef = useRef(false);
-  const userCameraOffRef = useRef(false);
+  const userCameraOffRef = useRef(isMonitorCaller);
   const onHangupRef = useRef(onHangup);
   const callRef = useRef(call);
-  const { tiles, bindRoomVideoEvents, resetRemoteVideos } = usePrivateCallTiles({
+  const { tiles, bindRoomVideoEvents, resetRemoteVideos, notifyLocalTrackChanged } = usePrivateCallTiles({
     peerName: call?.peerName,
     cameraOn,
     camRef,
   });
-  const displayTiles = useMemo(
-    () => tiles.map((t) => (t.isLocal ? { ...t, muted } : t)),
-    [tiles, muted]
-  );
+  const displayTiles = useMemo(() => {
+    const mapped = tiles.map((t) => (t.isLocal ? { ...t, muted } : t));
+    if (!isMonitorCaller) return mapped;
+    // Monitor: un solo feed del dispositivo (centrado en pantalla).
+    const remotes = mapped.filter((t) => !t.isLocal);
+    const withTrack = remotes.find((t) => t.track) || remotes[0];
+    const local = mapped.find((t) => t.isLocal && t.track);
+    if (withTrack) return local ? [withTrack, local] : [withTrack];
+    if (local) return [local];
+    return [{ id: 'remote-wait', name: call?.peerName || 'Dispositivo', track: null, isLocal: false }];
+  }, [tiles, muted, isMonitorCaller, call?.peerName]);
 
   useEffect(() => {
     callRef.current = call;
@@ -81,26 +136,85 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
     onHangupRef.current = onHangup;
   }, [onHangup]);
 
+  function markConnected() {
+    if (!connectedAtRef.current) {
+      connectedAtRef.current = Date.now();
+      setCallConnected(true);
+      setElapsedSec(0);
+    }
+  }
+
   useEffect(() => {
+    if (!callConnected) return undefined;
+    const tick = () => {
+      const start = connectedAtRef.current;
+      if (!start) return;
+      setElapsedSec(Math.floor((Date.now() - start) / 1000));
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [callConnected]);
+
+  useEffect(() => {
+    // Monitores en slot no ensucian el flag de llamada 1:1 (chat/notificaciones).
+    if (isSlot || isMonitorCaller) return undefined;
     setPrivateCallUiOpen(true);
     return () => setPrivateCallUiOpen(false);
-  }, []);
+  }, [isSlot, isMonitorCaller]);
 
   async function enableCamera(explicitRoom) {
     const room = explicitRoom || roomRef.current;
     if (!room || userCameraOffRef.current) return false;
-    if (camRef.current) return true;
+    if (camRef.current) {
+      notifyLocalTrackChanged();
+      setCameraOn(true);
+      return true;
+    }
     try {
       assertMediaDevices();
-      const cam = await createLocalVideoTrack(getVideoCaptureDefaults(facingModeRef.current));
+      const cam = await createStreamingVideoTrack(createLocalVideoTrack, facingModeRef.current);
       camRef.current = cam;
       await room.localParticipant.publishTrack(cam, { source: Track.Source.Camera });
       setCameraOn(true);
+      notifyLocalTrackChanged();
       return true;
     } catch (e) {
       setCameraOn(false);
+      notifyLocalTrackChanged();
       setStatus(esMsg(e, 'No se pudo activar la cámara'));
       return false;
+    }
+  }
+
+  async function republishCameraAfterReconnect() {
+    if (userCameraOffRef.current || isMonitorCaller || !isVideo) return;
+    const room = roomRef.current;
+    if (!room) return;
+    const existing = camRef.current;
+    if (!isCameraTrackDead(existing)) {
+      notifyLocalTrackChanged();
+      return;
+    }
+    try {
+      if (existing) {
+        try {
+          await room.localParticipant.unpublishTrack(existing, true);
+        } catch {
+          /* ignore */
+        }
+        try {
+          existing.stop();
+        } catch {
+          /* ignore */
+        }
+        camRef.current = null;
+      }
+      setCameraOn(false);
+      notifyLocalTrackChanged();
+      await enableCamera(room);
+    } catch (e) {
+      setStatus(esMsg(e, 'No se pudo restaurar la cámara'));
     }
   }
 
@@ -113,17 +227,19 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
       await cam.restartTrack(getVideoCaptureDefaults(next));
       facingModeRef.current = next;
       setFacingMode(next);
+      notifyLocalTrackChanged();
     } catch (e) {
       try {
         await room.localParticipant.unpublishTrack(cam, true);
         cam.stop();
         camRef.current = null;
-        const fresh = await createLocalVideoTrack(getVideoCaptureDefaults(next));
+        const fresh = await createStreamingVideoTrack(createLocalVideoTrack, next);
         camRef.current = fresh;
         await room.localParticipant.publishTrack(fresh, { source: Track.Source.Camera });
         facingModeRef.current = next;
         setFacingMode(next);
         setCameraOn(true);
+        notifyLocalTrackChanged();
       } catch (err) {
         setStatus(esMsg(err.message || e.message, 'No se pudo cambiar de cámara'));
       }
@@ -173,6 +289,7 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
     }
     camRef.current = null;
     setCameraOn(false);
+    notifyLocalTrackChanged();
     if (notifyPeer && callRef.current?.callId && callRef.current?.authToken) {
       stopPrivateCallVideo(callRef.current.authToken, callRef.current.callId).catch(() => {});
     }
@@ -208,11 +325,61 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
         userCameraOffRef.current = false;
         await warmUpVideoCallMedia();
         await enableCamera();
-        setStatus(`En llamada con ${callRef.current.peerName}`);
+        markConnected();
+        setStatus('En llamada');
       }
     } catch (e) {
       setStatus(esMsg(e.message, 'Error al responder solicitud'));
     }
+  }
+
+  async function sendRemoteControl(patch) {
+    const c = callRef.current;
+    if (!c?.authToken || !c?.callId || remoteCtrlBusy) return;
+    setRemoteCtrlBusy(true);
+    const cmdId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      // Un solo camino HTTP/socket — fallos de control NUNCA cuelgan la sesión.
+      await controlRemoteCamera(c.authToken, c.callId, { ...patch, cmdId });
+      try {
+        const room = roomRef.current;
+        const lp = room?.localParticipant;
+        if (lp?.publishData) {
+          const payload = JSON.stringify({
+            type: 'remote_cam_ctrl',
+            callId: c.callId,
+            cmdId,
+            ts: Date.now(),
+            ...patch,
+          });
+          await lp.publishData(new TextEncoder().encode(payload), { reliable: true });
+        }
+      } catch {
+        /* data packet opcional */
+      }
+      if (patch.facing != null) setRemoteFacing(patch.facing);
+      if (patch.mic != null) setRemoteMic(Boolean(patch.mic));
+      setStatus(
+        patch.facing != null
+          ? `Cambiando a cámara ${patch.facing === 'front' ? 'frontal' : 'trasera'}…`
+          : patch.mic
+            ? 'Micrófono del dispositivo activado'
+            : 'Micrófono del dispositivo apagado'
+      );
+    } catch (e) {
+      setStatus(esMsg(e.message, 'No se pudo controlar el dispositivo'));
+    } finally {
+      setRemoteCtrlBusy(false);
+    }
+  }
+
+  function toggleRemoteFacing() {
+    const next = remoteFacing === 'front' ? 'back' : 'front';
+    void sendRemoteControl({ facing: next });
+  }
+
+  function toggleRemoteMic() {
+    void sendRemoteControl({ mic: !remoteMic });
   }
 
   useEffect(() => {
@@ -237,17 +404,27 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
       });
       signalSocket.on('call:ended', (payload) => {
         if (String(payload?.callId) === String(call.callId)) {
-          remoteEnd(payload?.reason === 'reject' ? 'Rechazada' : undefined);
+          const reason = payload?.reason;
+          const label =
+            reason === 'reject'
+              ? 'Rechazada'
+              : reason === 'timeout' || reason === 'no_answer'
+                ? 'Sin respuesta'
+                : undefined;
+          remoteEnd(label);
         }
       });
       signalSocket.on('call:accepted', (payload) => {
         if (payload?.callId === call.callId && call.role === 'caller') {
+          markConnected();
           setStatus(
-            isRadio
-              ? `Radio con ${call.peerName}`
-              : isVideo
-                ? `Videollamada con ${call.peerName}`
-                : `En llamada con ${call.peerName}`
+            isMonitorCaller
+              ? 'Cámara en vivo'
+              : isRadio
+                ? 'Radio activa'
+                : isVideo
+                  ? 'Videollamada'
+                  : 'En llamada'
           );
         }
       });
@@ -257,15 +434,22 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
       });
       signalSocket.on('call:video_accepted', (payload) => {
         if (payload?.callId !== call.callId) return;
-        setStatus(`${call.peerName} activó la cámara`);
+        setStatus('Cámara remota activada');
       });
       signalSocket.on('call:video_rejected', (payload) => {
         if (payload?.callId !== call.callId) return;
-        setStatus(`${call.peerName} rechazó compartir cámara`);
+        setStatus('Cámara remota rechazada');
       });
       signalSocket.on('call:video_stopped', (payload) => {
         if (payload?.callId !== call.callId) return;
         resetRemoteVideos();
+      });
+      signalSocket.on('call:remote_control_ack', (payload) => {
+        if (String(payload?.callId) !== String(call.callId)) return;
+        if (payload?.facing === 'front' || payload?.facing === 'back') {
+          setRemoteFacing(payload.facing);
+        }
+        if (typeof payload?.mic === 'boolean') setRemoteMic(payload.mic);
       });
       signalSocket.on('dm:notify', ({ peerId, peerName, message }) => {
         const active = callRef.current;
@@ -282,7 +466,11 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
 
     (async () => {
       try {
-        const room = await createEncryptedRoom(mergeStreamingRoomOptions(), call.e2eeKey);
+        const room = await createEncryptedRoom(
+          mergeStreamingRoomOptions(),
+          call.e2eeKey,
+          { requireKey: call.e2ee === true },
+        );
         roomRef.current = room;
         unbindVideo = bindRoomVideoEvents(room);
         detachStabilizer = attachPrivateCallStabilizer({
@@ -295,26 +483,57 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
             if (!cancelled && !closingRef.current) setStatus(msg);
           },
           onRemoteEnd: () => remoteEnd(undefined),
+          onGiveUp: async () => {
+            try {
+              if (call.callId && token) {
+                await endPrivateCall(token, call.callId, 'hangup');
+              }
+            } catch {
+              /* ignore */
+            }
+            await remoteEnd(undefined);
+          },
           getPeerLabel: () => call.peerName || 'el otro usuario',
+          // Monitor: no colgar por cortes breves del despacho/dispositivo.
+          peerGraceMs: isMonitorCaller ? 90_000 : undefined,
         });
 
-        room.on(RoomEvent.TrackSubscribed, (track) => {
+        room.on(RoomEvent.TrackSubscribed, (track, publication) => {
+          if (track.kind === Track.Kind.Video) {
+            try {
+              publication?.setSubscribed?.(true);
+            } catch {
+              /* ignore */
+            }
+          }
           if (track.kind === Track.Kind.Audio) {
             const el = track.attach();
             el.dataset.privateCall = '1';
             document.body.appendChild(el);
             audioEls.current.push(el);
+            markConnected();
             setStatus(
               isRadio
-                ? `Radio con ${call.peerName}`
-                : isVideo
-                  ? `Videollamada con ${call.peerName}`
-                  : `En llamada con ${call.peerName}`
+                ? 'Radio activa'
+                : isMonitorCaller
+                  ? 'Cámara en vivo'
+                  : isVideo
+                    ? 'Videollamada'
+                    : 'En llamada'
             );
           }
         });
         room.on(RoomEvent.Disconnected, () => {
-          if (!cancelled && !closingRef.current) setStatus('Reconectando…');
+          // LiveKit reconecta solo; no spamear "Reconectando…" en microcortes.
+        });
+        room.on(RoomEvent.Reconnected, () => {
+          if (cancelled || closingRef.current) return;
+          // No republicar cámara en monitor; en video solo si el track murió (debounce largo).
+          window.clearTimeout(room._tpxRepublishTimer);
+          room._tpxRepublishTimer = window.setTimeout(() => {
+            if (cancelled || closingRef.current) return;
+            void republishCameraAfterReconnect();
+          }, 1500);
         });
 
         await room.connect(publicLiveKitUrl(call.url), call.token);
@@ -323,39 +542,48 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
           return;
         }
         assertMediaDevices();
-        const mic = await createLocalAudioTrack({
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        });
-        micRef.current = mic;
-        await room.localParticipant.publishTrack(mic, {
-          source: Track.Source.Microphone,
-          audioPreset: AudioPresets.speech,
-          red: false,
-        });
-        if (isRadio) {
-          await mic.mute();
-          setMuted(true);
+        // Monitor: no publicar mic del puesto (independiente del mic del dispositivo).
+        if (!isMonitorCaller) {
+          const mic = await createLocalAudioTrack({
+            echoCancellation: true,
+            noiseSuppression: false,
+            autoGainControl: true,
+          });
+          micRef.current = mic;
+          await room.localParticipant.publishTrack(mic, {
+            source: Track.Source.Microphone,
+            audioPreset: AudioPresets.speech,
+            dtx: false,
+            red: false,
+          });
+          if (isRadio) {
+            await mic.mute();
+            setMuted(true);
+          } else {
+            setMuted(false);
+          }
         } else {
-          setMuted(false);
+          setMuted(true);
         }
-        if (isVideo && !userCameraOffRef.current) {
+        if (isVideo && !userCameraOffRef.current && !isMonitorCaller) {
           await enableCamera(room);
         }
         setStatus(
           call.role === 'caller'
-            ? isRadio
-              ? `Esperando a ${call.peerName}…`
-              : isVideo
-                ? `Videollamando a ${call.peerName}…`
-                : `Llamando a ${call.peerName}…`
+            ? isMonitorCaller
+              ? 'Esperando cámara…'
+              : isRadio
+                ? 'Esperando respuesta…'
+                : isVideo
+                  ? 'Videollamando…'
+                  : 'Llamando…'
             : isRadio
-              ? `Radio con ${call.peerName}`
+              ? 'Radio activa'
               : isVideo
-                ? `Videollamada con ${call.peerName}`
-                : `En llamada con ${call.peerName}`
+                ? 'Videollamada'
+                : 'En llamada'
         );
+        if (call.role !== 'caller') markConnected();
       } catch (e) {
         if (!cancelled) {
           setStatus(esMsg(e, 'No se pudo conectar — reintentando…'));
@@ -366,11 +594,19 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
               const room = roomRef.current;
               if (room && fresh?.token) {
                 await room.connect(publicLiveKitUrl(fresh.url), fresh.token);
-                setStatus(`En llamada con ${call.peerName}`);
+                markConnected();
+                setStatus('En llamada');
                 return;
               }
             } catch {
               /* fall through */
+            }
+            try {
+              if (call.callId && call.authToken) {
+                await endPrivateCall(call.authToken, call.callId, 'hangup');
+              }
+            } catch {
+              /* ignore */
             }
             onHangupRef.current?.({ remote: true });
           }, 2400);
@@ -423,6 +659,7 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
     call?.role,
     isRadio,
     isVideo,
+    isMonitorCaller,
     resetRemoteVideos,
   ]);
 
@@ -492,40 +729,132 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
       .join('')
       .toUpperCase() || '?';
 
-  const label = isRadio ? 'Radio personal 1:1' : isVideo ? 'Videollamada' : 'Llamada de voz';
+  const peerAvatar = call.peerId && call.authToken ? (
+    <PersonAvatar
+      userId={call.peerId}
+      name={call.peerName}
+      token={call.authToken}
+      className="private-call-avatar private-call-avatar-lg solo"
+    />
+  ) : (
+    <div className="private-call-avatar private-call-avatar-lg solo" aria-hidden="true">
+      {initials}
+    </div>
+  );
+
+  const label = isRadio
+    ? 'Radio personal'
+    : isMonitorCaller
+      ? 'Cámara remota'
+      : isVideo
+        ? 'Videollamada'
+        : 'Llamada de voz';
   const showMosaic = isVideo || cameraOn || displayTiles.some((t) => t.track);
-  const useFullscreen = !isConsole || expanded;
+  const useFullscreen = (!isConsole && !isSlot) || expanded;
+  const statusLine = callConnected ? formatCallElapsed(elapsedSec) : status;
+  const statusTone = callConnected ? 'live' : /llamando|esperando|conectando|videollamando|invitando/i.test(status) ? 'ring' : 'idle';
+  const canAddParticipant = isVideo && !isMonitorCaller && !isRadio && callConnected;
+  const excludeForInvite = useMemo(() => {
+    const ids = new Set();
+    if (call?.userId) ids.add(String(call.userId));
+    if (call?.peerId) ids.add(String(call.peerId));
+    for (const id of invitedIds) ids.add(String(id));
+    try {
+      const room = roomRef.current;
+      const localId = room?.localParticipant?.identity;
+      if (localId) ids.add(String(localId));
+      for (const p of room?.remoteParticipants?.values?.() || []) {
+        if (p?.identity) ids.add(String(p.identity));
+      }
+    } catch {
+      /* ignore */
+    }
+    return [...ids];
+  }, [call?.userId, call?.peerId, invitedIds, tiles]);
 
   const controls = (
-    <div className={`private-call-actions wa-actions${isConsole ? ' console-bar' : ''}`}>
-      {isRadio ? (
-        <button
-          type="button"
-          className={`wa-call-circle ptt${pttHeld ? ' holding' : ''}`}
-          onPointerDown={(e) => {
-            e.preventDefault();
-            e.currentTarget.setPointerCapture(e.pointerId);
-            pttDown();
-          }}
-          onPointerUp={() => pttUp()}
-          onPointerCancel={() => pttUp()}
-          onLostPointerCapture={() => pttUp()}
-          onContextMenu={(e) => e.preventDefault()}
-          aria-pressed={pttHeld}
-          title="Mantén para hablar"
-        >
-          <span aria-hidden="true">🎙️</span>
-          {pttHeld ? 'AL AIRE' : 'PTT'}
-        </button>
+    <div
+      className={`private-call-actions wa-actions${isConsole ? ' console-bar' : ''}${isMonitorCaller ? ' is-monitor' : ''}`}
+    >
+      {isMonitorCaller ? (
+        <>
+          <div className="private-call-monitor-status" aria-live="polite">
+            <span className={`private-call-live-pill${displayTiles.some((t) => t.track && !t.isLocal) ? ' on' : ''}`}>
+              {displayTiles.some((t) => t.track && !t.isLocal) ? 'EN VIVO' : 'ESPERANDO'}
+            </span>
+            <small className="private-call-monitor-status-line">{statusLine}</small>
+          </div>
+          <div className="private-call-monitor-actions">
+            <button
+              type="button"
+              className="wa-call-circle video"
+              onClick={toggleRemoteFacing}
+              disabled={remoteCtrlBusy}
+              title={remoteFacing === 'front' ? 'Cambiar a cámara trasera' : 'Cambiar a cámara frontal'}
+            >
+              <span aria-hidden="true">⟲</span>
+              {remoteFacing === 'front' ? 'Frontal' : 'Trasera'}
+            </button>
+            <button
+              type="button"
+              className={`wa-call-circle mute${remoteMic ? '' : ' is-off'}`}
+              onClick={toggleRemoteMic}
+              disabled={remoteCtrlBusy}
+              title={remoteMic ? 'Apagar micrófono del dispositivo' : 'Activar micrófono del dispositivo'}
+            >
+              <span aria-hidden="true">{remoteMic ? '🎙' : '🔇'}</span>
+              {remoteMic ? 'Mic' : 'Mic off'}
+            </button>
+            <button type="button" className="wa-call-circle hangup" onClick={hangupClick}>
+              <span aria-hidden="true">📵</span>
+              Colgar
+            </button>
+          </div>
+        </>
+      ) : isRadio ? (
+        <>
+          <button
+            type="button"
+            className={`wa-call-circle ptt${pttHeld ? ' holding' : ''}`}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              pttDown();
+            }}
+            onPointerUp={() => pttUp()}
+            onPointerCancel={() => pttUp()}
+            onLostPointerCapture={() => pttUp()}
+            onContextMenu={(e) => e.preventDefault()}
+            aria-pressed={pttHeld}
+            title="Mantén para hablar"
+          >
+            <span aria-hidden="true">🎙</span>
+            {pttHeld ? 'AL AIRE' : 'PTT'}
+          </button>
+          <button type="button" className="wa-call-circle hangup" onClick={hangupClick}>
+            <span aria-hidden="true">📵</span>
+            Cerrar
+          </button>
+        </>
       ) : (
         <>
-          <button type="button" className="wa-call-circle mute" onClick={toggleMute}>
-            <span aria-hidden="true">{muted ? '🔇' : '🎤'}</span>
-            {muted ? 'Mic off' : 'Silenciar'}
+          <button
+            type="button"
+            className={`wa-call-circle mute${muted ? ' is-off' : ''}`}
+            onClick={toggleMute}
+            title={muted ? 'Activar micrófono' : 'Silenciar'}
+          >
+            <span aria-hidden="true">{muted ? '🔇' : '🎙'}</span>
+            {muted ? 'Mic off' : 'Mic'}
           </button>
-          <button type="button" className="wa-call-circle video" onClick={toggleCamera}>
+          <button
+            type="button"
+            className={`wa-call-circle video${cameraOn ? '' : ' is-off'}`}
+            onClick={toggleCamera}
+            title={cameraOn ? 'Apagar cámara' : 'Encender cámara'}
+          >
             <span aria-hidden="true">{cameraOn ? '📷' : '🚫'}</span>
-            {cameraOn ? 'Apagar cam' : 'Encender cam'}
+            {cameraOn ? 'Cámara' : 'Sin cam'}
           </button>
           {cameraOn && (
             <button
@@ -534,22 +863,33 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
               onClick={switchCamera}
               title={facingMode === 'user' ? 'Cambiar a cámara trasera' : 'Cambiar a cámara frontal'}
             >
-              <span aria-hidden="true">🔄</span>
-              {facingMode === 'user' ? 'Trasera' : 'Frontal'}
+              <span aria-hidden="true">⟲</span>
+              Girar
+            </button>
+          )}
+          {canAddParticipant && (
+            <button
+              type="button"
+              className="wa-call-circle add-peer"
+              onClick={() => setAddOpen(true)}
+              title="Añadir participante"
+            >
+              <span aria-hidden="true">👤+</span>
+              Añadir
             </button>
           )}
           {!isVideo && !cameraOn && (
             <button type="button" className="wa-call-circle video-req" onClick={requestPeerCamera}>
-              <span aria-hidden="true">👁️</span>
+              <span aria-hidden="true">👁</span>
               Pedir cam
             </button>
           )}
+          <button type="button" className="wa-call-circle hangup" onClick={hangupClick} title="Colgar">
+            <span aria-hidden="true">📵</span>
+            Colgar
+          </button>
         </>
       )}
-      <button type="button" className="wa-call-circle hangup" onClick={hangupClick}>
-        <span aria-hidden="true">📵</span>
-        {isRadio ? 'Cerrar' : 'Colgar'}
-      </button>
     </div>
   );
 
@@ -579,11 +919,20 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
           data-esc-close-btn=""
         >
           <span className="private-call-mini-avatar" aria-hidden="true">
-            {initials}
+            {call.peerId && call.authToken ? (
+              <PersonAvatar
+                userId={call.peerId}
+                name={call.peerName}
+                token={call.authToken}
+                className="private-call-mini-photo"
+              />
+            ) : (
+              initials
+            )}
           </span>
           <span className="private-call-mini-text">
             <strong>{call.peerName}</strong>
-            <small>{status || (isRadio ? 'Radio en curso' : 'Llamada en curso')}</small>
+            <small>{statusLine}</small>
           </span>
         </button>
         <button
@@ -596,21 +945,78 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
         </button>
       </div>
     );
-    return isConsole ? mini : createPortal(mini, document.body);
+    return isConsole || isSlot ? mini : createPortal(mini, document.body);
+  }
+
+  if (isSlot) {
+    return (
+      <article
+        className={`rmc-slot${selected ? ' is-selected' : ''}${displayTiles.some((t) => t.track && !t.isLocal) ? ' is-live' : ''}`}
+        aria-label={`Cámara de ${call.peerName}`}
+        onClick={() => onSelect?.()}
+      >
+        <div className="rmc-slot-video">
+          <VideoConferenceMosaic tiles={displayTiles} compact />
+        </div>
+        <footer className="rmc-slot-foot">
+          <div className="rmc-slot-meta">
+            <strong>{call.peerName}</strong>
+            <small>{statusLine}</small>
+          </div>
+          <div className="rmc-slot-actions" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="rmc-slot-btn"
+              onClick={toggleRemoteFacing}
+              disabled={remoteCtrlBusy}
+              title={remoteFacing === 'front' ? 'Cámara trasera' : 'Cámara frontal'}
+            >
+              {remoteFacing === 'front' ? 'Frontal' : 'Trasera'}
+            </button>
+            <button
+              type="button"
+              className={`rmc-slot-btn${remoteMic ? ' on' : ''}`}
+              onClick={toggleRemoteMic}
+              disabled={remoteCtrlBusy}
+              title={remoteMic ? 'Apagar micrófono' : 'Activar micrófono'}
+            >
+              {remoteMic ? 'Mic ON' : 'Mic OFF'}
+            </button>
+            <button type="button" className="rmc-slot-btn danger" onClick={hangupClick} title="Colgar">
+              Colgar
+            </button>
+          </div>
+        </footer>
+      </article>
+    );
   }
 
   const consolePanel = (
-    <section className="cc-video-panel" aria-label="Videoconferencia en consola">
+    <section
+      className={`cc-video-panel size-lg${expanded ? ' is-fs-away' : ''}`}
+      aria-label="Videoconferencia en consola"
+    >
       <header className="cc-video-panel-head">
         <div>
-          <h2>Videoconferencia</h2>
+          <h2>{isMonitorCaller ? 'Cámara del dispositivo' : 'Videoconferencia'}</h2>
           <p className="cc-hint">
-            {call.peerName} · {status}
+            {call.peerName} · {statusLine}
+            {expanded ? ' · pantalla completa' : ''}
           </p>
         </div>
         <div className="cc-video-panel-tools">
-          <button type="button" className="cc-btn" onClick={() => setExpanded(true)} title="Pantalla completa">
-            Expandir
+          <button
+            type="button"
+            className="cc-btn"
+            onClick={() => {
+              setExpanded((v) => {
+                if (!v) setPanelSize('fill');
+                return !v;
+              });
+            }}
+            title={expanded ? 'Volver al panel' : 'Pantalla completa'}
+          >
+            {expanded ? 'Reducir' : 'Expandir'}
           </button>
           <button type="button" className="cc-btn danger" onClick={hangupClick}>
             Colgar
@@ -618,7 +1024,11 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
         </div>
       </header>
       <div className="cc-video-panel-body">
-        <VideoConferenceMosaic tiles={displayTiles} compact />
+        {expanded ? (
+          <p className="cc-video-fs-hint">Video en pantalla completa — ajusta el tamaño arriba o pulsa ← / Reducir</p>
+        ) : (
+          <VideoConferenceMosaic tiles={displayTiles} compact={false} />
+        )}
       </div>
       <footer className="cc-video-panel-foot">
         {videoRequestUi}
@@ -629,42 +1039,86 @@ export default function PrivateCallOverlay({ call, onHangup, layout = 'overlay' 
 
   const overlayUi = (
     <div
-      className={`private-call-overlay wa-call${isRadio ? ' is-radio' : ''}${showMosaic ? ' has-video mosaic' : ''}`}
+      className={`private-call-overlay wa-call${isRadio ? ' is-radio' : ''}${showMosaic ? ' has-video mosaic' : ' is-voice'}${isConsole ? ' from-console' : ''}${isMonitorCaller ? ' is-monitor' : ''}${displayTiles.length <= 1 ? ' is-solo-feed' : ''} stage-${panelSize}`}
+      style={isConsole ? { '--vc-solo-h': soloHeight } : undefined}
       role="dialog"
       aria-modal="true"
       aria-label={isRadio ? 'Radio personal' : isVideo ? 'Videollamada' : 'Llamada privada'}
       data-esc-close=""
     >
-      <button
-        type="button"
-        className="private-call-back"
-        onClick={minimize}
-        data-esc-close-btn=""
-        title={isConsole ? 'Volver al panel' : 'Minimizar (la llamada sigue)'}
-        aria-label={isConsole ? 'Volver al panel' : 'Minimizar'}
-      >
-        ←
-      </button>
-
-      {showMosaic ? (
-        <div className="private-call-mosaic-wrap">
-          <VideoConferenceMosaic tiles={displayTiles} />
+      <header className="private-call-fs-bar">
+        <button
+          type="button"
+          className="private-call-back"
+          onClick={minimize}
+          data-esc-close-btn=""
+          title={isConsole ? 'Volver al panel' : 'Minimizar (la llamada sigue)'}
+          aria-label={isConsole ? 'Volver al panel' : 'Minimizar'}
+        >
+          ←
+        </button>
+        <div className="private-call-fs-meta">
+          <strong>{isMonitorCaller ? 'Cámara remota' : label}</strong>
+          {showMosaic || isConsole ? (
+            <span title={call.peerName}>{call.peerName}</span>
+          ) : (
+            <span className={`private-call-status-chip tone-${statusTone}`} aria-live="polite">
+              {statusLine}
+            </span>
+          )}
         </div>
-      ) : (
-        <div className="private-call-avatar private-call-avatar-lg solo" aria-hidden="true">
-          {initials}
+        <div className="private-call-fs-tools">
+          {isConsole && (
+            <>
+              <span className="private-call-fs-size-label">Tamaño</span>
+              <VideoSizeSegment value={panelSize} onChange={setPanelSize} />
+              <button type="button" className="cc-btn" onClick={() => setExpanded(false)} title="Volver al panel">
+                Reducir
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      <div className="private-call-stage">
+        {showMosaic ? (
+          <div className={`private-call-mosaic-wrap stage-${panelSize}${displayTiles.length <= 1 ? ' is-solo-wrap' : ''}`}>
+            <VideoConferenceMosaic tiles={displayTiles} />
+          </div>
+        ) : (
+          <div className={`private-call-identity${statusTone === 'ring' ? ' is-ringing' : ''}`}>
+            <div className="private-call-avatar-halo" aria-hidden="true">
+              {peerAvatar}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {!isConsole && !isMonitorCaller && (
+        <div className="private-call-meta">
+          <h2 title={call.peerName}>{call.peerName}</h2>
+          <p className={`private-call-status tone-${statusTone}`} aria-live="polite">
+            {showMosaic ? statusLine : callConnected ? statusLine : status}
+          </p>
         </div>
       )}
 
-      <div className="private-call-meta">
-        <p className="private-call-label">{label}</p>
-        <h2>{call.peerName}</h2>
-        <p className="private-call-status">{status}</p>
-      </div>
-
       {videoRequestUi}
-      {controls}
+      <footer className="private-call-dock">{controls}</footer>
       {isRadio && <p className="private-radio-hint">Mantén PTT para transmitir · suelta para escuchar</p>}
+      {canAddParticipant && (
+        <CallAddParticipantSheet
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          authToken={call.authToken}
+          callId={call.callId}
+          excludeIds={excludeForInvite}
+          onInvited={(c) => {
+            setInvitedIds((prev) => [...prev, c.id]);
+            setStatus(`Invitando a ${c.displayName || 'contacto'}…`);
+          }}
+        />
+      )}
     </div>
   );
 

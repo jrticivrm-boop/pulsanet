@@ -23,7 +23,11 @@ export function filesFromClipboard(clipboardData) {
 }
 
 export function isImageFile(file) {
-  return Boolean(file?.type?.startsWith('image/'));
+  if (!file) return false;
+  if (file.type?.startsWith('image/')) return true;
+  // Windows a veces deja type vacío; caemos a extensión
+  const name = String(file.name || '').toLowerCase();
+  return /\.(png|jpe?g|gif|webp|bmp|heic|heif|tif{1,2})$/i.test(name);
 }
 
 export function uid() {

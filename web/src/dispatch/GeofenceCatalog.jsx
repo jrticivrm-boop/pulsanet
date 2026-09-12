@@ -49,8 +49,8 @@ export default function GeofenceCatalog({ session }) {
         <p>
           Zonas circulares usadas en el mapa en vivo. Para dibujar una nueva, abre el mapa.
         </p>
-        <Link className="cc-btn primary" to="/despacho/mapa">
-          Abrir mapa en vivo
+        <Link className="cc-btn primary" to="/despacho">
+          Abrir Consola de Operaciones
         </Link>
       </div>
       {error && <p className="cc-error">{error}</p>}

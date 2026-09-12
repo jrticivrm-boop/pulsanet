@@ -2,26 +2,32 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { io } from 'socket.io-client';
 import {
-  acceptPrivateCall,
-  endPrivateCall,
   fetchContacts,
   fetchDmConversations,
   fetchDmMessages,
+  fetchMediaBlobUrl,
   markDmRead,
   sendDmMessage,
   sendDmSticker,
-  startPrivateCall,
+  editDmMessage,
+  deleteDmMessage,
+  reactToDmMessage,
   uploadDmMedia,
 } from './api';
+import AppDialog from './AppDialog';
 import ChatMedia from './ChatMedia';
-import { warmUpVideoCallMedia } from './callMedia';
-import PrivateCallOverlay from './PrivateCallOverlay';
 import ImageGalleryLightbox, { collectImageMessages } from './ImageGalleryLightbox';
 import {
+  clampMenuPos,
+  copyImageFromObjectUrl,
+  copyTextToClipboard,
+  downloadFromObjectUrl,
+  friendlyMediaName,
+  isImageMessage,
+} from './chatMediaActions';
+import {
   notifyDmMessage,
-  notifyIncomingCall,
   playMessageTone,
-  stopCallRingtone,
   unlockAppNotifyAudio,
 } from './appNotify';
 import { isViewingChat, showChatMessageToast } from './chatNotify';
@@ -34,9 +40,11 @@ import { socketIoOptions, socketUrl } from './socketConfig';
 import StarIcon from './StarIcon';
 import WaEmojiPicker from './WaEmojiPicker';
 import PersonAvatar from './PersonAvatar';
+import { startVideoCall, startVoiceCall } from './peerActions';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const SOCKET_URL = socketUrl();
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 const ROLE_LABEL = {
   root: 'Superadmin',
@@ -56,16 +64,6 @@ const ICON = {
   phone: '\u260E',
 };
 
-function initials(name) {
-  const parts = String(name || '?')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (!parts.length) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-}
-
 function roleLabel(role) {
   return ROLE_LABEL[role] || role || '';
 }
@@ -80,6 +78,19 @@ function formatTime(value) {
   } catch {
     return '';
   }
+}
+
+function replyPreview(reply) {
+  if (!reply) return '';
+  if (reply.isDeleted) return 'Mensaje eliminado';
+  if (reply.type === 'sticker') return 'Sticker';
+  if (reply.type === 'image') return '📷 Imagen';
+  if (reply.type === 'audio') return '🎤 Audio';
+  if (reply.type === 'video' || /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(reply.mediaName || '')) {
+    return '🎬 Video';
+  }
+  if (reply.type === 'file') return `📎 ${reply.mediaName || 'Archivo'}`;
+  return String(reply.body || '').slice(0, 80);
 }
 
 /**
@@ -113,12 +124,19 @@ export default function DirectChat({
   const [showAttach, setShowAttach] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [mediaComposer, setMediaComposer] = useState(null);
-  const [incomingCall, setIncomingCall] = useState(null);
-  const [activeCall, setActiveCall] = useState(null);
-  const [callMenuOpen, setCallMenuOpen] = useState(false);
   const [imageGallery, setImageGallery] = useState(null);
+  const [replyTo, setReplyTo] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [menuMsgId, setMenuMsgId] = useState(null);
+  const [menuPos, setMenuPos] = useState(null);
+  const [reactPickerId, setReactPickerId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [actionHint, setActionHint] = useState('');
+  const actionHintTimer = useRef(null);
 
   function openImageGallery(m) {
+    closeMsgMenu();
     const items = collectImageMessages(messages);
     let idx = items.findIndex((x) => x.id === m?.id);
     if (idx < 0) idx = items.findIndex((x) => x.mediaUrl === m?.mediaUrl);
@@ -137,6 +155,33 @@ export default function DirectChat({
   const onDmToastRef = useRef(onDmToast);
   const onUnreadRef = useRef(onUnread);
   const onPeerOpenedRef = useRef(onPeerOpened);
+
+  const canModerate = (m) =>
+    !m?.isDeleted &&
+    !m?._local &&
+    (m.senderId === me.id ||
+      me.role === 'root' ||
+      me.role === 'admin' ||
+      me.role === 'dispatcher');
+
+  function closeMsgMenu() {
+    setMenuMsgId(null);
+    setMenuPos(null);
+    setReactPickerId(null);
+  }
+
+  function showActionHint(text) {
+    if (!text) return;
+    setActionHint(text);
+    clearTimeout(actionHintTimer.current);
+    actionHintTimer.current = setTimeout(() => setActionHint(''), 2200);
+  }
+
+  function openMsgMenu(m, clientX, clientY) {
+    setReactPickerId(null);
+    setMenuMsgId(m.id);
+    setMenuPos(clientX != null ? clampMenuPos(clientX, clientY) : null);
+  }
   const onInboxMetaRef = useRef(onInboxMeta);
   const openPeerFnRef = useRef(null);
 
@@ -170,6 +215,31 @@ export default function DirectChat({
     unlockAppNotifyAudio().catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (!menuMsgId) return undefined;
+    const close = () => closeMsgMenu();
+    const t = setTimeout(() => document.addEventListener('mousedown', close), 0);
+    const onEsc = (e) => {
+      if (e.key === 'Escape' || e.code === 'Escape') close();
+    };
+    const onBus = () => close();
+    window.addEventListener('keydown', onEsc, true);
+    window.addEventListener('tacticalptx:close-context-menus', onBus);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onEsc, true);
+      window.removeEventListener('tacticalptx:close-context-menus', onBus);
+    };
+  }, [menuMsgId]);
+
+  useEffect(
+    () => () => {
+      clearTimeout(actionHintTimer.current);
+    },
+    []
+  );
+
   const markPeerRead = useCallback(
     (peerId, upToMessageId) => {
       if (!token || !peerId || !upToMessageId) return;
@@ -189,11 +259,17 @@ export default function DirectChat({
   }, [messages, peer?.id, active, me.id, markPeerRead]);
 
   useEffect(() => {
+    if (!error || !peer) return undefined;
+    const t = window.setTimeout(() => setError(''), 6000);
+    return () => window.clearTimeout(t);
+  }, [error, peer]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const [c, conv] = await Promise.all([
-          fetchContacts(token),
+          fetchContacts(token, { scope: 'shared' }),
           fetchDmConversations(token),
         ]);
         if (cancelled) return;
@@ -255,6 +331,26 @@ export default function DirectChat({
       setMessages((prev) =>
         prev.map((m) =>
           ids.has(m.id) ? { ...m, readCount: 1, readFully: true, peerCount: 1 } : m
+        )
+      );
+    });
+
+    socket.on('dm:deleted', (msg) => {
+      if (!msg?.id) return;
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)));
+    });
+
+    socket.on('dm:edited', (msg) => {
+      if (!msg?.id) return;
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)));
+    });
+
+    socket.on('dm:reaction', (payload) => {
+      const mid = payload?.messageId;
+      if (!mid) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === mid ? { ...m, reactions: payload.reactions || [] } : m
         )
       );
     });
@@ -325,39 +421,7 @@ export default function DirectChat({
       }
     });
 
-    socket.on('call:incoming', (payload) => {
-      // Radio personal 1:1 retirada.
-      if (payload?.mode === 'radio') {
-        (async () => {
-          try {
-            await endPrivateCall(token, payload.callId, 'reject');
-          } catch {
-            /* ignore */
-          }
-          stopCallRingtone();
-        })();
-        return;
-      }
-      setIncomingCall(payload);
-      notifyIncomingCall({
-        callerName: payload?.callerName,
-        callId: payload?.callId,
-        mode: payload?.mode,
-      });
-    });
-
-    socket.on('call:accepted', () => {
-      stopCallRingtone();
-    });
-
-    socket.on('call:ended', ({ callId }) => {
-      stopCallRingtone();
-      setIncomingCall((c) => (c?.callId === callId ? null : c));
-      setActiveCall((c) => (c?.callId === callId ? null : c));
-    });
-
     return () => {
-      stopCallRingtone();
       socket.disconnect();
       socketRef.current = null;
     };
@@ -390,6 +454,10 @@ export default function DirectChat({
     setError('');
     setPeer(p);
     setTyping('');
+    setReplyTo(null);
+    setEditing(null);
+    setDraft('');
+    closeMsgMenu();
     onPeerOpenedRef.current?.(p);
     try {
       socketRef.current?.emit('dm:join', { peerId: p.id });
@@ -428,6 +496,26 @@ export default function DirectChat({
     const body = draft.trim();
     setDraft('');
     socketRef.current?.emit('dm:typing', { peerId: peer.id, typing: false });
+
+    if (editing) {
+      try {
+        const data = await editDmMessage(token, peer.id, editing.id, body);
+        if (data?.message) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === editing.id ? { ...m, ...data.message } : m))
+          );
+        }
+        setEditing(null);
+      } catch (err) {
+        setError(esMsg(err.message));
+        setDraft(body);
+      }
+      return;
+    }
+
+    const replyId = replyTo?.id || null;
+    const replySnapshot = replyTo;
+    setReplyTo(null);
     try {
       if (socketRef.current?.connected) {
         const clientMsgId =
@@ -449,16 +537,207 @@ export default function DirectChat({
           readFully: false,
           isDeleted: false,
           createdAt: new Date().toISOString(),
+          reply: replySnapshot
+            ? {
+                id: replySnapshot.id,
+                body: replySnapshot.body,
+                type: replySnapshot.type,
+                displayName:
+                  replySnapshot.displayName ||
+                  (replySnapshot.senderId === me.id ? 'Tú' : peer.displayName),
+                isDeleted: replySnapshot.isDeleted === true,
+              }
+            : null,
         };
         setMessages((prev) => [...prev, optimistic]);
-        socketRef.current.emit('dm:send', { peerId: peer.id, body, clientMsgId });
+        socketRef.current.emit('dm:send', {
+          peerId: peer.id,
+          body,
+          clientMsgId,
+          replyToId: replyId,
+        });
       } else {
-        const data = await sendDmMessage(token, peer.id, body);
+        const data = await sendDmMessage(token, peer.id, body, { replyToId: replyId });
         setMessages((prev) => [...prev, data.message]);
       }
     } catch (err) {
       setError(esMsg(err.message));
     }
+  }
+
+  async function pickReaction(m, emoji) {
+    if (!peer || !m?.id || m._local) return;
+    setReactPickerId(null);
+    try {
+      const data = await reactToDmMessage(token, peer.id, m.id, emoji);
+      setMessages((prev) =>
+        prev.map((x) =>
+          x.id === m.id ? { ...x, reactions: data.reactions || [] } : x
+        )
+      );
+    } catch (err) {
+      setError(esMsg(err.message));
+    }
+  }
+
+  function startEdit(m) {
+    if (!canModerate(m) || m.type !== 'text' || !m.body) return;
+    setEditing(m);
+    setDraft(m.body);
+    setReplyTo(null);
+    closeMsgMenu();
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+    setDraft('');
+  }
+
+  function confirmDelete(m) {
+    closeMsgMenu();
+    setDeleteTarget(m);
+  }
+
+  async function runDeleteMessage() {
+    if (!peer || !deleteTarget || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      const data = await deleteDmMessage(token, peer.id, deleteTarget.id);
+      if (data?.message) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === deleteTarget.id ? { ...m, ...data.message } : m))
+        );
+      }
+      setDeleteTarget(null);
+    } catch (err) {
+      setError(esMsg(err.message));
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  async function copyMsg(m) {
+    const text = m.body || m.mediaName || '';
+    if (!text) return;
+    const ok = await copyTextToClipboard(text);
+    showActionHint(ok ? 'Copiado' : 'No se pudo copiar');
+    closeMsgMenu();
+  }
+
+  async function copyMsgImage(m) {
+    if (!m.mediaUrl || !isImageMessage(m)) return;
+    closeMsgMenu();
+    try {
+      const blobUrl = await fetchMediaBlobUrl(token, m.mediaUrl);
+      const ok = await copyImageFromObjectUrl(blobUrl);
+      URL.revokeObjectURL(blobUrl);
+      showActionHint(ok ? 'Imagen copiada' : 'No se pudo copiar la imagen');
+    } catch {
+      showActionHint('No se pudo copiar la imagen');
+    }
+  }
+
+  async function downloadMsgMedia(m) {
+    if (!m.mediaUrl) return;
+    closeMsgMenu();
+    try {
+      const blobUrl = await fetchMediaBlobUrl(token, m.mediaUrl);
+      await downloadFromObjectUrl(blobUrl, friendlyMediaName(m) || 'archivo');
+      URL.revokeObjectURL(blobUrl);
+      showActionHint('Descarga iniciada');
+    } catch {
+      showActionHint('No se pudo descargar');
+    }
+  }
+
+  function renderMsgMenu(m) {
+    const hasText = Boolean(m.body?.trim());
+    const hasMedia = Boolean(m.mediaUrl);
+    const image = isImageMessage(m);
+    const displayName = friendlyMediaName(m);
+    const style = menuPos ? { top: menuPos.y, left: menuPos.x } : undefined;
+
+    return (
+      <div
+        className={`wa-context-menu${menuPos ? ' is-floating' : ''}`}
+        style={style}
+        role="menu"
+        data-esc-close=""
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <button
+          type="button"
+          className="sr-only"
+          data-esc-close-btn=""
+          tabIndex={-1}
+          aria-hidden="true"
+          onClick={closeMsgMenu}
+        >
+          Cerrar
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setReactPickerId(m.id);
+            closeMsgMenu();
+          }}
+        >
+          Reaccionar
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setReplyTo(m);
+            setEditing(null);
+            closeMsgMenu();
+          }}
+        >
+          Responder
+        </button>
+        {hasText && (
+          <button type="button" role="menuitem" onClick={() => copyMsg(m)}>
+            Copiar
+          </button>
+        )}
+        {image && (
+          <button type="button" role="menuitem" onClick={() => copyMsgImage(m)}>
+            Copiar imagen
+          </button>
+        )}
+        {hasMedia && (
+          <button type="button" role="menuitem" onClick={() => downloadMsgMedia(m)}>
+            Descargar{m.type === 'audio' ? ' audio' : image ? ' imagen' : ''}
+          </button>
+        )}
+        {displayName && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={async () => {
+              const ok = await copyTextToClipboard(displayName);
+              showActionHint(ok ? 'Nombre copiado' : 'No se pudo copiar');
+              closeMsgMenu();
+            }}
+          >
+            Copiar nombre
+          </button>
+        )}
+        {canModerate(m) && m.type === 'text' && m.body && (
+          <button type="button" role="menuitem" onClick={() => startEdit(m)}>
+            Editar
+          </button>
+        )}
+        {canModerate(m) && (
+          <button type="button" role="menuitem" className="danger" onClick={() => confirmDelete(m)}>
+            Eliminar
+          </button>
+        )}
+      </div>
+    );
   }
 
   async function onSendMedia(file, type) {
@@ -505,6 +784,13 @@ export default function DirectChat({
       files,
       caption: caption ?? draft,
     });
+  }
+
+  function takeFilesFromInput(input) {
+    // Copiar YA: en Chromium, resetear value vacía el FileList vivo.
+    const files = Array.from(input?.files || []);
+    if (input) input.value = '';
+    return files;
   }
 
   function onComposerPaste(e) {
@@ -556,108 +842,22 @@ export default function DirectChat({
     }
   }
 
-  async function callPeer() {
+  function callPeer() {
     if (!peer) return;
-    try {
-      const data = await startPrivateCall(token, peer.id, { mode: 'call' });
-      setActiveCall({
-        callId: data.call.callId,
-        peerId: peer.id,
-        room: data.call.room,
-        token: data.token,
-        authToken: token,
-        url: data.url,
-        peerName: peer.displayName,
-        role: 'caller',
-        e2eeKey: data.e2eeKey || null,
-        mode: 'call',
-      });
-    } catch (e) {
-      setError(esMsg(e.message));
-    }
+    startVoiceCall({
+      id: peer.id,
+      displayName: peer.displayName,
+      avatarUrl: peer.avatarUrl,
+    });
   }
 
-  async function videoCallPeer() {
+  function videoCallPeer() {
     if (!peer) return;
-    try {
-      await warmUpVideoCallMedia();
-      const data = await startPrivateCall(token, peer.id, { mode: 'video' });
-      setActiveCall({
-        callId: data.call.callId,
-        peerId: peer.id,
-        room: data.call.room,
-        token: data.token,
-        authToken: token,
-        url: data.url,
-        peerName: peer.displayName,
-        role: 'caller',
-        e2eeKey: data.e2eeKey || null,
-        mode: 'video',
-      });
-    } catch (e) {
-      setError(esMsg(e.message));
-    }
-  }
-
-  async function acceptCall() {
-    if (!incomingCall) return;
-    stopCallRingtone();
-    if (incomingCall.mode === 'radio') {
-      try {
-        await endPrivateCall(token, incomingCall.callId, 'reject');
-      } catch {
-        /* ignore */
-      }
-      setIncomingCall(null);
-      return;
-    }
-    const mode = incomingCall.mode === 'video' ? 'video' : 'call';
-    if (mode === 'video') {
-      await warmUpVideoCallMedia();
-    }
-    try {
-      const data = await acceptPrivateCall(token, incomingCall.callId);
-      setIncomingCall(null);
-      setActiveCall({
-        callId: data.call.callId,
-        peerId: incomingCall.callerId || peer?.id,
-        room: data.call.room,
-        token: data.token,
-        authToken: token,
-        url: data.url,
-        peerName: incomingCall.callerName,
-        role: 'callee',
-        e2eeKey: data.e2eeKey || null,
-        mode,
-      });
-    } catch (e) {
-      setError(esMsg(e.message));
-    }
-  }
-
-  async function rejectCall() {
-    if (!incomingCall) return;
-    stopCallRingtone();
-    try {
-      await endPrivateCall(token, incomingCall.callId, 'reject');
-    } catch {
-      /* ignore */
-    }
-    setIncomingCall(null);
-  }
-
-  async function hangup(opts = {}) {
-    if (!activeCall) return;
-    stopCallRingtone();
-    const remote = opts?.remote === true;
-    if (!remote) {
-      try {
-        await endPrivateCall(token, activeCall.callId, 'hangup');
-      } catch {
-        /* ignore */
-      }
-    }
-    setActiveCall(null);
+    startVideoCall({
+      id: peer.id,
+      displayName: peer.displayName,
+      avatarUrl: peer.avatarUrl,
+    });
   }
 
   const recentIds = new Set(conversations.map((c) => c.peerId));
@@ -755,6 +955,7 @@ export default function DirectChat({
                 ? 'Elige un chat en la lista de la izquierda.'
                 : 'Elige un contacto a la izquierda para escribir o iniciar una llamada privada.'}
             </p>
+            {error && <p className="error dm-error">{error}</p>}
           </div>
         ) : (
           <>
@@ -777,7 +978,7 @@ export default function DirectChat({
                   </p>
                 </div>
               </div>
-              <div className="dm-header-actions">
+                <div className="dm-header-actions">
                 {onToggleFavorite && (
                   <button
                     type="button"
@@ -789,45 +990,26 @@ export default function DirectChat({
                     <StarIcon size="1.1rem" />
                   </button>
                 )}
-                <div className="dm-call-menu">
+                <div className="dm-call-icons">
                   <button
                     type="button"
-                    className="btn primary dm-call-menu-btn"
-                    aria-haspopup="menu"
-                    aria-expanded={callMenuOpen}
-                    onClick={() => setCallMenuOpen((v) => !v)}
+                    className="dm-call-icon-btn"
+                    title="Llamada de voz"
+                    onClick={() => callPeer()}
                   >
-                    Llamar ▾
+                    📞
                   </button>
-                  {callMenuOpen && (
-                    <div className="dm-call-menu-panel open" role="menu">
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setCallMenuOpen(false);
-                          callPeer();
-                        }}
-                      >
-                        Llamada de voz
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setCallMenuOpen(false);
-                          videoCallPeer();
-                        }}
-                      >
-                        Videollamada
-                      </button>
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    className="dm-call-icon-btn video"
+                    title="Videollamada"
+                    onClick={() => videoCallPeer()}
+                  >
+                    📹
+                  </button>
                 </div>
               </div>
             </header>
-
-            {error && <p className="error dm-error">{error}</p>}
 
             <div
               className="dm-log"
@@ -847,6 +1029,7 @@ export default function DirectChat({
               ) : (
                 messages.map((m) => {
                   const mine = m.senderId === me.id;
+                  const deleted = Boolean(m.isDeleted);
                   const ticks = mine
                     ? m.readFully || m.readCount > 0
                       ? ICON.ticks
@@ -855,12 +1038,29 @@ export default function DirectChat({
                         : ICON.tick
                     : '';
                   return (
-                    <div key={m.id} className={`dm-bubble${mine ? ' mine' : ''}`}>
+                    <div
+                      key={m.id}
+                      className={`dm-bubble${mine ? ' mine' : ''}${deleted ? ' deleted' : ''}`}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        if (!deleted && !m._local) openMsgMenu(m, e.clientX, e.clientY);
+                      }}
+                    >
                       {!mine && <small>{m.displayName}</small>}
-                      {m.isDeleted ? (
-                        <p>Mensaje eliminado</p>
+                      {deleted ? (
+                        <p className="wa-deleted">Mensaje eliminado</p>
                       ) : (
                         <>
+                          {m.reply && (
+                            <button
+                              type="button"
+                              className="wa-quote"
+                              onClick={() => setReplyTo(m.reply)}
+                            >
+                              <span>{m.reply.displayName}</span>
+                              <em>{replyPreview(m.reply)}</em>
+                            </button>
+                          )}
                           {m.type === 'sticker' && m.sticker ? (
                             <div className="wa-sticker" title={m.sticker.label || 'Sticker'}>
                               {m.sticker.kind === 'emoji' || !String(m.sticker.value || '').startsWith('http') ? (
@@ -875,14 +1075,22 @@ export default function DirectChat({
                           {m.mediaUrl ? (
                             <ChatMedia token={token} message={m} onOpenImage={openImageGallery} />
                           ) : null}
-                          {m.body ? <LinkifiedText text={m.body} className="wa-text" /> : null}
+                          {m.body ? (
+                            <LinkifiedText
+                              text={m.body}
+                              className={`wa-text${m.editedAt ? ' is-edited' : ''}`}
+                            />
+                          ) : null}
                           {!m.mediaUrl && !m.body && m.type !== 'sticker' ? (
                             <p>{m.mediaName || m.type}</p>
                           ) : null}
                         </>
                       )}
                       <span className="dm-bubble-meta">
-                        <time>{formatTime(m.createdAt)}</time>
+                        <time>
+                          {formatTime(m.createdAt)}
+                          {m.editedAt && !deleted ? ' · editado' : ''}
+                        </time>
                         {ticks && (
                           <span
                             className={`dm-ticks${m.readFully || m.readCount > 0 ? ' read' : ''}`}
@@ -892,37 +1100,128 @@ export default function DirectChat({
                           </span>
                         )}
                       </span>
+                      {!deleted && !m._local && (
+                        <button
+                          type="button"
+                          className="wa-bubble-menu-btn dm-bubble-menu-btn"
+                          title="Opciones"
+                          aria-label="Opciones del mensaje"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (menuMsgId === m.id) closeMsgMenu();
+                            else openMsgMenu(m);
+                          }}
+                        >
+                          ⋯
+                        </button>
+                      )}
+                      {!deleted && Array.isArray(m.reactions) && m.reactions.length > 0 && (
+                        <div className="wa-reactions">
+                          {m.reactions.map((r) => (
+                            <button
+                              key={r.emoji}
+                              type="button"
+                              className={`wa-reaction-chip${r.mine ? ' mine' : ''}`}
+                              title={r.mine ? 'Quitar reacción' : 'Reaccionar'}
+                              onClick={() => pickReaction(m, r.emoji)}
+                            >
+                              <span>{r.emoji}</span>
+                              <span className="wa-reaction-count">{r.count}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {reactPickerId === m.id && !deleted && (
+                        <div className="wa-react-picker" role="listbox" aria-label="Reacciones">
+                          {REACTION_EMOJIS.map((em) => (
+                            <button key={em} type="button" onClick={() => pickReaction(m, em)}>
+                              {em}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {menuMsgId === m.id && !deleted && !menuPos && renderMsgMenu(m)}
                     </div>
                   );
                 })
               )}
             </div>
 
-            {showAttach && (
-              <div className="wa-attach-menu dm-attach-menu" role="menu" aria-label="Adjuntar">
-                <button type="button" className="wa-attach-item" onClick={() => imageRef.current?.click()}>
-                  <span className="wa-attach-ico photo" aria-hidden="true">🖼</span>
-                  <span className="label">Galería</span>
-                </button>
-                <button type="button" className="wa-attach-item" onClick={() => cameraRef.current?.click()}>
-                  <span className="wa-attach-ico camera" aria-hidden="true">📷</span>
-                  <span className="label">Cámara</span>
-                </button>
-                <button type="button" className="wa-attach-item" onClick={() => videoRef.current?.click()}>
-                  <span className="wa-attach-ico video" aria-hidden="true">🎬</span>
-                  <span className="label">Video</span>
-                </button>
-                <button type="button" className="wa-attach-item" onClick={() => fileRef.current?.click()}>
-                  <span className="wa-attach-ico file" aria-hidden="true">📄</span>
-                  <span className="label">Documento</span>
-                </button>
-                <button type="button" className="wa-attach-cancel" onClick={() => setShowAttach(false)}>
-                  Cancelar
+            {menuMsgId &&
+              menuPos &&
+              (() => {
+                const m = messages.find((x) => x.id === menuMsgId);
+                return m && !m.isDeleted ? createPortal(renderMsgMenu(m), document.body) : null;
+              })()}
+
+            {actionHint ? (
+              <div className="wa-action-hint" role="status">
+                {actionHint}
+              </div>
+            ) : null}
+
+            {editing ? (
+              <div className="wa-reply-bar wa-edit-bar">
+                <div>
+                  <strong>Editando mensaje</strong>
+                  <span>{editing.body?.slice(0, 80)}</span>
+                </div>
+                <button type="button" onClick={cancelEdit} aria-label="Cancelar edición">
+                  ✕
                 </button>
               </div>
+            ) : (
+              replyTo && (
+                <div className="wa-reply-bar">
+                  <div>
+                    <strong>
+                      Respondiendo a{' '}
+                      {replyTo.displayName ||
+                        (replyTo.senderId === me.id ? 'ti' : peer.displayName)}
+                    </strong>
+                    <span>{replyPreview(replyTo)}</span>
+                  </div>
+                  <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancelar">
+                    ✕
+                  </button>
+                </div>
+              )
             )}
 
             <div className="dm-compose-wrap">
+              {showAttach && !editing && (
+                <div className="wa-attach-menu dm-attach-menu" role="menu" aria-label="Adjuntar">
+                  <button type="button" className="wa-attach-item" onClick={() => imageRef.current?.click()}>
+                    <span className="wa-attach-ico photo" aria-hidden="true">🖼</span>
+                    <span className="label">Galería</span>
+                  </button>
+                  <button type="button" className="wa-attach-item" onClick={() => cameraRef.current?.click()}>
+                    <span className="wa-attach-ico camera" aria-hidden="true">📷</span>
+                    <span className="label">Cámara</span>
+                  </button>
+                  <button type="button" className="wa-attach-item" onClick={() => videoRef.current?.click()}>
+                    <span className="wa-attach-ico video" aria-hidden="true">🎬</span>
+                    <span className="label">Video</span>
+                  </button>
+                  <button type="button" className="wa-attach-item" onClick={() => fileRef.current?.click()}>
+                    <span className="wa-attach-ico file" aria-hidden="true">📄</span>
+                    <span className="label">Documento</span>
+                  </button>
+                  <button type="button" className="wa-attach-cancel" onClick={() => setShowAttach(false)}>
+                    Cancelar
+                  </button>
+                </div>
+              )}
+              {error && (
+                <button
+                  type="button"
+                  className="composer-error-balloon"
+                  onClick={() => setError('')}
+                  title="Cerrar"
+                >
+                  {error}
+                </button>
+              )}
               <WaEmojiPicker
                 token={token}
                 open={showPicker}
@@ -938,8 +1237,7 @@ export default function DirectChat({
                   accept="image/*"
                   multiple
                   onChange={(e) => {
-                    const list = e.target.files;
-                    e.target.value = '';
+                    const list = takeFilesFromInput(e.target);
                     openImages(list);
                   }}
                 />
@@ -950,8 +1248,7 @@ export default function DirectChat({
                   accept="image/*"
                   capture="environment"
                   onChange={(e) => {
-                    const list = e.target.files;
-                    e.target.value = '';
+                    const list = takeFilesFromInput(e.target);
                     openImages(list);
                   }}
                 />
@@ -961,8 +1258,7 @@ export default function DirectChat({
                   className="sr-only"
                   accept={VIDEO_ACCEPT}
                   onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = '';
+                    const [f] = takeFilesFromInput(e.target);
                     onSendMedia(f, 'video');
                   }}
                 />
@@ -972,8 +1268,7 @@ export default function DirectChat({
                   className="sr-only"
                   accept={DOC_ACCEPT}
                   onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = '';
+                    const [f] = takeFilesFromInput(e.target);
                     onSendMedia(f, classifyUploadFile(f));
                   }}
                 />
@@ -1012,7 +1307,13 @@ export default function DirectChat({
                   }}
                   onPaste={onComposerPaste}
                   onFocus={() => setShowPicker(false)}
-                  placeholder={uploading ? 'Subiendo archivo…' : 'Escribe un mensaje'}
+                  placeholder={
+                    uploading
+                      ? 'Subiendo archivo…'
+                      : editing
+                        ? 'Editar mensaje…'
+                        : 'Escribe un mensaje'
+                  }
                   aria-label="Mensaje privado"
                   disabled={uploading}
                 />
@@ -1020,9 +1321,10 @@ export default function DirectChat({
                   type="submit"
                   className="dm-send-btn"
                   disabled={!draft.trim() || uploading}
-                  aria-label="Enviar"
+                  aria-label={editing ? 'Guardar' : 'Enviar'}
+                  title={editing ? 'Guardar' : 'Enviar'}
                 >
-                  {ICON.send}
+                  {editing ? '✓' : ICON.send}
                 </button>
               </form>
             </div>
@@ -1041,54 +1343,6 @@ export default function DirectChat({
         />
       )}
 
-      {incomingCall &&
-        createPortal(
-          <div
-            className="incoming-call-screen"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Llamada entrante"
-            data-esc-close=""
-          >
-            <p className="incoming-call-kicker">
-              {incomingCall.mode === 'video'
-                ? 'Videollamada entrante'
-                : 'Llamada de voz entrante'}
-            </p>
-            <div className="incoming-call-avatar-wrap" aria-hidden="true">
-              <span className="incoming-call-ring" />
-              <span className="incoming-call-ring delay" />
-              <span className="incoming-call-avatar">{initials(incomingCall.callerName)}</span>
-            </div>
-            <h2 className="incoming-call-name">{incomingCall.callerName}</h2>
-            <p className="incoming-call-hint">Pulsa para contestar · Esc rechaza</p>
-            <div className="incoming-call-actions">
-              <button
-                type="button"
-                className="incoming-call-btn reject"
-                onClick={rejectCall}
-                data-esc-close-btn=""
-                title="Rechazar (Esc)"
-              >
-                <span className="incoming-call-ico" aria-hidden="true">
-                  {ICON.reject}
-                </span>
-                Rechazar
-              </button>
-              <button type="button" className="incoming-call-btn accept" onClick={acceptCall}>
-                <span className="incoming-call-ico" aria-hidden="true">
-                  {ICON.phone}
-                </span>
-                Contestar
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
-
-      {activeCall &&
-        createPortal(<PrivateCallOverlay call={activeCall} onHangup={hangup} />, document.body)}
-
       {imageGallery &&
         createPortal(
           <ImageGalleryLightbox
@@ -1099,6 +1353,19 @@ export default function DirectChat({
           />,
           document.body
         )}
+
+      <AppDialog
+        open={Boolean(deleteTarget)}
+        title="Eliminar mensaje"
+        message="¿Eliminar este mensaje para todos?"
+        confirmLabel="Eliminar"
+        danger
+        busy={deleteBusy}
+        onCancel={() => {
+          if (!deleteBusy) setDeleteTarget(null);
+        }}
+        onConfirm={runDeleteMessage}
+      />
     </div>
   );
 }

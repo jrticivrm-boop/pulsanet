@@ -1,3 +1,12 @@
+/**
+ * TacticalPtx — consola web (login + radio + despacho)
+ *
+ * Rutas principales:
+ *  - /login, cambio de contraseña
+ *  - /radio — operador web (PTT / chat)
+ *  - /despacho/* — mapa, usuarios, catálogos, configuración
+ * Hosts globales: llamadas, video, notificaciones, kick de sesión
+ */
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { canDispatch, changePassword, fetchAuthMe, login, persistSession, isAdminUser } from './api';
@@ -12,20 +21,27 @@ import { PeerActionSheetHost } from './PeerActionSheet.jsx';
 import { PeoplePaletteHost } from './PeoplePalette.jsx';
 import RadioPage from './pages/RadioPage.jsx';
 import DispatchLayout from './dispatch/DispatchLayout.jsx';
-import CommandCenter from './dispatch/CommandCenter.jsx';
 import DispatchMap from './dispatch/DispatchMap.jsx';
 import DispatchUsers from './dispatch/DispatchUsers.jsx';
 import DispatchGroups from './dispatch/DispatchGroups.jsx';
 import LiveTrackMap from './dispatch/LiveTrackMap.jsx';
 import DispatchVideo from './dispatch/DispatchVideo.jsx';
 import CatalogsLayout from './dispatch/CatalogsLayout.jsx';
-import CatalogGradesEmpleos from './dispatch/CatalogGradesEmpleos.jsx';
+import CatalogJerarquias from './dispatch/CatalogJerarquias.jsx';
+import CatalogGrades from './dispatch/CatalogGrades.jsx';
+import CatalogEmpleos from './dispatch/CatalogEmpleos.jsx';
+import CatalogTacticalSites from './dispatch/CatalogTacticalSites.jsx';
+import AdminLayout from './dispatch/AdminLayout.jsx';
 import DispatchDependencias from './dispatch/DispatchDependencias.jsx';
 import ConfigLayout from './dispatch/ConfigLayout.jsx';
 import ConfigBackups from './dispatch/ConfigBackups.jsx';
 import ConfigAudit from './dispatch/ConfigAudit.jsx';
 import ConfigChannels from './dispatch/ConfigChannels.jsx';
+import ConfigRecordings from './dispatch/ConfigRecordings.jsx';
+import ConfigPresence from './dispatch/ConfigPresence.jsx';
 import { useLayoutDataAttrs } from './useMediaQuery.js';
+import SessionKickHost from './SessionKickHost.jsx';
+import SecurityAbuseHost from './SecurityAbuseHost.jsx';
 
 const STORAGE_KEY = 'tacticalptx_session';
 
@@ -156,6 +172,8 @@ export default function App() {
 
   return (
     <>
+      {session?.token ? <SessionKickHost session={session} onLogout={logout} /> : null}
+      {session?.token ? <SecurityAbuseHost session={session} /> : null}
       {session?.token ? <GlobalChatNotifyHost session={session} /> : null}
       {session?.token ? <GroupVideoIncomingHost session={session} /> : null}
       {session?.token ? <GroupVideoSessionHost session={session} /> : null}
@@ -218,24 +236,37 @@ export default function App() {
           )
         }
       >
-        <Route index element={<CommandCenter session={session} />} />
+        <Route index element={<DispatchMap session={session} />} />
         <Route path="seguimiento" element={<LiveTrackMap session={session} />} />
         <Route path="video" element={<DispatchVideo session={session} />} />
-        <Route path="mapa" element={<DispatchMap session={session} />} />
+        <Route path="mapa" element={<Navigate to="/despacho" replace />} />
         <Route path="radio" element={null} />
         <Route path="catalogos" element={<CatalogsLayout />}>
-          <Route path="grados-empleos" element={<CatalogGradesEmpleos session={session} />} />
+          <Route path="jerarquias" element={<CatalogJerarquias session={session} />} />
+          <Route path="grados" element={<CatalogGrades session={session} />} />
+          <Route path="empleos" element={<CatalogEmpleos session={session} />} />
+          <Route path="grados-empleos" element={<Navigate to="/despacho/catalogos/grados" replace />} />
           <Route path="dependencias" element={<DispatchDependencias session={session} />} />
+          <Route
+            path="sitios-tacticos"
+            element={<Navigate to="/despacho/administracion/sitios-tacticos" replace />}
+          />
           <Route path="unidades" element={<Navigate to="/despacho/catalogos/dependencias" replace />} />
+          <Route path="usuarios" element={<Navigate to="/despacho/administracion/usuarios" replace />} />
+          <Route path="grupos" element={<Navigate to="/despacho/administracion/grupos" replace />} />
+          <Route path="geocercas" element={<Navigate to="/despacho" replace />} />
+        </Route>
+        <Route path="administracion" element={<AdminLayout />}>
           <Route path="usuarios" element={<DispatchUsers session={session} />} />
           <Route path="grupos" element={<DispatchGroups session={session} />} />
-          <Route path="geocercas" element={<Navigate to="/despacho/mapa" replace />} />
+          <Route path="sitios-tacticos" element={<CatalogTacticalSites session={session} />} />
         </Route>
         <Route
           path="configuracion"
           element={session ? <ConfigLayout session={session} /> : <Navigate to="/login" replace />}
         >
           <Route path="canales" element={<ConfigChannels />} />
+          <Route path="grabaciones" element={<ConfigRecordings session={session} />} />
           <Route
             path="respaldos"
             element={
@@ -256,9 +287,19 @@ export default function App() {
               )
             }
           />
+          <Route
+            path="presencia"
+            element={
+              isAdminUser(session?.user) ? (
+                <ConfigPresence session={session} />
+              ) : (
+                <Navigate to="/despacho/configuracion/canales" replace />
+              )
+            }
+          />
         </Route>
-        <Route path="usuarios" element={<Navigate to="/despacho/catalogos/usuarios" replace />} />
-        <Route path="grupos" element={<Navigate to="/despacho/catalogos/grupos" replace />} />
+        <Route path="usuarios" element={<Navigate to="/despacho/administracion/usuarios" replace />} />
+        <Route path="grupos" element={<Navigate to="/despacho/administracion/grupos" replace />} />
       </Route>
       <Route
         path="*"
@@ -286,12 +327,14 @@ function LoginPage({ onLogin }) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [warn, setWarn] = useState(false);
 
 
   async function handleLogin(e) {
     e?.preventDefault();
     setBusy(true);
     setErr('');
+    setWarn(false);
     try {
       const data = await login(username.trim().toLowerCase(), password);
       const next = {
@@ -304,6 +347,7 @@ function LoginPage({ onLogin }) {
       navigate(data.user?.mustChangePassword ? '/cambiar-clave' : homeFor(data.user));
     } catch (error) {
       setErr(error.message);
+      setWarn(Boolean(error.warn || error.locked));
     } finally {
       setBusy(false);
     }
@@ -356,7 +400,24 @@ function LoginPage({ onLogin }) {
               autoComplete="current-password"
               required
             />
-            {err && <p className="error">{err}</p>}
+            {err && (
+              <p
+                className="error"
+                style={
+                  warn
+                    ? {
+                        color: '#92400e',
+                        background: '#fffbeb',
+                        padding: '0.55rem 0.7rem',
+                        borderRadius: 6,
+                        border: '1px solid #f59e0b',
+                      }
+                    : undefined
+                }
+              >
+                {err}
+              </p>
+            )}
             <button type="submit" className="btn primary login-submit" disabled={busy}>
               {busy ? 'Verificando…' : 'Entrar'}
             </button>
