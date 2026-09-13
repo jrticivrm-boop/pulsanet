@@ -7460,9 +7460,12 @@ li.cc-states-row.on:hover {
   border-radius: 6px;
 }
 
+/* space-between reparte las barras por todo el ancho del track: así la barra
+   activa y el thumb caen sobre la misma posición que el clic de seek. */
 .cc-rec-wave {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 2px;
   height: 100%;
   pointer-events: none;
