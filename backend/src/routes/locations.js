@@ -4,6 +4,8 @@ import { authMiddleware } from '../middleware/auth.js';
 import { emitDispatchTrack } from '../socket/dispatch.js';
 import { evaluateGeofences } from '../services/geofences.js';
 import { isDispatch } from '../services/roles.js';
+import { routeBetween } from '../services/routeHint.js';
+import { loadUserTrack } from '../services/trackHistory.js';
 import {
   getUserUnitId,
   loadTrackScope,
@@ -16,6 +18,7 @@ import {
   listPresence,
   pickBestFocus,
   resolvePresenceStatus,
+  touchLastSeen,
 } from '../services/presence.js';
 
 function toIsoUtc(value) {
@@ -132,6 +135,7 @@ export function createLocationsRouter(io) {
         const online = presenceByUser.get(r.user_id);
         const focus = online?.focus || null;
         const lastSeenAt = toIsoUtc(r.last_seen_at);
+        const recordedAt = toIsoUtc(r.recorded_at);
         return {
           userId: r.user_id,
           displayName: r.display_name,
@@ -144,18 +148,45 @@ export function createLocationsRouter(io) {
           latitude: r.latitude,
           longitude: r.longitude,
           accuracyM: r.accuracy_m,
-          recordedAt: toIsoUtc(r.recorded_at),
+          recordedAt,
           lastSeenAt,
           focus,
           presence: resolvePresenceStatus({
             focus,
             lastSeenAt,
+            recordedAt,
             offlineRedMs,
             now,
           }),
         };
       }),
     });
+  });
+
+  /**
+   * Ruta probable por calles entre el último fix antes de perder señal y el
+   * primero al reconectar (tramo predictivo amarillo del mapa).
+   * Se declara antes de `/:userId/track` por claridad (no colisionan: 1 vs 2 segmentos).
+   */
+  router.get('/track-gap-route', async (req, res) => {
+    if (!isDispatch(req.user.role)) {
+      return res.status(403).json({ ok: false, error: 'Sin permiso' });
+    }
+    const parse = (raw) => {
+      const [lat, lng] = String(raw || '')
+        .split(',')
+        .map((s) => Number(s.trim()));
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+      return { lat, lng };
+    };
+    const from = parse(req.query.from);
+    const to = parse(req.query.to);
+    if (!from || !to) {
+      return res.status(400).json({ ok: false, error: 'from y to como "lat,lng" requeridos' });
+    }
+    const route = await routeBetween(from, to);
+    res.json(route);
   });
 
   /** Historial de ruta — solo si el usuario está en el alcance de seguimiento. */
@@ -178,24 +209,25 @@ export function createLocationsRouter(io) {
       return res.status(403).json({ ok: false, error: 'Fuera de tu alcance de seguimiento' });
     }
 
-    const { rows } = await query(
-      `SELECT latitude, longitude, accuracy_m, recorded_at
-       FROM locations
-       WHERE user_id = $1 AND recorded_at > NOW() - make_interval(hours => $2)
-       ORDER BY recorded_at ASC
-       LIMIT 5000`,
-      [req.params.userId, hours]
-    );
+    // Antes: `ORDER BY recorded_at ASC LIMIT 5000` devolvía solo las primeras ~6 h
+    // de la ventana (el latido GPS es de 5 s) y cortaba el recorrido reciente.
+    const track = await loadUserTrack({ userId: req.params.userId, hours });
 
     res.json({
       ok: true,
       user: { id: users[0].id, displayName: users[0].display_name },
       hours,
-      points: rows.map((r) => ({
-        latitude: r.latitude,
-        longitude: r.longitude,
-        accuracyM: r.accuracy_m,
-        recordedAt: toIsoUtc(r.recorded_at),
+      ...track.meta,
+      points: track.points.map((p) => ({
+        latitude: p.latitude,
+        longitude: p.longitude,
+        accuracyM: p.accuracyM,
+        recordedAt: toIsoUtc(p.recordedAt),
+        // Marcado por el servidor: el mapa no puede deducir huecos de la
+        // traza simplificada. Solo se envía cuando hay hueco.
+        ...(p.gapBefore
+          ? { gapBefore: true, gapMeters: p.gapMeters, gapSeconds: p.gapSeconds }
+          : null),
       })),
     });
   });
@@ -216,6 +248,7 @@ export function createLocationsRouter(io) {
        RETURNING id, latitude, longitude, accuracy_m, recorded_at`,
       [req.user.sub, latitude, longitude, accuracyM ?? null]
     );
+    void touchLastSeen(req.user.sub);
 
     const { rows: me } = await query(
       `SELECT avatar_url, unit_id, cargo FROM users WHERE id = $1`,

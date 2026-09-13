@@ -3,10 +3,13 @@ setlocal EnableExtensions
 chcp 65001 >nul
 set "PATH=C:\Program Files\nodejs;%SystemRoot%\System32;%PATH%"
 
-REM Resolver carpeta web: C:\pulsanet, D:\pulsanet o relativa a infra
+REM UI produccion = frontend\ (Vite :5173). Mismo nombre que el worktree DEV (puerto distinto).
 set "WEB_DIR="
-if exist "C:\pulsanet\web\package.json" set "WEB_DIR=C:\pulsanet\web"
-if not defined WEB_DIR if exist "D:\pulsanet\web\package.json" set "WEB_DIR=D:\pulsanet\web"
+if exist "C:\pulsanet\frontend\package.json" set "WEB_DIR=C:\pulsanet\frontend"
+if not defined WEB_DIR if exist "D:\pulsanet\frontend\package.json" set "WEB_DIR=D:\pulsanet\frontend"
+if not defined WEB_DIR if exist "%~dp0..\frontend\package.json" set "WEB_DIR=%~dp0..\frontend"
+REM Fallback legacy si quedara una carpeta web\ antigua
+if not defined WEB_DIR if exist "C:\pulsanet\web\package.json" set "WEB_DIR=C:\pulsanet\web"
 if not defined WEB_DIR if exist "%~dp0..\web\package.json" set "WEB_DIR=%~dp0..\web"
 if not defined WEB_DIR goto web_no_dir
 cd /d "%WEB_DIR%"
@@ -35,7 +38,6 @@ if not exist "node_modules\" (
 set "N=0"
 :web_loop
 set /a N+=1
-REM Si ya hay una instancia sana, no pelear por el puerto
 curl.exe -sk --connect-timeout 2 --max-time 5 "https://127.0.0.1:5173/" >nul 2>&1
 if not errorlevel 1 (
   echo [%DATE% %TIME%] Web ya responde en https://127.0.0.1:5173 - esperando 20 s
@@ -52,7 +54,8 @@ ping -n 4 127.0.0.1 >nul
 goto web_loop
 
 :web_no_dir
-echo ERROR: no se encontro web en C:\pulsanet, D:\pulsanet ni infra\..\web
+echo ERROR: no se encontro frontend\package.json en C:\pulsanet, D:\pulsanet ni infra\..\frontend
+echo Produccion y DEV usan frontend\ (prod :5173, worktree C:\pulsanet-dev :5273).
 pause
 exit /b 1
 

@@ -227,9 +227,11 @@ async function start() {
   const scheme = tlsOptions ? 'https' : 'http';
   bindIntrusionIo(io);
   bindSessionIo(io);
-  server.listen(config.port, () => {
+  // Bind IPv4 explícito: Caddy (API_UPSTREAM=https://127.0.0.1:4000) falla con
+  // connection refused si Node solo queda en :: (IPv6) tras reinicios/watch.
+  server.listen(config.port, '0.0.0.0', () => {
     console.log(
-      `TacticalPtx API v${config.version} [${config.nodeEnv}] → ${scheme}://localhost:${config.port}`
+      `TacticalPtx API v${config.version} [${config.nodeEnv}] → ${scheme}://0.0.0.0:${config.port}`
     );
     console.log(`  Health: GET /api/health`);
     console.log(`  Root →  ${config.webPublicUrl}`);

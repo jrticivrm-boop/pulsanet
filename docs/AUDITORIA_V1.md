@@ -54,5 +54,5 @@
 ## Stack al auditar
 
 - API :4000 OK · Redis OK · LiveKit OK · Postgres OK 
-- Vite :5173 a menudo caído → reiniciar `cd web && npm run dev` 
+- Vite :5173 a menudo caído → reiniciar `cd frontend && npm run dev` 
 - `adb`: sin teléfono conectado 

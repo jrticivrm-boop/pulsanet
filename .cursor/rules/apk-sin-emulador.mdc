@@ -1,0 +1,26 @@
+---
+description: No generar APK ni usar emulador Android por defecto; solo bajo petición o necesidad crítica
+alwaysApply: true
+---
+
+# APK sin emulador (TacticalPtx)
+
+## Por defecto (esta y futuras actualizaciones)
+
+- **NO** instalar ni lanzar la app en el emulador Android (`adb install`, `adb shell am start`, etc.).
+- **NO** generar ni compilar APK / `assembleRelease` / `gradlew` de empaquetado.
+- Terminar el cambio de código y listo; no ofrecer el pase de emulación como paso rutinario.
+
+## Cuándo sí generar APK
+
+Solo si el usuario lo pide **explícitamente**, o si es **sumamente necesario** (p. ej. único medio de validar un bug crítico de audio nativo que no se puede probar de otra forma). Si hay duda, **preguntar** antes de compilar.
+
+## Cuando sí se genere APK
+
+1. Compilar el APK como ya se hace en el flujo del proyecto.
+2. Copiar el artefacto a `C:\pulsanet_soporte\APK\`.
+3. **Sin** `adb install` / emulador, salvo que el usuario lo pida también.
+
+## No aplica
+
+- Cambios solo web/backend/docs sin tocar mobile: no compilar APK “por si acaso”.

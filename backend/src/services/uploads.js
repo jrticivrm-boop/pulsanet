@@ -67,12 +67,15 @@ const BLOCKED_EXT = new Set([
 ]);
 
 const MB = 1024 * 1024;
+/** Techo de transporte multer (docs grandes; imagen/audio/video siguen con tope propio). */
+const MULTER_CEILING = 5 * 1024 * MB; // 5 GB
 export const LIMITS = {
   image: 10 * MB,
   audio: 15 * MB,
   video: 50 * MB,
-  file: 25 * MB,
-  multer: 50 * MB,
+  /** Documentos: sin tope práctico (solo el techo multer). */
+  file: MULTER_CEILING,
+  multer: MULTER_CEILING,
 };
 
 function extOf(name) {
@@ -344,5 +347,5 @@ export function sizeLimitError(classified) {
   if (classified?.type === 'image') return 'Imagen demasiado grande (máx 10 MB)';
   if (classified?.type === 'audio') return 'Audio demasiado grande (máx 15 MB)';
   if (classified?.kind === 'video') return 'Video demasiado grande (máx 50 MB)';
-  return 'Archivo demasiado grande (máx 25 MB)';
+  return 'Documento demasiado grande (máx 5 GB)';
 }

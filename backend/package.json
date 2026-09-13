@@ -14,7 +14,8 @@
     "seed:load": "node src/scripts/seed-load.js",
     "rebuild:callsigns": "node src/scripts/rebuild-callsigns.js",
     "loadtest": "node src/scripts/loadtest.js",
-    "certs:lan": "node ../infra/generate-lan-certs.mjs"
+    "certs:lan": "node ../infra/generate-lan-certs.mjs",
+    "db:apply": "node src/scripts/apply-all-migrations.js"
   },
   "engines": {
     "node": ">=20"

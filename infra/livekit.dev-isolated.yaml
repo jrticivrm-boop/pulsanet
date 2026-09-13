@@ -1,0 +1,28 @@
+# LiveKit — SOLO entorno desarrollo (worktree C:\pulsanet-dev)
+# NO usar en producción. Puertos distintos para no chocar con :7880/:7882.
+#
+# Señales: 7980  |  RTC TCP: 7981  |  UDP mux: 7982
+# TURN desactivado (pruebas en localhost / LAN cercana).
+
+# Claves alineadas con backend/.env.example (LIVEKIT_API_KEY/SECRET)
+keys:
+  devkey: secret
+
+port: 7980
+bind_addresses:
+  - "0.0.0.0"
+
+rtc:
+  tcp_port: 7981
+  udp_port: 7982
+  use_external_ip: false
+  advertise_internal_ip: true
+  congestion_control:
+    enabled: true
+    allow_pause: false
+
+turn:
+  enabled: false
+
+logging:
+  level: info

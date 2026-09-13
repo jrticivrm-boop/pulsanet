@@ -1,66 +1,53 @@
 # Ubicación única del proyecto — TacticalPtx
 
 **Producto:** TacticalPtx  
-**Única carpeta del proyecto en disco (canónica):** `C:\pulsanet`
+**Carpeta canónica del producto:** `C:\pulsanet`  
+**Worktree de desarrollo:** `C:\pulsanet-dev` (rama `develop`; UI `frontend\` :5273)  
+**Auxiliar (opcional):** `C:\pulsanet_soporte`
 
-**Regla:** no debe existir copia, junction ni material del producto fuera de `C:\pulsanet`.  
-Todo el código, docs, Soporte (APK, secretos, brand, bitácora, respaldos) vive **solo** ahí.  
-Si aparece `D:\pulsanet` en docs antiguas o en `.env`, corregir a `C:\pulsanet` (D: a menudo no existe y rompe TLS/FCM/scripts).
+**Regla:** el programa debe poder copiarse a otra máquina **solo** con la carpeta de producto. Soporte no es runtime.
 
 ```
 C:\pulsanet\
-├── backend\          API Node.js (REST + Socket.IO + Redis + LiveKit)
-├── web\              React (Radio + despacho)
-├── mobile\           Flutter (Android; iOS con Mac)
-├── database\         PostgreSQL (schema + migraciones)
-├── infra\            LiveKit, Caddy, Docker, scripts ops
-├── docs\             Docs de producto (repo)
-├── Soporte\          Auxiliar del producto (no es runtime)
-│   ├── Documentos\   Bitácora, guías, checklist
-│   ├── Secrets\      Firebase / secretos ops (gitignored)
-│   ├── APK\          Builds firmados
-│   ├── Brand\        Logos / variantes
-│   ├── Cursor\       Copia de reglas IA
-│   └── Respaldos\    Snapshots
-├── .cursor\          Reglas Cursor del workspace
+├── backend\          API Node.js
+├── frontend\         React producción (Vite :5173) — OBLIGATORIA
+├── mobile\           Flutter
+├── database\         PostgreSQL schema + migraciones
+├── infra\            LiveKit, Caddy, scripts; secrets\ local
+├── docs\             Docs de producto + bitácora
 ├── LEVANTAR-TACTICALPTX.bat
+├── CREAR-O-ACTUALIZAR-BD.bat
 └── README.md
+
+C:\pulsanet-dev\       mismo repo (worktree)
+├── frontend\         UI de desarrollo (Vite :5273)
+├── LEVANTAR-DEV.bat
+└── CREAR-O-ACTUALIZAR-BD.bat
+
+C:\pulsanet_soporte\   NO va en la copia “solo programa”
+├── Documentos\ Cursor\ APK\ Logs\ Brand\ Scripts\ Archivo\
 ```
 
-## Tecnologías del producto (todas bajo `C:\pulsanet`)
+Detalle de soporte: [SOPORTE.md](SOPORTE.md)
+
+## Tecnologías del producto
 
 | Área | Tecnología | Carpeta |
 |------|------------|---------|
 | API | Node.js, Express, Socket.IO | `backend/` |
 | Tiempo real / PTT | LiveKit, Redis | `backend/` + `infra/` |
 | Datos | PostgreSQL (SQL) | `database/` |
-| Web | React (Vite) | `web/` |
+| Web producción | React (Vite :5173) | `C:\pulsanet\frontend\` |
+| Web desarrollo | React (Vite :5273) | `C:\pulsanet-dev\frontend\` |
 | Móvil | Flutter (Dart) | `mobile/` |
 | Ops / borde | Caddy, scripts PowerShell | `infra/` |
-| Auxiliar | Docs, APK, brand, secretos | `Soporte/` |
+| Auxiliar | Docs Word/PPT, APK, dumps | `C:\pulsanet_soporte\` |
 
-## Qué NO es el proyecto (herramientas del equipo)
+## Qué NO es el producto
 
-Instalaciones del sistema operativo; **no** se duplican dentro de `C:\pulsanet`:
-
-| Herramienta | Ruta típica en esta máquina |
-|-------------|------------------------------|
-| Flutter SDK | `C:\tools\flutter` |
-| Android SDK | `C:\Android\Sdk` (fallback histórico `D:\Android\Sdk`) |
-| JDK 17 | `C:\Program Files\Microsoft\jdk-…` |
-| Node.js | `C:\Program Files\nodejs` |
-| PostgreSQL | servicio `postgresql-x64-17` |
-| Redis (Laragon) | `C:\laragon\bin\redis\…` |
-
-Los scripts del repo (`Publish-ApkUpdate.ps1`, `LEVANTAR-TACTICALPTX.bat`, etc.) **apuntan** a esas herramientas; el producto en sí permanece solo en `C:\pulsanet`.
-
-## Prohibido
-
-- Junctions tipo `D:\PulsaNet_Soporte` → usar solo `C:\pulsanet\Soporte`
-- Copias del repo en Laragon, Desktop u otras unidades
-- Dejar logos / APK / bitácora en Documentos o Descargas
-- Paths absolutos a `D:\pulsanet\…` en `.env` / launchers (preferir `C:\pulsanet` o rutas relativas al script)
+Instalaciones del sistema (no se duplican dentro de `C:\pulsanet`): Node.js, PostgreSQL, Redis, Flutter SDK, Android SDK.
 
 ## Base de datos
 
-PostgreSQL: `tacticalptx_db` (servicio del sistema; esquema y migraciones en `C:\pulsanet\database`).
+PostgreSQL: `tacticalptx_db` (producción) / `tacticalptx_dev` (worktree).  
+Crear o actualizar **sin borrar datos:** `CREAR-O-ACTUALIZAR-BD.bat`

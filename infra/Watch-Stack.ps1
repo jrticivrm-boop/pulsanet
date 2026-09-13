@@ -12,7 +12,8 @@ $ErrorActionPreference = 'SilentlyContinue'
 
 function Resolve-RepoRoot {
   foreach ($cand in @('C:\pulsanet', 'D:\pulsanet', (Split-Path -Parent $PSScriptRoot))) {
-    if ($cand -and (Test-Path (Join-Path $cand 'web\package.json'))) {
+    if (-not $cand) { continue }
+    if ((Test-Path (Join-Path $cand 'frontend\package.json')) -or (Test-Path (Join-Path $cand 'web\package.json'))) {
       return (Resolve-Path $cand).Path
     }
   }
@@ -24,7 +25,13 @@ function Write-Log([string]$msg) {
   $line = "[$ts] $msg"
   Write-Host $line
   try {
-    $logDir = Join-Path $script:Root 'Soporte\Logs'
+    $resolveAux = Join-Path $script:Root 'infra\Resolve-AuxRoot.ps1'
+    $aux = $null
+    if (Test-Path $resolveAux) {
+      $aux = & $resolveAux -RepoRoot $script:Root -EnsureLogs
+    }
+    if (-not $aux) { $aux = Join-Path $script:Root 'var' }
+    $logDir = Join-Path $aux 'Logs'
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
     Add-Content -Path (Join-Path $logDir 'watch-stack.log') -Value $line -Encoding utf8
   } catch {}

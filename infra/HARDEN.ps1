@@ -88,8 +88,10 @@ Write-Host 'ALLOW_HOST_LOCKDOWN=1 · rate limits · WEB_PUBLIC_URL HTTPS'
 
 # Export para builds APK en esta sesión
 $env:APP_UPDATE_SECRET = Get-EnvValue 'APP_UPDATE_SECRET'
-Set-Content -Path (Join-Path $root 'Soporte\Secrets\app-update-secret.env') -Value "APP_UPDATE_SECRET=$($env:APP_UPDATE_SECRET)" -Encoding UTF8
-Write-Host 'Secreto OTA también en Soporte\Secrets\app-update-secret.env (no compartir)'
+$secretsDir = Join-Path $root 'infra\secrets'
+if (-not (Test-Path $secretsDir)) { New-Item -ItemType Directory -Path $secretsDir -Force | Out-Null }
+Set-Content -Path (Join-Path $secretsDir 'app-update-secret.env') -Value "APP_UPDATE_SECRET=$($env:APP_UPDATE_SECRET)" -Encoding UTF8
+Write-Host 'Secreto OTA también en infra\secrets\app-update-secret.env (no compartir)'
 
 # 3) Firewall + UPnP
 . (Join-Path $PSScriptRoot 'Ensure-Firewall.ps1')
@@ -98,4 +100,4 @@ $null = Ensure-TacticalPtxFirewall -DisableLegacy
 
 Write-Host ''
 Write-Host 'Siguiente: LEVANTAR-TACTICALPTX.bat  |  publicar APK con APP_UPDATE_SECRET' -ForegroundColor Cyan
-Write-Host 'Guía: Soporte\Documentos\SEGURIDAD_HARDENING.md'
+Write-Host 'Guía: C:\pulsanet_soporte\Documentos\SEGURIDAD_HARDENING.md'

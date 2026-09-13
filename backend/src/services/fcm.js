@@ -163,13 +163,17 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
   const notifTag =
     data?.type === 'group_video' && data?.groupId
       ? `gvideo:${data.groupId}`
-      : data?.type === 'dm' && data?.peerId
+      : (data?.type === 'dm' || data?.type === 'dm_nudge') && data?.peerId
         ? `dm:${data.peerId}`
         : isCallPush
           ? `call:${data.callId || data.peerId || userId}`
           : data?.groupId
             ? `g:${data.groupId}`
             : undefined;
+
+  const isNudge = data?.type === 'dm_nudge';
+  const androidSound = isCallPush ? 'default' : isNudge ? 'nudge_buzz' : 'tactical_msg';
+  const iosSound = isCallPush ? 'default' : isNudge ? 'nudge_buzz.wav' : 'tactical_msg.wav';
 
   const payload = {
     notification: { title, body },
@@ -184,7 +188,7 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
       ...(notifTag ? { collapseKey: notifTag } : {}),
       notification: {
         channelId: isCallPush ? 'tacticalptx_calls_v2' : 'tacticalptx_alerts_radio',
-        sound: isCallPush ? 'default' : 'tactical_msg',
+        sound: androidSound,
         ...(notifTag ? { tag: notifTag } : {}),
         ...(isCallPush
           ? {
@@ -199,7 +203,7 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
     apns: {
       payload: {
         aps: {
-          sound: isCallPush ? 'default' : 'tactical_msg.wav',
+          sound: iosSound,
           ...(isCallPush ? { interruptionLevel: 'time-sensitive' } : {}),
         },
       },

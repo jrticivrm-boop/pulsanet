@@ -131,6 +131,69 @@ export function createDmRouter(io) {
     res.status(201).json({ ok: true, message: msg });
   });
 
+  /** Zumbido DM (estilo Messenger): hasta 5 seguidos, luego 10 s de espera */
+  const nudgeBurstLimit = 5;
+  const nudgeCooldownMs = 10_000;
+  /** `${sender}:${peer}` → { count, resetAt } */
+  const nudgeBuckets = new Map();
+  router.post('/:userId/messages/nudge', async (req, res) => {
+    const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);
+    if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    const key = `${req.user.sub}:${peer.id}`;
+    const now = Date.now();
+    let bucket = nudgeBuckets.get(key) || { count: 0, resetAt: 0 };
+    if (bucket.resetAt && now >= bucket.resetAt) {
+      bucket = { count: 0, resetAt: 0 };
+    }
+    if (bucket.count >= nudgeBurstLimit && bucket.resetAt && now < bucket.resetAt) {
+      const waitSec = Math.ceil((bucket.resetAt - now) / 1000);
+      return res.status(429).json({
+        ok: false,
+        error: `Espera ${waitSec}s para otro zumbido`,
+      });
+    }
+    if (bucket.count >= nudgeBurstLimit) {
+      bucket = { count: 0, resetAt: 0 };
+    }
+    bucket.count += 1;
+    if (bucket.count >= nudgeBurstLimit) {
+      bucket.resetAt = now + nudgeCooldownMs;
+    }
+    nudgeBuckets.set(key, bucket);
+    const msg = await insertDmMessage({
+      senderId: req.user.sub,
+      recipientId: peer.id,
+      body: 'nudge',
+      type: 'nudge',
+      displayName: req.user.displayName,
+    });
+    const room = dmSocketRoom(req.user.sub, peer.id);
+    io.to(room).emit('dm:message', msg);
+    io.to(`user:${peer.id}`).emit('dm:nudge', {
+      peerId: req.user.sub,
+      peerName: req.user.displayName,
+      message: msg,
+    });
+    io.to(`user:${peer.id}`).emit('dm:notify', {
+      peerId: req.user.sub,
+      peerName: req.user.displayName,
+      message: msg,
+    });
+    notifyUserDevices({
+      userId: peer.id,
+      title: req.user.displayName || 'TacticalPtx',
+      body: '¡Zumbido!',
+      data: {
+        type: 'dm_nudge',
+        peerId: req.user.sub,
+        messageId: msg.id,
+        title: req.user.displayName || 'TacticalPtx',
+        body: '¡Zumbido!',
+      },
+    }).catch(() => {});
+    res.status(201).json({ ok: true, message: msg });
+  });
+
   /** Media DM */
   router.post('/:userId/messages/media', prepareDmUploadDir, (req, res) => {
     uploadMedia(req, res, async (err) => {

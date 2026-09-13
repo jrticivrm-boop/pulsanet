@@ -721,7 +721,13 @@ export function formatMessage(row, displayName, reply = null, reactions = [], se
     displayName: displayName || 'Usuario',
     senderAvatarUrl: avatarPath ? String(avatarPath) : null,
     type: deleted ? 'text' : row.type,
-    body: deleted ? null : row.type === 'sticker' ? null : openedBody,
+    body: deleted
+      ? null
+      : row.type === 'sticker'
+        ? null
+        : row.type === 'nudge'
+          ? '¡Zumbido!'
+          : openedBody,
     sticker: sticker
       ? {
           id: sticker.id,

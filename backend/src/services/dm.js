@@ -124,7 +124,13 @@ export async function listDmConversations(userId) {
     lastMessage: {
       id: r.id,
       type: r.deleted_at ? 'text' : r.type,
-      body: r.deleted_at ? null : r.type === 'sticker' ? null : openMessageBody(r.type, r.body),
+      body: r.deleted_at
+        ? null
+        : r.type === 'sticker'
+          ? null
+          : r.type === 'nudge'
+            ? '¡Zumbido!'
+            : openMessageBody(r.type, r.body),
       mediaName: r.deleted_at ? null : r.media_name,
       createdAt: r.created_at,
       isDeleted: Boolean(r.deleted_at),

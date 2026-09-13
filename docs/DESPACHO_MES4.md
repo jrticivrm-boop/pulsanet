@@ -7,7 +7,7 @@ Panel web para admin/despachador: resumen PTT en vivo, mapa OSM, usuarios y grup
 ```powershell
 powershell -File infra/start-services.ps1
 cd backend; npm run seed; npm run dev
-cd web; npm run dev
+cd frontend; npm run dev
 ```
 
 http://localhost:5173

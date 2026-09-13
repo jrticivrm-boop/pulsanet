@@ -47,7 +47,8 @@ function isPrivateIp(ip) {
 export function resolveLiveKitUrl(req) {
   const configured = config.livekit.url || '';
   const override = process.env.LIVEKIT_PUBLIC_URL?.trim();
-  const lanHost = (process.env.LIVEKIT_LAN_HOST || '').trim() || '192.168.1.66';
+  // Prefer LIVEKIT_LAN_HOST from .env (synced by start-services). Avoid stale .66 default.
+  const lanHost = (process.env.LIVEKIT_LAN_HOST || '').trim() || '127.0.0.1';
   const publicHost = (process.env.LIVEKIT_PUBLIC_HOST || '').trim();
   const publicDomain = (process.env.PUBLIC_DOMAIN || '').trim();
   const source = override || configured || `ws://${lanHost}:7880`;

@@ -119,7 +119,7 @@ CREATE TABLE devices (
 -- ---------------------------------------------------------------------------
 -- Mensajes (chat)
 -- ---------------------------------------------------------------------------
-CREATE TYPE message_type AS ENUM ('text', 'image', 'file', 'audio', 'sticker', 'location', 'system');
+CREATE TYPE message_type AS ENUM ('text', 'image', 'file', 'audio', 'sticker', 'location', 'system', 'nudge');
 
 CREATE TABLE messages (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

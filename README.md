@@ -1,8 +1,8 @@
 # TacticalPtx
 
 **Producto:** TacticalPtx  
-**Única carpeta del proyecto:** `C:\pulsanet` — código, docs, Soporte y las tecnologías del producto viven **solo** ahí (nada fuera).  
-Detalle: [docs/UBICACION_PROYECTO.md](docs/UBICACION_PROYECTO.md)
+**Carpeta del programa:** `C:\pulsanet` (UI: `frontend\` :5173). Worktree desarrollo: `C:\pulsanet-dev` (UI: `frontend\` :5273). Auxiliar opcional: `C:\pulsanet_soporte`.  
+Detalle: [docs/UBICACION_PROYECTO.md](docs/UBICACION_PROYECTO.md) · [docs/SOPORTE.md](docs/SOPORTE.md)
 
 Plataforma **Push-to-Talk (PTT)** por internet — producto independiente.
 
@@ -22,21 +22,23 @@ Comunicación instantánea por voz para equipos de campo, vía celular o Wi‑Fi
 ```
 C:\pulsanet\
 ├── backend/ API REST + Socket.IO + Redis + LiveKit
-├── web/ Radio + panel despacho
+├── frontend/ Radio + panel despacho (producción, Vite :5173)
 ├── mobile/ App Flutter (Android; iOS con Mac)
 ├── database/ Esquema PostgreSQL + migraciones
-├── infra/ LiveKit local + Docker Compose prod
-├── docs/ Alcance, arquitectura, demos, producción
-└── Soporte/ Documentos, secretos, APK, respaldos, brand
+├── infra/ LiveKit local + Caddy + Docker Compose
+├── docs/ Alcance, arquitectura, bitácora de producto
+├── LEVANTAR-TACTICALPTX.bat
+└── CREAR-O-ACTUALIZAR-BD.bat
 ```
 
-Soporte: siempre bajo `C:\pulsanet\Soporte`. No usar `D:\PulsaNet_Soporte` ni otras copias/junctions.
+Auxiliar (no runtime): `C:\pulsanet_soporte`. Ambos árboles usan `frontend\`; solo cambian puertos (`LEVANTAR-DEV.bat` → 4100/5273/7980).
 
 ---
 
 ## Documentación
 
 - [Ubicación del proyecto](docs/UBICACION_PROYECTO.md)
+- [Soporte auxiliar](docs/SOPORTE.md)
 - [Alcance v1](docs/ALCANCE_V1.md)
 - [Plan de trabajo maestro](docs/PLAN_DE_TRABAJO.md) — sprints + roadmap pendiente
 - [Propuesta técnica](docs/PROPUESTA_TECNICA.md)
@@ -61,40 +63,25 @@ Soporte: siempre bajo `C:\pulsanet\Soporte`. No usar `D:\PulsaNet_Soporte` ni ot
 
 ---
 
-## Inicio rápido (desarrollo)
+## Inicio rápido (máquina nueva)
 
-### 1. PostgreSQL
+### 1. PostgreSQL (idempotente)
 
-```bash
-createdb tacticalptx_db
-psql -U postgres -d tacticalptx_db -f database/schema.sql
+```bat
+CREAR-O-ACTUALIZAR-BD.bat
 ```
 
-### 2. Redis + LiveKit
+Crea `tacticalptx_db` si falta, aplica `schema.sql` solo si la base está vacía, y corre migraciones `001`→`030+` sin borrar datos.
 
-```powershell
-powershell -File infra/start-services.ps1
+### 2. Redis + LiveKit + API + Web
+
+```bat
+LEVANTAR-TACTICALPTX.bat
 ```
 
-### 3. API
+Consola: **https://127.0.0.1:5173** (no uses `http://` con TLS LAN). API: **https://127.0.0.1:4000/api/health**.
 
-```bash
-cd backend
-copy .env.example .env
-npm install
-npm run seed
-npm run dev
-```
-
-### 4. Demo web
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-http://localhost:5173 — usuarios `admin@tacticalptx.local` / `op1`…`op4` · pass `demo1234`
+Copia `backend\.env.example` → `backend\.env` antes del primer arranque. Usuario inicial: `npm run seed` en `backend`.
 
 ### Producción (Docker)
 

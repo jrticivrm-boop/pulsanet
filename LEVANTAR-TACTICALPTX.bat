@@ -55,15 +55,19 @@ set "PG_OK="
 set "REDIS_OK="
 set "EXIT_CODE=0"
 
-if not exist "%ROOT%\Soporte\Logs" mkdir "%ROOT%\Soporte\Logs" >nul 2>&1
+set "AUX_ROOT=C:\pulsanet_soporte"
+if not exist "%AUX_ROOT%" set "AUX_ROOT=%ROOT%\var"
+if not exist "%AUX_ROOT%\Logs" mkdir "%AUX_ROOT%\Logs" >nul 2>&1
+if not exist "%ROOT%\var\logs" mkdir "%ROOT%\var\logs" >nul 2>&1
 for /f "usebackq delims=" %%T in (`powershell.exe -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss"`) do set "LOG_TS=%%T"
 if not defined LOG_TS set "LOG_TS=manual"
-set "LOG_FILE=%ROOT%\Soporte\Logs\levantar-!LOG_TS!.log"
+set "LOG_FILE=%AUX_ROOT%\Logs\levantar-!LOG_TS!.log"
 >>"%LOG_FILE%" echo [%DATE% %TIME%] Inicio LEVANTAR root=%ROOT%
 
 echo.
-echo === TacticalPtx: levantando servicios reforzado v2 ===
+echo === TacticalPtx: stack local + borde publico ===
 echo Root: %ROOT%
+echo UI:   frontend\  ^(Vite HTTPS :5173^)   API: backend\  ^(:4000^)
 echo Log:  %LOG_FILE%
 echo %DATE% %TIME%
 echo.
@@ -108,7 +112,7 @@ echo --- Preflight puertos ---
 call :preflight
 echo.
 
-echo [1/8] PostgreSQL...
+echo [1/8] PostgreSQL + base de datos...
 call :ensure_postgres
 if errorlevel 1 (
  echo AVISO: PostgreSQL no confirma RUNNING - la API puede fallar al conectar DB
@@ -117,6 +121,17 @@ if errorlevel 1 (
  set "PG_OK=1"
  echo OK: PostgreSQL listo
  >>"%LOG_FILE%" echo [%DATE% %TIME%] OK PostgreSQL
+)
+if defined PG_OK if exist "%ROOT%\CREAR-O-ACTUALIZAR-BD.bat" (
+ echo Aplicando esquema/migraciones ^(idempotente: no borra datos^)...
+ call "%ROOT%\CREAR-O-ACTUALIZAR-BD.bat" /nopause
+ if errorlevel 1 (
+  echo AVISO: CREAR-O-ACTUALIZAR-BD reporto error - revisa backend\.env DATABASE_URL
+  >>"%LOG_FILE%" echo [%DATE% %TIME%] AVISO BD apply
+ ) else (
+  echo OK: base de datos al dia
+  >>"%LOG_FILE%" echo [%DATE% %TIME%] OK BD apply
+ )
 )
 
 echo [2/8] Redis + LiveKit start-services...
@@ -317,12 +332,12 @@ if defined WEB_OK (
  echo OK: Web ya respondia
  exit /b 0
 )
-if not exist "%ROOT%\web\node_modules\" (
- echo Instalando dependencias Web...
- pushd "%ROOT%\web"
+if not exist "%ROOT%\frontend\node_modules\" (
+ echo Instalando dependencias Web (frontend)...
+ pushd "%ROOT%\frontend"
  call npm.cmd install --no-fund --no-audit
  if errorlevel 1 (
-  echo ERROR: npm install en web fallo
+  echo ERROR: npm install en frontend fallo
   popd
   exit /b 1
  )
@@ -346,7 +361,7 @@ call :start_web_window
 exit /b 0
 
 :start_web_window
-start "TacticalPtx Web" /MIN /D "%ROOT%\web" cmd /k call "%ROOT%\infra\start-web.cmd"
+start "TacticalPtx Web" /MIN /D "%ROOT%\frontend" cmd /k call "%ROOT%\infra\start-web.cmd"
 echo Ventana TacticalPtx Web abierta
 exit /b 0
 
@@ -481,10 +496,12 @@ if defined PUBLIC_DOMAIN (
  echo                API_BASE=https://!PUBLIC_DOMAIN!
 )
 echo LiveKit:       ws://127.0.0.1:7880  UDP 7882
-if exist "%ROOT%\Soporte\APK\TacticalPtx-latest.apk" (
- echo APK:           Soporte\APK\TacticalPtx-latest.apk
+if exist "C:\pulsanet_soporte\APK\TacticalPtx-latest.apk" (
+ echo APK:           C:\pulsanet_soporte\APK\TacticalPtx-latest.apk
 )
-echo Log watchdog:  Soporte\Logs\watch-stack.log
+echo Consola:       https://127.0.0.1:5173
+echo API health:    https://127.0.0.1:4000/api/health
+echo Log watchdog:  %AUX_ROOT%\Logs\watch-stack.log
 echo Log levantar:  %LOG_FILE%
 echo ====================================
 >>"%LOG_FILE%" echo [%DATE% %TIME%] Fin EXIT=!EXIT_CODE! API=!API_OK! WEB=!WEB_OK! EDGE=!EDGE_OK!

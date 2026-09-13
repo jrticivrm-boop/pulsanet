@@ -74,15 +74,15 @@ export function decryptText(stored) {
   }
 }
 
-/** Cifra cuerpos de mensaje de usuario; no toca ids de sticker. */
+/** Cifra cuerpos de mensaje de usuario; no toca ids de sticker / zumbidos. */
 export function sealMessageBody(type, body) {
   if (body == null || body === '') return body;
-  if (type === 'sticker') return body;
+  if (type === 'sticker' || type === 'nudge') return body;
   return encryptText(body);
 }
 
 export function openMessageBody(type, body) {
   if (body == null || body === '') return body;
-  if (type === 'sticker') return body;
+  if (type === 'sticker' || type === 'nudge') return body;
   return decryptText(body);
 }

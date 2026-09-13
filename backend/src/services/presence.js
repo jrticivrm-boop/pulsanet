@@ -102,16 +102,27 @@ export function pickBestFocus(focuses) {
  * offline (gris) = desconectado; stale (rojo) = desconectado > umbral.
  * (Ya no se distingue «En espera» / service en UI.)
  */
-export function resolvePresenceStatus({ focus = null, lastSeenAt = null, offlineRedMs, now = Date.now() }) {
+export function resolvePresenceStatus({
+  focus = null,
+  lastSeenAt = null,
+  recordedAt = null,
+  offlineRedMs,
+  now = Date.now(),
+}) {
   const f = focus ? normalizePresenceFocus(focus) : null;
   if (f === 'foreground' || f === 'background' || f === 'service') return 'online';
   const redMs = Math.max(60_000, Number(offlineRedMs) || 15 * 60_000);
   let seenMs = null;
-  if (lastSeenAt != null) {
-    const t = lastSeenAt instanceof Date ? lastSeenAt.getTime() : Date.parse(String(lastSeenAt));
-    if (!Number.isNaN(t)) seenMs = t;
+  for (const v of [lastSeenAt, recordedAt]) {
+    if (v == null) continue;
+    const t = v instanceof Date ? v.getTime() : Date.parse(String(v));
+    if (!Number.isNaN(t)) seenMs = seenMs == null ? t : Math.max(seenMs, t);
   }
-  if (seenMs != null && now - seenMs >= redMs) return 'stale';
+  if (seenMs != null) {
+    const age = now - seenMs;
+    if (age < 150_000) return 'online';
+    if (age >= redMs) return 'stale';
+  }
   return 'offline';
 }
 

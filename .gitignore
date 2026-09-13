@@ -57,13 +57,24 @@ backend/**/*.sqlite
 backend/app-updates/files/*.apk
 backend/app-updates/android.json
 
-# Soporte local (secretos, APK, respaldos) — no versionar
-Soporte/Secrets/
-Soporte/APK/
-Soporte/Respaldos/
-Soporte/**/*.apk
-Soporte/**/*firebase-adminsdk*.json
+# Secretos runtime del producto (van con la carpeta; no versionar)
+infra/secrets/
+!infra/secrets/.gitkeep
+!infra/secrets/README.txt
+!infra/secrets/*.example
+
+# Logs/respaldos locales si no hay C:\pulsanet_soporte
+var/
+
+# Stub Soporte (auxiliar vive en C:\pulsanet_soporte)
+Soporte/**
+!Soporte/README.md
 
 # Lockdown / incident flags
 backend/data/
+
+
+# Accidente Windows (dispositivo NUL)
+NUL.css
+**/NUL.css
 
