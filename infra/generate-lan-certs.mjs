@@ -1,16 +1,16 @@
-/**
+﻿/**
  * Genera certificado TLS autofirmado para LAN (API HTTPS entre hosts).
  *
  * Uso:
  * node infra/generate-lan-certs.mjs
- * node infra/generate-lan-certs.mjs 192.168.1.66
+ * node infra/generate-lan-certs.mjs 192.168.1.77
  *
  * Luego en backend/.env:
  * TLS_CERT=D:/pulsanet/infra/certs/lan-cert.pem
  * TLS_KEY=D:/pulsanet/infra/certs/lan-key.pem
- * CORS_ORIGINS=...,https://192.168.1.66:5173
+ * CORS_ORIGINS=...,https://192.168.1.77:5173
  *
- * Clientes deben confiar el cert (o aceptar excepción) en navegador/móvil.
+ * Clientes deben confiar el cert (o aceptar excepciÃ³n) en navegador/mÃ³vil.
  */
 import fs from 'fs';
 import path from 'path';
@@ -96,7 +96,7 @@ $pem = "-----BEGIN CERTIFICATE-----\`n"
 for ($i=0; $i -lt $b64.Length; $i+=64) { $pem += $b64.Substring($i, [Math]::Min(64, $b64.Length-$i)) + "\`n" }
 $pem += "-----END CERTIFICATE-----\`n"
 Set-Content -Path '${certPath}' -Value $pem -Encoding ascii
-# Private key: use certutil / openssl if available — write PFX note
+# Private key: use certutil / openssl if available â€” write PFX note
 Write-Output "PFX=${pfxPath}"
 Write-Output "CERT=${certPath}"
 Remove-Item -Path "Cert:\\CurrentUser\\My\\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
@@ -125,7 +125,7 @@ if (!ok) {
 const certFile = path.join(outDir, 'lan-cert.pem');
 const keyFile = path.join(outDir, 'lan-key.pem');
 if (!fs.existsSync(keyFile)) {
- console.warn('Solo se generó el .pem público / PFX. Instala selfsigned para key PEM:');
+ console.warn('Solo se generÃ³ el .pem pÃºblico / PFX. Instala selfsigned para key PEM:');
  console.warn(' cd backend && npm i -D selfsigned && node ../infra/generate-lan-certs.mjs');
  process.exit(2);
 }

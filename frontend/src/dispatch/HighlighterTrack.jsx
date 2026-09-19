@@ -1,17 +1,22 @@
-import { useMemo } from 'react';
-import { Polyline, Popup, useMap } from 'react-leaflet';
+import { Fragment, useMemo } from 'react';
+import { CircleMarker, Polyline, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { buildHighlighterLayers, gapKey } from './trackHighlighter.js';
 import { TRACK_HIGHLIGHT_COLORS } from './RouteTrackPicker.jsx';
 import { useGapRoutes } from './useGapRoutes.js';
 
-/** Amarillo del tramo predictivo (no se usa en ninguna ruta real). */
-export const PREDICTED_COLOR = '#f5b32a';
 /**
- * Opacidad/grosor del tramo predictivo: mismo lenguaje marcatextos que el verde,
- * un punto más opaco porque el ámbar sobre basemap crema pierde contraste.
+ * Naranja único de la "ruta probable" para los huecos de señal.
+ * Solo se dibuja cuando hay geometría OSRM por calles (nunca cuerda recta).
  */
-const PREDICTED_STYLE = { opacity: 0.4, weight: 13 };
+export const PREDICTED_COLOR = '#e87812';
+/** Compat: alias del color unificado (antes era el naranja de "ruta estimada"). */
+export const ESTIMATED_COLOR = PREDICTED_COLOR;
+/**
+ * Opacidad/grosor del tramo predictivo: un poco por encima del verde base (0.26)
+ * para que en basemap «Claro» (crema/peach de carreteras) el ámbar se lea claro.
+ */
+const PREDICTED_STYLE = { opacity: 0.58, weight: 14 };
 
 /**
  * Un renderer Canvas por mapa, compartido por todas las rutas.
@@ -43,8 +48,9 @@ function durLabel(s) {
  *
  * - Verde translúcido y grueso: deja leer calles debajo.
  * - Los tramos repasados varias veces se dibujan en capas más opacas.
- * - Los huecos de señal NO se unen en verde: van en amarillo por la ruta real
- *   (o punteados si no hubo servicio de routing).
+ * - Los huecos de señal NO se unen en verde: van en naranja como "ruta probable"
+ *   **solo cuando OSRM devolvió geometría por calles**. Nunca se dibuja la
+ *   cuerda recta A→B (atravesaría terreno sin vialidad).
  *
  * @param {{
  *   points: Array,
@@ -97,50 +103,86 @@ export default function HighlighterTrack({
         ? gaps.map((gap) => {
             const key = gapKey(gap);
             const route = gapRoutes[key];
-            const estimated = !route || route.estimated;
-            const positions =
-              route?.points?.length > 1
-                ? route.points
-                : [
-                    [gap.from.lat, gap.from.lng],
-                    [gap.to.lat, gap.to.lng],
-                  ];
-            return (
-              <Polyline
-                key={`gap-${key}`}
-                positions={positions}
-                pathOptions={{
-                  renderer,
-                  color: PREDICTED_COLOR,
-                  weight: PREDICTED_STYLE.weight,
-                  opacity: PREDICTED_STYLE.opacity,
-                  lineCap: 'round',
-                  lineJoin: 'round',
-                  fill: false,
-                  // Punteado = no es ruta real, es la aproximación más lógica.
-                  dashArray: estimated ? '2 16' : undefined,
-                }}
-              >
-                <Popup>
-                  <strong>Tramo sin señal{displayName ? ` · ${displayName}` : ''}</strong>
-                  <br />
-                  {estimated ? 'Trayecto estimado (sin ruta disponible)' : 'Ruta probable por calles'}
-                  <br />
-                  <span style={{ opacity: 0.75, fontSize: 12 }}>
-                    Salto {kmLabel(gap.meters)}
-                    {gap.seconds > 0
-                      ? ` · sin reportar ${durLabel(gap.seconds) || `${Math.round(gap.seconds)} s`}`
-                      : ''}
-                    {route && !route.estimated && route.distanceM
-                      ? ` · por carretera ${kmLabel(route.distanceM)}`
-                      : ''}
-                    {route && !route.estimated && route.durationS
-                      ? ` (~${durLabel(route.durationS)})`
-                      : ''}
-                  </span>
-                </Popup>
-              </Polyline>
-            );
+            // Solo se dibuja geometría vial real (OSRM). Nunca la cuerda A→B:
+            // atravesaría campo/bases aunque haya avenidas al lado.
+            const hasRoad =
+              route &&
+              !route.estimated &&
+              Array.isArray(route.points) &&
+              route.points.length >= 2;
+            if (hasRoad) {
+              return (
+                <Polyline
+                  key={`gap-${key}`}
+                  positions={route.points}
+                  pathOptions={{
+                    renderer,
+                    color: PREDICTED_COLOR,
+                    weight: PREDICTED_STYLE.weight,
+                    opacity: PREDICTED_STYLE.opacity,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                    fill: false,
+                  }}
+                >
+                  <Popup>
+                    <strong>Tramo sin señal{displayName ? ` · ${displayName}` : ''}</strong>
+                    <br />
+                    Ruta probable por calles
+                    <br />
+                    <span style={{ opacity: 0.75, fontSize: 12 }}>
+                      Salto {kmLabel(gap.meters)}
+                      {gap.seconds > 0
+                        ? ` · sin reportar ${durLabel(gap.seconds) || `${Math.round(gap.seconds)} s`}`
+                        : ''}
+                      {route.distanceM ? ` · por carretera ${kmLabel(route.distanceM)}` : ''}
+                      {route.durationS ? ` (~${durLabel(route.durationS)})` : ''}
+                    </span>
+                  </Popup>
+                </Polyline>
+              );
+            }
+            // Pendiente OSRM: marcas en extremos (sin recta por campo).
+            // Solo mientras `pending` (reintentos activos); no eternizar puntos.
+            if (route?.pending) {
+              return (
+                <Fragment key={`gap-pending-${key}`}>
+                  <CircleMarker
+                    center={[gap.from.lat, gap.from.lng]}
+                    radius={5}
+                    pathOptions={{
+                      color: PREDICTED_COLOR,
+                      weight: 2,
+                      opacity: 0.85,
+                      fillColor: PREDICTED_COLOR,
+                      fillOpacity: 0.35,
+                    }}
+                  >
+                    <Popup>
+                      <strong>Sin señal{displayName ? ` · ${displayName}` : ''}</strong>
+                      <br />
+                      Calculando ruta por calles…
+                      <br />
+                      <span style={{ opacity: 0.75, fontSize: 12 }}>
+                        Salto {kmLabel(gap.meters)}
+                      </span>
+                    </Popup>
+                  </CircleMarker>
+                  <CircleMarker
+                    center={[gap.to.lat, gap.to.lng]}
+                    radius={5}
+                    pathOptions={{
+                      color: PREDICTED_COLOR,
+                      weight: 2,
+                      opacity: 0.85,
+                      fillColor: PREDICTED_COLOR,
+                      fillOpacity: 0.35,
+                    }}
+                  />
+                </Fragment>
+              );
+            }
+            return null;
           })
         : null}
     </>

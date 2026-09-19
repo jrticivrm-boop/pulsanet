@@ -9,7 +9,7 @@
 import { isPrivateCallUiOpen } from './privateCallUi.js';
 
 const MESSAGE_SOUND = '/sounds/message.wav';
-const BASE_TITLE = 'TacticalPtx — Radio PTT';
+const BASE_TITLE = 'SICOM';
 
 let unlocked = false;
 let callLoopTimer = null;
@@ -154,6 +154,28 @@ export function playChannelFreeTone({ soft = false } = {}) {
   });
 }
 
+/** Pitido fuerte al pulsar PTT. */
+export function playPttPressTone() {
+  const now = Date.now();
+  if (now - lastToneAt < 90) return;
+  lastToneAt = now;
+  if (!unlocked) {
+    unlockAppNotifyAudio().catch(() => {});
+  }
+  playUri('/sounds/ptt_press.wav', { volume: 0.78 });
+}
+
+/** Pitido fuerte distinto al soltar PTT. */
+export function playPttReleaseTone() {
+  const now = Date.now();
+  if (now - lastToneAt < 90) return;
+  lastToneAt = now;
+  if (!unlocked) {
+    unlockAppNotifyAudio().catch(() => {});
+  }
+  playUri('/sounds/ptt_release.wav', { volume: 0.72 });
+}
+
 /** @deprecated usar playMessageTone */
 export function playDmChime() {
   playMessageTone({ soft: !document.hidden });
@@ -187,9 +209,9 @@ export function stopCallRingtone() {
 
 function notifyIconUrl() {
   try {
-    return new URL('/brand/tacticalptx.png', window.location.origin).href;
+    return new URL('/brand/sicom.png', window.location.origin).href;
   } catch {
-    return '/brand/tacticalptx.png';
+    return '/brand/sicom.png';
   }
 }
 
@@ -219,7 +241,7 @@ export async function showBrowserNotification({
   try {
     const reg = await ensureNotifyServiceWorker();
     if (reg?.showNotification) {
-      await reg.showNotification(title || 'TacticalPtx', options);
+      await reg.showNotification(title || 'SICOM', options);
       return true;
     }
   } catch {
@@ -227,7 +249,7 @@ export async function showBrowserNotification({
   }
 
   try {
-    const n = new Notification(title || 'TacticalPtx', options);
+    const n = new Notification(title || 'SICOM', options);
     n.onclick = () => {
       try {
         window.focus();
@@ -290,7 +312,7 @@ export function notifyIncomingMessage({
   if (hidden) {
     const uniqueTag = messageId ? `${tag || 'msg'}-${messageId}` : `${tag || 'msg'}-${Date.now()}`;
     void showBrowserNotification({
-      title: title || 'TacticalPtx',
+      title: title || 'SICOM',
       body: body || 'Nuevo mensaje',
       tag: uniqueTag,
       silent: false,
@@ -335,7 +357,7 @@ export function notifyIncomingCall({ callerName, callId, mode = 'call' }) {
   try {
     const prev = document.title;
     const icon = isRadio ? '📻' : isVideo ? '📹' : '📞';
-    document.title = `${icon} ${callerName || 'Aviso'} — TacticalPtx`;
+    document.title = `${icon} ${callerName || 'Aviso'} — SICOM`;
     window.setTimeout(() => {
       try {
         if (document.title.startsWith('📞') || document.title.startsWith('📻') || document.title.startsWith('📹')) {
@@ -361,7 +383,7 @@ export function notifyIncomingGroupVideo({ groupName, startedByName, groupId }) 
   });
   try {
     const prev = document.title;
-    document.title = `📹 ${groupName || 'Transmisión'} — TacticalPtx`;
+    document.title = `📹 ${groupName || 'Transmisión'} — SICOM`;
     window.setTimeout(() => {
       try {
         if (document.title.startsWith('📹')) document.title = prev;
@@ -374,12 +396,94 @@ export function notifyIncomingGroupVideo({ groupName, startedByName, groupId }) 
   }
 }
 
-/** Título de pestaña con contador de no leídos, estilo WhatsApp. */
-export function setUnreadDocumentTitle(count) {
-  const n = Math.max(0, Number(count) || 0);
+const ON_AIR_TITLE = '🔴 AL AIRE — SICOM';
+const ON_AIR_FAVICON =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+      '<circle cx="16" cy="16" r="15" fill="#b71c1c"/>' +
+      '<circle cx="16" cy="16" r="7" fill="#ffffff"/>' +
+      '</svg>'
+  );
+
+/** Favicon por tema actual (Obscuro = Tactical 4). */
+function defaultFaviconHref() {
   try {
+    if (document.documentElement.getAttribute('data-theme') === 'obscuro') {
+      return '/brand/tactical_favicon_obscuro.png?v=1';
+    }
+  } catch {
+    /* ignore */
+  }
+  return '/brand/sicom_round.png';
+}
+
+let onAirTabActive = false;
+let lastUnreadCount = 0;
+let savedFaviconHref = null;
+
+function ensureFaviconLink() {
+  let link =
+    document.querySelector('link[rel="icon"]') ||
+    document.querySelector('link[rel="shortcut icon"]');
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  return link;
+}
+
+function applyOnAirFavicon(active) {
+  try {
+    const link = ensureFaviconLink();
+    if (active) {
+      if (savedFaviconHref === null) {
+        const href = link.getAttribute('href') || '';
+        savedFaviconHref = href && !href.startsWith('data:') ? href : defaultFaviconHref();
+      }
+      link.type = 'image/svg+xml';
+      link.href = ON_AIR_FAVICON;
+      return;
+    }
+    if (savedFaviconHref !== null) {
+      link.type = 'image/png';
+      /* Restaurar según tema vigente (pudo cambiar durante «al aire»). */
+      link.href = defaultFaviconHref();
+      savedFaviconHref = null;
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function applyDocumentTitle() {
+  try {
+    if (onAirTabActive) {
+      document.title = ON_AIR_TITLE;
+      return;
+    }
+    const n = lastUnreadCount;
     document.title = n > 0 ? `(${n > 99 ? '99+' : n}) ${BASE_TITLE}` : BASE_TITLE;
   } catch {
     /* ignore */
   }
+}
+
+/** Título de pestaña con contador de no leídos, estilo WhatsApp. */
+export function setUnreadDocumentTitle(count) {
+  lastUnreadCount = Math.max(0, Number(count) || 0);
+  applyDocumentTitle();
+}
+
+/**
+ * Aviso al aire en pestaña: título «🔴 AL AIRE» + favicon rojo.
+ * No corta el PTT; solo indica que el mic quedó abierto.
+ */
+export function setOnAirTabIndicator(active) {
+  const next = Boolean(active);
+  if (next === onAirTabActive) return;
+  onAirTabActive = next;
+  applyOnAirFavicon(next);
+  applyDocumentTitle();
 }

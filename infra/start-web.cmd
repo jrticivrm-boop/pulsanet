@@ -3,14 +3,14 @@ setlocal EnableExtensions
 chcp 65001 >nul
 set "PATH=C:\Program Files\nodejs;%SystemRoot%\System32;%PATH%"
 
-REM UI produccion = frontend\ (Vite :5173). Mismo nombre que el worktree DEV (puerto distinto).
+REM UI produccion = frontend\ (Vite :5173). Primero relativa a infra (portable).
 set "WEB_DIR="
-if exist "C:\pulsanet\frontend\package.json" set "WEB_DIR=C:\pulsanet\frontend"
+if exist "%~dp0..\frontend\package.json" set "WEB_DIR=%~dp0..\frontend"
+if not defined WEB_DIR if exist "C:\pulsanet\frontend\package.json" set "WEB_DIR=C:\pulsanet\frontend"
 if not defined WEB_DIR if exist "D:\pulsanet\frontend\package.json" set "WEB_DIR=D:\pulsanet\frontend"
-if not defined WEB_DIR if exist "%~dp0..\frontend\package.json" set "WEB_DIR=%~dp0..\frontend"
 REM Fallback legacy si quedara una carpeta web\ antigua
-if not defined WEB_DIR if exist "C:\pulsanet\web\package.json" set "WEB_DIR=C:\pulsanet\web"
 if not defined WEB_DIR if exist "%~dp0..\web\package.json" set "WEB_DIR=%~dp0..\web"
+if not defined WEB_DIR if exist "C:\pulsanet\web\package.json" set "WEB_DIR=C:\pulsanet\web"
 if not defined WEB_DIR goto web_no_dir
 cd /d "%WEB_DIR%"
 if errorlevel 1 goto web_no_cd
@@ -29,7 +29,7 @@ echo Node:
 node.exe -v
 echo.
 
-if not exist "node_modules\" (
+if not exist "node_modules" (
   echo Instalando dependencias...
   call npm.cmd install --no-fund --no-audit
   if errorlevel 1 goto web_npm_fail
@@ -45,8 +45,15 @@ if not errorlevel 1 (
   goto web_loop
 )
 echo.
-echo [%DATE% %TIME%] Arranque Vite #%N% - https://0.0.0.0:5173
-call npm.cmd run dev -- --host 0.0.0.0 --port 5173 --strictPort
+echo [%DATE% %TIME%] Arranque Vite #%N%
+REM Production/edge: solo loopback (Caddy). Dev LAN directo: set TPX_LISTEN_ALL=1
+if /I "%TPX_LISTEN_ALL%"=="1" (
+  echo Host: 0.0.0.0:5173 ^(TPX_LISTEN_ALL^)
+  call npm.cmd run dev -- --host 0.0.0.0 --port 5173 --strictPort
+) else (
+  echo Host: 127.0.0.1:5173 ^(loopback; acceso publico via Caddy :443^)
+  call npm.cmd run dev -- --host 127.0.0.1 --port 5173 --strictPort
+)
 set "EC=%ERRORLEVEL%"
 echo.
 echo [%DATE% %TIME%] Vite se detuvo codigo %EC%. Reinicio en 3 s...

@@ -117,6 +117,7 @@ export default function IncomingCallHost({ session }) {
         authToken: token,
         url: data.url,
         peerName: incoming.callerName,
+        peerAvatarUrl: incoming.callerAvatarUrl || null,
         role: 'callee',
         e2eeKey: data.e2eeKey || null,
         e2ee: Boolean(data.e2ee),
@@ -166,6 +167,7 @@ export default function IncomingCallHost({ session }) {
           <PersonAvatar
             userId={incoming.callerId}
             name={incoming.callerName}
+            avatarUrl={incoming.callerAvatarUrl}
             token={session.token}
             className="incoming-call-banner-photo"
           />

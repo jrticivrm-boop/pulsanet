@@ -1,5 +1,5 @@
 /**
- * Contraste tema claro/oscuro — cargar al final (main + DispatchLayout).
+ * Contraste temas Claro / Verde / Obscuro — cargar al final (main + DispatchLayout).
  * Evita texto claro sobre fondo claro y texto oscuro sobre fondo oscuro.
  */
 
@@ -30,39 +30,41 @@ select option,
   color: #172015 !important;
 }
 
-[data-theme='dark'] select,
-[data-theme='dark'] textarea,
-[data-theme='dark'] .cc-radio-dock-select,
-[data-theme='dark'] .cc-inline select,
-[data-theme='dark'] .group-select select,
-[data-theme='dark'] .cc-shell select,
-[data-theme='dark'] .admin-form select,
-[data-theme='dark'] .map-toolbar select,
-[data-theme='dark'] .map-field select,
-[data-theme='dark'] .data-table select,
-[data-theme='dark'] input:not([type='checkbox']):not([type='radio']):not([type='range']) {
+[data-theme='verde'] select,
+[data-theme='verde'] textarea,
+[data-theme='verde'] .cc-radio-dock-select,
+[data-theme='verde'] .cc-inline select,
+[data-theme='verde'] .group-select select,
+[data-theme='verde'] .cc-shell select,
+[data-theme='verde'] .admin-form select,
+[data-theme='verde'] .map-toolbar select,
+[data-theme='verde'] .map-field select,
+[data-theme='verde'] .data-table select,
+[data-theme='verde'] .cc-tactical-ms-trigger,
+[data-theme='verde'] .cc-shell .cc-tactical-ms-trigger,
+[data-theme='verde'] input:not([type='checkbox']):not([type='radio']):not([type='range']) {
   color-scheme: dark;
   background-color: #152018 !important;
   color: #eef3e8 !important;
   border-color: #2a3a28 !important;
 }
 
-[data-theme='dark'] select option,
-[data-theme='dark'] .cc-radio-dock-select option,
-[data-theme='dark'] .cc-inline select option,
-[data-theme='dark'] .group-select select option,
-[data-theme='dark'] .cc-shell select option,
-[data-theme='dark'] .admin-form select option,
-[data-theme='dark'] .map-toolbar select option,
-[data-theme='dark'] .map-field select option,
-[data-theme='dark'] .data-table select option {
+[data-theme='verde'] select option,
+[data-theme='verde'] .cc-radio-dock-select option,
+[data-theme='verde'] .cc-inline select option,
+[data-theme='verde'] .group-select select option,
+[data-theme='verde'] .cc-shell select option,
+[data-theme='verde'] .admin-form select option,
+[data-theme='verde'] .map-toolbar select option,
+[data-theme='verde'] .map-field select option,
+[data-theme='verde'] .data-table select option {
   background-color: #152018 !important;
   color: #eef3e8 !important;
 }
 
-[data-theme='dark'] select option:checked,
-[data-theme='dark'] select option:hover,
-[data-theme='dark'] .cc-radio-dock-select option:checked {
+[data-theme='verde'] select option:checked,
+[data-theme='verde'] select option:hover,
+[data-theme='verde'] .cc-radio-dock-select option:checked {
   background-color: #243d20 !important;
   color: #f4f7f1 !important;
 }
@@ -76,9 +78,9 @@ select option,
   border-color: #243d20 !important;
 }
 
-[data-theme='dark'] .btn.primary,
-[data-theme='dark'] .wa-send,
-[data-theme='dark'] .wa-avatar {
+[data-theme='verde'] .btn.primary,
+[data-theme='verde'] .wa-send,
+[data-theme='verde'] .wa-avatar {
   background: #355c2e !important;
   color: #f4f7f1 !important;
   border-color: #355c2e !important;
@@ -94,7 +96,7 @@ select option,
   color: #f4f7f1;
 }
 
-[data-theme='dark'] .wa-bubble.theirs .wa-voice-play {
+[data-theme='verde'] .wa-bubble.theirs .wa-voice-play {
   background: #8fb07a;
   color: #0c1410;
 }
@@ -106,7 +108,7 @@ select option,
   border-color: #9a7b2f !important;
 }
 
-[data-theme='dark'] .cc-air-banner button {
+[data-theme='verde'] .cc-air-banner button {
   background: #1c2e19 !important;
   color: #eef3e8 !important;
 }
@@ -115,7 +117,7 @@ select option,
   color: #7a1f1f !important;
 }
 
-[data-theme='dark'] .cc-panic-item strong {
+[data-theme='verde'] .cc-panic-item strong {
   color: #ffb4a8 !important;
 }
 
@@ -125,7 +127,7 @@ select option,
   border-color: #9a7b2f !important;
 }
 
-[data-theme='dark'] .cc-badge.air {
+[data-theme='verde'] .cc-badge.air {
   background: #e0c56a !important;
   color: #121c14 !important;
 }
@@ -136,7 +138,7 @@ select option,
   border-color: #243d20 !important;
 }
 
-[data-theme='dark'] .cc-btn.primary {
+[data-theme='verde'] .cc-btn.primary {
   background: #355c2e !important;
   color: #f4f7f1 !important;
 }
@@ -147,22 +149,16 @@ select option,
   color: #243d20 !important;
 }
 
-[data-theme='dark'] .cc-role-badge {
+[data-theme='verde'] .cc-role-badge {
   background: #1c2e19 !important;
   color: #e0c56a !important;
   border-color: #2a3a28 !important;
 }
 
-[data-theme='dark'] .cc-role-badge.role-root,
-[data-theme='dark'] .cc-role-badge.role-admin {
+[data-theme='verde'] .cc-role-badge.role-root,
+[data-theme='verde'] .cc-role-badge.role-admin {
   background: #243d20 !important;
   color: #f4f7f1 !important;
-}
-
-[data-theme='dark'] .cc-topnav-inst a:hover,
-[data-theme='dark'] .cc-topnav-inst a.active {
-  background: #1c2e19 !important;
-  color: #e0c56a !important;
 }
 
 /* —— Status pills seguimiento —— */
@@ -171,7 +167,7 @@ select option,
   color: #0f5132 !important;
 }
 
-[data-theme='dark'] .lt-status-pill.on {
+[data-theme='verde'] .lt-status-pill.on {
   background: color-mix(in srgb, #8fb07a 22%, #152018) !important;
   color: #d1fae5 !important;
 }
@@ -196,7 +192,7 @@ select option,
   background: #f8f9f5 !important;
 }
 
-[data-theme='dark'] .cc-map-body .leaflet-container {
+[data-theme='verde'] .cc-map-body .leaflet-container {
   background: #1a1f24;
 }
 
@@ -205,7 +201,7 @@ select option,
   color: #172015 !important;
 }
 
-[data-theme='dark'] .login-form input {
+[data-theme='verde'] .login-form input {
   background: #0c1410 !important;
   color: #eef3e8 !important;
   border-color: #3a4a36 !important;
@@ -217,7 +213,7 @@ select option,
   color: #8a4b12;
 }
 
-[data-theme='dark'] .hint.warn {
+[data-theme='verde'] .hint.warn {
   background: color-mix(in srgb, #e0c56a 16%, #152018);
   color: #e0c56a;
 }
@@ -228,9 +224,9 @@ select option,
   color: #7a1f1f;
 }
 
-[data-theme='dark'] .error,
-[data-theme='dark'] .cc-shell .error,
-[data-theme='dark'] .login-form .error {
+[data-theme='verde'] .error,
+[data-theme='verde'] .cc-shell .error,
+[data-theme='verde'] .login-form .error {
   color: #e8a0a0;
 }
 
@@ -240,55 +236,259 @@ select option,
   background: var(--surface-solid) !important;
 }
 
-[data-theme='dark'] .dm-compose input {
+[data-theme='verde'] .dm-compose input {
   background: #0c1410 !important;
   color: #eef3e8 !important;
 }
 
 /* —— Tablas / formularios despacho —— */
-[data-theme='dark'] .cc-shell .data-table td,
-[data-theme='dark'] .cc-shell .data-table th,
-[data-theme='dark'] .cc-shell .admin-form label,
-[data-theme='dark'] .cc-shell .admin-form legend,
-[data-theme='dark'] .cc-shell .muted,
-[data-theme='dark'] .cc-shell .cc-page-sub,
-[data-theme='dark'] .cc-shell .cc-hint {
+[data-theme='verde'] .cc-shell .data-table td,
+[data-theme='verde'] .cc-shell .data-table th,
+[data-theme='verde'] .cc-shell .admin-form label,
+[data-theme='verde'] .cc-shell .admin-form legend,
+[data-theme='verde'] .cc-shell .muted,
+[data-theme='verde'] .cc-shell .cc-page-sub,
+[data-theme='verde'] .cc-shell .cc-hint {
   color: #a8b39a;
 }
 
-[data-theme='dark'] .cc-shell .data-table td,
-[data-theme='dark'] .cc-shell .data-table strong,
-[data-theme='dark'] .cc-shell .admin-form h2,
-[data-theme='dark'] .cc-shell .dispatch-header h1 {
+[data-theme='verde'] .cc-shell .data-table td,
+[data-theme='verde'] .cc-shell .data-table strong,
+[data-theme='verde'] .cc-shell .admin-form h2,
+[data-theme='verde'] .cc-shell .dispatch-header h1 {
   color: #eef3e8;
 }
 
-[data-theme='dark'] .cc-shell .data-table td {
+[data-theme='verde'] .cc-shell .data-table td {
   color: #eef3e8;
 }
 
-[data-theme='dark'] .cc-shell .cc-mono,
-[data-theme='dark'] .cc-shell code {
+[data-theme='verde'] .cc-shell .cc-mono,
+[data-theme='verde'] .cc-shell code {
   color: #e0c56a;
 }
 
 /* —— Chat bubbles texto —— */
-[data-theme='dark'] .wa-bubble {
+[data-theme='verde'] .wa-bubble {
   color: #eef3e8;
 }
 
-[data-theme='dark'] .wa-bubble.mine {
+[data-theme='verde'] .wa-bubble.mine {
   background: color-mix(in srgb, #355c2e 55%, #152018);
   color: #f4f7f1;
 }
 
-[data-theme='dark'] .wa-bubble.theirs {
+[data-theme='verde'] .wa-bubble.theirs {
   background: #1c2e19;
   color: #eef3e8;
 }
 
-[data-theme='dark'] .wa-name,
-[data-theme='dark'] .wa-meta,
-[data-theme='dark'] .wa-subtitle {
+[data-theme='verde'] .wa-name,
+[data-theme='verde'] .wa-meta,
+[data-theme='verde'] .wa-subtitle {
   color: #a8b39a;
+}
+
+/*
+ * Consola mapa — selects de la toolbar ops:
+ * styles.css pone outline 2px con --accent (casi negro); ganar aquí (carga al final).
+ */
+.cc-shell .map-toolbar select,
+.cc-shell .map-ops-panel select,
+.cc-shell .map-toolbar input:not([type='checkbox']):not([type='radio']),
+.cc-shell .map-ops-panel input:not([type='checkbox']):not([type='radio']) {
+  outline: none !important;
+}
+
+.cc-shell .map-toolbar select:focus,
+.cc-shell .map-toolbar select:focus-visible,
+.cc-shell .map-ops-panel select:focus,
+.cc-shell .map-ops-panel select:focus-visible,
+.cc-shell .map-toolbar input:focus,
+.cc-shell .map-toolbar input:focus-visible,
+.cc-shell .map-ops-panel input:focus,
+.cc-shell .map-ops-panel input:focus-visible,
+.cc-shell .map-toolbar.map-toolbar--ops .cc-tactical-ms-trigger:focus,
+.cc-shell .map-toolbar.map-toolbar--ops .cc-tactical-ms-trigger:focus-visible {
+  outline: none !important;
+  border-color: color-mix(in srgb, var(--cc-accent, #c4a35a) 55%, var(--cc-border, #c5d0cb)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent, #c4a35a) 22%, transparent);
+}
+
+/* ═══════════════════════════════════════════
+   Obscuro — contraste (ParqueVehicular :root)
+   ═══════════════════════════════════════════ */
+[data-theme='obscuro'] select,
+[data-theme='obscuro'] textarea,
+[data-theme='obscuro'] .cc-radio-dock-select,
+[data-theme='obscuro'] .cc-inline select,
+[data-theme='obscuro'] .group-select select,
+[data-theme='obscuro'] .cc-shell select,
+[data-theme='obscuro'] .admin-form select,
+[data-theme='obscuro'] .map-toolbar select,
+[data-theme='obscuro'] .map-field select,
+[data-theme='obscuro'] .data-table select,
+[data-theme='obscuro'] .cc-tactical-ms-trigger,
+[data-theme='obscuro'] .cc-shell .cc-tactical-ms-trigger,
+[data-theme='obscuro'] input:not([type='checkbox']):not([type='radio']):not([type='range']) {
+  color-scheme: dark;
+  background-color: #1a1d27 !important;
+  color: #e2e8f0 !important;
+  border-color: #2e3348 !important;
+}
+
+[data-theme='obscuro'] select option,
+[data-theme='obscuro'] .cc-radio-dock-select option,
+[data-theme='obscuro'] .cc-inline select option,
+[data-theme='obscuro'] .group-select select option,
+[data-theme='obscuro'] .cc-shell select option,
+[data-theme='obscuro'] .admin-form select option,
+[data-theme='obscuro'] .map-toolbar select option,
+[data-theme='obscuro'] .map-field select option,
+[data-theme='obscuro'] .data-table select option {
+  background-color: #1a1d27 !important;
+  color: #e2e8f0 !important;
+}
+
+[data-theme='obscuro'] select option:checked,
+[data-theme='obscuro'] select option:hover,
+[data-theme='obscuro'] .cc-radio-dock-select option:checked {
+  background-color: #1e3a8a !important;
+  color: #e2e8f0 !important;
+}
+
+[data-theme='obscuro'] .btn.primary,
+[data-theme='obscuro'] .wa-send,
+[data-theme='obscuro'] .wa-avatar,
+[data-theme='obscuro'] .cc-btn.primary {
+  background: #3b82f6 !important;
+  color: #f8fafc !important;
+  border-color: #2563eb !important;
+}
+
+[data-theme='obscuro'] .wa-bubble.theirs .wa-voice-play {
+  background: #3b82f6;
+  color: #f8fafc;
+}
+
+[data-theme='obscuro'] .cc-air-banner button {
+  background: #222636 !important;
+  color: #e2e8f0 !important;
+}
+
+[data-theme='obscuro'] .cc-panic-item strong {
+  color: #fca5a5 !important;
+}
+
+[data-theme='obscuro'] .cc-badge.air {
+  background: #3b82f6 !important;
+  color: #eff6ff !important;
+  border-color: #2563eb !important;
+}
+
+[data-theme='obscuro'] .cc-badge.idle {
+  color: #8892a4 !important;
+  border-color: #2e3348 !important;
+  background: transparent !important;
+}
+
+[data-theme='obscuro'] .cc-role-badge {
+  background: #222636 !important;
+  color: #93c5fd !important;
+  border-color: #2e3348 !important;
+}
+
+[data-theme='obscuro'] .cc-role-badge.role-root,
+[data-theme='obscuro'] .cc-role-badge.role-admin {
+  background: #1e3a8a !important;
+  color: #e2e8f0 !important;
+}
+
+[data-theme='obscuro'] .lt-status-pill.on {
+  background: color-mix(in srgb, #22c55e 22%, #1a1d27) !important;
+  color: #bbf7d0 !important;
+}
+
+[data-theme='obscuro'] .cc-map-body .leaflet-container {
+  background: #12151e;
+}
+
+[data-theme='obscuro'] .login-form input {
+  background: #0f1117 !important;
+  color: #e2e8f0 !important;
+  border-color: #2e3348 !important;
+}
+
+[data-theme='obscuro'] .hint.warn {
+  background: color-mix(in srgb, #f59e0b 16%, #1a1d27);
+  color: #fbbf24;
+}
+
+[data-theme='obscuro'] .error,
+[data-theme='obscuro'] .cc-shell .error,
+[data-theme='obscuro'] .login-form .error {
+  color: #f87171;
+}
+
+[data-theme='obscuro'] .dm-compose input {
+  background: #0f1117 !important;
+  color: #e2e8f0 !important;
+}
+
+[data-theme='obscuro'] .cc-shell .data-table td,
+[data-theme='obscuro'] .cc-shell .data-table th,
+[data-theme='obscuro'] .cc-shell .admin-form label,
+[data-theme='obscuro'] .cc-shell .admin-form legend,
+[data-theme='obscuro'] .cc-shell .muted,
+[data-theme='obscuro'] .cc-shell .cc-page-sub,
+[data-theme='obscuro'] .cc-shell .cc-hint {
+  color: #8892a4;
+}
+
+[data-theme='obscuro'] .cc-shell .data-table td,
+[data-theme='obscuro'] .cc-shell .data-table strong,
+[data-theme='obscuro'] .cc-shell .admin-form h2,
+[data-theme='obscuro'] .cc-shell .dispatch-header h1 {
+  color: #e2e8f0;
+}
+
+[data-theme='obscuro'] .cc-shell .cc-mono,
+[data-theme='obscuro'] .cc-shell code {
+  color: #93c5fd;
+}
+
+[data-theme='obscuro'] .wa-bubble {
+  color: #e2e8f0;
+}
+
+[data-theme='obscuro'] .wa-bubble.mine {
+  background: color-mix(in srgb, #3b82f6 40%, #1a1d27);
+  color: #f8fafc;
+}
+
+[data-theme='obscuro'] .wa-bubble.theirs {
+  background: #222636;
+  color: #e2e8f0;
+}
+
+[data-theme='obscuro'] .wa-name,
+[data-theme='obscuro'] .wa-meta,
+[data-theme='obscuro'] .wa-subtitle {
+  color: #8892a4;
+}
+
+/* Consola mapa Obscuro: geocerca activa + capas (ganar a institutional !important) */
+[data-theme='obscuro'] .cc-shell .map-action.is-on,
+[data-theme='obscuro'] .map-action.is-on {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 18%, #222636) !important;
+  border-color: var(--accent, #3b82f6) !important;
+  color: #93c5fd !important;
+}
+
+[data-theme='obscuro'] .lt-layers button.active,
+[data-theme='obscuro'] .map-frame-chrome .lt-layers button.active,
+[data-theme='obscuro'] .lt-map-chrome .lt-layers button.active {
+  border-color: var(--accent, #3b82f6) !important;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 18%, transparent) !important;
+  color: #93c5fd !important;
 }

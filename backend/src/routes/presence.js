@@ -9,16 +9,29 @@ export function createPresenceRouter(io) {
   router.use(authMiddleware);
 
   router.post('/heartbeat', async (req, res) => {
+    // Solo FGS / keepalive HTTP. foreground|background van por socket presence:ping.
     const focus = String(req.body?.focus || 'service');
     if (focus !== 'service') {
-      return res.status(400).json({ ok: false, error: 'focus debe ser service' });
+      return res.status(400).json({
+        ok: false,
+        error: 'focus debe ser service (UI usa socket presence:ping)',
+      });
     }
     const orgId = req.user.orgId;
     const userId = req.user.sub;
     const displayName = req.user.displayName || 'Usuario';
     try {
-      const result = await heartbeatServicePresence({ orgId, userId, displayName });
-      emitDispatch(io, 'dispatch:presence', { orgId, userId, focus: 'service' });
+      const result = await heartbeatServicePresence({
+        orgId,
+        userId,
+        displayName,
+        focus,
+      });
+      emitDispatch(io, 'dispatch:presence', {
+        orgId,
+        userId,
+        focus: result.focus || focus,
+      });
       for (const groupId of result.groupIds || []) {
         try {
           await broadcastPresence(io, groupId);
@@ -26,7 +39,7 @@ export function createPresenceRouter(io) {
           /* ignore */
         }
       }
-      res.json({ ok: true });
+      res.json({ ok: true, focus: result.focus || focus });
     } catch (err) {
       console.error('presence heartbeat:', err.message);
       res.status(500).json({ ok: false, error: 'No se pudo actualizar presencia' });

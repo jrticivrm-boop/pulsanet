@@ -1,5 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import ChannelMultiSelect from '../ChannelMultiSelect';
+import {
+  MAP_PTT_MENU_LAYOUT_EVENT,
+  readMapPttMenuLayout,
+  writeMapPttMenuLayout,
+} from './MapPttFloat.jsx';
 
 /**
  * Configuración → Canales: Escuchar | Hablar | Video | Alerta.
@@ -29,6 +35,17 @@ export default function ConfigChannels() {
     onGroupOrderChange,
   } = ctx;
 
+  const [mapPttMenuLayout, setMapPttMenuLayout] = useState(() => readMapPttMenuLayout());
+
+  useEffect(() => {
+    const sync = (e) => {
+      const mode = e?.detail?.mode || readMapPttMenuLayout();
+      setMapPttMenuLayout(mode === 'select' ? 'select' : 'tabs');
+    };
+    window.addEventListener(MAP_PTT_MENU_LAYOUT_EVENT, sync);
+    return () => window.removeEventListener(MAP_PTT_MENU_LAYOUT_EVENT, sync);
+  }, []);
+
   return (
     <div className="cc-channels-cfg">
       <header className="cc-units-head cc-cat-compact-head">
@@ -41,6 +58,26 @@ export default function ConfigChannels() {
           </p>
         </div>
       </header>
+
+      <section className="cc-card cc-channels-cfg-card cc-channels-cfg-map-ptt">
+        <label className="cc-channels-cfg-map-ptt-field">
+          <span className="cc-channels-cfg-map-ptt-title">Menú PTT en mapa maximizado</span>
+          <select
+            value={mapPttMenuLayout}
+            aria-label="Vista del menú PTT en mapa maximizado"
+            onChange={(e) => {
+              const next = writeMapPttMenuLayout(e.target.value);
+              setMapPttMenuLayout(next);
+            }}
+          >
+            <option value="tabs">Pestañas</option>
+            <option value="select">Encabezado</option>
+          </select>
+          <span className="cc-hint">
+            Click derecho sobre el PTT flotante del mapa: Escuchar / Hablar / Video / Alerta.
+          </span>
+        </label>
+      </section>
 
       <section className="cc-card cc-channels-cfg-card">
         {groups.length === 0 ? (

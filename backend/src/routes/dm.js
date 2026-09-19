@@ -17,11 +17,28 @@ import {
   toggleDmReaction,
   markDmMessagesDelivered,
 } from '../services/dm.js';
+import { listOrgPresence } from '../services/presence.js';
 import { getStickerById } from '../data/stickers.js';
 import { notifyUserDevices } from '../services/fcm.js';
 import { isDispatch } from '../services/roles.js';
 
 const MAX_BODY = 2000;
+
+async function withOnlineFlags(orgId, selfId, contacts) {
+  let onlineIds = new Set();
+  try {
+    const members = await listOrgPresence(orgId);
+    onlineIds = new Set((members || []).map((m) => String(m.userId)));
+  } catch {
+    /* ignore */
+  }
+  onlineIds.add(String(selfId));
+  return (contacts || []).map((c) => ({
+    ...c,
+    online: onlineIds.has(String(c.id)),
+    isSelf: String(c.id) === String(selfId),
+  }));
+}
 
 export function createDmRouter(io) {
   const router = Router();
@@ -37,10 +54,11 @@ export function createDmRouter(io) {
     if (scope === 'org' && !isDispatch(req.user.role)) {
       scope = 'shared';
     }
-    const contacts =
+    let contacts =
       scope === 'org'
-        ? await listOrgContacts(req.user.orgId, req.user.sub)
+        ? await listOrgContacts(req.user.orgId, req.user.sub, { includeSelf: true })
         : await listSharedGroupContacts(req.user.orgId, req.user.sub);
+    contacts = await withOnlineFlags(req.user.orgId, req.user.sub, contacts);
     res.json({ ok: true, scope, contacts });
   });
 
@@ -87,17 +105,19 @@ export function createDmRouter(io) {
     });
     const room = dmSocketRoom(req.user.sub, peer.id);
     io.to(room).emit('dm:message', msg);
-    io.to(`user:${peer.id}`).emit('dm:notify', {
-      peerId: req.user.sub,
-      peerName: req.user.displayName,
-      message: msg,
-    });
-    notifyUserDevices({
-      userId: peer.id,
-      title: req.user.displayName || 'TacticalPtx',
-      body: text.slice(0, 120),
-      data: { type: 'dm', peerId: req.user.sub },
-    }).catch(() => {});
+    if (String(peer.id) !== String(req.user.sub)) {
+      io.to(`user:${peer.id}`).emit('dm:notify', {
+        peerId: req.user.sub,
+        peerName: req.user.displayName,
+        message: msg,
+      });
+      notifyUserDevices({
+        userId: peer.id,
+        title: req.user.displayName || 'SICOM',
+        body: text.slice(0, 120),
+        data: { type: 'dm', peerId: req.user.sub },
+      }).catch(() => {});
+    }
     res.status(201).json({ ok: true, message: msg });
   });
 
@@ -124,7 +144,7 @@ export function createDmRouter(io) {
     });
     notifyUserDevices({
       userId: peer.id,
-      title: req.user.displayName || 'TacticalPtx',
+      title: req.user.displayName || 'SICOM',
       body: 'Sticker',
       data: { type: 'dm', peerId: req.user.sub },
     }).catch(() => {});
@@ -181,13 +201,13 @@ export function createDmRouter(io) {
     });
     notifyUserDevices({
       userId: peer.id,
-      title: req.user.displayName || 'TacticalPtx',
+      title: req.user.displayName || 'SICOM',
       body: '¡Zumbido!',
       data: {
         type: 'dm_nudge',
         peerId: req.user.sub,
         messageId: msg.id,
-        title: req.user.displayName || 'TacticalPtx',
+        title: req.user.displayName || 'SICOM',
         body: '¡Zumbido!',
       },
     }).catch(() => {});
@@ -251,7 +271,7 @@ export function createDmRouter(io) {
         const preview = mediaPreviewLabel(classified, msg.mediaName, caption);
         notifyUserDevices({
           userId: peer.id,
-          title: req.user.displayName || 'TacticalPtx',
+          title: req.user.displayName || 'SICOM',
           body: String(preview).slice(0, 120),
           data: { type: 'dm', peerId: req.user.sub },
         }).catch(() => {});

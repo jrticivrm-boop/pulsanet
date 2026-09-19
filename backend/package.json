@@ -1,6 +1,6 @@
 {
   "name": "tacticalptx-api",
-  "version": "1.8.21",
+  "version": "1.8.107",
   "description": "TacticalPtx — API PTT Push-to-Talk",
   "main": "src/server.js",
   "type": "module",

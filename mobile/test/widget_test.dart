@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:tacticalptx_mobile/config.dart';
 
 void main() {
@@ -20,8 +20,8 @@ void main() {
       'https://tacticalptx.example.sslip.io:443',
     );
     expect(
-      AppConfig.socketUrlFor('http://192.168.1.66:4000'),
-      'http://192.168.1.66:4000',
+      AppConfig.socketUrlFor('http://192.168.1.77:4000'),
+      'http://192.168.1.77:4000',
     );
   });
 }

@@ -24,6 +24,7 @@ class PersonalRadioBar extends StatefulWidget {
     required this.url,
     required this.role,
     this.e2eeKey,
+    this.e2ee = false,
     required this.onClosed,
   });
 
@@ -34,6 +35,8 @@ class PersonalRadioBar extends StatefulWidget {
   final String url;
   final String role;
   final String? e2eeKey;
+  /// Si el API marcó `e2ee: true`, no conectar sin clave.
+  final bool e2ee;
   final VoidCallback onClosed;
 
   @override
@@ -99,7 +102,10 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
       // El canal grupal suele tener el mic ocupado → sin esto el 1:1 falla o no abre PTT.
       await ChannelSession.current?.pauseForPersonalRadio();
 
-      final e2eeFuture = buildVoiceE2eeOptions(widget.e2eeKey);
+      final e2eeFuture = buildVoiceE2eeOptions(
+        widget.e2eeKey,
+        required: widget.e2ee,
+      );
       await AudioSessionSetup.acquireRadio();
       final e2ee = await e2eeFuture;
       room = Room(roomOptions: RoomOptions(encryption: e2ee));

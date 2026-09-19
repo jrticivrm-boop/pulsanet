@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { listKeysByScan } from '../redis.js';
 import { query, pool } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { getFloor, listOrgPresence, listPresence, pickBestFocus, resolvePresenceStatus } from '../services/presence.js';
+import { getFloor, listOrgPresence, listPresence, pickBestFocus, resolvePresenceStatus, getOrgPresenceThresholds } from '../services/presence.js';
 import {
   clampGpsIntervalSec,
   clampGpsMaxAccuracyM,
@@ -121,12 +121,15 @@ adminRouter.get('/overview', async (req, res) => {
     [orgId]
   );
 
-  const { rows: orgs } = await query(
-    `SELECT presence_offline_red_minutes FROM organizations WHERE id = $1`,
-    [orgId]
-  );
-  const offlineRedMinutes = Number(orgs[0]?.presence_offline_red_minutes) || 15;
-  const offlineRedMs = offlineRedMinutes * 60_000;
+  const thresholds = await getOrgPresenceThresholds(orgId);
+  const {
+    offlineRedMs,
+    absenceMs,
+    offlineRedMinutes,
+    absenceMinutes,
+    showAway,
+    showOffline,
+  } = thresholds;
 
   const { rows: groups } = await query(
     `SELECT id, name, livekit_room, is_active
@@ -136,23 +139,35 @@ adminRouter.get('/overview', async (req, res) => {
   );
 
   const channels = [];
-  /** @type {Map<string, { userId: string, displayName: string, focus: string }>} */
+  /** @type {Map<string, { userId: string, displayName: string, focus: string, awaySince?: number|null }>} */
   const presenceByUser = new Map();
+
+  function mergePres(prev, m) {
+    if (!prev) return { ...m };
+    const focus = pickBestFocus([prev.focus, m.focus]);
+    const awayCandidates = [prev, m]
+      .filter((x) => x?.awaySince != null && (x.focus === 'background' || x.focus === 'service'))
+      .map((x) => Number(x.awaySince))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const awaySince =
+      focus === 'background' || focus === 'service'
+        ? awayCandidates.length
+          ? Math.min(...awayCandidates)
+          : m.awaySince || prev.awaySince || null
+        : null;
+    return {
+      userId: m.userId || prev.userId,
+      displayName: m.displayName || prev.displayName,
+      focus,
+      awaySince,
+    };
+  }
 
   for (const g of groups) {
     const members = await listPresence(g.id);
     const floor = await getFloor(g.id);
     for (const m of members) {
-      const prev = presenceByUser.get(m.userId);
-      if (!prev) {
-        presenceByUser.set(m.userId, { ...m });
-      } else {
-        presenceByUser.set(m.userId, {
-          userId: m.userId,
-          displayName: m.displayName || prev.displayName,
-          focus: pickBestFocus([prev.focus, m.focus]),
-        });
-      }
+      presenceByUser.set(m.userId, mergePres(presenceByUser.get(m.userId), m));
     }
     channels.push({
       id: g.id,
@@ -168,28 +183,29 @@ adminRouter.get('/overview', async (req, res) => {
   try {
     const orgMembers = await listOrgPresence(orgId);
     for (const m of orgMembers) {
-      const prev = presenceByUser.get(m.userId);
-      if (!prev) {
-        presenceByUser.set(m.userId, { ...m });
-      } else {
-        presenceByUser.set(m.userId, {
-          userId: m.userId,
-          displayName: m.displayName || prev.displayName,
-          focus: pickBestFocus([prev.focus, m.focus]),
-        });
-      }
+      presenceByUser.set(m.userId, mergePres(presenceByUser.get(m.userId), m));
     }
   } catch {
     /* ignore */
   }
 
   const presence = {};
+  const now = Date.now();
   for (const [userId, m] of presenceByUser) {
     presence[userId] = {
       userId,
       displayName: m.displayName,
       focus: m.focus,
-      status: resolvePresenceStatus({ focus: m.focus, offlineRedMs }),
+      awaySince: m.awaySince ?? null,
+      status: resolvePresenceStatus({
+        focus: m.focus,
+        awaySince: m.awaySince,
+        offlineRedMs,
+        absenceMs,
+        showAway,
+        showOffline,
+        now,
+      }),
     };
   }
 
@@ -203,6 +219,9 @@ adminRouter.get('/overview', async (req, res) => {
       channels,
       presence,
       presenceOfflineRedMinutes: offlineRedMinutes,
+      presenceAbsenceMinutes: absenceMinutes,
+      presenceShowAway: showAway,
+      presenceShowOffline: showOffline,
     },
   });
 });
@@ -210,15 +229,22 @@ adminRouter.get('/overview', async (req, res) => {
 /** Preferencias de org: presencia + GPS. */
 adminRouter.get('/org-settings', requireAdmin, async (req, res) => {
   const { rows } = await query(
-    `SELECT presence_offline_red_minutes, gps_max_accuracy_m, gps_interval_sec
+    `SELECT presence_offline_red_minutes, presence_absence_minutes,
+            presence_show_away, presence_show_offline,
+            gps_max_accuracy_m, gps_interval_sec
      FROM organizations WHERE id = $1`,
     [req.user.orgId]
   );
   const gps = normalizeGpsSettings(rows[0] || {});
+  const red = Number(rows[0]?.presence_offline_red_minutes);
+  const abs = Number(rows[0]?.presence_absence_minutes);
   res.json({
     ok: true,
     settings: {
-      presenceOfflineRedMinutes: Number(rows[0]?.presence_offline_red_minutes) || 15,
+      presenceOfflineRedMinutes: Number.isFinite(red) ? red : 15,
+      presenceAbsenceMinutes: Number.isFinite(abs) ? abs : 15,
+      presenceShowAway: rows[0]?.presence_show_away !== false,
+      presenceShowOffline: rows[0]?.presence_show_offline !== false,
       gpsMaxAccuracyM: gps.maxAccuracyM,
       gpsIntervalSec: gps.intervalSec,
     },
@@ -233,15 +259,45 @@ adminRouter.patch('/org-settings', requireAdmin, async (req, res) => {
 
   if (body.presenceOfflineRedMinutes != null) {
     const minutes = parseInt(body.presenceOfflineRedMinutes, 10);
-    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 10080) {
+    if (!Number.isFinite(minutes) || minutes < 0 || minutes > 10080) {
       return res.status(400).json({
         ok: false,
-        error: 'presenceOfflineRedMinutes debe ser entre 1 y 10080 (minutos)',
+        error: 'presenceOfflineRedMinutes debe ser entre 0 y 10080 (minutos); 0 = rojo al desconectar',
       });
     }
     params.push(minutes);
     updates.push(`presence_offline_red_minutes = $${params.length}`);
     meta.presenceOfflineRedMinutes = minutes;
+  }
+
+  if (body.presenceAbsenceMinutes != null) {
+    const minutes = parseInt(body.presenceAbsenceMinutes, 10);
+    if (!Number.isFinite(minutes) || minutes < 0 || minutes > 10080) {
+      return res.status(400).json({
+        ok: false,
+        error: 'presenceAbsenceMinutes debe ser entre 0 y 10080 (minutos); 0 = sin amarillo Ausente',
+      });
+    }
+    params.push(minutes);
+    updates.push(`presence_absence_minutes = $${params.length}`);
+    meta.presenceAbsenceMinutes = minutes;
+  }
+
+  if (body.presenceShowAway != null) {
+    const on = body.presenceShowAway === true || body.presenceShowAway === 'true' || body.presenceShowAway === 1;
+    params.push(on);
+    updates.push(`presence_show_away = $${params.length}`);
+    meta.presenceShowAway = on;
+  }
+
+  if (body.presenceShowOffline != null) {
+    const on =
+      body.presenceShowOffline === true ||
+      body.presenceShowOffline === 'true' ||
+      body.presenceShowOffline === 1;
+    params.push(on);
+    updates.push(`presence_show_offline = $${params.length}`);
+    meta.presenceShowOffline = on;
   }
 
   if (body.gpsMaxAccuracyM != null) {
@@ -270,27 +326,37 @@ adminRouter.patch('/org-settings', requireAdmin, async (req, res) => {
     meta.gpsIntervalSec = sec;
   }
 
-  if (!updates.length) {
+  async function readSettings() {
     const gps = await getOrgGpsSettings(req.user.orgId);
     const { rows } = await query(
-      `SELECT presence_offline_red_minutes FROM organizations WHERE id = $1`,
+      `SELECT presence_offline_red_minutes, presence_absence_minutes,
+              presence_show_away, presence_show_offline
+       FROM organizations WHERE id = $1`,
       [req.user.orgId]
     );
-    return res.json({
-      ok: true,
-      settings: {
-        presenceOfflineRedMinutes: Number(rows[0]?.presence_offline_red_minutes) || 15,
-        gpsMaxAccuracyM: gps.maxAccuracyM,
-        gpsIntervalSec: gps.intervalSec,
-      },
-    });
+    const red = Number(rows[0]?.presence_offline_red_minutes);
+    const abs = Number(rows[0]?.presence_absence_minutes);
+    return {
+      presenceOfflineRedMinutes: Number.isFinite(red) ? red : 15,
+      presenceAbsenceMinutes: Number.isFinite(abs) ? abs : 15,
+      presenceShowAway: rows[0]?.presence_show_away !== false,
+      presenceShowOffline: rows[0]?.presence_show_offline !== false,
+      gpsMaxAccuracyM: gps.maxAccuracyM,
+      gpsIntervalSec: gps.intervalSec,
+    };
+  }
+
+  if (!updates.length) {
+    return res.json({ ok: true, settings: await readSettings() });
   }
 
   const { rows } = await query(
     `UPDATE organizations
      SET ${updates.join(', ')}, updated_at = NOW()
      WHERE id = $1
-     RETURNING presence_offline_red_minutes, gps_max_accuracy_m, gps_interval_sec`,
+     RETURNING presence_offline_red_minutes, presence_absence_minutes,
+               presence_show_away, presence_show_offline,
+               gps_max_accuracy_m, gps_interval_sec`,
     params
   );
   await logActivity({
@@ -302,10 +368,15 @@ adminRouter.patch('/org-settings', requireAdmin, async (req, res) => {
     meta,
   });
   const gps = normalizeGpsSettings(rows[0] || {});
+  const red = Number(rows[0]?.presence_offline_red_minutes);
+  const abs = Number(rows[0]?.presence_absence_minutes);
   res.json({
     ok: true,
     settings: {
-      presenceOfflineRedMinutes: Number(rows[0]?.presence_offline_red_minutes) || 15,
+      presenceOfflineRedMinutes: Number.isFinite(red) ? red : 15,
+      presenceAbsenceMinutes: Number.isFinite(abs) ? abs : 15,
+      presenceShowAway: rows[0]?.presence_show_away !== false,
+      presenceShowOffline: rows[0]?.presence_show_offline !== false,
       gpsMaxAccuracyM: gps.maxAccuracyM,
       gpsIntervalSec: gps.intervalSec,
     },
@@ -1052,8 +1123,8 @@ adminRouter.delete('/users/:id', requireUserManager, async (req, res) => {
   }
 });
 
-/** Exportación CSV de usuarios (alcance v1) */
-adminRouter.get('/users.csv', async (req, res) => {
+/** Exportación CSV de usuarios — solo root/admin (PII). */
+adminRouter.get('/users.csv', requireAdmin, async (req, res) => {
   const { rows } = await query(
     `SELECT username, matricula, grade, specialty, cargo, given_names, paternal_surname, maternal_surname,
             display_name, role, is_active, last_seen_at, created_at
@@ -1395,7 +1466,7 @@ adminRouter.delete('/groups/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true, hard: false });
 });
 
-adminRouter.post('/groups/:id/members', async (req, res) => {
+adminRouter.post('/groups/:id/members', requireAdmin, async (req, res) => {
   const { userId, role = 'member' } = req.body || {};
   if (!userId) return res.status(400).json({ ok: false, error: 'userId requerido' });
 

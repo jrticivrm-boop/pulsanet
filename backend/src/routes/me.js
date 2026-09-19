@@ -107,18 +107,6 @@ function authFromHeaderOrQuery(req, res, next) {
     return next();
   }
 
-  // Compat breve: ?token= JWT — deprecar (no mint nuevos clientes así)
-  const legacy = typeof req.query?.token === 'string' ? req.query.token : null;
-  if (legacy) {
-    try {
-      const payload = jwt.verify(legacy, config.jwtSecret);
-      req.user = payload;
-      return next();
-    } catch {
-      return res.status(401).json({ ok: false, error: 'Token inválido o expirado' });
-    }
-  }
-
   return res.status(401).json({ ok: false, error: 'Token requerido' });
 }
 

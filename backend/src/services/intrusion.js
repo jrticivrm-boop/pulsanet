@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
+import { timingSafeEqual } from 'crypto';
 import { getRedis, isRedisReady } from '../redis.js';
 import { query } from '../db.js';
 import { config } from '../config.js';
@@ -155,7 +156,7 @@ function writeIncidentSnapshot(payload) {
     fs.writeFileSync(
       path.join(dir, 'README.txt'),
       [
-        'Incidente TacticalPtx — lockdown por intrusión / seguridad',
+        'Incidente SICOM — lockdown por intrusión / seguridad',
         `UTC: ${payload.at}`,
         `Motivo: ${payload.reason}`,
         `Origen: ${payload.sourceIp || 'n/d'}`,
@@ -293,7 +294,9 @@ export async function clearLockdown({ unlockSecret, actorId = null, sourceIp = n
   if (!expected || expected.length < 16) {
     throw new Error('LOCKDOWN_UNLOCK_SECRET no configurado (≥16)');
   }
-  if (String(unlockSecret || '') !== expected) {
+  const a = Buffer.from(String(unlockSecret || ''), 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
     throw new Error('Secreto de desbloqueo inválido');
   }
 
@@ -331,10 +334,30 @@ export async function clearLockdown({ unlockSecret, actorId = null, sourceIp = n
   return { ok: true };
 }
 
+function stripIp(addr) {
+  return String(addr || '').replace(/^::ffff:/, '');
+}
+
+function isLoopbackAddr(addr) {
+  const a = stripIp(addr);
+  return a === '127.0.0.1' || a === '::1' || a === 'localhost';
+}
+
 function clientIp(req) {
-  const xf = req.headers['x-forwarded-for'];
-  if (typeof xf === 'string' && xf.length) return xf.split(',')[0].trim();
-  return req.socket?.remoteAddress || req.ip || 'unknown';
+  const trust =
+    process.env.TRUST_PROXY === '1' ||
+    (process.env.TRUST_PROXY !== '0' &&
+      Boolean(String(process.env.PUBLIC_DOMAIN || '').trim()));
+  // Solo confiar XFF si el peer es loopback (Caddy → API). Evita spoof con API expuesta.
+  const remote = stripIp(req.socket?.remoteAddress || '');
+  if (trust && isLoopbackAddr(remote)) {
+    const xf = req.headers['x-forwarded-for'];
+    if (typeof xf === 'string' && xf.length) {
+      return stripIp(xf.split(',')[0].trim());
+    }
+  }
+  const raw = req.socket?.remoteAddress || req.ip || 'unknown';
+  return stripIp(raw);
 }
 
 function authFailLimits() {

@@ -4,7 +4,7 @@ import { getDeviceId } from './deviceId';
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const STORAGE_KEY = 'tacticalptx_session';
 
-export async function api(path, { token, method = 'GET', body, _retried } = {}) {
+export async function api(path, { token, method = 'GET', body, _retried, cache } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -12,6 +12,7 @@ export async function api(path, { token, method = 'GET', body, _retried } = {}) 
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    ...(cache ? { cache } : {}),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -577,12 +578,17 @@ export function deleteBackupFile(token, filename) {
 }
 
 export function restoreBackupFile(token, filename) {
-  return api(`/api/backups/restore/${encodeURIComponent(filename)}`, { token, method: 'POST' });
+  return api(`/api/backups/restore/${encodeURIComponent(filename)}`, {
+    token,
+    method: 'POST',
+    body: { confirm: 'RESTAURAR' },
+  });
 }
 
 export async function restoreBackupUpload(token, file) {
   const fd = new FormData();
   fd.append('sqlfile', file);
+  fd.append('confirm', 'RESTAURAR');
   const res = await fetch(`${API_BASE}/api/backups/restore-upload`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -788,7 +794,7 @@ export function deleteGeofence(token, id) {
 
 /** Sitios / POI agrupados */
 export function fetchTacticalSiteGroups(token) {
-  return api('/api/tactical-sites/groups', { token });
+  return api('/api/tactical-sites/groups', { token, cache: 'no-store' });
 }
 
 export function createTacticalSiteGroup(token, body) {
@@ -807,7 +813,7 @@ export function fetchTacticalSites(token, { groupId } = {}) {
   const q = new URLSearchParams();
   if (groupId) q.set('groupId', groupId);
   const qs = q.toString();
-  return api(`/api/tactical-sites${qs ? `?${qs}` : ''}`, { token });
+  return api(`/api/tactical-sites${qs ? `?${qs}` : ''}`, { token, cache: 'no-store' });
 }
 
 export function createTacticalSite(token, body) {
@@ -889,8 +895,14 @@ export async function fetchRecordingBlobUrl(token, recordingId) {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error(`Audio ${res.status}`);
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
+  // Forzar MIME: si el Blob queda sin type (o como octet-stream), Chromium
+  // marca MEDIA_ERR_SRC_NOT_SUPPORTED y el player dice «No se pudo reproducir».
+  const headerType = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  const type =
+    headerType && headerType !== 'application/octet-stream' ? headerType : 'audio/webm';
+  const buf = await res.arrayBuffer();
+  if (!buf.byteLength) throw new Error('Audio vacío');
+  return URL.createObjectURL(new Blob([buf], { type }));
 }
 
 export async function uploadGroupMedia(token, groupId, file, { type, body, replyToId } = {}) {

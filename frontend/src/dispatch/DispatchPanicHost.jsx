@@ -6,9 +6,10 @@ import { fetchPanicEvents, patchPanicEvent } from '../api';
 import { startPanicAlarm, stopPanicAlarm, unlockPanicAudio } from '../panicSound';
 import { openPanicLocation, isValidMapCoord } from '../panicMaps';
 import { socketIoOptions, socketUrl } from '../socketConfig';
-import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
+import { sessionWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
 
 const SOCKET_URL = socketUrl();
+const POS_KEY = 'tacticalptx_panic_panel_pos';
 
 function exitFullscreenIfAny() {
   if (document.fullscreenElement) {
@@ -16,8 +17,21 @@ function exitFullscreenIfAny() {
   }
 }
 
+function loadPanelPos() {
+  try {
+    const raw = localStorage.getItem(POS_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (typeof p?.x === 'number' && typeof p?.y === 'number') return p;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 /**
- * Alerta de pánico en la consola de despacho (cualquier pestaña).
+ * Alerta de pánico flotante (no bloquea la consola).
+ * Se puede arrastrar; permanece al cambiar de módulo hasta Enterado / Resolver.
  * Portal a document.body para quedar por encima del mapa maximizado.
  */
 export default function DispatchPanicHost({
@@ -31,8 +45,10 @@ export default function DispatchPanicHost({
   const [activePanics, setActivePanics] = useState([]);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState('');
-  const [mapDocked, setMapDocked] = useState(false);
+  const [panelPos, setPanelPos] = useState(loadPanelPos);
   const alarmSilencedRef = useRef(false);
+  const dragRef = useRef(null);
+  const panelRef = useRef(null);
 
   const silenceAlarmLocally = useCallback(() => {
     alarmSilencedRef.current = true;
@@ -68,7 +84,6 @@ export default function DispatchPanicHost({
   useEffect(() => {
     if (mergedPanics.length === 0) {
       alarmSilencedRef.current = false;
-      setMapDocked(false);
     }
   }, [mergedPanics.length]);
 
@@ -82,7 +97,6 @@ export default function DispatchPanicHost({
   const openOnDispatchMap = useCallback(
     (p) => {
       silenceAlarmLocally();
-      setMapDocked(true);
       const params = new URLSearchParams();
       if (isValidMapCoord(p.latitude, p.longitude)) {
         params.set('lat', String(Number(p.latitude)));
@@ -132,6 +146,7 @@ export default function DispatchPanicHost({
     socket.on('reconnect', () => {
       socket.emit('dispatch:join');
     });
+    const offWire = applyDispatchJoinedWire(socket);
 
     socket.on('dispatch:panic', (raw) => {
       void (async () => {
@@ -152,9 +167,12 @@ export default function DispatchPanicHost({
         const payload = await unwrapDispatchPayload(raw, sessionWireKey(session));
         if (!payload?.id) return;
         if (payload.status === 'acked') {
-          setActivePanics((prev) =>
-            prev.map((p) => (p.id === payload.id ? { ...p, ...payload } : p))
-          );
+          /* Enterado ajeno: quitar de la lista activa para no dejar el panel trabado. */
+          setActivePanics((prev) => {
+            const next = prev.filter((p) => p.id !== payload.id);
+            syncAlarm(next);
+            return next;
+          });
           return;
         }
         setActivePanics((prev) => {
@@ -172,10 +190,64 @@ export default function DispatchPanicHost({
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
       stopPanicAlarm();
+      offWire();
       socket.emit('dispatch:leave');
       socket.disconnect();
     };
-  }, [session.token, session.crypto?.wireKey, syncAlarm]);
+  }, [session.token, syncAlarm]);
+
+  const onDragPointerDown = useCallback((e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest('button, a, input, select, textarea')) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    e.preventDefault();
+    const rect = panel.getBoundingClientRect();
+    dragRef.current = {
+      ox: e.clientX - rect.left,
+      oy: e.clientY - rect.top,
+      pid: e.pointerId,
+    };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const onDragPointerMove = useCallback((e) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pid) return;
+    const panel = panelRef.current;
+    const w = panel?.offsetWidth || 360;
+    const h = panel?.offsetHeight || 160;
+    const x = Math.min(window.innerWidth - 48, Math.max(8, e.clientX - d.ox));
+    const y = Math.min(window.innerHeight - 48, Math.max(8, e.clientY - d.oy));
+    /* Evitar que el panel salga casi completo */
+    const nx = Math.min(x, window.innerWidth - Math.min(w, window.innerWidth - 16));
+    const ny = Math.min(y, window.innerHeight - Math.min(h, 80));
+    setPanelPos({ x: nx, y: ny });
+  }, []);
+
+  const onDragPointerUp = useCallback((e) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pid) return;
+    dragRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    setPanelPos((prev) => {
+      if (!prev) return prev;
+      try {
+        localStorage.setItem(POS_KEY, JSON.stringify(prev));
+      } catch {
+        /* ignore */
+      }
+      return prev;
+    });
+  }, []);
 
   async function resolvePanic(id, status, fromChannel = false) {
     setBusyId(id);
@@ -184,6 +256,11 @@ export default function DispatchPanicHost({
       if (fromChannel && status === 'acked' && onChannelPanicAck) {
         silenceAlarmLocally();
         await onChannelPanicAck();
+        setActivePanics((prev) => {
+          const next = prev.filter((p) => p.id !== id);
+          syncAlarm(next);
+          return next;
+        });
         return;
       }
       await patchPanicEvent(session.token, id, status);
@@ -204,15 +281,28 @@ export default function DispatchPanicHost({
 
   if (mergedPanics.length === 0) return null;
 
+  const style =
+    panelPos != null
+      ? { left: panelPos.x, top: panelPos.y, right: 'auto', transform: 'none' }
+      : undefined;
+
   return createPortal(
-    <div
-      className={`cc-panic-overlay${mapDocked ? ' cc-panic-overlay--docked' : ''}`}
-      role="alertdialog"
-      aria-modal={!mapDocked}
-      aria-label="Alerta de pánico"
-    >
-      <div className="cc-panic-modal">
-        <header className="cc-panic-modal-head">
+    <div className="cc-panic-overlay cc-panic-overlay--float" aria-label="Alerta de pánico">
+      <div
+        ref={panelRef}
+        className="cc-panic-modal"
+        role="dialog"
+        aria-modal="false"
+        style={style}
+      >
+        <header
+          className="cc-panic-modal-head cc-panic-modal-head--drag"
+          onPointerDown={onDragPointerDown}
+          onPointerMove={onDragPointerMove}
+          onPointerUp={onDragPointerUp}
+          onPointerCancel={onDragPointerUp}
+          title="Arrastra para mover"
+        >
           <div className="cc-panic-modal-head-row">
             <h2>🚨 Alerta de pánico</h2>
             <div className="cc-panic-head-actions">
@@ -224,22 +314,12 @@ export default function DispatchPanicHost({
               >
                 Silenciar alarma
               </button>
-              {mapDocked ? (
-                <button
-                  type="button"
-                  className="cc-btn"
-                  onClick={() => setMapDocked(false)}
-                  title="Ampliar alerta"
-                >
-                  Ampliar
-                </button>
-              ) : null}
             </div>
           </div>
           <p>
             Hay {mergedPanics.length} alerta{mergedPanics.length === 1 ? '' : 's'} activa
-            {mergedPanics.length === 1 ? '' : 's'}.
-            {mapDocked ? ' Mapa centrado en el punto de pánico.' : ' Pulsa Enterado o Silenciar alarma.'}
+            {mergedPanics.length === 1 ? '' : 's'}. Puedes seguir usando la consola; cierra con
+            Enterado o Resolver.
           </p>
         </header>
         <div className="cc-panic-banner cc-panic-banner--modal" role="alert">

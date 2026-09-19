@@ -115,7 +115,10 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
         data = await widget.api.joinGroupVideo(widget.groupId);
       }
 
-      final e2ee = await buildVoiceE2eeOptions(data['e2eeKey']?.toString());
+      final e2ee = await buildVoiceE2eeOptions(
+        data['e2eeKey']?.toString(),
+        required: data['e2ee'] == true,
+      );
       room = Room(roomOptions: streamingRoomOptions(encryption: e2ee));
       final listener = room.createListener();
       listener.on<TrackSubscribedEvent>((e) {
@@ -295,6 +298,9 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
     try {
       await _room?.disconnect();
     } catch (_) {}
+    // Salir del modo voz: si no, el sistema sigue «en llamada» y otras apps
+    // (WhatsApp) no pueden grabar con el micrófono.
+    await AudioSessionSetup.downgradeFromVoice();
     await AudioSessionSetup.resetRouting();
     if (mounted) Navigator.of(context).pop();
   }

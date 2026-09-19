@@ -1,5 +1,5 @@
 /**
- * TacticalPtx — consola web (login + radio + despacho)
+ * SICOM — consola web (login + radio + despacho)
  *
  * Rutas principales:
  *  - /login, cambio de contraseña
@@ -10,13 +10,14 @@
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { canDispatch, changePassword, fetchAuthMe, login, persistSession, isAdminUser } from './api';
-import { ThemeToggle } from './theme';
-import BrandName from './BrandName.jsx';
+import { setLiveWireKey } from './wireCrypto.js';
+import { ThemeToggle, useTheme } from './theme';
 import { ensureNotifyServiceWorker } from './appNotify.js';
 import GlobalChatNotifyHost from './GlobalChatNotifyHost.jsx';
 import GroupVideoIncomingHost from './GroupVideoIncomingHost.jsx';
 import GroupVideoSessionHost from './GroupVideoSessionHost.jsx';
 import PrivateCallHost from './PrivateCallHost.jsx';
+import { clearAvatarBlobCache } from './avatarBlobCache.js';
 import { PeerActionSheetHost } from './PeerActionSheet.jsx';
 import { PeoplePaletteHost } from './PeoplePalette.jsx';
 import RadioPage from './pages/RadioPage.jsx';
@@ -138,10 +139,10 @@ export default function App() {
     return () => window.removeEventListener('tacticalptx:session', onSession);
   }, []);
 
-  // Rehidratar wireKey / avatar (no se guardan en localStorage) para radio y despacho.
+  // Rehidratar avatar / wireEnabled (wireKey ya no viene de /me; llega en dispatch:joined).
   useEffect(() => {
     if (!session?.token) return;
-    if (session.crypto?.wireKey && session.avatarTicket) return;
+    if (session.avatarTicket && session.crypto?.wireEnabled != null) return;
     let cancelled = false;
     fetchAuthMe(session.token)
       .then((data) => {
@@ -149,7 +150,12 @@ export default function App() {
         const next = {
           ...session,
           user: data.user || session.user,
-          crypto: data.crypto || session.crypto,
+          crypto: {
+            ...(session.crypto || {}),
+            ...(data.crypto || {}),
+            // No pisar clave mint por socket si ya está en memoria.
+            wireKey: session.crypto?.wireKey || data.crypto?.wireKey,
+          },
           avatarTicket: data.avatarTicket || session.avatarTicket,
         };
         persistSession(next);
@@ -162,12 +168,39 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambiar token
   }, [session?.token]);
 
+  // wireKey por socket (dispatch:joined) — merge sin recrear la sesión completa.
+  useEffect(() => {
+    function onWireKey(e) {
+      const key = e.detail?.wireKey;
+      if (!key || typeof key !== 'string') return;
+      setSession((prev) => {
+        if (!prev?.token) return prev;
+        if (prev.crypto?.wireKey === key) return prev;
+        const next = {
+          ...prev,
+          crypto: {
+            ...(prev.crypto || {}),
+            alg: 'aes-256-gcm',
+            wireEnabled: true,
+            wireKey: key,
+          },
+        };
+        persistSession(next);
+        return next;
+      });
+    }
+    window.addEventListener('tacticalptx:wire-key', onWireKey);
+    return () => window.removeEventListener('tacticalptx:wire-key', onWireKey);
+  }, []);
+
   function saveSession(next) {
     persistSession(next);
     setSession(next);
   }
 
   function logout() {
+    setLiveWireKey(null);
+    clearAvatarBlobCache();
     persistSession(null);
     setSession(null);
   }
@@ -327,6 +360,11 @@ export default function App() {
 
 function LoginPage({ onLogin }) {
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const loginMark =
+    theme === 'obscuro'
+      ? '/brand/tactical_login_obscuro.png?v=1'
+      : '/brand/sicom.png?v=4';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -359,14 +397,15 @@ function LoginPage({ onLogin }) {
 
   return (
     <div className="login-page">
-      <section className="login-hero" aria-label="TacticalPtx">
+      <section className="login-hero" aria-label="SICOM">
         <div className="login-hero-glow" aria-hidden="true" />
         <div className="login-hero-grid" aria-hidden="true" />
         <div className="login-hero-veil" aria-hidden="true" />
         <div className="login-brand">
-          <img className="login-hero-mark" src="/brand/tacticalptx.png" alt="" />
-          <BrandName size="lg" className="login-brand-name" />
-          <span className="login-hero-kicker">Radio institucional</span>
+          <img className="login-hero-mark" src={loginMark} alt="SICOM" />
+          <span className="login-hero-fullname">
+            Sistema de Comunicaciones para Operaciones Militares
+          </span>
         </div>
         <p className="login-hero-line">
           Voz PTT, mensajes y despacho en un solo enlace seguro.
@@ -434,6 +473,11 @@ function LoginPage({ onLogin }) {
 
 function ChangePasswordPage({ session, onDone, onLogout }) {
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const loginMark =
+    theme === 'obscuro'
+      ? '/brand/tactical_login_obscuro.png?v=1'
+      : '/brand/sicom.png?v=4';
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -469,14 +513,15 @@ function ChangePasswordPage({ session, onDone, onLogout }) {
 
   return (
     <div className="login-page">
-      <section className="login-hero" aria-label="TacticalPtx">
+      <section className="login-hero" aria-label="SICOM">
         <div className="login-hero-glow" aria-hidden="true" />
         <div className="login-hero-grid" aria-hidden="true" />
         <div className="login-hero-veil" aria-hidden="true" />
         <div className="login-brand">
-          <img className="login-hero-mark" src="/brand/tacticalptx.png" alt="" />
-          <BrandName size="lg" className="login-brand-name" />
-          <span className="login-hero-kicker">Radio institucional</span>
+          <img className="login-hero-mark" src={loginMark} alt="SICOM" />
+          <span className="login-hero-fullname">
+            Sistema de Comunicaciones para Operaciones Militares
+          </span>
         </div>
         <p className="login-hero-line">Actualiza tu contraseña temporal para continuar.</p>
       </section>

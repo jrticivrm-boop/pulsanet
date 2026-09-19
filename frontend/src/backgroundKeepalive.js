@@ -72,7 +72,7 @@ function setMediaSession(channelName) {
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: channelName || 'Radio',
-      artist: 'TacticalPtx',
+      artist: 'SICOM',
       album: 'Canal PTT',
     });
     navigator.mediaSession.playbackState = 'playing';
@@ -152,7 +152,7 @@ export function notifyBackgroundChat({ title, body, tag, force = false } = {}) {
   if (!force && !document.hidden) return;
   unlockAppNotifyAudio().catch(() => {});
   void showBrowserNotification({
-    title: title || 'TacticalPtx',
+    title: title || 'SICOM',
     body: body || 'Nuevo mensaje',
     tag: tag || `tacticalptx-chat-${Date.now()}`,
     silent: false,

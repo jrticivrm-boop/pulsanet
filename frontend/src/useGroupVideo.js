@@ -25,7 +25,6 @@ import {
   leaveGroupVideo,
   endGroupVideo,
   pingGroupVideo,
-  startGroupVideoMulti,
 } from './api';
 
 const PING_MS = 15000;
@@ -208,11 +207,7 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
     setStatus('Conectando transmisión…');
     try {
       await warmUpVideoCallMedia();
-      const ids = (groupIds || []).map(String).filter(Boolean);
-      const data =
-        ids.length > 1
-          ? await startGroupVideoMulti(token, ids)
-          : await joinGroupVideo(token, groupId);
+      const data = await joinGroupVideo(token, groupId);
       const joinId = data.session?.groupId || groupId;
       const room = await createEncryptedRoom(
         mergeStreamingRoomOptions(),
@@ -225,18 +220,26 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
       await room.connect(publicLiveKitUrl(data.url), data.token);
       assertMediaDevices();
 
-      const mic = await createLocalAudioTrack({
-        echoCancellation: true,
-        noiseSuppression: false,
-        autoGainControl: true,
-      });
-      micRef.current = mic;
-      await room.localParticipant.publishTrack(mic, {
-        source: Track.Source.Microphone,
-        audioPreset: AudioPresets.speech,
-        dtx: false,
-        red: false,
-      });
+      let micOk = false;
+      try {
+        const mic = await createLocalAudioTrack({
+          echoCancellation: true,
+          noiseSuppression: false,
+          autoGainControl: true,
+        });
+        micRef.current = mic;
+        await room.localParticipant.publishTrack(mic, {
+          source: Track.Source.Microphone,
+          audioPreset: AudioPresets.speech,
+          dtx: false,
+          red: false,
+        });
+        micOk = true;
+        setMuted(false);
+      } catch {
+        micRef.current = null;
+        setMuted(true);
+      }
 
       let cam = null;
       try {
@@ -246,13 +249,24 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
         setCameraOn(true);
       } catch (e) {
         setCameraOn(false);
-        setStatus(esMsg(e, 'Conectado sin cámara — pulsa el botón de cámara'));
+        if (!micOk) {
+          setStatus(
+            'Conectado sin micrófono ni cámara — usa Mic / Cámara cuando el navegador lo permita'
+          );
+        } else {
+          setStatus(esMsg(e, 'Conectado sin cámara — pulsa el botón de cámara'));
+        }
       }
 
-      setMuted(false);
       setActive(true);
       setParticipantCount(data.session?.participantCount || 1);
-      if (cam) setStatus(`Transmisión · ${data.session?.groupName || groupName || 'Grupo'}`);
+      if (cam && micOk) {
+        setStatus(`Transmisión · ${data.session?.groupName || groupName || 'Grupo'}`);
+      } else if (cam && !micOk) {
+        setStatus(
+          `Transmisión · ${data.session?.groupName || groupName || 'Grupo'} · sin micrófono`
+        );
+      }
 
       pingRef.current = setInterval(() => {
         pingGroupVideo(token, joinId).catch(() => {});
@@ -340,7 +354,37 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
   }, [cameraOn]);
 
   const toggleMute = useCallback(async () => {
-    const mic = micRef.current;
+    const room = roomRef.current;
+    let mic = micRef.current;
+    if (!room) return;
+
+    // Si nunca hubo mic (permiso bloqueado al conectar), intentar crearlo al activar.
+    if (!mic && muted) {
+      try {
+        await warmUpVideoCallMedia({ video: false, audio: true });
+        mic = await createLocalAudioTrack({
+          echoCancellation: true,
+          noiseSuppression: false,
+          autoGainControl: true,
+        });
+        micRef.current = mic;
+        await room.localParticipant.publishTrack(mic, {
+          source: Track.Source.Microphone,
+          audioPreset: AudioPresets.speech,
+          dtx: false,
+          red: false,
+        });
+        setMuted(false);
+        setStatus((s) =>
+          s?.includes('micrófono') ? `Transmisión · ${groupName || 'Grupo'}` : s
+        );
+      } catch (e) {
+        setStatus(esMsg(e, 'Micrófono bloqueado. Permite el acceso en el navegador.'));
+      }
+      rebuildRef.current();
+      return;
+    }
+
     if (!mic) return;
     try {
       if (muted) {
@@ -354,7 +398,7 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
       /* ignore */
     }
     rebuildRef.current();
-  }, [muted]);
+  }, [muted, groupName]);
 
   const stopBroadcast = useCallback(async () => {
     try {

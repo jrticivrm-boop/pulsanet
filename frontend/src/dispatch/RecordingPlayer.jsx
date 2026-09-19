@@ -5,9 +5,8 @@ import { downloadFromObjectUrl } from '../chatMediaActions';
 /**
  * Mini reproductor embebido en las filas de «Grabaciones PTT».
  *
- * Modelado sobre la nota de voz del chat (ChatMedia.jsx) pero con los
- * controles que pide despacho: saltos de ±10 s, velocidad y realce de voz
- * por encima del 100 % (Web Audio: GainNode + DynamicsCompressorNode).
+ * Compacto estilo nota de voz WhatsApp (play + onda + tiempo en una fila),
+ * anclado a la derecha. Velocidad, realce, saltos y descarga en menú ⋯.
  *
  * El `src` se asigna al elemento de forma imperativa —no por prop de React—
  * porque `play()` se llama en el mismo tick que la descarga del blob y un
@@ -17,19 +16,6 @@ import { downloadFromObjectUrl } from '../chatMediaActions';
 
 /** Solo una grabación suena a la vez. */
 const recBus = typeof window !== 'undefined' ? new EventTarget() : null;
-
-/** Avisa a los mini reproductores que otro audio tomó la salida. */
-export function pauseOtherRecordings(id = 'external') {
-  recBus?.dispatchEvent(new CustomEvent('rec-play', { detail: { id } }));
-}
-
-/** Permite a reproductores externos pausarse cuando una fila toma la salida. */
-export function onRecordingPlay(handler) {
-  if (!recBus) return () => {};
-  const listener = (ev) => handler(ev.detail?.id);
-  recBus.addEventListener('rec-play', listener);
-  return () => recBus.removeEventListener('rec-play', listener);
-}
 
 const SPEEDS = [0.5, 1, 1.5, 2];
 const BOOSTS = [1, 2, 3];
@@ -55,10 +41,39 @@ function describeError(e) {
     if (http[1] === '404') return 'El archivo de la grabación ya no está en el servidor';
     return `No se pudo descargar el audio (HTTP ${http[1]})`;
   }
+  if (e?.message === 'Audio vacío') return 'El archivo de la grabación llegó vacío';
   if (e?.name === 'NotAllowedError') return 'El navegador pidió otro toque: pulsa de nuevo ▶';
   if (e?.name === 'NotSupportedError') return 'Este navegador no soporta el formato de la grabación';
   if (e?.name === 'TypeError') return 'No se pudo contactar al servidor de audio';
   return e?.message ? `No se pudo reproducir: ${e.message}` : 'No se pudo reproducir el audio';
+}
+
+/** Espera a que el <audio> tenga datos (o falle) tras asignar el blob. */
+function waitForCanPlay(audio) {
+  if (!audio) return Promise.reject(new Error('Sin elemento de audio'));
+  if (audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (fn, arg) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      audio.removeEventListener('canplay', onReady);
+      audio.removeEventListener('loadeddata', onReady);
+      audio.removeEventListener('error', onErr);
+      fn(arg);
+    };
+    const onReady = () => finish(resolve);
+    const onErr = () => {
+      const code = audio.error?.code;
+      finish(reject, new Error(MEDIA_ERR[code] || 'No se pudo reproducir el audio'));
+    };
+    // Si canplay no llega (codecs raros), dejamos que play() intente igual.
+    const timer = setTimeout(() => finish(resolve), 8000);
+    audio.addEventListener('canplay', onReady);
+    audio.addEventListener('loadeddata', onReady);
+    audio.addEventListener('error', onErr);
+  });
 }
 
 export default function RecordingPlayer({ token, recordingId, durationMs, label }) {
@@ -67,6 +82,7 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
   const urlRef = useRef(null);
   const idRef = useRef(`rec-${Math.random().toString(36).slice(2)}`);
   const graphRef = useRef(null);
+  const pendingRef = useRef(null);
 
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState('');
@@ -83,9 +99,9 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
 
   const bars = useMemo(
     () =>
-      Array.from({ length: 32 }, (_, i) => {
+      Array.from({ length: 22 }, (_, i) => {
         const n = Math.sin(i * 0.55) * 0.35 + Math.cos(i * 1.1) * 0.25 + 0.55;
-        return Math.round(22 + n * 58);
+        return Math.round(28 + n * 52);
       }),
     []
   );
@@ -168,26 +184,34 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
     const audio = audioRef.current;
     if (!audio) return null;
     if (urlRef.current) {
-      if (audio.src !== urlRef.current) {
+      if (!audio.getAttribute('src')) {
         audio.src = urlRef.current;
         audio.load();
+        await waitForCanPlay(audio);
       }
       return urlRef.current;
     }
+    // Dedupe: doble clic en ▶ no debe disparar dos descargas del mismo audio.
+    if (pendingRef.current) return pendingRef.current;
     setLoading(true);
-    try {
-      const url = await fetchRecordingBlobUrl(token, recordingId);
-      urlRef.current = url;
-      audio.src = url;
-      audio.load();
-      setFailed('');
-      return url;
-    } catch (e) {
-      setFailed(describeError(e));
-      return null;
-    } finally {
-      setLoading(false);
-    }
+    pendingRef.current = (async () => {
+      try {
+        const url = await fetchRecordingBlobUrl(token, recordingId);
+        urlRef.current = url;
+        audio.src = url;
+        audio.load();
+        await waitForCanPlay(audio);
+        setFailed('');
+        return url;
+      } catch (e) {
+        setFailed(describeError(e));
+        return null;
+      } finally {
+        setLoading(false);
+        pendingRef.current = null;
+      }
+    })();
+    return pendingRef.current;
   }, [token, recordingId]);
 
   /**
@@ -195,6 +219,7 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
    * las partes bajitas y el gain sube el total sin saturar los picos.
    * Se construye solo dentro de un gesto del usuario (clic en ×2/×3) y con el
    * contexto ya reanudado; si algo falla, el audio sigue por la ruta simple.
+   * createMediaElementSource al final: si fallara a medias, el <audio> quedaría mudo.
    */
   const ensureGraph = useCallback(async () => {
     if (graphRef.current) {
@@ -215,7 +240,6 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
       ctx = new Ctx();
       if (ctx.state !== 'running') await ctx.resume();
       if (ctx.state !== 'running') throw new Error('AudioContext suspendido');
-      const source = ctx.createMediaElementSource(audio);
       const comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -32;
       comp.knee.value = 24;
@@ -224,6 +248,7 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
       comp.release.value = 0.15;
       const gain = ctx.createGain();
       gain.gain.value = 1;
+      const source = ctx.createMediaElementSource(audio);
       source.connect(comp);
       comp.connect(gain);
       gain.connect(ctx.destination);
@@ -263,8 +288,9 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
   }
 
   function applyVolume(next) {
-    setVolume(next);
-    if (audioRef.current) audioRef.current.volume = next;
+    const unit = Math.min(1, Math.max(0, Number(next) || 0));
+    setVolume(unit);
+    if (audioRef.current) audioRef.current.volume = unit;
   }
 
   async function togglePlay() {
@@ -274,16 +300,17 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
       audio.pause();
       return;
     }
-    const url = await ensureSrc();
-    if (!url) return;
-    recBus?.dispatchEvent(new CustomEvent('rec-play', { detail: { id: idRef.current } }));
-    if (graphRef.current && graphRef.current.ctx.state !== 'running') {
+    // Conservar el gesto: reanudar AudioContext (si ya hay grafo) antes del await de red.
+    if (graphRef.current) {
       try {
         await graphRef.current.ctx.resume();
       } catch {
         /* ignore */
       }
     }
+    const url = await ensureSrc();
+    if (!url) return;
+    recBus?.dispatchEvent(new CustomEvent('rec-play', { detail: { id: idRef.current } }));
     try {
       audio.playbackRate = speed;
       audio.volume = volume;
@@ -330,9 +357,11 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
 
   const progress = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
 
+  const activeChip = boost > 1 ? `×${boost}` : speed !== 1 ? `${speed}×` : '';
+
   return (
     <div
-      className={`cc-rec-player${playing ? ' is-playing' : ''}`}
+      className={`cc-rec-player${playing ? ' is-playing' : ''}${loading ? ' is-loading' : ''}`}
       role="group"
       aria-label={label ? `Reproductor de ${label}` : 'Reproductor de grabación'}
     >
@@ -344,17 +373,17 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
           className="cc-rec-play"
           onClick={togglePlay}
           aria-label={playing ? 'Pausar grabación' : 'Reproducir grabación'}
-          title={playing ? 'Pausar (Espacio)' : 'Reproducir (Espacio)'}
+          title={playing ? 'Pausar' : 'Reproducir'}
         >
           {loading ? (
             <span className="cc-rec-spin" aria-hidden="true" />
           ) : playing ? (
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
               <rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
               <rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
             </svg>
           ) : (
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
               <path
                 d="M8.2 5.6v12.8c0 .7.8 1.1 1.4.7l9.2-6.4c.5-.4.5-1.1 0-1.4L9.6 4.9c-.6-.4-1.4 0-1.4.7z"
                 fill="currentColor"
@@ -363,96 +392,97 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
           )}
         </button>
 
-        <button
-          type="button"
-          className="cc-rec-skip"
-          onClick={() => skip(-SKIP)}
-          aria-label={`Retroceder ${SKIP} segundos`}
-          title={`− ${SKIP} s`}
-        >
-          −{SKIP}
-        </button>
-
-        <div
-          className="cc-rec-track"
-          ref={trackRef}
-          role="slider"
-          tabIndex={0}
-          aria-label="Posición de la grabación"
-          aria-valuemin={0}
-          aria-valuemax={Math.round(duration) || 0}
-          aria-valuenow={Math.round(current)}
-          aria-valuetext={`${formatTime(current)} de ${formatTime(duration)}`}
-          onPointerDown={(e) => {
-            if (!duration) return;
-            e.currentTarget.setPointerCapture?.(e.pointerId);
-            seekFromPointer(e.clientX);
-          }}
-          onPointerMove={(e) => {
-            if (e.buttons !== 1) return;
-            seekFromPointer(e.clientX);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowRight') {
-              e.preventDefault();
-              skip(1);
-            } else if (e.key === 'ArrowLeft') {
-              e.preventDefault();
-              skip(-1);
-            } else if (e.key === 'Home') {
-              e.preventDefault();
-              seekTo(0);
-            } else if (e.key === 'End') {
-              e.preventDefault();
-              seekTo(duration);
-            } else if (e.key === ' ' || e.key === 'Enter') {
-              e.preventDefault();
-              togglePlay();
-            }
-          }}
-        >
-          <span className="cc-rec-wave" aria-hidden="true">
-            {bars.map((h, i) => (
-              <i
-                key={i}
-                className={progress >= ((i + 0.5) / bars.length) * 100 ? 'on' : undefined}
-                style={{ height: `${h}%` }}
-              />
-            ))}
+        <div className="cc-rec-body">
+          <div
+            className="cc-rec-track"
+            ref={trackRef}
+            role="slider"
+            tabIndex={0}
+            aria-label="Posición de la grabación"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(duration) || 0}
+            aria-valuenow={Math.round(current)}
+            aria-valuetext={`${formatTime(current)} de ${formatTime(duration)}`}
+            onPointerDown={(e) => {
+              if (!duration) return;
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+              seekFromPointer(e.clientX);
+            }}
+            onPointerMove={(e) => {
+              if (e.buttons !== 1) return;
+              seekFromPointer(e.clientX);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                skip(1);
+              } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                skip(-1);
+              } else if (e.key === 'Home') {
+                e.preventDefault();
+                seekTo(0);
+              } else if (e.key === 'End') {
+                e.preventDefault();
+                seekTo(duration);
+              } else if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                togglePlay();
+              }
+            }}
+          >
+            <span className="cc-rec-wave" aria-hidden="true">
+              {bars.map((h, i) => (
+                <i
+                  key={i}
+                  className={progress >= ((i + 0.5) / bars.length) * 100 ? 'on' : undefined}
+                  style={{ height: `${h}%` }}
+                />
+              ))}
+            </span>
+            <span className="cc-rec-thumb" style={{ left: `${progress}%` }} aria-hidden="true" />
+          </div>
+          <span className="cc-rec-time">
+            {playing || current > 0 ? formatTime(current) : duration ? formatTime(duration) : '0:00'}
           </span>
-          <span className="cc-rec-thumb" style={{ left: `${progress}%` }} aria-hidden="true" />
+          {activeChip ? <span className="cc-rec-chip-hint">{activeChip}</span> : null}
         </div>
 
-        <span className="cc-rec-time">
-          {formatTime(current)}
-          <span className="cc-rec-time-sep"> / </span>
-          {duration ? formatTime(duration) : '—:—'}
-        </span>
-
         <button
           type="button"
-          className="cc-rec-skip"
-          onClick={() => skip(SKIP)}
-          aria-label={`Adelantar ${SKIP} segundos`}
-          title={`+ ${SKIP} s`}
-        >
-          +{SKIP}
-        </button>
-
-        <button
-          type="button"
-          className={`cc-rec-tool-btn${boost > 1 || speed !== 1 ? ' is-on' : ''}`}
+          className={`cc-rec-tool-btn${tools || boost > 1 || speed !== 1 ? ' is-on' : ''}`}
           onClick={() => setTools((v) => !v)}
           aria-expanded={tools}
-          aria-label="Ajustes de audio: velocidad, realce de voz y volumen"
-          title="Velocidad · realce de voz · volumen"
+          aria-label="Más opciones de audio"
+          title="Velocidad · realce · saltos · descarga"
         >
-          {boost > 1 ? `×${boost}` : speed !== 1 ? `${speed}×` : '⚙'}
+          ⋯
         </button>
       </div>
 
       {tools && (
         <div className="cc-rec-tools" role="group" aria-label="Ajustes de audio">
+          <div className="cc-rec-tool-row">
+            <span className="cc-rec-tool-lbl">Saltar</span>
+            <div className="cc-rec-chips">
+              <button
+                type="button"
+                className="cc-rec-chip"
+                onClick={() => skip(-SKIP)}
+                aria-label={`Retroceder ${SKIP} segundos`}
+              >
+                −{SKIP}s
+              </button>
+              <button
+                type="button"
+                className="cc-rec-chip"
+                onClick={() => skip(SKIP)}
+                aria-label={`Adelantar ${SKIP} segundos`}
+              >
+                +{SKIP}s
+              </button>
+            </div>
+          </div>
           <div className="cc-rec-tool-row">
             <span className="cc-rec-tool-lbl">Realce de voz</span>
             <div className="cc-rec-chips">
@@ -493,12 +523,19 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
               type="range"
               className="cc-rec-vol"
               min={0}
-              max={1}
-              step={0.05}
-              value={volume}
-              onChange={(e) => applyVolume(Number(e.target.value))}
+              max={100}
+              step={1}
+              value={Math.round(volume * 100)}
+              onChange={(e) => applyVolume(Number(e.target.value) / 100)}
               aria-label="Volumen"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(volume * 100)}
+              aria-valuetext={`${Math.round(volume * 100)}%`}
             />
+            <span className="cc-rec-vol-pct" aria-hidden>
+              {Math.round(volume * 100)}%
+            </span>
           </div>
           <button type="button" className="cc-rec-dl" onClick={download}>
             Descargar audio

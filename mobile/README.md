@@ -1,63 +1,65 @@
-# TacticalPtx — App móvil Flutter
+﻿# TacticalPtx â€” App mÃ³vil Flutter
 
-## Estado (v1.8.27+)
+## Estado (v1.8.117+127)
 
-- **Android:** login, grupos, PTT (LiveKit), presencia, chat, GPS, pánico; actualización APK en app; Prep Play
+- **Android:** login, grupos, PTT (LiveKit + E2EE), presencia, chat/DM, GPS, pÃ¡nico, llamadas 1:1 / video, cÃ¡mara remota, FCM, OTA APK in-app
 - **applicationId / iOS bundle:** `com.tacticalptx.app`
-- **iOS:** mismo código Dart; proyecto `ios/` listo (Podfile, permisos, iconos, entitlements). **Build IPA solo en Mac** — guía: [Soporte/Documentos/APP_IOS.md](../Soporte/Documentos/APP_IOS.md) / `scripts/build-ios.sh`
+- **iOS:** mismo cÃ³digo Dart; proyecto `ios/` listo. **Build IPA solo en Mac** â€” `scripts/build-ios.sh`
+- **Nota versiones:** el techo en Soporte era `1.8.116+126`; git/`pubspec` se habÃ­a quedado en `1.8.84+94` (bumps 95â€“126 no commitados). Esta lÃ­nea retoma en **+127**.
 
 ## Requisitos
 
-1. Flutter SDK (`C:\tools\flutter`)
-2. **JDK 17** (no el JBR Java 25 de Android Studio)
-3. Android SDK en **`D:\Android\Sdk`**
+1. Flutter SDK
+2. **JDK 17** (no JBR Java 25 de Android Studio)
+3. Android SDK
 4. Backend + Redis + LiveKit
+5. **`android/app/google-services.json`** (Firebase) â€” estÃ¡ gitignored; usar la copia local de desarrollo o `google-services.json.example` + consola Firebase para un equipo nuevo
 
 ## Configurar API
 
+Por defecto la app apunta a `https://pulsanet.duckdns.org` (`lib/config.dart`).
+
 ```powershell
-# Emulador
+# Emulador (HTTP LAN; cleartext permitido solo a 10.0.2.2 / localhost)
 flutter run --dart-define=API_BASE=http://10.0.2.2:4000
 
-# Teléfono (HTTPS LAN del PC)
-flutter run --dart-define=API_BASE=https://192.168.1.66:4000
+# TelÃ©fono (HTTPS LAN)
+flutter run --dart-define=API_BASE=https://192.168.1.77:4000
 
-# 4G / IP pública (piloto actual)
-flutter run --dart-define=API_BASE=https://189.175.38.29:4000
+# ProducciÃ³n
+flutter run --dart-define=API_BASE=https://pulsanet.duckdns.org
 ```
 
-`LIVEKIT_PUBLIC_HOST` en el backend debe coincidir con el host alcanzable (hoy `189.175.38.29`).
+`LIVEKIT_PUBLIC_HOST` en el backend debe ser alcanzable desde el telÃ©fono (WSS).
 
-## Build APK (WhatsApp / 4G)
+Cleartext (HTTP/ws) solo en hosts de `network_security_config.xml` (emulador / 192.168.1.77). ProducciÃ³n = HTTPS.
+
+## Build APK
 
 ```bat
-D:\pulsanet\mobile\scripts\BUILD-APK-WHATSAPP.cmd
+# Script del repo (ajusta API_BASE / secret OTA segÃºn entorno)
+mobile\scripts\BUILD-APK-WHATSAPP.cmd
 ```
 
-Por defecto: `API_BASE=https://189.175.38.29:4000`, versión **1.8.5+14**.  
-Copia a `Soporte\APK\` y publica manifiesto OTA en `backend\app-updates\`.
-
-```bat
-:: Solo LAN
-set FORCE_LAN=1
-D:\pulsanet\mobile\scripts\BUILD-APK-WHATSAPP.cmd
-```
+Publicar OTA: `mobile\scripts\PUBLISH-APK-UPDATE.cmd` â†’ manifiesto en `backend\app-updates\` y copia a `C:\pulsanet_soporte\APK\`.
 
 ## Actualizaciones
 
-1. **En la app (recomendado, sin Play Store):** al abrir muestra «Cargando configuración…», consulta `GET /api/app/android` y descarga/instala la APK si hay `versionCode` mayor.
-   - Publicar: `scripts\PUBLISH-APK-UPDATE.cmd`
-   - Guía: [Soporte/Documentos/ACTUALIZACION_APK_EN_APP.md](../Soporte/Documentos/ACTUALIZACION_APK_EN_APP.md)
-2. **Shorebird (parches Dart, opcional):** solo builds Shorebird — [docs/SHOREBIRD_WHATSAPP.md](../docs/SHOREBIRD_WHATSAPP.md).
+1. **En la app:** `GET /api/app/android` + descarga/instalaciÃ³n APK (`app_update.dart` + FileProvider).
+2. **Shorebird (opcional):** parches Dart â€” ver docs Shorebird del repo.
 
-## Release / Play Store
+## Nativo Android (MethodChannels)
 
-```powershell
-$env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-17.0.20.8-hotspot"
-powershell -File android\create-keystore.ps1 # una vez; respaldar .jks
-flutter build appbundle --release --dart-define=API_BASE=https://189.175.38.29:4000
-```
+`MainActivity.kt` implementa:
 
-Ver [docs/PRODUCCION_MES6.md](../docs/PRODUCCION_MES6.md).
+| Channel | MÃ©todos |
+|---------|---------|
+| `â€¦/installer` | `installApk` |
+| `â€¦/notifications` | cancel*, `getRingerMode`, ringtone/ringback, `bringToFrontForCall` |
+| `â€¦/audio` | `getMode`, `ensureNormalMode` |
 
-Cuentas demo: `op1@tacticalptx.local` … `op4` / `demo1234`
+FGS: `mediaPlayback|location|camera|microphone` (radio + Â«Ver cÃ¡maraÂ»).
+
+## Cuentas demo
+
+`op1@tacticalptx.local` â€¦ `op4` / `demo1234` (si el seed estÃ¡ activo).

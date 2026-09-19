@@ -8,12 +8,15 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../api_client.dart';
 import '../audio_session_setup.dart';
+import '../background_radio.dart';
+import '../call_ringtone.dart';
 import '../channel_session.dart';
 import '../camera_session_gate.dart';
 import '../config.dart';
 import '../es_msg.dart';
 import '../livekit_e2ee.dart';
 import '../chat_message_banner.dart';
+import '../message_tone.dart';
 import '../private_call_gate.dart';
 import '../private_call_stabilizer.dart';
 import '../theme.dart';
@@ -86,6 +89,8 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
   String _status = 'Conectando…';
   bool _muted = false;
   bool _minimized = false;
+  /// Posición del mini-video local. null = esquina superior derecha (layout original).
+  Offset? _pipOffset;
   /// Voz: auricular por defecto. Video/radio: altavoz (manos libres).
   late bool _speakerOn;
   bool _listenMuted = false;
@@ -135,6 +140,18 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     PrivateCallGate.bind(callId: widget.callId, peerId: widget.peerId);
     _bannerTapPrev = ChatMessageBanner.instance.onTap;
     ChatMessageBanner.instance.onTap = _onBannerTap;
+    // FGS alta prioridad: seguir hablando con app minimizada / pantalla bloqueada.
+    unawaited(
+      BackgroundRadio.setPrivateCallActive(
+        true,
+        peerName: widget.peerName,
+        video: _isVideo,
+      ),
+    );
+    unawaited(CallRingtone.stop());
+    if (widget.role == 'caller') {
+      unawaited(CallRingtone.startOutgoing());
+    }
     _listenRemoteHangup();
     _connectAttempts = 0;
     _connect();
@@ -221,12 +238,18 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       final peerName = m['peerName']?.toString() ?? 'Mensaje';
       final message = m['message'];
       final preview = _previewFromDmNotify(message);
+      final isNudge = message is Map && message['type']?.toString() == 'nudge';
+      if (isNudge) {
+        // En llamada = no viendo ese DM: vibrar + tono.
+        // ignore: unawaited_futures
+        applyReceivedNudgeFeedback(peerId: peerId);
+      }
       ChatMessageBanner.instance.show(
         kind: 'dm',
         peerId: peerId,
         title: peerName,
         preview: preview,
-        playTone: true,
+        playTone: !isNudge,
       );
     });
     socket.connect();
@@ -238,6 +261,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     final t = message['type']?.toString() ?? 'text';
     if (t == 'image') return '📷 Imagen';
     if (t == 'audio') return '🎤 Audio';
+    if (t == 'nudge') return '¡Zumbido!';
     if (t == 'video') return '🎬 Video';
     if (t == 'sticker') return 'Sticker';
     if (t == 'file') {
@@ -245,6 +269,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       return (name != null && name.isNotEmpty) ? '📎 $name' : '📎 Archivo';
     }
     var body = (message['body']?.toString() ?? '').trim();
+    if (body == 'nudge') return '¡Zumbido!';
     if (body.isEmpty) return 'Nuevo mensaje';
     if (body.length > 100) body = '${body.substring(0, 100)}…';
     return body;
@@ -254,6 +279,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     if (_connectedAt != null) return;
     _connectedAt = DateTime.now();
     _connected = true;
+    unawaited(CallRingtone.stopOutgoing());
     _tick?.cancel();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || _connectedAt == null) return;
@@ -909,6 +935,8 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     _cam?.stop();
     _mic?.stop();
     _room?.disconnect();
+    unawaited(CallRingtone.stopOutgoing());
+    unawaited(BackgroundRadio.setPrivateCallActive(false));
     // Si no se colgó limpio, igual restaurar ruta (sin matar holders de radio).
     if (!_closing) {
       unawaited(_restorePhoneAudio());
@@ -917,6 +945,8 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
   }
 
   Widget _buildVideoStage() {
+    const pipW = 88.0;
+    const pipH = 124.0;
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxW = constraints.maxWidth;
@@ -927,6 +957,15 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
           h = maxH;
           w = h * 3 / 4;
         }
+        // Posición por defecto: arriba-derecha (como antes).
+        final defaultPip = Offset(
+          (w - pipW - 10).clamp(0.0, w),
+          10,
+        );
+        final pip = _pipOffset ?? defaultPip;
+        final left = pip.dx.clamp(0.0, (w - pipW).clamp(0.0, w));
+        final top = pip.dy.clamp(0.0, (h - pipH).clamp(0.0, h));
+
         return Center(
           child: SizedBox(
             width: w,
@@ -946,25 +985,39 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
                     Center(child: _peerAvatar(radius: 56)),
                   if (_cam != null && _cameraOn)
                     Positioned(
-                      top: 10,
-                      right: 10,
-                      width: 88,
-                      height: 124,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: kInstOnPrimary.withValues(alpha: 0.35),
-                              width: 2,
+                      left: left,
+                      top: top,
+                      width: pipW,
+                      height: pipH,
+                      child: GestureDetector(
+                        onPanUpdate: (d) {
+                          setState(() {
+                            final cur = _pipOffset ?? defaultPip;
+                            _pipOffset = Offset(
+                              (cur.dx + d.delta.dx)
+                                  .clamp(0.0, (w - pipW).clamp(0.0, w)),
+                              (cur.dy + d.delta.dy)
+                                  .clamp(0.0, (h - pipH).clamp(0.0, h)),
+                            );
+                          });
+                        },
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: kInstOnPrimary.withValues(alpha: 0.35),
+                                width: 2,
+                              ),
                             ),
-                          ),
-                          child: VideoTrackRenderer(
-                            _cam!,
-                            fit: VideoViewFit.cover,
-                            mirrorMode: _cameraPosition == CameraPosition.front
-                                ? VideoViewMirrorMode.mirror
-                                : VideoViewMirrorMode.off,
+                            child: VideoTrackRenderer(
+                              _cam!,
+                              fit: VideoViewFit.cover,
+                              mirrorMode:
+                                  _cameraPosition == CameraPosition.front
+                                      ? VideoViewMirrorMode.mirror
+                                      : VideoViewMirrorMode.off,
+                            ),
                           ),
                         ),
                       ),
@@ -1468,9 +1521,9 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
                   Row(
                     children: [
                       IconButton(
-                        tooltip: 'Minimizar (la llamada sigue)',
+                        tooltip: 'Minimizar (sigue la llamada)',
                         onPressed: _minimize,
-                        icon: const Icon(Icons.arrow_back, color: kInstOnPrimary),
+                        icon: const Icon(Icons.keyboard_arrow_down_rounded, color: kInstOnPrimary, size: 28),
                       ),
                       Expanded(
                         child: Text(
@@ -1501,7 +1554,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
                             child: Center(
                               child: _showVideoStage
                                   ? Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                                      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
                                       child: _buildVideoStage(),
                                     )
                                   : Container(

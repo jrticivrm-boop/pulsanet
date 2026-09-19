@@ -4,6 +4,10 @@ import { fetchOrgSettings, patchOrgSettings } from '../api';
 export default function ConfigPresence({ session }) {
   const [minutes, setMinutes] = useState(15);
   const [draft, setDraft] = useState('15');
+  const [absence, setAbsence] = useState(15);
+  const [absenceDraft, setAbsenceDraft] = useState('15');
+  const [showAway, setShowAway] = useState(true);
+  const [showOffline, setShowOffline] = useState(true);
   const [gpsAcc, setGpsAcc] = useState(50);
   const [gpsAccDraft, setGpsAccDraft] = useState('50');
   const [gpsInterval, setGpsInterval] = useState(5);
@@ -16,9 +20,16 @@ export default function ConfigPresence({ session }) {
     setError('');
     try {
       const data = await fetchOrgSettings(session.token);
-      const m = Number(data.settings?.presenceOfflineRedMinutes) || 15;
-      setMinutes(m);
-      setDraft(String(m));
+      const m = Number(data.settings?.presenceOfflineRedMinutes);
+      const red = Number.isFinite(m) ? m : 15;
+      setMinutes(red);
+      setDraft(String(red));
+      const a = Number(data.settings?.presenceAbsenceMinutes);
+      const abs = Number.isFinite(a) ? a : 15;
+      setAbsence(abs);
+      setAbsenceDraft(String(abs));
+      setShowAway(data.settings?.presenceShowAway !== false);
+      setShowOffline(data.settings?.presenceShowOffline !== false);
       const acc = Number(data.settings?.gpsMaxAccuracyM) || 50;
       const sec = Number(data.settings?.gpsIntervalSec) || 5;
       setGpsAcc(acc);
@@ -37,8 +48,13 @@ export default function ConfigPresence({ session }) {
   async function onSavePresence(e) {
     e.preventDefault();
     const n = parseInt(draft, 10);
-    if (!Number.isFinite(n) || n < 1 || n > 10080) {
-      setError('Indica minutos entre 1 y 10080 (7 días).');
+    const abs = parseInt(absenceDraft, 10);
+    if (!Number.isFinite(n) || n < 0 || n > 10080) {
+      setError('Fuera de línea: minutos entre 0 y 10080 (0 = rojo al desconectar).');
+      return;
+    }
+    if (!Number.isFinite(abs) || abs < 0 || abs > 10080) {
+      setError('Ausencia: minutos entre 0 y 10080 (0 = sin amarillo).');
       return;
     }
     setBusy(true);
@@ -47,11 +63,19 @@ export default function ConfigPresence({ session }) {
     try {
       const data = await patchOrgSettings(session.token, {
         presenceOfflineRedMinutes: n,
+        presenceAbsenceMinutes: abs,
+        presenceShowAway: showAway,
+        presenceShowOffline: showOffline,
       });
-      const m = Number(data.settings?.presenceOfflineRedMinutes) || n;
-      setMinutes(m);
-      setDraft(String(m));
-      setOkMsg('Presencia guardada.');
+      const m = Number(data.settings?.presenceOfflineRedMinutes);
+      const a = Number(data.settings?.presenceAbsenceMinutes);
+      setMinutes(Number.isFinite(m) ? m : n);
+      setDraft(String(Number.isFinite(m) ? m : n));
+      setAbsence(Number.isFinite(a) ? a : abs);
+      setAbsenceDraft(String(Number.isFinite(a) ? a : abs));
+      setShowAway(data.settings?.presenceShowAway !== false);
+      setShowOffline(data.settings?.presenceShowOffline !== false);
+      setOkMsg('Presencia guardada. El mapa aplica al refrescar ubicaciones.');
     } catch (err) {
       setError(err.message || 'No se pudo guardar');
     } finally {
@@ -95,28 +119,106 @@ export default function ConfigPresence({ session }) {
     }
   }
 
+  const modeHint = (() => {
+    const parts = ['Verde'];
+    if (showAway) parts.push('Amarillo');
+    if (showOffline) parts.push('Gris');
+    parts.push('Rojo');
+    return parts.join(' · ');
+  })();
+
   return (
     <div className="cc-config-block">
       <h2>Presencia</h2>
       <p className="cc-hint">
-        Colores en mapa y chat: verde = en línea (app abierta, minimizada o alcanzable);
-        gris = desconectado; rojo = desconectado prolongado (umbral abajo). Pánico mantiene alerta.
-      </p>
-      <p className="cc-hint">
-        Umbral actual: <strong>{minutes} min</strong> (gris → rojo).
+        Semáforo del mapa: {modeHint}. Verde y rojo siempre existen; amarillo y gris son
+        opcionales.
       </p>
       <form className="cc-form" onSubmit={onSavePresence} style={{ maxWidth: 420 }}>
+        <fieldset
+          style={{
+            border: '1px solid var(--cc-border, #334155)',
+            borderRadius: 8,
+            padding: '0.75rem 1rem',
+            margin: '0 0 0.75rem',
+          }}
+        >
+          <legend style={{ padding: '0 0.35rem' }}>Colores intermedios</legend>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: '0.5rem',
+              cursor: busy ? 'default' : 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={showAway}
+              onChange={(ev) => setShowAway(ev.target.checked)}
+              disabled={busy}
+            />
+            <span>
+              Mostrar <strong style={{ color: '#eab308' }}>Ausente</strong> (amarillo)
+            </span>
+          </label>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              cursor: busy ? 'default' : 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={showOffline}
+              onChange={(ev) => setShowOffline(ev.target.checked)}
+              disabled={busy}
+            />
+            <span>
+              Mostrar <strong style={{ color: '#9ca3af' }}>Desconectado</strong> (gris)
+            </span>
+          </label>
+          <p className="cc-hint" style={{ margin: '0.5rem 0 0' }}>
+            Sin amarillo: en 2º plano sigue verde. Sin gris: al soltar presencia pasa a rojo.
+            Ambos off → solo verde y rojo.
+          </p>
+        </fieldset>
+
+        <p className="cc-hint">
+          Ausencia: <strong>{absence} min</strong>
+          {absence === 0 || !showAway ? ' (sin amarillo)' : ''} · Fuera de línea:{' '}
+          <strong>{minutes} min</strong>
+          {minutes === 0 || !showOffline ? ' (rojo al desconectar)' : ''}.
+        </p>
         <label>
-          Minutos hasta desconectado prolongado (rojo)
+          Tiempo de ausencia → amarillo (minutos)
           <input
             type="number"
-            min={1}
+            min={0}
+            max={10080}
+            value={absenceDraft}
+            onChange={(ev) => setAbsenceDraft(ev.target.value)}
+            disabled={busy || !showAway}
+          />
+        </label>
+        <label>
+          Tiempo fuera de línea → rojo tras gris (minutos)
+          <input
+            type="number"
+            min={0}
             max={10080}
             value={draft}
             onChange={(ev) => setDraft(ev.target.value)}
-            disabled={busy}
+            disabled={busy || !showOffline}
           />
         </label>
+        <p className="cc-hint" style={{ marginTop: 0 }}>
+          0 en ausencia = sin amarillo. 0 en fuera de línea = al desconectarse pasa a rojo al
+          instante. Los minutos solo aplican si el color correspondiente está activado.
+        </p>
         <button type="submit" className="cc-btn primary" disabled={busy}>
           {busy ? 'Guardando…' : 'Guardar presencia'}
         </button>

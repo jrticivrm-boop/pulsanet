@@ -9,10 +9,85 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+- **Chat sin APK:** uploads bloquean `.apk`/`.aab`/`.jar`/`.dex` (y MIME Android); distribución solo OTA. Cliente alineado.
+- **Listen + XFF:** con production/PUBLIC_DOMAIN no se acepta `LISTEN_HOST` no-loopback (salvo `TPX_LISTEN_UNSAFE=1`); `X-Forwarded-For` solo si el peer es loopback.
+- **Presence HTTP:** `/presence/heartbeat` solo `focus=service` (FGS); foreground/background por socket.
+- **Backup zip-slip:** restore valida entradas `tar` y rutas/symlinks dentro de staging.
+- **Wire keys por socket:** GPS/pánico se sellan con AES por conexión de despacho (`dispatch:joined`); login/`/me` ya no exportan `wireKey` org-wide (solo `wireEnabled` a despacho).
+
+### Added
+- **APK 1.8.162 clusters pastel:** misma gráfica de pastel por presencia/pánico que web (colores, orden, radio 55, tamaño 44/48/52).
+- **Clusters GPS pastel:** el círculo de agrupación se divide por colores de presencia/pánico (verde/amarillo/gris/rojo), web + APK.
+- **Semáforo presencia configurable:** checks en Config → Presencia para mostrar/ocultar Ausente (amarillo) y Desconectado (gris); verde y rojo siempre. Leyenda, pines y filtro Estado se adaptan. Manual: `docs/MANUAL_SEMAFORO_PRESENCIA.md`.
+- **Presencia Ausente:** pin amarillo tras N min minimizada/2º plano (configurable); fuera de línea (rojo) tras gris; filtro Estado multi-check en Consola Operadores; 0 desactiva amarillo o fuerza rojo inmediato.
+- **FGS presencia (APK):** heartbeat `focus: service` con app cerrada → mapa Ausente (no gris) mientras el servicio vive.
+- **Sonidos APK:** menú para elegir tono de mensajes, llamadas, videollamadas y zumbidos (`SoundPrefs` + canales Android v4); sin desfase entre notificación y AudioPlayer.
+- **Clusters GPS (APK + web):** pines cercanos se agrupan en círculo azul con conteo y anillos de pulso; al tocar se acerca el zoom.
+- **Pitido PTT:** tono suave al pulsar y soltar el PTT (APK + web).
+- **Canal abierto (APK):** con ≥2 membresías, canal virtual que escucha todos los grupos; PTT en un solo talk; chip «Último: grupo — quién» cambia el destino de habla.
+- **PTT por rol (web + APK):** operadores hold-to-talk; root/admin/zona/unidad latch (toggle); takeover `ptt:taken` corta mic y avisa «Canal tomado por …».
+- **Tercer tema web:** **Claro** | **Verde** (ex-Obscuro oliva/HUD) | **Obscuro** (paleta slate/azul de ParqueVehicular). Chip cicla los tres; `localStorage` migra `dark`→`verde`.
+
+### Changed
+- **APK 1.8.166 UX:** chat con APK/ZIP y confirmación; Contestar más claro; Radio con nombre de canal; PTT bip fuerte press/release; GPS con etiquetas, Este grupo/Todos y asa para ocultar lista.
+- **Pitido PTT (APK 1.8.165 + web):** chirp ascendente al pulsar y descendente al soltar (claro, volumen moderado).
+
+### Fixed
+- **APK 1.8.164 Enviar imagen:** botones Cancelar/Enviar ya no quedan bajo la barra del sistema en tablet.
+- **Web llamada — avatar:** la foto del peer vuelve a mostrarse en el overlay (antes caía a iniciales por cache/mapa).
+- **APK 1.8.163 Zumbido:** el botón de enviar zumbido volvió al composer DM (se había perdido al unificar `ChatComposer`).
+- **Consola Operaciones — pines:** en filtro «Por grupo» ya no se pinta el emblema del grupo en cada operador; cada pin usa la foto del usuario.
+- **APK 1.8.161 Contestar con pantalla encendida (Galaxy Tab):** wake nativo en el receiver FCM (`IncomingCallWakeService` CallStyle + `startActivity` desde FGS). El FSI se degrada a heads-up con pantalla ON por diseño Android; el MethodChannel de MainActivity no existe en el isolate FCM.
+- **APK 1.8.160 llamada Contestar (Galaxy Tab):** FCM de llamada ya no lleva payload `notification` (bloqueaba FSI); data-only + FGS/`launchApp` abren pantalla Contestar aunque el permiso FSI esté dado.
+- **APK 1.8.159 llamada Galaxy Tab:** full-screen intent + `launchApp`/bring-to-front reforzados para que Contestar salte a pantalla completa (no solo heads-up).
+- **Integridad 2026-09-17:** TLS DuckDNS sin bypass de cert; LiveKit LAN solo por Host privado; XFF solo con TRUST_PROXY; FCM private; refresh/media hairpin; delivery acks móvil; video multi web ya no llama API inexistente.
+- **APK 1.8.154 login HTTPS:** quitado `connectionFactory` que enviaba HTTP plano a :443 (`Client sent an HTTP request to an HTTPS server` / Broken pipe).
+- **APK 1.8.153 login 4G:** el failover ya no fuerza `192.168.1.77` sin probe; override LAN inalcanzable vuelve a DuckDNS.
+- **APK 1.8.152 Wi‑Fi Radio/Chats:** LiveKit ya no usa DuckDNS:41260 en LAN; API/audio van a `192.168.1.77`. DuckDNS AAAA obsoleto se borra; el APK resuelve solo IPv4 en 4G.
+- **Mic PTT multi-sesión (admin):** varias apps abiertas OK; al pulsar PTT en un cliente se corta el mic en los demás del mismo usuario (`socketId` en floor + `ptt:taken` / `same_user_other_client`).
+- **Calls HTML 404 (APK 1.8.135):** historial de llamadas soft-fail si el borde sirve HTML en vez de JSON; auth sigue visible. Caddy LAN recarga hosts `.51`/`.57`/`.58` con `/api*` → Node.
+- **Socket APK `:0`:** URL Socket.IO ya no usa puerto 0 (rompe upgrade WebSocket); fuerza 443/80 y omite default en la URL.
+- **DM HTML 404:** inbox tolera fallo de `/api/dm/conversations` sin tumbar la app; mensaje si Caddy sirve HTML en lugar de JSON API.
+- **Audio post-PTT:** tras soltar/takeover se restaura sesión radio + `MODE_NORMAL` (evita bloquear notas de voz de WhatsApp).
+- **Alerta APK:** círculo rojo sólido, icono/ondas amarillos, etiqueta blanca.
+
+### Changed
+- **Presencia activa:** ping cada 15 s (APK + web) + heartbeat HTTP de refuerzo; GPS FGS también refresca presencia.
+- **Geocerca (Consola):** «Nueva geocerca» abre el formulario; el clic en mapa es toggle opcional **«Fijar en mapa»** (ya no el botón «Clic en mapa…»).
+- **Rail marca Tactical 1/2:** expandido usa `tactical_rail_expanded.png` (logo+texto en imagen); contraído/tablet/teléfono usa `tactical_rail_collapsed.png`. Sin texto HTML duplicado en el rail.
+- **Marca en rail de módulos:** emblema SICOM + lema partido (arriba/abajo) dentro del panel; al minimizar solo queda el logo pequeño. Topbar libre de banner.
+- **GPS APK → completo:** paridad con seguimiento web — avatares con latido, ficha al seleccionar, estados IV R.M., sitios tácticos, ruta + huecos OSRM.
+- **Rebrand SICOM:** nombre visible **SICOM** (*Sistema de Comunicaciones para Operaciones Militares*); logo nuevo; paleta bronce/oliva/HUD alineada al logotipo (Web + APK). Sin cambiar package id, crypto, BD ni IDs FCM.
+
+### Added
+- **Menú PTT mapa (pestañas/encabezado):** click derecho en PTT maximizado → Escuchar/Hablar/Video/Alerta; preferencia en Configuración → Canales.
+- **PTT flotante en mapa maximizado:** arrastrable; click izquierdo hablar/soltar; click derecho menú Hablar/Oír + alarma + reset de posición (Despacho y Seguimiento).
+- **GPS en APK (mando):** pestaña **GPS** junto a Radio para root / admin región / zona / unidad — lista + mapa en vivo de compañeros (`GET /api/locations`), sin consola de despacho.
+- **Foto de perfil/grupo en grande (APK):** tocar el avatar abre visor a pantalla completa con zoom (estilo WhatsApp).
+- **Menú ⋮ móvil (estilo WhatsApp):** a la derecha en Chats/Llamadas/Radio — canales, foto de perfil, datos, configuraciones, GPS; en Llamadas, borrar registro (`DELETE /api/calls/history`). Icono de stickers renovado.
+- **UI móvil tipografía + video + canales:** Oswald/Source Sans 3; videollamada entrante más clara; PiP arrastrable/intercambiable; canales de radio seleccionables por tap.
+- **Notificaciones alta prioridad + llamadas WhatsApp-like:** canales FCM/locales v3 (prioridad max); Contestar/Rechazar en bandeja; minimizar y seguir hablando (FGS + mic); timbre/ringback.
+
+### Fixed
+- **PTT flotante trabado AL AIRE:** al estar transmitiendo, el click izquierdo no soltaba; ahora vuelve a hacer toggle/release. Click derecho abre menú también al aire.
+- **Ruta probable naranja no visible (Orión / Hwy 54):** al cancelar el efecto de huecos (Strict Mode / cambio de traza), claves quedaban atrapadas en `pendingRef` y OSRM no se reintentaba; con ~37 huecos en 48 h el naranja nunca aparecía. Fetch en paralelo (6), reintentos más rápidos, contraste naranja subido (`#e87812` opacity 0.58 / weight 14) y marcas temporales en extremos mientras OSRM responde (sin recta por campo).
+
+### Added
+- **Respaldos con multimedia:** el ZIP de Config → Respaldos incluye `database.sql`, `meta.json` y el árbol `uploads/` (avatares, chat, grabaciones, etc.). Al restaurar se reemplaza también la multimedia; el uploads previo queda en `uploads_pre_restore_*`. Respaldos `.sql`/ZIP sin media siguen restaurando solo BD y conservan uploads actuales. Límite de subida por defecto `BACKUP_UPLOAD_MAX_MB=2048` (override por env).
+- **Guía otra máquina:** `docs/INSTALAR_OTRA_MAQUINA.md` (checklist software, `.env`, respaldo ZIP con media, flags `/noedge`).
+
+### Changed
+- **LEVANTAR-TACTICALPTX.bat v3:** root portable, sin IP LAN inventada, espera Web más larga + soft-retry, ventanas API/Web visibles, `netstat` en lugar de `Get-NetTCPConnection`, flag `/noedge`, detección PG ampliada. `start-api`/`start-web`/`Watch-Stack` alineados.
+- **Ruta probable solo por calles (sin cuerda recta):** los huecos y saltos post-simplificar (≥1200 m) se resuelven con OSRM; el mapa **no dibuja** la recta A→B. Si el routing aún no responde, el tramo queda pendiente (reintentos) en lugar de atravesar campo/bases. Verificado con Cor. Hernández Orión y Desarrollador de chiludas.
+- **Huecos de señal — un solo concepto «ruta probable» (naranja):** el mapa unifica los antiguos «ruta probable» (ámbar) y «ruta estimada» (naranja punteada) en una única **ruta probable** en **naranja `#e87812`**. La leyenda deja solo «Ruta recorrida» y «Sin señal · ruta probable».
+- **Routing OSRM `driving`:** `continue_straight=false`, `snapping=any`; timeout por defecto 25 s. Con `ROUTING_OSRM_URL` propio la ruta es más estable que el demo público.
+
 ### Restored
 - **Panel despacho (11-sep ~15:41):** consola con mapa de inicio, catálogos (jerarquías/grados/empleos), administración (usuarios/grupos/sitios tácticos), config (canales Escuchar/Hablar/Video/Alerta, grabaciones, presencia) y PTT Individual/Múltiple. Evita que un merge de `main` viejo vuelva a servir la consola del 6-sep.
 
 ### Added
+- **Marcadores Consola según Operadores:** en modo **Todos** / **Uno** el pin muestra la foto del usuario; en **Por grupo**, la foto del grupo (si no hay, fallback a la del usuario).
 - **Mini reproductor en Grabaciones PTT:** cada fila de grabación trae reproductor embebido con play/pausa, barra de progreso arrastrable con tiempo transcurrido/total, saltos −10 s / +10 s, velocidad 0.5×–2× y **realce de voz ×1/×2/×3** (Web Audio: compresor + gain) para escuchar lo que se habla bajito. Descarga del audio desde el mismo menú. El endpoint de audio ahora soporta peticiones parciales (HTTP 206 / `Accept-Ranges`).
 - **Estados en mapa — en qué mapas se dibujan:** en Configuración → Estados, bloque **Mostrar en mapas** con checks Consola / Seguimiento / Radio (`surfaces` en `tacticalptx_iv_rm_states_v1`, default los tres activos). Cada mapa solo pinta delimitaciones si su check está on.
 - **Estados en mapa — los 32 estados de México (Configuración → Estados):** la pantalla pasa de las 3 filas fijas de la IV R.M. a los 32 estados, con buscador por nombre o sigla insensible a acentos («michoacan», «queretaro»), orden Ascendente/Descendente, Marcar/Desmarcar sobre lo filtrado y atajo **Solo IV R.M.**, con el mismo patrón de lista que Escuchar/Hablar. Cada estado conserva su color editable; los 29 nuevos entran apagados y descargan su geometría solo al habilitarse, así que el bundle no crece y las preferencias ya guardadas (NL/TM/SLP) se mantienen.
@@ -25,9 +100,12 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Multi Ver cámara:** varias pantallas apiladas; control remoto frontal/trasera y mic del dispositivo. APK **1.8.70+79**.
 
 ### Changed
+- **Consola mapa / grabaciones (UI):** sin selector MAPAS (basemap Natural fijo); leyenda de rutas con `·` centrado y puntos estimados naranja; leyenda de estados en 2 filas colapsable a la derecha; mini reproductor PTT estilo nota de voz ≈ 1.5×, play alineado con la onda.
 - **Llamadas web unificadas:** salida/entrada vía `PrivateCallHost`; DM con iconos directos (sin menú «Llamar ▾»).
 
 ### Fixed
+- **Selects del mapa al maximizar:** los MultiSelect (Sitios / Grupos / Ruta) y el PTT flotante portaleaban fuera del elemento en `requestFullscreen`, así que el panel no se veía ni recibía clics. Ahora el portal va al host fullscreen / página maximizada.
+- **Mini reproductor Grabaciones PTT no reproducía:** el `src` del `<audio>` se asigna de forma imperativa (sin esperar a React), el blob fuerza MIME `audio/webm` si el servidor manda vacío/octet-stream, se espera `canplay` antes de `play()`, y el realce Web Audio solo se arma al pedir ×2/×3. Quitado el botón duplicado **Escuchar**; la duración de la fila va en `m:ss` para no montarse sobre el player.
 - **Delimitaciones de estados desfasadas respecto al mapa base (causa raíz):** el desfase no era de render sino de **datos**: se mezclaban dos fuentes distintas — NL/TM/SLP detallados y los otros 29 en `mexicoHigh`, desviado hasta **32 km** — así que cada frontera compartida se dibujaba dos veces en sitios distintos y dejaba rendijas y solapes (visibles entre Nuevo León y Coahuila, y entre San Luis Potosí y Zacatecas). Ahora los **32 estados** salen de una **fuente única INEGI** (geoBoundaries gbOpen MEX ADM1) simplificada preservando topología, de modo que los vecinos comparten vértices idénticos. El área mal etiquetada baja de **4.47 % a 0.02 %** y los solapes a **cero**. Supersede la entrada anterior de «Delimitación IV R.M. (relleno + precisión)».
 - **Delimitación IV R.M. (relleno + precisión):** se mantiene `L.svg` (fill fiable) y se restaura el MultiPolygon **detallado** de NL/TM/SLP en el bundle; los demás estados siguen en `mxEstados` (mexicoHigh). Dedupe por id: el detallado IV R.M. gana; stroke ~1.15 px.
 - **El rango de horas de la ruta recortaba el recorrido:** el historial se pedía con `LIMIT 5000` sobre puntos ordenados de más antiguo a más nuevo, así que con el latido GPS de 5 s elegir **48 h** mostraba solo las primeras ~6 h de la ventana y ocultaba todo el trayecto reciente. Ahora la ventana se lee completa y se reduce de forma consciente (colapso de paradas + Douglas–Peucker por tramo) en vez de truncarse.

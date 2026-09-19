@@ -86,9 +86,11 @@ export async function notifyGroupMembers({
       // Misma conversación reemplaza la notificación anterior (estilo WhatsApp).
       collapseKey: `g:${groupId}`,
       notification: {
-        channelId: 'tacticalptx_alerts_radio',
+        channelId: 'tacticalptx_alerts_v3',
         sound: 'tactical_msg',
         tag: `g:${groupId}`,
+        priority: 'max',
+        visibility: 'private',
         defaultVibrateTimings: true,
       },
     },
@@ -96,6 +98,7 @@ export async function notifyGroupMembers({
       payload: {
         aps: {
           sound: 'tactical_msg.wav',
+          interruptionLevel: 'time-sensitive',
         },
       },
     },
@@ -174,6 +177,11 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
   const isNudge = data?.type === 'dm_nudge';
   const androidSound = isCallPush ? 'default' : isNudge ? 'nudge_buzz' : 'tactical_msg';
   const iosSound = isCallPush ? 'default' : isNudge ? 'nudge_buzz.wav' : 'tactical_msg.wav';
+  const channelId = isCallPush
+    ? 'tacticalptx_calls_v3'
+    : isNudge
+      ? 'tacticalptx_nudge_v2'
+      : 'tacticalptx_alerts_v3';
 
   const payload = {
     notification: { title, body },
@@ -187,24 +195,24 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
       priority: 'high',
       ...(notifTag ? { collapseKey: notifTag } : {}),
       notification: {
-        channelId: isCallPush ? 'tacticalptx_calls_v2' : 'tacticalptx_alerts_radio',
+        channelId,
         sound: androidSound,
         ...(notifTag ? { tag: notifTag } : {}),
+        priority: 'max',
+        visibility: 'private',
+        defaultVibrateTimings: true,
         ...(isCallPush
           ? {
-              priority: 'max',
-              visibility: 'public',
               defaultSound: true,
-              defaultVibrateTimings: true,
             }
-          : { defaultVibrateTimings: true }),
+          : {}),
       },
     },
     apns: {
       payload: {
         aps: {
           sound: iosSound,
-          ...(isCallPush ? { interruptionLevel: 'time-sensitive' } : {}),
+          interruptionLevel: 'time-sensitive',
         },
       },
     },
@@ -243,8 +251,8 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
 }
 
 /**
- * Data-only (sin notification): despierta la app sin banner/sonido/vibración.
- * Usado p.ej. para «Ver cámara» con pantalla bloqueada.
+ * Data-only (sin notification): el cliente muestra FSI / Contestar.
+ * Con payload `notification` Android solo pone heads-up y no corre el handler.
  */
 export async function notifyUserDevicesDataOnly({ userId, data = {} }) {
   if (!ready) return { sent: 0, skipped: true };
@@ -263,11 +271,12 @@ export async function notifyUserDevicesDataOnly({ userId, data = {} }) {
     ),
     android: {
       priority: 'high',
+      // ~2 min: tiempo de ring Contestar
       ttl: 120000,
     },
     apns: {
       headers: {
-        'apns-priority': '5',
+        'apns-priority': '10',
         'apns-push-type': 'background',
       },
       payload: {
@@ -331,28 +340,22 @@ export async function notifyGroupVideoInvite({
   };
 
   const payload = {
-    notification: { title, body },
     data: Object.fromEntries(
-      Object.entries(data).map(([k, v]) => [k, String(v ?? '')])
+      Object.entries({ ...data, title, body }).map(([k, v]) => [k, String(v ?? '')])
     ),
     android: {
       priority: 'high',
       collapseKey: `gvideo:${groupId}`,
-      notification: {
-        channelId: 'tacticalptx_calls_v2',
-        sound: 'default',
-        tag: `gvideo:${groupId}`,
-        priority: 'max',
-        visibility: 'public',
-        defaultSound: true,
-        defaultVibrateTimings: true,
-      },
+      ttl: 120000,
     },
     apns: {
+      headers: {
+        'apns-priority': '10',
+        'apns-push-type': 'background',
+      },
       payload: {
         aps: {
-          sound: 'default',
-          interruptionLevel: 'time-sensitive',
+          'content-available': 1,
         },
       },
     },

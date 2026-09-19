@@ -5,6 +5,7 @@ import 'api_client.dart';
 import 'app_update.dart';
 import 'background_radio.dart';
 import 'config.dart';
+import 'duckdns_hairpin.dart';
 import 'lan_tls.dart';
 import 'location_heartbeat.dart';
 import 'push_service.dart';
@@ -23,6 +24,10 @@ Future<void> main() async {
   // TLS mínimo antes de cualquier HTTP; el resto en paralelo / diferido.
   await LanTls.install();
   await AppConfig.load();
+  // Presupuesto corto: el discovery no debe congelar el splash.
+  try {
+    await DuckDnsHairpin.ensure().timeout(const Duration(milliseconds: 2500));
+  } catch (_) {}
   runApp(const TacticalPtxApp());
   // No activar AudioSession aquí: secuestra volumen/mic del teléfono.
   unawaited(BackgroundRadio.init());
@@ -65,21 +70,21 @@ class _TacticalPtxAppState extends State<TacticalPtxApp> {
       _bootProgress = null;
     });
 
-    // 1) Sesión local primero (rápido).
+    // 1) Sesión local (disco) — única espera obligatoria antes de la UI.
     try {
-      await api.loadSession().timeout(const Duration(seconds: 4));
+      await api.loadSession().timeout(const Duration(seconds: 2));
     } catch (e, st) {
       debugPrint('loadSession: $e\n$st');
     }
     if (!mounted) return;
 
-    // 1b) Ver cámara pendiente: priorizar accept sobre OTA forzada (evita splash eterno).
-    var deferForcedOta = false;
+    // 1b) Ver cámara pendiente: accept en paralelo; no bloquear splash.
+    var hadRemoteCamPending = false;
     if (api.isLoggedIn) {
       try {
         if (await RemoteCameraWake.hasPending() &&
             await RemoteCameraPrefs.canAutoAccept()) {
-          deferForcedOta = true;
+          hadRemoteCamPending = true;
           final pending = await RemoteCameraWake.takePending();
           if (pending != null) {
             unawaited(
@@ -95,60 +100,22 @@ class _TacticalPtxAppState extends State<TacticalPtxApp> {
       }
     }
 
-    // 2) OTA forzada: bloquear UI apenas hay versión nueva (no solo al final).
-    //    Si hay remote cam pending, diferir el bloqueo para que monte RadioShell.
-    if (!deferForcedOta) {
-      try {
-        final update = await AppUpdateService.checkAndApply(
-          onUpdateAvailable: ({required force, required message}) {
-            if (!mounted) return;
-            if (!force) return;
-            setState(() {
-              _updateBlocked = true;
-              _booting = true;
-              _bootMessage = message;
-              _bootProgress = 0;
-              _bootError = null;
-            });
-          },
-          onStatus: (message, progress) {
-            if (!mounted) return;
-            if (!_updateBlocked) return;
-            setState(() {
-              _bootMessage = message;
-              _bootProgress = progress;
-            });
-          },
-        );
-        if (!mounted) return;
-        if (update.blocked) {
-          setState(() {
-            _updateBlocked = true;
-            _booting = true;
-            _bootError = update.message;
-            _bootMessage = update.message ?? 'Actualizando...';
-            _bootProgress = null;
-          });
-          unawaited(_initBackgroundServices());
-          return;
-        }
-      } catch (e, st) {
-        debugPrint('AppUpdate boot: $e\n$st');
-      }
-    }
-
+    // 2) Entrar a la app de inmediato (no esperar red/OTA en el splash).
     if (!mounted) return;
     setState(() {
       _booting = false;
       _updateBlocked = false;
     });
     unawaited(_initBackgroundServices());
-    if (deferForcedOta) {
-      // Reintentar OTA forzada cuando el accept ya pudo arrancar.
-      Future<void>.delayed(const Duration(seconds: 4), () {
+
+    // 3) OTA en segundo plano: solo bloquea UI si hay force y hay que actualizar.
+    if (hadRemoteCamPending) {
+      Future<void>.delayed(const Duration(seconds: 3), () {
         if (!mounted) return;
         unawaited(_recheckUpdate());
       });
+    } else {
+      unawaited(_recheckUpdate());
     }
   }
 
@@ -228,88 +195,94 @@ class _TacticalPtxAppState extends State<TacticalPtxApp> {
 
   Widget _bootScreen() {
     final showRetry = _updateBlocked && _bootError != null;
+    const splashBg = Color(0xFF000000);
     return Scaffold(
-      backgroundColor: kInstPaper,
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(
-                'assets/brand/tacticalptx.png',
-                width: 120,
-                height: 120,
-                fit: BoxFit.contain,
-              ),
-              const SizedBox(height: 18),
-              const Text(
-                'TacticalPtx',
-                style: TextStyle(
-                  color: kInstOlive,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.4,
-                  fontSize: 20,
+      backgroundColor: splashBg,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset(
+                  'assets/brand/sicom_round.png',
+                  width: 220,
+                  height: 220,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
                 ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: 36,
-                height: 36,
-                child: CircularProgressIndicator(
-                  strokeWidth: 3,
-                  color: kInstOlive,
-                  value: showRetry ? null : _bootProgress,
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                _bootMessage,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: kInstInk,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              if (_bootProgress != null && !showRetry) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 28),
                 Text(
-                  '${(_bootProgress! * 100).clamp(0, 100).toStringAsFixed(0)} %',
-                  style: const TextStyle(color: kInstMuted, fontSize: 13),
-                ),
-              ],
-              if (showRetry) ...[
-                const SizedBox(height: 20),
-                FilledButton(
-                  onPressed: () {
-                    setState(() {
-                      _updateBlocked = false;
-                      _bootError = null;
-                      _booting = true;
-                      _bootMessage = 'Buscando actualizacion...';
-                      _bootProgress = null;
-                    });
-                    unawaited(_recheckUpdate());
-                  },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: kInstOlive,
-                    foregroundColor: kInstOnPrimary,
+                  'Sistema de Comunicaciones\npara Operaciones Militares',
+                  textAlign: TextAlign.center,
+                  style: TacticalFonts.label(
+                    color: kInstGoldSoft.withValues(alpha: 0.92),
+                    fontSize: 12,
+                    letterSpacing: 1.1,
                   ),
-                  child: const Text('Reintentar'),
                 ),
+                const SizedBox(height: 36),
+                SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: kInstGoldSoft,
+                    value: showRetry ? null : _bootProgress,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  _bootMessage,
+                  textAlign: TextAlign.center,
+                  style: TacticalFonts.body(
+                    color: kInstOnPrimary.withValues(alpha: 0.85),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (_bootProgress != null && !showRetry) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '${((_bootProgress ?? 0) * 100).round()}%',
+                    style: TacticalFonts.label(
+                      color: kInstGoldSoft,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+                if (showRetry) ...[
+                  const SizedBox(height: 20),
+                  FilledButton(
+                    onPressed: _retryBoot,
+                    child: const Text('Reintentar'),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+ 
+  void _retryBoot() {
+    setState(() {
+      _updateBlocked = false;
+      _bootError = null;
+      _booting = true;
+      _bootMessage = 'Buscando actualizacion...';
+      _bootProgress = null;
+    });
+    unawaited(_recheckUpdate());
+  }
+
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TacticalPtx',
+      title: 'SICOM',
       scaffoldMessengerKey: _messengerKey,
       debugShowCheckedModeBanner: false,
       theme: tacticalTheme,

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { ThemeToggle } from '../theme';
+import { ThemeToggle, useTheme } from '../theme';
 import { fetchGroups, fetchAuthMe, persistSession, canManageUsers } from '../api';
-import { usePtt } from '../usePtt';
+import { usePtt, pttUsesLatch } from '../usePtt';
 import { useGpsReporter } from '../useGpsReporter';
 import { useDispatchListen } from '../useDispatchListen';
 import { unlockMediaAudio } from '../unlockMediaAudio';
@@ -12,6 +12,7 @@ import RadioPage from '../pages/RadioPage.jsx';
 import { PEER_EVENTS, openPeoplePalette } from '../peerActions';
 import { useIsPhone, useIsCoarsePointer } from '../useMediaQuery.js';
 import { radioSpeakerStatusLabel } from '../radioSpeakerLabel';
+import { SICOM_FULL_NAME } from '../BrandName.jsx';
 import './command-center.css';
 import '../institutional.css';
 import '../theme-contrast.css';
@@ -218,7 +219,21 @@ function saveNavOrder(order) {
   }
 }
 
+/** Logos rail: Verde/Claro = Tactical 1/2; Obscuro = Tactical 3 (+ crop circular). */
+const RAIL_BRAND = {
+  militar: {
+    expanded: '/brand/tactical_rail_expanded.png?v=4',
+    collapsed: '/brand/tactical_rail_collapsed.png?v=2',
+  },
+  obscuro: {
+    expanded: '/brand/tactical_rail_obscuro_expanded.png?v=2',
+    collapsed: '/brand/tactical_rail_obscuro_collapsed.png?v=2',
+  },
+};
+
 export default function DispatchLayout({ session, onLogout, onSession }) {
+  const { theme } = useTheme();
+  const railBrand = theme === 'obscuro' ? RAIL_BRAND.obscuro : RAIL_BRAND.militar;
   const role = session.user.role;
   const roleLabel = ROLE_LABEL[role] || role;
   const location = useLocation();
@@ -276,9 +291,11 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     setMoreOpen(false);
   }, [location.pathname]);
 
-  /* Al cambiar de módulo del rail: soft-refresh de canales + (si Radio) datos sin desmontar keepalive. */
+  /* Al cambiar de módulo del rail: soft-refresh de canales + remount del Outlet
+   * (key abajo). Radio vive en keepalive: aviso module-refresh para re-fetch. */
   useEffect(() => {
     if (prevModuleSegRef.current === moduleSeg) return;
+    const from = prevModuleSegRef.current;
     prevModuleSegRef.current = moduleSeg;
 
     let cancelled = false;
@@ -307,13 +324,12 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       })
       .catch(() => {});
 
-    if (moduleSeg === 'radio') {
-      window.dispatchEvent(
-        new CustomEvent('tacticalptx:module-refresh', {
-          detail: { module: 'radio', path: location.pathname },
-        })
-      );
-    }
+    /* Siempre: listeners (Radio inbox, mapas, etc.) re-fetchean sin F5. */
+    window.dispatchEvent(
+      new CustomEvent('tacticalptx:module-refresh', {
+        detail: { module: moduleSeg, from, path: location.pathname },
+      })
+    );
 
     return () => {
       cancelled = true;
@@ -535,7 +551,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
 
   useEffect(() => {
     if (!session?.token || !onSession) return undefined;
-    if (session.crypto?.wireKey && session.avatarTicket) return undefined;
+    if (session.avatarTicket && session.crypto?.wireEnabled != null) return undefined;
     let cancelled = false;
     fetchAuthMe(session.token)
       .then((data) => {
@@ -543,7 +559,11 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
         const next = {
           ...session,
           user: data.user || session.user,
-          crypto: data.crypto || session.crypto,
+          crypto: {
+            ...(session.crypto || {}),
+            ...(data.crypto || {}),
+            wireKey: session.crypto?.wireKey || data.crypto?.wireKey,
+          },
           avatarTicket: data.avatarTicket || session.avatarTicket,
         };
         persistSession(next);
@@ -696,8 +716,9 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     };
   }, [ptt.unlockAudio]);
 
-  /* Espacio = PTT toggle en todas las pestañas del despacho */
+  /* Espacio = PTT (latch admins / hold operadores) en todas las pestañas */
   useEffect(() => {
+    const latch = pttUsesLatch(session.user);
     const onKeyDown = (e) => {
       if (e.code !== 'Space' || e.repeat) return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
@@ -706,13 +727,27 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       e.preventDefault();
       unlockMediaAudio(() => ptt.unlockAudio?.())
         .catch(() => {})
-        .finally(() => ptt.toggle());
+        .finally(() => {
+          if (latch) ptt.toggle();
+          else ptt.press();
+        });
+    };
+    const onKeyUp = (e) => {
+      if (e.code !== 'Space') return;
+      if (latch) return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      ptt.release();
     };
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
     };
-  }, [ptt.toggle]);
+  }, [ptt.toggle, ptt.press, ptt.release, session.user]);
 
   function applyTalkIds(ids) {
     const valid = (ids || []).filter((id) => groups.some((g) => g.id === id));
@@ -914,51 +949,33 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
         onChannelPanicAck={ptt.ackPanic}
         onChannelPanicSilence={ptt.silencePanicAlarm}
       />
-      <header className="cc-topbar cc-topbar--inst">
-        <div className="cc-top-left">
-          <div>
-            {!isPhone && (
-              <p className="cc-product">Centro de operaciones</p>
-            )}
-            <div className="cc-brand">
-              <span className="brand-tactical">Tactical</span>
-              <span className="brand-ptx">Ptx</span>
+      {!isPhone ? (
+        <aside id="cc-mod-rail" className="cc-mod-rail" aria-label="Módulos">
+            <div
+              className="cc-mod-rail-brand"
+              aria-label={`SICOM — ${SICOM_FULL_NAME}`}
+              title={SICOM_FULL_NAME}
+            >
+              <div className="cc-mod-rail-brand-mark" aria-hidden="true">
+                <img
+                  className="cc-mod-rail-brand-logo cc-mod-rail-brand-logo--full"
+                  src={railBrand.expanded}
+                  alt=""
+                  draggable={false}
+                />
+                <img
+                  className="cc-mod-rail-brand-logo cc-mod-rail-brand-logo--mini"
+                  src={railBrand.collapsed}
+                  alt=""
+                  width={96}
+                  height={96}
+                  draggable={false}
+                />
+              </div>
             </div>
-          </div>
-        </div>
-        <div className="cc-top-right">
-          <div className="cc-user-chip">
-            {!isPhone && <span className="cc-user">{session.user.displayName}</span>}
-            <span className={`cc-role-badge role-${role}`}>{isPhone ? role : roleLabel}</span>
-            <ThemeToggle className="cc-theme-toggle" />
-          </div>
-          {!isPhone && (
-            <nav className="cc-topnav-inst" aria-label="Accesos rápidos">
-              <button
-                type="button"
-                className="nav-personas"
-                title="Buscar personas (Ctrl+K)"
-                onClick={() => openPeoplePalette()}
-              >
-                Personas
-              </button>
-              <Link to="/despacho/radio">Radio</Link>
-              {showSalir && (
-                <button type="button" className="nav-out" onClick={onLogout}>
-                  Salir
-                </button>
-              )}
-            </nav>
-          )}
-        </div>
-      </header>
 
-      <div className="cc-shell-body">
-        {!isPhone && (
-          <aside id="cc-mod-rail" className="cc-mod-rail" aria-label="Módulos">
             <div className="cc-mod-rail-head">
               <div className="cc-mod-rail-titles">
-                <p className="cc-mod-rail-kicker">Operación</p>
                 <h2 className="cc-mod-rail-title">Módulos</h2>
               </div>
               <button
@@ -982,7 +999,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
             </nav>
 
             <div className="cc-mod-rail-foot">
-              <p className="cc-mod-link-hint cc-mod-rail-user">{session.user.displayName}</p>
+              <ThemeToggle variant="rail" />
               {showSalir && (
                 <button type="button" className="cc-btn ghost cc-mod-logout" onClick={onLogout} title="Salir">
                   <span className="cc-mod-link-icon">
@@ -992,8 +1009,33 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                 </button>
               )}
             </div>
-          </aside>
-        )}
+        </aside>
+      ) : null}
+
+      <div className="cc-shell-main">
+        <header className="cc-topbar cc-topbar--inst">
+          <div className="cc-top-left">
+            {isPhone ? (
+              <div className="cc-brand-wrap cc-brand-wrap--phone" title={SICOM_FULL_NAME}>
+                <img
+                  className="cc-brand-logo cc-brand-logo--phone"
+                  src={railBrand.collapsed}
+                  alt="SICOM"
+                  width={40}
+                  height={40}
+                  draggable={false}
+                />
+                <span className="cc-brand-phone-name">SICOM</span>
+              </div>
+            ) : null}
+          </div>
+          <div className="cc-top-right">
+            <div className="cc-user-chip">
+              {!isPhone && <span className="cc-user">{session.user.displayName}</span>}
+              <span className={`cc-role-badge role-${role}`}>{isPhone ? role : roleLabel}</span>
+            </div>
+          </div>
+        </header>
 
         <div className="cc-body">
           {!onRadioPage ? (
@@ -1001,6 +1043,8 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
             className={`cc-radio-strip${ptt.speaking || ptt.holding ? ' live' : ''}${ptt.listenMuted ? ' is-muted' : ''}`}
             title="Canal de habla y escucha. Cámbialos en Configuración → Canales."
           >
+            {/* Consola (DispatchMap) porta los KPI aquí: izquierda de la misma fila */}
+            <div id="cc-ops-kpi-host" className="cc-ops-kpi-host" />
             <div
               className={`cc-radio-dock${ptt.speaking || ptt.holding ? ' live' : ''}${ptt.listenMuted ? ' is-muted' : ''}`}
             >
@@ -1017,7 +1061,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                       : group.name}
                   </span>
                   <span className="cc-radio-dock-listen">
-                    Oye {listenIds.length || 0}
+                    Oír {listenIds.length || 0}
                     {groups.length ? `/${groups.length}` : ''}
                   </span>
                 </Link>
@@ -1029,7 +1073,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                 >
                   <span className="cc-radio-dock-ch">Sin canal PTT</span>
                   <span className="cc-radio-dock-listen">
-                    Oye {listenIds.length || 0}
+                    Oír {listenIds.length || 0}
                     {groups.length ? `/${groups.length}` : ''}
                   </span>
                 </Link>
@@ -1040,8 +1084,21 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
               type="button"
               className={`cc-ptt-mini tp-coarse-touch${ptt.holding ? ' holding' : ''}`}
               disabled={!group || !ptt.livekitReady}
-              onPointerDown={() => {
+              onPointerDown={(e) => {
                 unlockMediaAudio(() => ptt.unlockAudio?.()).catch(() => {});
+                if (!pttUsesLatch(session.user) && e.button === 0) {
+                  e.preventDefault();
+                  ptt.press();
+                }
+              }}
+              onPointerUp={(e) => {
+                if (!pttUsesLatch(session.user) && e.button === 0) {
+                  e.preventDefault();
+                  ptt.release();
+                }
+              }}
+              onPointerCancel={() => {
+                if (!pttUsesLatch(session.user)) ptt.release();
               }}
               onClick={async (e) => {
                 e.preventDefault();
@@ -1050,7 +1107,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                 } catch {
                   /* ignore */
                 }
-                ptt.toggle();
+                if (pttUsesLatch(session.user)) ptt.toggle();
               }}
               onContextMenu={(e) => e.preventDefault()}
               aria-pressed={ptt.holding}
@@ -1060,13 +1117,25 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                   : !ptt.livekitReady
                     ? 'Conectando radio…'
                     : ptt.holding
-                      ? 'Toca o Espacio para soltar'
-                      : 'Toca o Espacio para hablar'
+                      ? pttUsesLatch(session.user)
+                        ? 'Toca o Espacio para soltar'
+                        : 'Suelta para dejar de transmitir'
+                      : pttUsesLatch(session.user)
+                        ? 'Toca o Espacio para hablar'
+                        : 'Mantén pulsado o Espacio para hablar'
               }
             >
               <span className="cc-ptt-mini-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
               <span className="cc-ptt-mini-hint">
-                {ptt.livekitReady ? (ptt.holding ? 'soltar' : 'tocar') : '…'}
+                {ptt.livekitReady
+                  ? pttUsesLatch(session.user)
+                    ? ptt.holding
+                      ? 'soltar'
+                      : 'tocar'
+                    : ptt.holding
+                      ? 'suelta'
+                      : 'mantén'
+                  : '…'}
               </span>
             </button>
             <button
@@ -1201,6 +1270,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                   </span>
                 </NavLink>
               )}
+              <ThemeToggle variant="phone" onAfterClick={() => setMoreOpen(false)} />
               {showSalir && (
                 <button type="button" className="cc-phone-more-link" onClick={onLogout}>
                   <span className="cc-mod-link-icon">

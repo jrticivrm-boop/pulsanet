@@ -7,11 +7,20 @@ if (-not (Test-Path "$root\backend")) { $root = $PSScriptRoot }
 Write-Host '== TacticalPtx start ==' -ForegroundColor Cyan
 
 function Get-LanIPv4 {
+  # Host: preferir Ethernet cableado (Get-TpxPreferredLanIp); no forzar mesh Wi‑Fi del PC.
+  if (Get-Command Get-TpxPreferredLanIp -ErrorAction SilentlyContinue) {
+    $pref = Get-TpxPreferredLanIp
+    if ($pref) { return $pref }
+  }
+  $found = @()
   foreach ($line in (& ipconfig.exe 2>$null)) {
     if ($line -match 'IPv4.*:\s*(192\.168\.\d+\.\d+)') {
-      return $Matches[1]
+      $found += $Matches[1]
     }
   }
+  $eth = $found | Where-Object { $_ -like '192.168.1.*' } | Select-Object -First 1
+  if ($eth) { return $eth }
+  if ($found.Count -gt 0) { return $found[0] }
   return $null
 }
 
@@ -76,9 +85,10 @@ if ($publicIp -and $storedIp -and $publicIp -ne $storedIp) {
 
 # Redis (Laragon u otras rutas comunes)
 $redisCandidates = @(
+  'C:\Program Files\Redis\redis-server.exe',
+  'C:\Program Files\Redis\redis-server\redis-server.exe',
   'C:\laragon\bin\redis\redis-x64-5.0.14.1\redis-server.exe',
-  'C:\laragon\bin\redis\redis-x64-5.0.14\redis-server.exe',
-  'C:\Program Files\Redis\redis-server.exe'
+  'C:\laragon\bin\redis\redis-x64-5.0.14\redis-server.exe'
 )
 $redis = $null
 foreach ($c in $redisCandidates) {

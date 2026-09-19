@@ -79,7 +79,11 @@ export default function ConfigRecordings({ session }) {
                 <strong>{r.displayName || 'Operador'}</strong>
                 <small>
                   {r.groupName || 'Canal'}
-                  {r.durationMs != null ? ` · ${(r.durationMs / 1000).toFixed(1)} s` : ''}
+                  {r.durationMs != null
+                    ? ` · ${Math.floor(r.durationMs / 60000)}:${String(
+                        Math.floor((r.durationMs / 1000) % 60)
+                      ).padStart(2, '0')}`
+                    : ''}
                   {' · '}
                   {new Date(r.createdAt).toLocaleTimeString()}
                 </small>

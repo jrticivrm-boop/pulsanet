@@ -147,6 +147,7 @@ export default function PrivateCallHost({ session }) {
           callId: data.call?.callId,
           peerId: peer.id,
           peerName: peer.displayName || 'Usuario',
+          peerAvatarUrl: peer.avatarUrl || null,
           room: data.call?.room,
           token: data.token,
           authToken: session.token,
@@ -210,6 +211,7 @@ export default function PrivateCallHost({ session }) {
         userId: session.user?.id,
         url: data.url,
         peerName: incoming.callerName,
+        peerAvatarUrl: incoming.callerAvatarUrl || null,
         role: incoming.isInvite ? 'guest' : 'callee',
         e2eeKey: data.e2eeKey || null,
         e2ee: Boolean(data.e2ee),
@@ -268,6 +270,7 @@ export default function PrivateCallHost({ session }) {
           <PersonAvatar
             userId={incoming.callerId}
             name={incoming.callerName}
+            avatarUrl={incoming.callerAvatarUrl}
             token={session.token}
             className="incoming-call-banner-photo"
           />

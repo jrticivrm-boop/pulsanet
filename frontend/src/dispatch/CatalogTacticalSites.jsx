@@ -15,6 +15,21 @@ import AppDialog from '../AppDialog.jsx';
 import { TACTICAL_SITE_COLORS } from './TacticalSitesLayer.jsx';
 
 const PALETTE_KEY = 'tacticalptx_tactical_site_palette';
+/** Mapas (Consola / Seguimiento / Radio) reescuchan este bus tras mutar el catálogo. */
+const TACTICAL_SITES_CHANGED = 'tacticalptx:tactical-sites-changed';
+
+function notifyTacticalSitesChanged() {
+  try {
+    window.dispatchEvent(new CustomEvent(TACTICAL_SITES_CHANGED));
+  } catch {
+    /* ignore */
+  }
+}
+
+function siteCountForGroup(sites, groupId) {
+  const gid = String(groupId);
+  return sites.reduce((n, s) => (String(s.groupId) === gid ? n + 1 : n), 0);
+}
 
 function normalizeHex(c) {
   const s = String(c || '').trim();
@@ -75,8 +90,8 @@ export default function CatalogTacticalSites({ session }) {
   const colorPersistTimerRef = useRef(0);
   const colorPersistGroupIdRef = useRef('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setLoading(true);
     try {
       const [gData, sData] = await Promise.all([
         fetchTacticalSiteGroups(session.token),
@@ -93,12 +108,19 @@ export default function CatalogTacticalSites({ session }) {
     } catch (e) {
       setErr(e.message || 'No se pudo cargar sitios');
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [session.token]);
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  /** Tras POST/PATCH/DELETE: state local ya actualizado; re-fetch silencioso + avisar mapas. */
+  const refreshAfterMutation = useCallback(async () => {
+    notifyTacticalSitesChanged();
+    await load({ quiet: true });
+    notifyTacticalSitesChanged();
   }, [load]);
 
   useEffect(
@@ -166,7 +188,14 @@ export default function CatalogTacticalSites({ session }) {
     try {
       const data = await createTacticalSiteGroup(session.token, { name, color: groupColor });
       setGroupName('');
-      await load();
+      if (data.group) {
+        setGroups((prev) => {
+          if (prev.some((g) => String(g.id) === String(data.group.id))) return prev;
+          return [...prev, { ...data.group, siteCount: 0 }];
+        });
+        setSelectedGroupId(data.group.id);
+      }
+      await refreshAfterMutation();
       if (data.group?.id) setSelectedGroupId(data.group.id);
     } catch (e) {
       setDialog({ title: 'Error', message: e.message, alertOnly: true });
@@ -210,6 +239,7 @@ export default function CatalogTacticalSites({ session }) {
       if (!gid) return;
       try {
         await patchTacticalSiteGroup(session.token, gid, { color });
+        notifyTacticalSitesChanged();
       } catch (e) {
         setDialog({ title: 'Error', message: e.message, alertOnly: true });
       }
@@ -247,6 +277,7 @@ export default function CatalogTacticalSites({ session }) {
     void (async () => {
       try {
         await patchTacticalSiteGroup(session.token, selectedGroupId, { color });
+        notifyTacticalSitesChanged();
       } catch (err) {
         setDialog({ title: 'Error', message: err.message, alertOnly: true });
       }
@@ -278,8 +309,11 @@ export default function CatalogTacticalSites({ session }) {
         setBusy(true);
         try {
           await patchTacticalSiteGroup(session.token, g.id, { name });
+          setGroups((prev) =>
+            prev.map((x) => (String(x.id) === String(g.id) ? { ...x, name } : x))
+          );
           setDialog(null);
-          await load();
+          await refreshAfterMutation();
         } catch (e) {
           setDialog({ title: 'Error', message: e.message, alertOnly: true });
         } finally {
@@ -302,9 +336,11 @@ export default function CatalogTacticalSites({ session }) {
         try {
           await deleteTacticalSiteGroup(session.token, g.id);
           setDialog(null);
+          setGroups((prev) => prev.filter((x) => String(x.id) !== String(g.id)));
+          setSites((prev) => prev.filter((s) => String(s.groupId) !== String(g.id)));
           setSelectedGroupId('');
           resetSiteForm();
-          await load();
+          await refreshAfterMutation();
         } catch (e) {
           setDialog({ title: 'Error', message: e.message, alertOnly: true });
         } finally {
@@ -321,7 +357,7 @@ export default function CatalogTacticalSites({ session }) {
     setBusy(true);
     try {
       await uploadTacticalSiteGroupIcon(session.token, selectedGroupId, file);
-      await load();
+      await refreshAfterMutation();
     } catch (err) {
       setDialog({ title: 'Error', message: err.message, alertOnly: true });
     } finally {
@@ -334,7 +370,7 @@ export default function CatalogTacticalSites({ session }) {
     setBusy(true);
     try {
       await deleteTacticalSiteGroupIcon(session.token, selectedGroupId);
-      await load();
+      await refreshAfterMutation();
     } catch (e) {
       setDialog({ title: 'Error', message: e.message, alertOnly: true });
     } finally {
@@ -383,7 +419,7 @@ export default function CatalogTacticalSites({ session }) {
         await createTacticalSite(session.token, body);
       }
       resetSiteForm();
-      await load();
+      await refreshAfterMutation();
     } catch (e) {
       setDialog({ title: 'Error', message: e.message, alertOnly: true });
     } finally {
@@ -403,7 +439,16 @@ export default function CatalogTacticalSites({ session }) {
           await deleteTacticalSite(session.token, s.id);
           setDialog(null);
           if (editingId === s.id) resetSiteForm();
-          await load();
+          // Optimista: lista + contador del select salen del mismo array `sites`.
+          setSites((prev) => prev.filter((x) => String(x.id) !== String(s.id)));
+          setGroups((prev) =>
+            prev.map((g) =>
+              String(g.id) === String(s.groupId)
+                ? { ...g, siteCount: Math.max(0, Number(g.siteCount || 0) - 1) }
+                : g
+            )
+          );
+          await refreshAfterMutation();
         } catch (e) {
           setDialog({ title: 'Error', message: e.message, alertOnly: true });
         } finally {
@@ -443,7 +488,7 @@ export default function CatalogTacticalSites({ session }) {
               </option>
               {groups.map((g) => (
                 <option key={g.id} value={g.id}>
-                  {g.name} ({g.siteCount || 0})
+                  {g.name} ({siteCountForGroup(sites, g.id)})
                 </option>
               ))}
             </select>

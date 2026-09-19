@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { canDispatch, canManageUsers, fetchGroups, fetchLiveKitStatus } from '../api';
 import { ThemeToggle } from '../theme';
-import { usePtt } from '../usePtt';
+import { usePtt, pttUsesLatch } from '../usePtt';
 import { useGpsReporter } from '../useGpsReporter';
 import ChatInbox from '../ChatInbox';
 import ChannelMultiSelect from '../ChannelMultiSelect';
@@ -345,17 +345,31 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   useEffect(() => {
     /* En despacho el Espacio lo maneja DispatchLayout (todas las pestañas) */
     if (embedded) return undefined;
+    const latch = pttUsesLatch(session.user);
     const onKeyDown = (e) => {
       if (e.code !== 'Space' || e.repeat) return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       e.preventDefault();
-      ptt.toggle();
+      if (latch) {
+        ptt.toggle();
+      } else {
+        ptt.press();
+      }
+    };
+    const onKeyUp = (e) => {
+      if (e.code !== 'Space') return;
+      if (latch) return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      e.preventDefault();
+      ptt.release();
     };
     window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
     };
-  }, [embedded, ptt.toggle]);
+  }, [embedded, ptt.toggle, ptt.press, ptt.release, session.user]);
 
   const speakerLabel = radioSpeakerStatusLabel({
     listenMuted: ptt.listenMuted,
@@ -636,8 +650,21 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
               type="button"
               className={`ptt-btn radio-ptt ${ptt.holding ? 'holding' : ''}`}
               disabled={!ready}
-              onPointerDown={() => {
+              onPointerDown={(e) => {
                 unlockMediaAudio(() => ptt.unlockAudio?.()).catch(() => {});
+                if (!pttUsesLatch(session.user) && e.button === 0) {
+                  e.preventDefault();
+                  ptt.press();
+                }
+              }}
+              onPointerUp={(e) => {
+                if (!pttUsesLatch(session.user) && e.button === 0) {
+                  e.preventDefault();
+                  ptt.release();
+                }
+              }}
+              onPointerCancel={() => {
+                if (!pttUsesLatch(session.user)) ptt.release();
               }}
               onClick={async (e) => {
                 e.preventDefault();
@@ -646,14 +673,32 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                 } catch {
                   /* gesto ya liberó autoplay en la mayoría de casos */
                 }
-                ptt.toggle();
+                if (pttUsesLatch(session.user)) ptt.toggle();
               }}
               onContextMenu={(e) => e.preventDefault()}
               aria-pressed={ptt.holding}
-              title={ptt.holding ? 'Toca o Espacio para soltar' : 'Toca o Espacio para hablar'}
+              title={
+                ptt.holding
+                  ? pttUsesLatch(session.user)
+                    ? 'Toca o Espacio para soltar'
+                    : 'Suelta para dejar de transmitir'
+                  : pttUsesLatch(session.user)
+                    ? 'Toca o Espacio para hablar'
+                    : 'Mantén pulsado o Espacio para hablar'
+              }
             >
               <span className="ptt-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
-              <span className="ptt-sub">{ready ? (ptt.holding ? 'soltar' : 'tocar') : '…'}</span>
+              <span className="ptt-sub">
+                {ready
+                  ? pttUsesLatch(session.user)
+                    ? ptt.holding
+                      ? 'soltar'
+                      : 'tocar'
+                    : ptt.holding
+                      ? 'suelta'
+                      : 'mantén'
+                  : '…'}
+              </span>
             </button>
           </div>
 

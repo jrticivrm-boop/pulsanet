@@ -1,5 +1,5 @@
-name: tacticalptx_mobile
-description: "TacticalPtx — app móvil PTT táctica"
+﻿name: tacticalptx_mobile
+description: "SICOM â€” Sistema de Comunicaciones para Operaciones Militares"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.8.84+94
+version: 1.8.167+177
 
 environment:
   sdk: ^3.11.5
@@ -63,6 +63,8 @@ dependencies:
   audio_session: ^0.1.25
   vibration: 3.2.0
   google_fonts: ^8.2.1
+  flutter_map: ^8.3.2
+  latlong2: ^0.10.1
 
 dev_dependencies:
   flutter_test:
@@ -80,10 +82,10 @@ flutter_launcher_icons:
   android: true
   ios: true
   remove_alpha_ios: true
-  image_path: assets/brand/tacticalptx.png
-  adaptive_icon_background: "#243D20"
-  adaptive_icon_foreground: assets/brand/tacticalptx.png
-  adaptive_icon_foreground_inset: 12
+  image_path: assets/brand/sicom_round.png
+  adaptive_icon_background: "#0A0A0A"
+  adaptive_icon_foreground: assets/brand/sicom_round.png
+  adaptive_icon_foreground_inset: 8
   min_sdk_android: 21
 
 # For information on the generic Dart part of this file, see the
@@ -99,9 +101,16 @@ flutter:
 
   assets:
     - assets/brand/tacticalptx.png
+    - assets/brand/sicom.png
+    - assets/brand/sicom_round.png
+    - assets/brand/sicom_splash.png
+    - assets/geo/ivRmStates.json
     - assets/certs/lan-cert.pem
     - assets/sounds/panic_siren.wav
     - assets/sounds/tactical_msg.wav
+    - assets/sounds/nudge_buzz.wav
+    - assets/sounds/ptt_press.wav
+    - assets/sounds/ptt_release.wav
 
   # To add assets to your application, add an assets section, like this:
   # assets:

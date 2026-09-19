@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { resolveDropdownPortalHost } from './dropdownPortalHost.js';
+import {
+  claimMsPanel,
+  createMsPanelId,
+  msPanelWidthFromTrigger,
+  subscribeMsPanelExclusive,
+} from './exclusiveMsPanel.js';
 import { fetchTacticalSiteGroups, fetchTacticalSites } from '../api';
 import { useTacticalGroupIconBlobs } from './TacticalSitesLayer.jsx';
 
 const VIS_KEY = 'tacticalptx_tactical_site_layers';
+const TACTICAL_SITES_CHANGED = 'tacticalptx:tactical-sites-changed';
 
 function loadVisible(groupIds) {
   try {
@@ -50,12 +58,13 @@ function TacticalSitesMultiSelect({ groups, visibleGroupIds, onToggle }) {
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const panelRef = useRef(null);
+  const panelIdRef = useRef(createMsPanelId('sites'));
 
   const placePanel = useCallback(() => {
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const width = Math.max(r.width, 180);
+    const width = msPanelWidthFromTrigger(el, { minWidth: 180, preferMin: 180 });
     let left = r.left;
     const maxLeft = window.innerWidth - width - 8;
     if (left > maxLeft) left = Math.max(8, maxLeft);
@@ -64,9 +73,14 @@ function TacticalSitesMultiSelect({ groups, visibleGroupIds, onToggle }) {
       top: Math.round(r.bottom + 4),
       left: Math.round(left),
       width: Math.round(width),
-      zIndex: 20000,
+      zIndex: 20050,
     });
   }, []);
+
+  useEffect(() => subscribeMsPanelExclusive(panelIdRef.current, () => setOpen(false)), []);
+  useEffect(() => {
+    if (open) claimMsPanel(panelIdRef.current);
+  }, [open]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -104,10 +118,7 @@ function TacticalSitesMultiSelect({ groups, visibleGroupIds, onToggle }) {
 
   const label = summaryLabel(groups, visibleGroupIds);
 
-  const panelHost =
-    typeof document !== 'undefined'
-      ? document.querySelector('.cc-shell') || document.body
-      : null;
+  const panelHost = resolveDropdownPortalHost(triggerRef.current || rootRef.current);
 
   const panel =
     open && panelStyle && panelHost
@@ -185,6 +196,14 @@ export function useTacticalSites(token) {
 
   useEffect(() => {
     reload();
+  }, [reload]);
+
+  useEffect(() => {
+    const onChanged = () => {
+      reload();
+    };
+    window.addEventListener(TACTICAL_SITES_CHANGED, onChanged);
+    return () => window.removeEventListener(TACTICAL_SITES_CHANGED, onChanged);
   }, [reload]);
 
   const toggleGroup = useCallback(

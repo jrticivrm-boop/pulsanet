@@ -39,6 +39,38 @@ EdgeInsets chatBubbleOuterPadding({
   );
 }
 
+/// Umbral de swipe → responder (fracción del ancho del hijo).
+/// Flutter default ≈ 0.4; valor bajo = recorrido corto (estilo WhatsApp).
+const double kChatSwipeReplyThreshold = 0.16;
+
+/// Deslizar a la derecha para responder; no elimina el mensaje (`confirmDismiss` → false).
+Widget wrapChatSwipeReply({
+  required Key key,
+  required Widget child,
+  required VoidCallback onReply,
+}) {
+  return Dismissible(
+    key: key,
+    direction: DismissDirection.startToEnd,
+    dismissThresholds: const {
+      DismissDirection.startToEnd: kChatSwipeReplyThreshold,
+    },
+    movementDuration: const Duration(milliseconds: 160),
+    confirmDismiss: (_) async {
+      onReply();
+      return false;
+    },
+    background: const Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: EdgeInsets.only(left: 10),
+        child: Icon(Icons.reply, color: kInstOlive, size: 22),
+      ),
+    ),
+    child: child,
+  );
+}
+
 double chatBubbleMinWidth({required bool showMeta}) => showMeta ? 68 : 0;
 
 Widget chatBubbleFramedContent({

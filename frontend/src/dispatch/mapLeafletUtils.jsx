@@ -175,6 +175,7 @@ export function MapWorldFillMinZoom() {
   const map = useMap();
   useEffect(() => {
     const world = L.latLngBounds(MAP_WORLD_BOUNDS);
+    let debounceId = 0;
     const apply = () => {
       try {
         map.invalidateSize({ animate: false });
@@ -195,26 +196,31 @@ export function MapWorldFillMinZoom() {
         /* ignore */
       }
     };
+    const schedule = () => {
+      window.clearTimeout(debounceId);
+      debounceId = window.setTimeout(apply, 80);
+    };
     apply();
     const t = window.setTimeout(apply, 100);
     const host = map.getContainer();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => apply()) : null;
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
     if (host) ro?.observe(host);
     const parent = host?.parentElement;
     if (parent && parent !== host) ro?.observe(parent);
-    window.addEventListener('resize', apply);
-    document.addEventListener('fullscreenchange', apply);
+    window.addEventListener('resize', schedule);
+    document.addEventListener('fullscreenchange', schedule);
     return () => {
       window.clearTimeout(t);
+      window.clearTimeout(debounceId);
       ro?.disconnect();
-      window.removeEventListener('resize', apply);
-      document.removeEventListener('fullscreenchange', apply);
+      window.removeEventListener('resize', schedule);
+      document.removeEventListener('fullscreenchange', schedule);
     };
   }, [map]);
   return null;
 }
 
-/** Cursor visible sobre tiles, marcadores y al arrastrar (grab falla en algunos Windows). */
+/** Flecha en hover; move al pan (grab de Leaflet falla en algunos Windows). */
 export function MapCursorFix() {
   const map = useMap();
   useEffect(() => {

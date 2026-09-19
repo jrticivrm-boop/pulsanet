@@ -115,9 +115,16 @@ export function esMsg(raw, fallback = 'Ocurrió un error') {
 }
 
 export function esDeniedReason(reason) {
-  const r = String(reason || '').toLowerCase();
+  const raw = String(reason || '').trim();
+  const r = raw.toLowerCase();
   if (r === 'listen_only' || /solo escucha|listen.?only|sin ptt/i.test(r)) {
     return 'Solo escucha — sin PTT en este canal';
+  }
+  if (/canal tomado por/i.test(raw)) {
+    return raw;
+  }
+  if (/ocupado por/i.test(raw)) {
+    return `Canal ${raw} — suelta y espera`;
   }
   if (r === 'ocupado' || /busy|occupied|in use/i.test(r)) {
     return 'Canal ocupado — suelta y espera';

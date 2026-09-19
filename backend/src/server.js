@@ -1,5 +1,5 @@
 /**
- * TacticalPtx API — punto de entrada HTTP + Socket.IO
+ * SICOM API — punto de entrada HTTP + Socket.IO
  *
  * Secciones:
  *  - Config / TLS / Express (helmet, CORS, rate-limit, lockdown)
@@ -94,6 +94,17 @@ app.use(
     max: config.rateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
+    /**
+     * Por IP, todo el NAT (consola + flota APK) compartía un cupo → 429 en mapa.
+     * Con Bearer, cupo por prefijo de token (sesión).
+     */
+    keyGenerator: (req) => {
+      const auth = String(req.headers.authorization || '');
+      if (auth.length > 20 && /^Bearer\s+/i.test(auth)) {
+        return `b:${auth.slice(0, 48)}`;
+      }
+      return req.ip || req.socket?.remoteAddress || 'unknown';
+    },
     // Salud y OTA tienen su propio control; no gastar el cupo global (NAT).
     skip: (req) => {
       const p = req.path || '';
@@ -227,11 +238,11 @@ async function start() {
   const scheme = tlsOptions ? 'https' : 'http';
   bindIntrusionIo(io);
   bindSessionIo(io);
-  // Bind IPv4 explícito: Caddy (API_UPSTREAM=https://127.0.0.1:4000) falla con
-  // connection refused si Node solo queda en :: (IPv6) tras reinicios/watch.
-  server.listen(config.port, '0.0.0.0', () => {
+  // Bind: production/publico → 127.0.0.1 (Caddy upstream). Dev: 0.0.0.0 o LISTEN_HOST.
+  const listenHost = config.listenHost || '127.0.0.1';
+  server.listen(config.port, listenHost, () => {
     console.log(
-      `TacticalPtx API v${config.version} [${config.nodeEnv}] → ${scheme}://0.0.0.0:${config.port}`
+      `SICOM API v${config.version} [${config.nodeEnv}] → ${scheme}://${listenHost}:${config.port}`
     );
     console.log(`  Health: GET /api/health`);
     console.log(`  Root →  ${config.webPublicUrl}`);

@@ -16,8 +16,7 @@ String esMsg(Object? raw, [String fallback = 'Ocurrió un error']) {
     return 'Sin conexión con el servidor. Revisa Wi‑Fi o la IP de la API.';
   }
   if (RegExp(r'timeout|timed out|timeoutexception', caseSensitive: false).hasMatch(s)) {
-    return 'Sin respuesta del servidor. Instala la APK más reciente '
-        '(el host pudo cambiar) o revisa la red.';
+    return 'Sin respuesta del servidor. Revisa Wi‑Fi/datos o que el servidor esté encendido.';
   }
   if (RegExp(r'unauthorized|jwt|token expired|invalid token', caseSensitive: false).hasMatch(s)) {
     return 'Sesión vencida. Vuelve a iniciar sesión.';

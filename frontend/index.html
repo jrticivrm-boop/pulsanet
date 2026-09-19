@@ -6,23 +6,41 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#243d20" />
+    <meta name="theme-color" content="#0a0a0a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="TacticalPtx" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SICOM" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <title>TacticalPtx — Radio PTT</title>
-    <link rel="icon" type="image/png" href="/brand/tacticalptx.png" />
-    <link rel="apple-touch-icon" href="/brand/tacticalptx_round.png" />
-    <link rel="apple-touch-icon" href="/brand/tacticalptx.png" />
+    <title>SICOM — Sistema de Comunicaciones para Operaciones Militares</title>
+    <link rel="icon" type="image/png" href="/brand/sicom_round.png" />
+    <link rel="apple-touch-icon" href="/brand/sicom_round.png" />
+    <link rel="apple-touch-icon" href="/brand/sicom.png" />
     <script>
       (function () {
         try {
           var t = localStorage.getItem('tacticalptx_theme');
-          if (t !== 'light' && t !== 'dark') {
-            t = 'light';
+          /* Legacy `dark`/`oscuro` = HUD oliva → verde; nuevo obscuro = PV */
+          if (t === 'dark' || t === 'oscuro') t = 'verde';
+          if (t !== 'light' && t !== 'verde' && t !== 'obscuro') t = 'light';
+          if (localStorage.getItem('tacticalptx_theme') !== t) {
+            try {
+              localStorage.setItem('tacticalptx_theme', t);
+            } catch (e2) {}
           }
           document.documentElement.setAttribute('data-theme', t);
+          /* Favicon Obscuro = Tactical 4 (antes de hidratar React). */
+          if (t === 'obscuro') {
+            var iconHref = '/brand/tactical_favicon_obscuro.png?v=1';
+            var icon = document.querySelector('link[rel="icon"]');
+            if (icon) icon.href = iconHref;
+            var apples = document.querySelectorAll('link[rel="apple-touch-icon"]');
+            for (var i = 0; i < apples.length; i++) {
+              var h = apples[i].getAttribute('href') || '';
+              if (h.indexOf('sicom_round') !== -1 || h.indexOf('tactical_favicon_obscuro') !== -1) {
+                apples[i].href = '/brand/tactical_favicon_obscuro.png';
+              }
+            }
+          }
         } catch (e) {}
       })();
     </script>

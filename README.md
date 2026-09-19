@@ -1,6 +1,8 @@
-# TacticalPtx
+# SICOM — Sistema de Comunicaciones para Operaciones Militares
 
-**Producto:** TacticalPtx  
+_(antes TacticalPtx)_
+
+**Producto:** SICOM  
 **Carpeta del programa:** `C:\pulsanet` (UI: `frontend\` :5173). Worktree desarrollo: `C:\pulsanet-dev` (UI: `frontend\` :5273). Auxiliar opcional: `C:\pulsanet_soporte`.  
 Detalle: [docs/UBICACION_PROYECTO.md](docs/UBICACION_PROYECTO.md) · [docs/SOPORTE.md](docs/SOPORTE.md)
 

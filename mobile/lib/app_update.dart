@@ -31,8 +31,8 @@ class AppUpdateService {
   AppUpdateService._();
 
   static const _channel = MethodChannel('com.tacticalptx.app/installer');
-  /// Timeout corto: no dejar la app colgada en "Descargando configuracion...".
-  static const _timeout = Duration(seconds: 3);
+  /// Timeout corto: el chequeo OTA ya no bloquea el splash de arranque.
+  static const _timeout = Duration(seconds: 2);
 
   /// Textos de estado neutrales (sin marcas de terceros ni mojibake UTF-8).
   static String _publicStatus(String? raw, {String fallback = 'Actualizando...'}) {
@@ -49,9 +49,12 @@ class AppUpdateService {
     return t;
   }
 
+  /// [onUpdateAvailable] se llama apenas se detecta versión nueva (antes de bajar).
   /// [onStatus] mensaje + progreso 0..1 o null si indeterminado.
   static Future<AppUpdateOutcome> checkAndApply({
     required void Function(String message, double? progress) onStatus,
+    void Function({required bool force, required String message})?
+        onUpdateAvailable,
   }) async {
     onStatus('Descargando configuracion...', null);
 
@@ -93,6 +96,7 @@ class AppUpdateService {
       return const AppUpdateOutcome(blocked: false);
     }
 
+    onUpdateAvailable?.call(force: force, message: message);
     onStatus(message, 0);
     try {
       final file = await _downloadApk(

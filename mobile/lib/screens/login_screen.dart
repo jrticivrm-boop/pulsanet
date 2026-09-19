@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../api_client.dart';
 import '../config.dart';
+import '../duckdns_hairpin.dart';
 import '../es_msg.dart';
 import '../theme.dart';
 
@@ -45,9 +46,24 @@ class _LoginScreenState extends State<LoginScreen>
     });
     try {
       if (_showServer) {
-        await AppConfig.setApiBaseOverride(_server.text.trim());
+        final raw = _server.text.trim();
+        // Vacío = volver al DuckDNS del build (quita override LAN pegado).
+        await AppConfig.setApiBaseOverride(raw.isEmpty ? null : raw);
       }
-      await widget.api.login(_username.text.trim().toLowerCase(), _password.text);
+      await DuckDnsHairpin.clear(forgetPrefs: false);
+      try {
+        await DuckDnsHairpin.ensure()
+            .timeout(const Duration(milliseconds: 2500));
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _server.text = AppConfig.apiBaseUrl;
+        });
+      }
+      await widget.api.login(
+        _username.text.trim().toLowerCase(),
+        _password.text,
+      );
       _password.clear();
       widget.onLoggedIn();
     } catch (e) {
@@ -84,15 +100,13 @@ class _LoginScreenState extends State<LoginScreen>
             const DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
                   colors: [
-                    Color(0xFF2A4726),
-                    kInstOlive,
-                    kInstOliveDeep,
-                    Color(0xFF121C14),
+                    Color(0xFF1A2418),
+                    Color(0xFF152017),
+                    Color(0xFF101510),
                   ],
-                  stops: [0, 0.35, 0.72, 1],
                 ),
               ),
             ),
@@ -132,65 +146,29 @@ class _LoginScreenState extends State<LoginScreen>
                             Center(
                               child: Column(
                                 children: [
-                                  Container(
-                                    width: 88,
-                                    height: 88,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(22),
-                                      border: Border.all(
-                                        color: kInstGoldSoft.withValues(alpha: 0.7),
-                                        width: 2,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.35),
-                                          blurRadius: 24,
-                                          offset: const Offset(0, 10),
-                                        ),
-                                      ],
-                                    ),
-                                    clipBehavior: Clip.antiAlias,
-                                    child: Image.asset(
-                                      'assets/brand/tacticalptx.png',
-                                      fit: BoxFit.cover,
-                                    ),
+                                  // Logotipo completo sin caja negra ni recorte.
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final w = constraints.maxWidth.clamp(
+                                        0.0,
+                                        360.0,
+                                      );
+                                      return Image.asset(
+                                        'assets/brand/sicom.png',
+                                        width: w,
+                                        fit: BoxFit.contain,
+                                        filterQuality: FilterQuality.high,
+                                      );
+                                    },
                                   ),
-                                  const SizedBox(height: 16),
-                                  Text.rich(
-                                    TextSpan(
-                                      style: TacticalFonts.display(
-                                        fontSize: 36,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.4,
-                                        height: 1.02,
-                                      ),
-                                      children: const [
-                                        TextSpan(
-                                          text: 'Tactical',
-                                          style: TextStyle(color: kInstOnPrimary),
-                                        ),
-                                        TextSpan(
-                                          text: 'Ptx',
-                                          style: TextStyle(color: kInstGoldSoft),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Container(
-                                    padding: const EdgeInsets.only(bottom: 4),
-                                    decoration: const BoxDecoration(
-                                      border: Border(
-                                        bottom: BorderSide(color: kInstGold, width: 2),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      'RADIO INSTITUCIONAL',
-                                      style: TacticalFonts.label(
-                                        color: kInstGoldSoft,
-                                        letterSpacing: 2.2,
-                                        fontSize: 11,
-                                      ),
+                                  const SizedBox(height: 18),
+                                  Text(
+                                    'Sistema de Comunicaciones\npara Operaciones Militares',
+                                    textAlign: TextAlign.center,
+                                    style: TacticalFonts.label(
+                                      color: kInstGoldSoft,
+                                      letterSpacing: 1.2,
+                                      fontSize: 11,
                                     ),
                                   ),
                                   const SizedBox(height: 10),
@@ -336,7 +314,8 @@ class _LoginScreenState extends State<LoginScreen>
                                               controller: _server,
                                               decoration: const InputDecoration(
                                                 labelText: 'URL del servidor',
-                                                hintText: 'https://pulsanet.duckdns.org',
+                                                hintText:
+                                                    'https://192.168.1.77 o DuckDNS',
                                                 prefixIcon: Icon(Icons.dns_outlined),
                                               ),
                                               keyboardType: TextInputType.url,
@@ -368,6 +347,17 @@ class _LoginScreenState extends State<LoginScreen>
                                                 ),
                                               ),
                                             ),
+                                            if (!_showServer) ...[
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'En 4G deja el servidor en DuckDNS. '
+                                                'En Wi‑Fi la app elige sola la IP del PC.',
+                                                style: TacticalFonts.label(
+                                                  color: kInstMuted,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ],
                                           ],
                                           const SizedBox(height: 20),
                                           FilledButton(

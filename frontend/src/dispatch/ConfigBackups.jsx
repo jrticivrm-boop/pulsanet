@@ -9,6 +9,7 @@ import {
   downloadBackupFile,
 } from '../api';
 import AppDialog from '../AppDialog.jsx';
+import { isRootUser } from '../api';
 
 function fmtFecha(iso) {
   if (!iso) return '—';
@@ -20,6 +21,7 @@ function fmtFecha(iso) {
 }
 
 export default function ConfigBackups({ session }) {
+  const isRoot = isRootUser(session.user);
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
@@ -88,15 +90,15 @@ export default function ConfigBackups({ session }) {
 
   function confirmRestore(run) {
     setDialog({
-      title: '¿Restaurar la base de datos?',
+      title: '¿Restaurar respaldo completo?',
       message:
-        'Los datos actuales (usuarios, canales, chat, GPS, etc.) se reemplazarán. Se creará un respaldo de seguridad antes.',
+        'Se reemplazarán la base de datos y la multimedia (avatares, chat, grabaciones en uploads/). Se creará un respaldo de seguridad previo (BD + multimedia). Archivos uploads actuales se conservan como uploads_pre_restore_*.',
       danger: true,
       confirmLabel: 'Continuar',
       onConfirm: () => {
         setDialog({
           title: 'Confirmar restauración',
-          message: 'Escriba RESTAURAR (mayúsculas) para confirmar.',
+          message: 'Escriba RESTAURAR (mayúsculas) para confirmar. Puede tardar si el ZIP es grande.',
           promptDefault: '',
           promptPlaceholder: 'RESTAURAR',
           promptLabel: 'Confirmación',
@@ -187,9 +189,11 @@ export default function ConfigBackups({ session }) {
         <div>
           <h1>Respaldos</h1>
           <p className="cc-hint">
-            Copia de <strong>datos</strong> (usuarios, canales, chat, ubicaciones, geocercas, pánico,
-            organigrama, etc.). El archivo <code>.zip</code> incluye <code>database.sql</code> y{' '}
-            <code>meta.json</code>. Se guarda en <code>{dirPath}</code>.
+            Copia de <strong>datos + multimedia</strong>: base PostgreSQL (usuarios, canales, chat,
+            GPS, geocercas, pánico, organigrama, etc.) y archivos bajo <code>uploads/</code>{' '}
+            (avatares, medios de chat, grabaciones, archivos de grupos/orgs). El{' '}
+            <code>.zip</code> incluye <code>database.sql</code>, <code>meta.json</code> y{' '}
+            <code>uploads/</code>. Se guarda en <code>{dirPath}</code>.
           </p>
         </div>
         <button type="button" className="cc-btn" disabled={busy} onClick={onManual}>
@@ -312,7 +316,13 @@ export default function ConfigBackups({ session }) {
                     <td>
                       <code title={b.filename}>{b.filename}</code>
                     </td>
-                    <td>{b.format === 'zip' ? 'BD + meta' : 'Solo BD (legado)'}</td>
+                    <td>
+                      {b.format === 'zip'
+                        ? b.includesMedia !== false
+                          ? 'BD + multimedia'
+                          : 'BD + meta'
+                        : 'Solo BD (legado)'}
+                    </td>
                     <td>{b.sizeLabel}</td>
                     <td>{fmtFecha(b.createdAt)}</td>
                     <td>{b.manual ? 'Manual' : 'Automático'}</td>
@@ -329,14 +339,16 @@ export default function ConfigBackups({ session }) {
                       >
                         Descargar
                       </button>
-                      <button
-                        type="button"
-                        className="cc-btn ghost"
-                        disabled={busy}
-                        onClick={() => confirmRestore(() => doRestoreNamed(b.filename))}
-                      >
-                        Restaurar
-                      </button>
+                      {isRoot && (
+                        <button
+                          type="button"
+                          className="cc-btn ghost"
+                          disabled={busy}
+                          onClick={() => confirmRestore(() => doRestoreNamed(b.filename))}
+                        >
+                          Restaurar
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="cc-btn ghost danger"
@@ -354,15 +366,21 @@ export default function ConfigBackups({ session }) {
         )}
       </section>
 
+      {isRoot && (
       <section className="cc-card cc-card--danger">
         <h2>Restaurar desde archivo</h2>
         <ul className="cc-hint">
           <li>
-            <code>.zip</code> — restaura la base completa (con respaldo de seguridad previo).
+            <code>.zip</code> — restaura BD + multimedia (reemplaza <code>uploads/</code>). Puede ser
+            grande y tardar varios minutos.
           </li>
           <li>
-            <code>.sql</code> — mismo efecto (formato legado).
+            <code>.sql</code> — solo BD (formato legado); se conservan los uploads actuales.
           </li>
+          <li>
+            Límite de subida por defecto ~2 GB (<code>BACKUP_UPLOAD_MAX_MB</code> en el servidor).
+          </li>
+          <li>Solo cuenta <strong>root</strong>. Escribe RESTAURAR para confirmar.</li>
         </ul>
         <input
           type="file"
@@ -378,6 +396,7 @@ export default function ConfigBackups({ session }) {
           Restaurar desde archivo
         </button>
       </section>
+      )}
 
       <AppDialog
         open={Boolean(dialog)}

@@ -53,9 +53,17 @@ mobile/**/flutter_export_environment.sh
 **/key.properties
 Usuario y contra.txt
 backend/uploads/
+backend/uploads_pre_restore*/
 backend/**/*.sqlite
 backend/app-updates/files/*.apk
 backend/app-updates/android.json
+
+# Credenciales de prueba / dumps locales (nunca commit)
+infra/_login.json
+infra/caddy/_login.json
+infra/caddy/_cfg_dump.json
+infra/caddy/_probe*
+infra/caddy/_routes_after.json
 
 # Secretos runtime del producto (van con la carpeta; no versionar)
 infra/secrets/

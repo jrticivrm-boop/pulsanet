@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
+import MapPttFloat from './MapPttFloat.jsx';
 import {
   MapContainer,
   TileLayer,
@@ -35,11 +35,12 @@ import {
 import { isAbsurdGpsJump } from '../gpsQuality.js';
 import { mapAvatarIcon } from './mapAvatarIcon.js';
 import PresenceMapLegend, { countPresenceLegend } from './PresenceMapLegend.jsx';
-import MapMaximizeButton from './MapMaximizeButton.jsx';
+import { MapMaximizeNearZoom } from './MapMaximizeButton.jsx';
 import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, smoothMapFocus, focusFromSearchParams, loadMapView, PersistMapView, CargoZoomGate } from './mapLeafletUtils.jsx';
-import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
+import { ClusteredLocationLayer } from './ClusteredLocationLayer.jsx';
+import { socketWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
 import {
   MAP_TILE_LAYERS,
@@ -54,6 +55,7 @@ import {
 import { TacticalSitesLayer } from './TacticalSitesLayer.jsx';
 import { useTacticalSites } from './useTacticalSites.jsx';
 import IvRmStatesLayer, { ivRmStates } from './IvRmStatesLayer.jsx';
+import IvRmStatesLegend from './IvRmStatesLegend.jsx';
 import HighlighterTrack from './HighlighterTrack.jsx';
 import {
   enabledIvRmStates,
@@ -146,15 +148,20 @@ function InvalidateOnLayout({ tick }) {
         /* ignore */
       }
     };
-    run();
-    const ids = [50, 120, 280].map((ms) => window.setTimeout(run, ms));
-    return () => ids.forEach((id) => window.clearTimeout(id));
+    // Una sola pasada tras el layout (evitar 3 invalidate seguidos = mapa “bloqueado”).
+    const id = window.setTimeout(run, 80);
+    return () => window.clearTimeout(id);
   }, [map, tick]);
   useEffect(() => {
-    const onFs = () => map.invalidateSize({ animate: false });
+    let t = 0;
+    const onFs = () => {
+      window.clearTimeout(t);
+      t = window.setTimeout(() => map.invalidateSize({ animate: false }), 80);
+    };
     document.addEventListener('fullscreenchange', onFs);
     window.addEventListener('resize', onFs);
     return () => {
+      window.clearTimeout(t);
       document.removeEventListener('fullscreenchange', onFs);
       window.removeEventListener('resize', onFs);
     };
@@ -238,6 +245,9 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
   const [locations, setLocations] = useState([]);
   const [onlineIds, setOnlineIds] = useState(new Set());
   const [offlineRedMinutes, setOfflineRedMinutes] = useState(15);
+  const [absenceMinutes, setAbsenceMinutes] = useState(15);
+  const [showAway, setShowAway] = useState(true);
+  const [showOffline, setShowOffline] = useState(true);
   const [selectedId, setSelectedId] = useState(() => initialFocus?.userId || '');
   const [follow, setFollow] = useState(true);
   const [locationPingBusy, setLocationPingBusy] = useState(false);
@@ -388,16 +398,9 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
     }
   }, []);
 
-  const enterMaximize = useCallback(async () => {
+  const enterMaximize = useCallback(() => {
+    // Solo CSS fixed (.lt-page--maximized): requestFullscreen congela el mapa ~1–2s.
     setMaximized(true);
-    const el = pageRef.current;
-    if (el?.requestFullscreen) {
-      try {
-        await el.requestFullscreen();
-      } catch {
-        /* CSS fixed fallback */
-      }
-    }
   }, []);
 
   const toggleMaximize = useCallback(() => {
@@ -454,6 +457,15 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
       setOfflineRedMinutes(
         loc.presenceOfflineRedMinutes || ov.overview?.presenceOfflineRedMinutes || 15
       );
+      if (loc.presenceAbsenceMinutes != null || ov.overview?.presenceAbsenceMinutes != null) {
+        setAbsenceMinutes(
+          Number(loc.presenceAbsenceMinutes ?? ov.overview?.presenceAbsenceMinutes) || 0
+        );
+      }
+      const sa = loc.presenceShowAway ?? ov.overview?.presenceShowAway;
+      const so = loc.presenceShowOffline ?? ov.overview?.presenceShowOffline;
+      if (sa != null) setShowAway(sa !== false);
+      if (so != null) setShowOffline(so !== false);
       setPanicUserIds(
         (() => {
           const next = new Set();
@@ -507,9 +519,10 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
     socket.on('connect', join);
     socket.on('reconnect', join);
     socket.on('disconnect', () => setLive(false));
+    const offWire = applyDispatchJoinedWire(socket);
     socket.on('dispatch:location', (payload) => {
       void (async () => {
-        const loc = await unwrapDispatchPayload(payload, sessionWireKey(session));
+        const loc = await unwrapDispatchPayload(payload, socketWireKey(socket, session));
         if (!loc?.userId) return;
         const allowed = scopeMemberIdsRef.current;
         if (allowed && !allowed.has(loc.userId)) return;
@@ -544,7 +557,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
     socket.on('dispatch:presence', () => reload());
     socket.on('dispatch:panic', (raw) => {
       void (async () => {
-        const payload = await unwrapDispatchPayload(raw, sessionWireKey(session));
+        const payload = await unwrapDispatchPayload(raw, socketWireKey(socket, session));
         const uid = payload?.userId;
         if (!uid) return;
         if (payload.id) panicIdToUserRef.current.set(payload.id, uid);
@@ -558,7 +571,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
     });
     socket.on('dispatch:panic_update', (raw) => {
       void (async () => {
-        const payload = await unwrapDispatchPayload(raw, sessionWireKey(session));
+        const payload = await unwrapDispatchPayload(raw, socketWireKey(socket, session));
         if (!payload?.id) return;
         if (payload.status === 'acked' || payload.status === 'active') {
           const uid = payload.userId || panicIdToUserRef.current.get(payload.id);
@@ -589,10 +602,11 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
       })();
     });
     return () => {
+      offWire();
       socket.emit('dispatch:leave');
       socket.disconnect();
     };
-  }, [session.token, session.crypto?.wireKey, reload]);
+  }, [session.token, reload]);
 
   // Rastro del seleccionado: se refresca solo cada ~5 s (no solo al elegir).
   useEffect(() => {
@@ -649,8 +663,16 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
   );
 
   const presenceLegendCounts = useMemo(
-    () => countPresenceLegend(people, panicUserIds, offlineRedMinutes),
-    [people, panicUserIds, offlineRedMinutes]
+    () =>
+      countPresenceLegend(
+        people,
+        panicUserIds,
+        offlineRedMinutes,
+        absenceMinutes,
+        showAway,
+        showOffline
+      ),
+    [people, panicUserIds, offlineRedMinutes, absenceMinutes, showAway, showOffline]
   );
 
   const positions = useMemo(
@@ -787,7 +809,11 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
                 focus: p.focus,
                 lastSeenAt: p.lastSeenAt,
                 recordedAt: p.recordedAt,
+                awaySince: p.awaySince,
                 offlineRedMinutes,
+                absenceMinutes,
+                showAway,
+                showOffline,
                 now,
               });
               const photo = listPhoto(p);
@@ -816,18 +842,16 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
                     </span>
                     <span
                       className={`lt-status-pill${
-                        status === 'online' || status === 'service'
+                        status === 'online'
                           ? ' on'
-                          : status === 'stale'
-                            ? ' stale'
-                            : ' off'
+                          : status === 'away'
+                            ? ' away'
+                            : status === 'stale'
+                              ? ' stale'
+                              : ' off'
                       }`}
                     >
-                      {status === 'online' || status === 'service'
-                        ? 'En línea'
-                        : status === 'stale'
-                          ? 'Fuera de línea'
-                          : 'Desconectado'}
+                      {PRESENCE_LABELS[status] || status}
                     </span>
                   </button>
                 </li>
@@ -880,7 +904,9 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
 
       <div className="lt-map-panel">
         <div className="lt-map">
-          <div className="lt-map-chrome">
+          <div
+            className={`lt-map-chrome${ivRmLegend.length ? ' lt-map-chrome--has-estados' : ''}`}
+          >
             {isPhone ? (
               <button
                 type="button"
@@ -891,7 +917,12 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
                 Capas
               </button>
             ) : null}
-            <PresenceMapLegend overlay counts={presenceLegendCounts} />
+            <PresenceMapLegend
+              overlay
+              counts={presenceLegendCounts}
+              showAway={showAway}
+              showOffline={showOffline}
+            />
             <div
               className={`lt-layers${isPhone && !filtersOpen ? ' is-drawer-closed' : ''}`}
               role="group"
@@ -912,16 +943,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
                 </button>
               ))}
             </div>
-            <MapMaximizeButton maximized={maximized} onClick={toggleMaximize} />
-            {ivRmLegend.length > 0 ? (
-              <div className="lt-state-legend" aria-label="Estados IV R.M.">
-                {ivRmLegend.map((s) => (
-                  <span key={s.id} className="lt-state-legend-item">
-                    <i style={{ background: s.color }} /> {s.name}
-                  </span>
-                ))}
-              </div>
-            ) : null}
+            <IvRmStatesLegend surface={ivRmSurface} />
           </div>
           <MapContainer
             className="lt-map-inner"
@@ -940,6 +962,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
           >
             <TileLayer key={layer} {...tileLayerProps(tile)} />
             <ZoomControl position="bottomright" />
+            <MapMaximizeNearZoom maximized={maximized} onClick={toggleMaximize} />
             <IvRmStatesLayer surface={ivRmSurface} />
             <CursorZoom />
             <MapCursorFix />
@@ -999,57 +1022,94 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
             />
           ) : null}
           <CargoZoomGate>
-            {(showCargo) =>
-              people.map((p) => {
-                const selected = p.userId === selectedId;
-                const photo = markerPhoto(p);
-                const inPanic = panicUserIds.has(p.userId);
-                const status = resolvePresenceStatus({
-                  presence: p.presence,
-                  focus: p.focus,
-                  lastSeenAt: p.lastSeenAt,
-                  recordedAt: p.recordedAt,
-                  offlineRedMinutes,
-                  now,
-                });
-                const isLive = status === 'online' || status === 'service';
-                return (
-                  <SmoothMarker
-                    key={p.userId}
-                    position={[Number(p.latitude), Number(p.longitude)]}
-                    zIndexOffset={selected ? 900 : inPanic ? 400 : isLive ? 100 : 0}
-                    icon={mapAvatarIcon({
-                      name: p.displayName,
-                      cargo: p.cargo,
-                      showCargo,
-                      presence: status,
-                      selected,
-                      photoSrc: photo,
-                      panic: inPanic,
-                    })}
-                    eventHandlers={{ click: () => focusPerson(p) }}
-                  >
-                    <Popup>
-                      <strong>{p.displayName}</strong>
-                      <br />
-                      {PRESENCE_LABELS[status] || status}
-                      <br />
-                      {gpsStatusLine(p.recordedAt, now)}
-                      {recordedAtLocal(p.recordedAt) ? (
-                        <>
-                          <br />
-                          <span style={{ opacity: 0.75, fontSize: 12 }}>
-                            {recordedAtLocal(p.recordedAt)}
-                          </span>
-                        </>
-                      ) : null}
-                      <br />
-                      <MapCoordsLink lat={p.latitude} lng={p.longitude} />
-                    </Popup>
-                  </SmoothMarker>
-                );
-              })
-            }
+            {(showCargo) => (
+              <ClusteredLocationLayer
+                points={people.map((p) => ({
+                  ...p,
+                  id: String(p.userId),
+                  lat: Number(p.latitude),
+                  lng: Number(p.longitude),
+                }))}
+                keepSeparateIds={selectedId ? [String(selectedId)] : undefined}
+                memberSliceKey={(p) => {
+                  if (panicUserIds.has(p.userId)) return 'panic';
+                  return (
+                    resolvePresenceStatus({
+                      presence: p.presence,
+                      focus: p.focus,
+                      lastSeenAt: p.lastSeenAt,
+                      recordedAt: p.recordedAt,
+                      awaySince: p.awaySince,
+                      offlineRedMinutes,
+                      absenceMinutes,
+                      showAway,
+                      showOffline,
+                      now,
+                    }) || 'offline'
+                  );
+                }}
+                renderPoint={(p) => {
+                  const selected = p.userId === selectedId;
+                  const photo = markerPhoto(p);
+                  const inPanic = panicUserIds.has(p.userId);
+                  const status = resolvePresenceStatus({
+                    presence: p.presence,
+                    focus: p.focus,
+                    lastSeenAt: p.lastSeenAt,
+                    recordedAt: p.recordedAt,
+                    awaySince: p.awaySince,
+                    offlineRedMinutes,
+                    absenceMinutes,
+                    showAway,
+                    showOffline,
+                    now,
+                  });
+                  const isLive = status === 'online' || status === 'away';
+                  return (
+                    <SmoothMarker
+                      key={p.userId}
+                      position={[Number(p.latitude), Number(p.longitude)]}
+                      zIndexOffset={selected ? 900 : inPanic ? 400 : isLive ? 100 : 0}
+                      icon={mapAvatarIcon({
+                        name: p.displayName,
+                        cargo: p.cargo,
+                        showCargo,
+                        presence: status,
+                        focus: p.focus,
+                        awaySince: p.awaySince,
+                        lastSeenAt: p.lastSeenAt,
+                        offlineRedMinutes,
+                        absenceMinutes,
+                        showAway,
+                        showOffline,
+                        selected,
+                        photoSrc: photo,
+                        panic: inPanic,
+                      })}
+                      eventHandlers={{ click: () => focusPerson(p) }}
+                    >
+                      <Popup>
+                        <strong>{p.displayName}</strong>
+                        <br />
+                        {PRESENCE_LABELS[status] || status}
+                        <br />
+                        {gpsStatusLine(p.recordedAt, now)}
+                        {recordedAtLocal(p.recordedAt) ? (
+                          <>
+                            <br />
+                            <span style={{ opacity: 0.75, fontSize: 12 }}>
+                              {recordedAtLocal(p.recordedAt)}
+                            </span>
+                          </>
+                        ) : null}
+                        <br />
+                        <MapCoordsLink lat={p.latitude} lng={p.longitude} />
+                      </Popup>
+                    </SmoothMarker>
+                  );
+                }}
+              />
+            )}
           </CargoZoomGate>
           {people.map((p) =>
             p.accuracyM > 0 ? (
@@ -1072,31 +1132,26 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
         </div>
       </div>
 
-      {maximized &&
-        ptt &&
-        createPortal(
-          <div className="lt-ptt-float" role="group" aria-label="PTT en pantalla completa">
-            <button
-              type="button"
-              className={`lt-ptt-float-btn${ptt.holding ? ' holding' : ''}`}
-              disabled={!dispatchCtx.group || !ptt.livekitReady}
-              onClick={(e) => {
-                e.preventDefault();
-                ptt.unlockAudio?.().catch(() => {});
-                ptt.toggle();
-              }}
-              onContextMenu={(e) => e.preventDefault()}
-              aria-pressed={ptt.holding}
-              title={ptt.holding ? 'Toca o Espacio para soltar' : 'Toca o Espacio para hablar'}
-            >
-              <span className="lt-ptt-float-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
-              <span className="lt-ptt-float-hint">
-                {dispatchCtx.group?.name || 'Sin canal'}
-              </span>
-            </button>
-          </div>,
-          document.body
-        )}
+      {maximized && ptt ? (
+        <MapPttFloat
+          ptt={ptt}
+          group={dispatchCtx.group}
+          groups={dispatchCtx.groups || []}
+          talkIds={dispatchCtx.talkIds || []}
+          listenIds={dispatchCtx.listenIds || []}
+          videoIds={dispatchCtx.videoIds || []}
+          alertIds={dispatchCtx.alertIds || []}
+          listenMode={dispatchCtx.listenMode}
+          talkMode={dispatchCtx.talkMode}
+          videoMode={dispatchCtx.videoMode}
+          alertMode={dispatchCtx.alertMode}
+          onTalkIdsChange={dispatchCtx.onTalkIdsChange}
+          onListenChange={dispatchCtx.onListenChange}
+          onVideoIdsChange={dispatchCtx.onVideoIdsChange}
+          onAlertIdsChange={dispatchCtx.onAlertIdsChange}
+          portalHost={pageRef.current || document.fullscreenElement || document.body}
+        />
+      ) : null}
     </div>
   );
 }

@@ -12,14 +12,17 @@ import { useIsPhone } from './useMediaQuery.js';
 import NewChatSheet from './NewChatSheet.jsx';
 import iconTelefono from './assets/icons/telefono.png';
 import iconVideollamada from './assets/icons/videollamada.png';
+import {
+  INBOX_TAB_LABELS,
+  compareByLastMessage,
+  compareContactRows,
+  loadInboxTabOrder,
+  moveInboxTab,
+  normalizeInboxTabOrder,
+  saveInboxTabOrder,
+} from './inboxTabOrder.js';
 
 const FAV_KEY = 'tacticalptx_chat_favorites';
-const TABS = [
-  { id: 'all', label: 'Todos' },
-  { id: 'unread', label: 'No leídos' },
-  { id: 'favorites', label: 'Favoritos' },
-  { id: 'groups', label: 'Grupos' },
-];
 
 function isMemberGroup(g) {
   if (typeof g?.is_member === 'boolean') return g.is_member;
@@ -79,7 +82,7 @@ function previewText(msg) {
 }
 
 /**
- * Inbox estilo WhatsApp: Todos | No leídos | Favoritos | Grupos
+ * Inbox: Contactos | Grupos | No leídos | Favoritos (chips reordenables).
  * + panel de chat (grupo o DM).
  */
 export default function ChatInbox({
@@ -95,7 +98,9 @@ export default function ChatInbox({
   scopeGroupIds: _scopeGroupIds = null,
 }) {
   // scopeGroupIds: reservado (antes filtraba por canales de radio). Inbox WA = todos los grupos miembro + DM.
-  const [tab, setTab] = useState('all');
+  const userId = session?.user?.id;
+  const [tab, setTab] = useState('contacts');
+  const [tabOrder, setTabOrder] = useState(() => loadInboxTabOrder(userId));
   const [favorites, setFavorites] = useState(loadFavorites);
   const [unread, setUnread] = useState({});
   const [dmMeta, setDmMeta] = useState({ conversations: [], contacts: [] });
@@ -103,9 +108,15 @@ export default function ChatInbox({
   const [query, setQuery] = useState('');
   const [groupVideoLive, setGroupVideoLive] = useState({});
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [dragTab, setDragTab] = useState(null);
+  const [overTab, setOverTab] = useState(null);
   const lastGroupMsgRef = useRef(null);
   const selectedRef = useRef(selected);
   const isPhone = useIsPhone();
+
+  useEffect(() => {
+    setTabOrder(loadInboxTabOrder(userId));
+  }, [userId]);
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -149,7 +160,7 @@ export default function ChatInbox({
     const contact = dmMeta.contacts.find((c) => c.id === focusPeerId);
     const name = conv?.peerName || contact?.displayName || 'Chat';
     setSelected({ kind: 'dm', id: focusPeerId, name });
-    setTab('all');
+    setTab('contacts');
     setUnread((u) => {
       const next = { ...u };
       delete next[`dm:${focusPeerId}`];
@@ -315,6 +326,20 @@ export default function ChatInbox({
     });
   }, []);
 
+  const contactMetaById = useMemo(() => {
+    const map = new Map();
+    for (const c of dmMeta.contacts || []) {
+      if (!c?.id) continue;
+      map.set(String(c.id), {
+        online: Boolean(c.online) || String(c.id) === String(userId),
+        gradeSortOrder: Number(c.gradeSortOrder) || 999999,
+        grade: c.grade || null,
+        isSelf: Boolean(c.isSelf) || String(c.id) === String(userId),
+      });
+    }
+    return map;
+  }, [dmMeta.contacts, userId]);
+
   const rows = useMemo(() => {
     const items = [];
     const chatGroups = groups.filter(isMemberGroup);
@@ -345,11 +370,15 @@ export default function ChatInbox({
       });
     }
 
-    // Conversaciones con historial + resto de contactos (como mobile / DirectChat).
-    // «Nuevo chat» sigue disponible; la lista no oculta a quien aún no tiene mensajes.
     const convPeerIds = new Set();
     for (const c of dmMeta.conversations) {
-      convPeerIds.add(c.peerId);
+      const pid = String(c.peerId);
+      convPeerIds.add(pid);
+      const meta = contactMetaById.get(pid) || {
+        online: pid === String(userId),
+        gradeSortOrder: 999999,
+        isSelf: pid === String(userId),
+      };
       items.push({
         key: `dm:${c.peerId}`,
         kind: 'dm',
@@ -361,44 +390,61 @@ export default function ChatInbox({
         unread: unread[`dm:${c.peerId}`] || 0,
         favorite: favorites.dm.includes(c.peerId),
         contactOnly: false,
+        online: meta.online,
+        gradeSortOrder: meta.gradeSortOrder,
+        isSelf: meta.isSelf,
       });
     }
 
     for (const c of dmMeta.contacts) {
-      if (!c?.id || convPeerIds.has(c.id)) continue;
+      if (!c?.id || convPeerIds.has(String(c.id))) continue;
       items.push({
         key: `dm:${c.id}`,
         kind: 'dm',
         id: c.id,
         name: c.displayName || 'Usuario',
         avatarUrl: c.avatarUrl || null,
-        preview: 'Toca para escribir',
+        preview: c.isSelf || String(c.id) === String(userId) ? 'Notas / yo mismo' : 'Toca para escribir',
         at: null,
         unread: unread[`dm:${c.id}`] || 0,
         favorite: favorites.dm.includes(c.id),
         contactOnly: true,
+        online: Boolean(c.online) || String(c.id) === String(userId),
+        gradeSortOrder: Number(c.gradeSortOrder) || 999999,
+        isSelf: Boolean(c.isSelf) || String(c.id) === String(userId),
       });
     }
 
-    items.sort((a, b) => {
-      if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
-      const ta = a.at ? new Date(a.at).getTime() : 0;
-      const tb = b.at ? new Date(b.at).getTime() : 0;
-      if (tb !== ta) return tb - ta;
-      if (Boolean(a.contactOnly) !== Boolean(b.contactOnly)) {
-        return a.contactOnly ? 1 : -1;
-      }
-      return String(a.name).localeCompare(String(b.name), 'es');
-    });
-
     return items;
-  }, [groups, group?.id, ptt?.messages, ptt?.online, ptt?.onlineByGroup, dmMeta.conversations, dmMeta.contacts, unread, favorites]);
+  }, [
+    groups,
+    group?.id,
+    ptt?.messages,
+    ptt?.online,
+    ptt?.onlineByGroup,
+    dmMeta.conversations,
+    dmMeta.contacts,
+    unread,
+    favorites,
+    contactMetaById,
+    userId,
+  ]);
 
   const filtered = useMemo(() => {
     let list = rows;
-    if (tab === 'unread') list = list.filter((r) => r.unread > 0);
-    else if (tab === 'favorites') list = list.filter((r) => r.favorite);
-    else if (tab === 'groups') list = list.filter((r) => r.kind === 'group');
+    if (tab === 'contacts') {
+      list = list.filter((r) => r.kind === 'dm');
+      list = [...list].sort(compareContactRows);
+    } else if (tab === 'groups') {
+      list = list.filter((r) => r.kind === 'group');
+      list = [...list].sort(compareByLastMessage);
+    } else if (tab === 'unread') {
+      list = list.filter((r) => r.unread > 0);
+      list = [...list].sort(compareByLastMessage);
+    } else if (tab === 'favorites') {
+      list = list.filter((r) => r.favorite);
+      list = [...list].sort(compareByLastMessage);
+    }
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter(
@@ -407,6 +453,38 @@ export default function ChatInbox({
     }
     return list;
   }, [rows, tab, query]);
+
+  const orderedTabs = useMemo(
+    () => normalizeInboxTabOrder(tabOrder).map((id) => ({ id, label: INBOX_TAB_LABELS[id] })),
+    [tabOrder]
+  );
+
+  function persistTabOrder(next) {
+    const normalized = normalizeInboxTabOrder(next);
+    setTabOrder(normalized);
+    saveInboxTabOrder(userId, normalized);
+  }
+
+  function onTabDragStart(id, e) {
+    setDragTab(id);
+    try {
+      e.dataTransfer.setData('text/plain', id);
+      e.dataTransfer.effectAllowed = 'move';
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onTabDrop(toId) {
+    if (!dragTab || dragTab === toId) {
+      setDragTab(null);
+      setOverTab(null);
+      return;
+    }
+    persistTabOrder(moveInboxTab(tabOrder, dragTab, toId));
+    setDragTab(null);
+    setOverTab(null);
+  }
 
   const totalUnread = useMemo(
     () => Object.values(unread).reduce((sum, n) => sum + (n || 0), 0),
@@ -481,14 +559,30 @@ export default function ChatInbox({
         </header>
 
         <div className="wa-inbox-tabs" role="tablist" aria-label="Filtros de chat">
-          {TABS.map((t) => (
+          {orderedTabs.map((t) => (
             <button
               key={t.id}
               type="button"
               role="tab"
               aria-selected={tab === t.id}
-              className={`wa-inbox-tab${tab === t.id ? ' active' : ''}`}
+              draggable
+              title="Arrastra para reordenar"
+              className={`wa-inbox-tab${tab === t.id ? ' active' : ''}${dragTab === t.id ? ' is-dragging' : ''}${overTab === t.id && dragTab && overTab !== dragTab ? ' is-drag-over' : ''}`}
               onClick={() => setTab(t.id)}
+              onDragStart={(e) => onTabDragStart(t.id, e)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOverTab(t.id);
+              }}
+              onDragLeave={() => setOverTab((cur) => (cur === t.id ? null : cur))}
+              onDrop={(e) => {
+                e.preventDefault();
+                onTabDrop(t.id);
+              }}
+              onDragEnd={() => {
+                setDragTab(null);
+                setOverTab(null);
+              }}
             >
               {t.label}
               {t.id === 'unread' && totalUnread > 0 && (
@@ -517,9 +611,13 @@ export default function ChatInbox({
                   ? 'Marca chats con la estrella para verlos aquí'
                   : tab === 'groups'
                     ? 'No hay grupos'
-                    : query.trim()
-                      ? 'Sin resultados'
-                      : 'Sin conversaciones. Pulsa + para iniciar un chat.'}
+                    : tab === 'contacts'
+                      ? query.trim()
+                        ? 'Sin resultados'
+                        : 'Sin contactos en tus grupos'
+                      : query.trim()
+                        ? 'Sin resultados'
+                        : 'Sin conversaciones. Pulsa + para iniciar un chat.'}
             </p>
           )}
           {filtered.map((row) => {
@@ -640,7 +738,7 @@ export default function ChatInbox({
             <div className="wa-inbox-placeholder-ico" aria-hidden="true">
               💬
             </div>
-            <h3>TacticalPtx Chat</h3>
+            <h3>Chat SICOM</h3>
             <p>
               {isPhone
                 ? 'Elige un chat o grupo de la lista, o pulsa + para escribir a alguien.'

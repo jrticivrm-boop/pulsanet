@@ -10,6 +10,7 @@ import {
   touchPrivateCall,
   persistPrivateCallLog,
   listPrivateCallHistory,
+  clearPrivateCallHistory,
   listActivePrivateCalls,
   findBusyPrivateCallForUsers,
   isPrivateCallParticipant,
@@ -98,6 +99,9 @@ function serializeCall(call) {
     status: call.status,
     callerId: call.callerId,
     callerName: call.callerName,
+    callerAvatarUrl: call.callerAvatarUrl
+      ? `/api/avatars/file/${encodeURIComponent(call.callerAvatarUrl)}`
+      : null,
     targetId: call.targetId,
     targetName: call.targetName,
     withVideo: Boolean(call.withVideo),
@@ -311,6 +315,7 @@ export function createCallsRouter(io) {
     const call = createPrivateCall({
       callerId: req.user.sub,
       callerName: req.user.displayName,
+      callerAvatarUrl: req.user.avatarUrl || null,
       targetId: peer.id,
       targetName: peer.display_name,
       mode: effectiveMode,
@@ -363,17 +368,14 @@ export function createCallsRouter(io) {
         callerName: call.callerName,
         mode: effectiveMode,
         intent: intent || '',
-      };
-      // Híbrido: bandeja del sistema (Doze/OEM). Data-only: Contestar / wake.
-      notifyUserDevices({
-        userId: peer.id,
         title: fcmTitle,
         body: fcmBody,
-        data: fcmData,
-      }).catch(() => {});
+      };
+      // Solo data-only: con payload `notification` Android muestra heads-up del sistema
+      // y NO llama al background handler → Contestar/FSI nunca corre (Galaxy Tab).
       notifyUserDevicesDataOnly({
         userId: peer.id,
-        data: { ...fcmData, title: fcmTitle, body: fcmBody, wakeOnly: '1' },
+        data: fcmData,
       }).catch(() => {});
     }
 
@@ -489,16 +491,12 @@ export function createCallsRouter(io) {
       mode: call.mode || 'call',
       intent: '',
       isInvite: 'true',
-    };
-    notifyUserDevices({
-      userId: peer.id,
       title: inviteTitle,
       body: inviteBody,
-      data: inviteData,
-    }).catch(() => {});
+    };
     notifyUserDevicesDataOnly({
       userId: peer.id,
-      data: { ...inviteData, title: inviteTitle, body: inviteBody, wakeOnly: '1' },
+      data: inviteData,
     }).catch(() => {});
 
     res.status(201).json({ ok: true, call: serializeCall(call) });
@@ -596,16 +594,31 @@ export function createCallsRouter(io) {
   router.get('/history', async (req, res) => {
     const peerId = req.query?.peerId?.toString() || null;
     const missedOnly = req.query?.missed === '1' || req.query?.missed === 'true';
+    const receivedOnly = req.query?.received === '1' || req.query?.received === 'true';
     const limit = Number(req.query?.limit) || 80;
     try {
       const history = await listPrivateCallHistory(req.user.sub, req.user.orgId, {
         limit,
         peerId,
-        missedOnly,
+        missedOnly: missedOnly && !receivedOnly,
+        receivedOnly: receivedOnly && !missedOnly,
       });
       res.json({ ok: true, history });
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message || 'Error al cargar historial' });
+    }
+  });
+
+  /** Borrar todo el registro de llamadas del usuario */
+  router.delete('/history', async (req, res) => {
+    try {
+      const deleted = await clearPrivateCallHistory(req.user.sub, req.user.orgId);
+      res.json({ ok: true, deleted });
+    } catch (e) {
+      res.status(500).json({
+        ok: false,
+        error: e.message || 'No se pudo borrar el registro',
+      });
     }
   });
 
@@ -680,16 +693,16 @@ export function createCallsRouter(io) {
       at: request.at,
     };
     io.to(`user:${peerId}`).emit('call:video_request', payload);
-    notifyUserDevices({
+    notifyUserDevicesDataOnly({
       userId: peerId,
-      title: 'Solicitud de cámara',
-      body: `${request.fromName} solicita ver tu cámara`,
       data: {
         type: 'private_video_request',
         callId: call.id,
         callerId: request.from,
         callerName: request.fromName,
         mode: call.mode || 'call',
+        title: 'Solicitud de cámara',
+        body: `${request.fromName} solicita ver tu cámara`,
       },
     }).catch(() => {});
     res.json({ ok: true, request: payload });

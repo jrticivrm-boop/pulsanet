@@ -136,7 +136,7 @@ export function createMessagesRouter(io) {
     notifyGroupMembers({
       groupId,
       excludeUserId: req.user.sub,
-      title: msg.displayName || 'TacticalPtx',
+      title: msg.displayName || 'SICOM',
       body: text.slice(0, 120),
       data: { type: 'chat', messageId: msg.id },
     }).catch(() => {});
@@ -174,7 +174,7 @@ export function createMessagesRouter(io) {
       notifyGroupMembers({
         groupId: req.params.id,
         excludeUserId: req.user.sub,
-        title: msg.displayName || 'TacticalPtx',
+        title: msg.displayName || 'SICOM',
         body: msg.sticker?.label || 'Sticker',
         data: { type: 'chat', messageId: msg.id },
       }).catch(() => {});
@@ -322,7 +322,7 @@ export function createMessagesRouter(io) {
         notifyGroupMembers({
           groupId,
           excludeUserId: req.user.sub,
-          title: msg.displayName || 'TacticalPtx',
+          title: msg.displayName || 'SICOM',
           body: caption || preview,
           data: { type: 'chat', messageId: msg.id },
         }).catch(() => {});

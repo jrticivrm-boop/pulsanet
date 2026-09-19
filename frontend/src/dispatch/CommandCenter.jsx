@@ -38,12 +38,13 @@ import {
   gpsStatusLine,
   recordedAtLocal,
 } from './liveTiming.js';
-import { sessionWireKey, unwrapDispatchPayload } from '../wireCrypto.js';
+import { sessionWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
 import { mapAvatarIcon } from './mapAvatarIcon.js';
 import PresenceMapLegend, { countPresenceLegend } from './PresenceMapLegend.jsx';
 import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, CargoZoomGate } from './mapLeafletUtils.jsx';
+import { ClusteredLocationLayer } from './ClusteredLocationLayer.jsx';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
 import {
   MAP_TILE_LAYERS,
@@ -109,6 +110,9 @@ export default function CommandCenter({ session }) {
   const [overview, setOverview] = useState(null);
   const [locations, setLocations] = useState([]);
   const [offlineRedMinutes, setOfflineRedMinutes] = useState(15);
+  const [absenceMinutes, setAbsenceMinutes] = useState(15);
+  const [showAway, setShowAway] = useState(true);
+  const [showOffline, setShowOffline] = useState(true);
   const { markerPhoto, listPhoto } = useMapAvatarPhotos(locations, session.token);
   const [geofences, setGeofences] = useState([]);
   const [events, setEvents] = useState([]);
@@ -138,8 +142,16 @@ export default function CommandCenter({ session }) {
   );
 
   const presenceLegendCounts = useMemo(
-    () => countPresenceLegend(locations, panicUserIds, offlineRedMinutes),
-    [locations, panicUserIds, offlineRedMinutes]
+    () =>
+      countPresenceLegend(
+        locations,
+        panicUserIds,
+        offlineRedMinutes,
+        absenceMinutes,
+        showAway,
+        showOffline
+      ),
+    [locations, panicUserIds, offlineRedMinutes, absenceMinutes, showAway, showOffline]
   );
 
   const channelNameById = useMemo(() => {
@@ -178,11 +190,20 @@ export default function CommandCenter({ session }) {
     else errors.push(ov.reason?.message || 'No se pudo cargar canales');
     if (loc.status === 'fulfilled') {
       setLocations((prev) => mergeLocations(prev, loc.value?.locations || []));
-      if (loc.value?.presenceOfflineRedMinutes) {
-        setOfflineRedMinutes(loc.value.presenceOfflineRedMinutes);
-      } else if (ov.status === 'fulfilled' && ov.value?.overview?.presenceOfflineRedMinutes) {
-        setOfflineRedMinutes(ov.value.overview.presenceOfflineRedMinutes);
+      if (loc.value?.presenceOfflineRedMinutes != null) {
+        setOfflineRedMinutes(Number(loc.value.presenceOfflineRedMinutes) || 0);
+      } else if (ov.status === 'fulfilled' && ov.value?.overview?.presenceOfflineRedMinutes != null) {
+        setOfflineRedMinutes(Number(ov.value.overview.presenceOfflineRedMinutes) || 0);
       }
+      if (loc.value?.presenceAbsenceMinutes != null) {
+        setAbsenceMinutes(Number(loc.value.presenceAbsenceMinutes) || 0);
+      } else if (ov.status === 'fulfilled' && ov.value?.overview?.presenceAbsenceMinutes != null) {
+        setAbsenceMinutes(Number(ov.value.overview.presenceAbsenceMinutes) || 0);
+      }
+      const sa = loc.value?.presenceShowAway ?? ov.value?.overview?.presenceShowAway;
+      const so = loc.value?.presenceShowOffline ?? ov.value?.overview?.presenceShowOffline;
+      if (sa != null) setShowAway(sa !== false);
+      if (so != null) setShowOffline(so !== false);
     } else errors.push(loc.reason?.message || 'No se pudo cargar GPS');
     if (gf.status === 'fulfilled') {
       setGeofences((gf.value?.geofences || []).filter((g) => g.isActive !== false));
@@ -222,6 +243,7 @@ export default function CommandCenter({ session }) {
       socket.emit('dispatch:join');
     });
     socket.on('disconnect', () => setLive(false));
+    const offWire = applyDispatchJoinedWire(socket);
 
     socket.on('dispatch:speaker', (p) => {
       const canal = channelNameRef.current.get(p.groupId) || 'canal';
@@ -401,10 +423,11 @@ export default function CommandCenter({ session }) {
       clearInterval(t);
       clearInterval(locPoll);
       document.removeEventListener('visibilitychange', onVis);
+      offWire();
       socket.emit('dispatch:leave');
       socket.disconnect();
     };
-  }, [session.token, session.crypto?.wireKey, reload]);
+  }, [session.token, reload]);
 
   useEffect(() => {
     if (!trackUserId) {
@@ -722,7 +745,12 @@ export default function CommandCenter({ session }) {
             </div>
           </div>
           <div className="cc-map-body">
-            <PresenceMapLegend overlay counts={presenceLegendCounts} />
+            <PresenceMapLegend
+              overlay
+              counts={presenceLegendCounts}
+              showAway={showAway}
+              showOffline={showOffline}
+            />
             <MapContainer
               center={GDL}
               zoom={12}
@@ -765,71 +793,110 @@ export default function CommandCenter({ session }) {
                 iconBlobs={iconBlobs}
               />
               <CargoZoomGate>
-                {(showCargo) =>
-                  locations.map((loc) => {
-                    const photo = markerPhoto(loc);
-                    const isSelected = selected?.userId === loc.userId;
-                    const inPanic = panicUserIds.has(loc.userId);
-                    const status = resolvePresenceStatus({
-                      presence: loc.presence,
-                      focus: loc.focus,
-                      lastSeenAt: loc.lastSeenAt,
-                      offlineRedMinutes,
-                    });
-                    const isLive = status === 'online' || status === 'service';
-                    return (
-                      <SmoothMarker
-                        key={loc.userId}
-                        position={[loc.latitude, loc.longitude]}
-                        icon={mapAvatarIcon({
-                          name: loc.displayName,
-                          cargo: loc.cargo,
-                          showCargo,
-                          presence: status,
-                          selected: isSelected,
-                          photoSrc: photo,
-                          panic: inPanic,
-                        })}
-                        zIndexOffset={isSelected ? 900 : inPanic ? 400 : isLive ? 100 : 0}
-                        eventHandlers={{
-                          click: () =>
-                            selectPerson({
-                              userId: loc.userId,
-                              name: loc.displayName,
-                              kind: 'presence',
-                              title: loc.displayName,
-                              subtitle: PRESENCE_LABELS[status] || 'Ubicación en mapa',
-                              lat: loc.latitude,
-                              lng: loc.longitude,
-                              at: loc.recordedAt,
-                            }),
-                        }}
-                      >
-                        <Popup>
-                          <strong>{loc.displayName}</strong>
-                          <br />
-                          {PRESENCE_LABELS[status] || status}
-                          <br />
-                          {gpsStatusLine(loc.recordedAt)}
-                          {recordedAtLocal(loc.recordedAt) ? (
-                            <>
-                              <br />
-                              <span style={{ opacity: 0.75, fontSize: 12 }}>
-                                {recordedAtLocal(loc.recordedAt)}
-                              </span>
-                            </>
-                          ) : null}
-                          <br />
-                          <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
-                          <br />
-                          <button type="button" onClick={() => setTrackUserId(loc.userId)}>
-                            Ver ruta (8 h)
-                          </button>
-                        </Popup>
-                      </SmoothMarker>
-                    );
-                  })
-                }
+                {(showCargo) => (
+                  <ClusteredLocationLayer
+                    points={locations.map((loc) => ({
+                      ...loc,
+                      id: String(loc.userId),
+                      lat: Number(loc.latitude),
+                      lng: Number(loc.longitude),
+                    }))}
+                    keepSeparateIds={
+                      selected?.userId ? [String(selected.userId)] : undefined
+                    }
+                    memberSliceKey={(loc) => {
+                      if (panicUserIds.has(loc.userId)) return 'panic';
+                      return (
+                        resolvePresenceStatus({
+                          presence: loc.presence,
+                          focus: loc.focus,
+                          lastSeenAt: loc.lastSeenAt,
+                          recordedAt: loc.recordedAt,
+                          awaySince: loc.awaySince,
+                          offlineRedMinutes,
+                          absenceMinutes,
+                          showAway,
+                          showOffline,
+                        }) || 'offline'
+                      );
+                    }}
+                    renderPoint={(loc) => {
+                      const photo = markerPhoto(loc);
+                      const isSelected = selected?.userId === loc.userId;
+                      const inPanic = panicUserIds.has(loc.userId);
+                      const status = resolvePresenceStatus({
+                        presence: loc.presence,
+                        focus: loc.focus,
+                        lastSeenAt: loc.lastSeenAt,
+                        recordedAt: loc.recordedAt,
+                        awaySince: loc.awaySince,
+                        offlineRedMinutes,
+                        absenceMinutes,
+                        showAway,
+                        showOffline,
+                      });
+                      const isLive = status === 'online' || status === 'away';
+                      return (
+                        <SmoothMarker
+                          key={loc.userId}
+                          position={[loc.latitude, loc.longitude]}
+                          icon={mapAvatarIcon({
+                            name: loc.displayName,
+                            cargo: loc.cargo,
+                            showCargo,
+                            presence: status,
+                            focus: loc.focus,
+                            awaySince: loc.awaySince,
+                            lastSeenAt: loc.lastSeenAt,
+                            offlineRedMinutes,
+                            absenceMinutes,
+                            showAway,
+                            showOffline,
+                            selected: isSelected,
+                            photoSrc: photo,
+                            panic: inPanic,
+                          })}
+                          zIndexOffset={isSelected ? 900 : inPanic ? 400 : isLive ? 100 : 0}
+                          eventHandlers={{
+                            click: () =>
+                              selectPerson({
+                                userId: loc.userId,
+                                name: loc.displayName,
+                                kind: 'presence',
+                                title: loc.displayName,
+                                subtitle: PRESENCE_LABELS[status] || 'Ubicación en mapa',
+                                lat: loc.latitude,
+                                lng: loc.longitude,
+                                at: loc.recordedAt,
+                              }),
+                          }}
+                        >
+                          <Popup>
+                            <strong>{loc.displayName}</strong>
+                            <br />
+                            {PRESENCE_LABELS[status] || status}
+                            <br />
+                            {gpsStatusLine(loc.recordedAt)}
+                            {recordedAtLocal(loc.recordedAt) ? (
+                              <>
+                                <br />
+                                <span style={{ opacity: 0.75, fontSize: 12 }}>
+                                  {recordedAtLocal(loc.recordedAt)}
+                                </span>
+                              </>
+                            ) : null}
+                            <br />
+                            <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
+                            <br />
+                            <button type="button" onClick={() => setTrackUserId(loc.userId)}>
+                              Ver ruta (8 h)
+                            </button>
+                          </Popup>
+                        </SmoothMarker>
+                      );
+                    }}
+                  />
+                )}
               </CargoZoomGate>
               {polyline.length > 0 && (
                 <>
@@ -1007,7 +1074,11 @@ export default function CommandCenter({ session }) {
                     <strong>{r.displayName || 'Operador'}</strong>
                     <small>
                       {r.groupName || 'Canal'}
-                      {r.durationMs != null ? ` · ${(r.durationMs / 1000).toFixed(1)} s` : ''}
+                      {r.durationMs != null
+                        ? ` · ${Math.floor(r.durationMs / 60000)}:${String(
+                            Math.floor((r.durationMs / 1000) % 60)
+                          ).padStart(2, '0')}`
+                        : ''}
                       {' · '}
                       {new Date(r.createdAt).toLocaleTimeString()}
                     </small>

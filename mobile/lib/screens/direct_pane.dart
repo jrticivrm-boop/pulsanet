@@ -15,13 +15,15 @@ import '../config.dart';
 import '../linkified_text.dart';
 import '../media_kind.dart';
 import '../message_tone.dart';
+import '../panic_vibration.dart';
 import '../push_service.dart';
 import '../chat_bubble_style.dart';
 import '../theme.dart';
 import '../user_display.dart';
 import '../audio_session_setup.dart';
 import '../widgets/chat_attach_sheet.dart';
-import '../widgets/chat_emoji_panel.dart';
+import '../widgets/chat_composer.dart';
+import '../widgets/chat_voice_bubble.dart';
 import '../widgets/tactical_backdrop.dart';
 import '../widgets/user_avatar.dart';
 import 'private_call_screen.dart';
@@ -57,7 +59,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
   String? _error;
   bool _loading = true;
   bool _uploading = false;
-  bool _showEmojiPanel = false;
+  bool _nudgeBusy = false;
   Map<String, dynamic>? _replyTo;
   Map<String, String>? _pinned;
   String? get _pinScope {
@@ -69,6 +71,9 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _draft.addListener(() {
+      if (mounted) setState(() {});
+    });
     _connectSocket();
     if (widget.threadOnly &&
         widget.initialPeerId != null &&
@@ -212,15 +217,15 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
   void _connectSocket() {
     final token = widget.api.token;
     if (token == null) return;
-    final socket = io.io(
-      AppConfig.socketUrl,
-      io.OptionBuilder()
-          .setTransports(['websocket', 'polling'])
-          .setAuth({'token': token})
-          .enableReconnection()
-          .disableAutoConnect()
-          .build(),
-    );
+    final opts = io.OptionBuilder()
+        .setTransports(['websocket', 'polling'])
+        .setAuth({'token': token})
+        .enableReconnection()
+        .disableAutoConnect()
+        .build();
+    opts['port'] = AppConfig.socketPortFor(AppConfig.apiBaseUrl);
+    opts['secure'] = AppConfig.apiBaseUrl.toLowerCase().startsWith('https');
+    final socket = io.io(AppConfig.socketUrl, opts);
     socket.onConnect((_) {
       final peerId = _peer?['id'];
       if (peerId != null) {
@@ -257,9 +262,23 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
       });
       final mid = msg['id']?.toString();
       if (mid != null && sender == peerId) {
-        playInChatMessageTone();
+        _socket?.emit('dm:delivered', {
+          'peerId': peerId,
+          'messageIds': [mid],
+        });
+        if (msg['type']?.toString() == 'nudge') {
+          // ignore: unawaited_futures
+          applyReceivedNudgeFeedback(peerId: peerId);
+        } else {
+          playInChatMessageTone();
+        }
         widget.api.markDmRead(peerId, mid).catchError((_) {});
       }
+    });
+    socket.on('dm:nudge', (_) {
+      final peerId = _peer?['id']?.toString();
+      // ignore: unawaited_futures
+      applyReceivedNudgeFeedback(peerId: peerId);
     });
     socket.on('dm:error', (data) {
       if (data is! Map) return;
@@ -416,7 +435,6 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     final peer = _peer;
     final text = _draft.text.trim();
     if (peer == null || text.isEmpty) return;
-    setState(() => _showEmojiPanel = false);
     final me = widget.api.user?['id'];
     final replySnapshot = _replyTo;
     final replyId = replySnapshot?['id']?.toString();
@@ -514,27 +532,10 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     return '$h:$m';
   }
 
-  void _toggleEmojiPanel() {
-    if (_uploading) return;
-    final open = !_showEmojiPanel;
-    setState(() => _showEmojiPanel = open);
-    if (open) {
-      _composerFocus.unfocus();
-    } else {
-      _composerFocus.requestFocus();
-    }
-  }
-
-  void _showKeyboard() {
-    setState(() => _showEmojiPanel = false);
-    _composerFocus.requestFocus();
-  }
-
   Future<void> _sendSticker(Map<String, dynamic> sticker) async {
     final peer = _peer;
     final id = sticker['id']?.toString() ?? '';
     if (peer == null || id.isEmpty || _uploading) return;
-    setState(() => _showEmojiPanel = false);
     try {
       final data = await widget.api.sendDmSticker(
         peer['id'].toString(),
@@ -554,6 +555,31 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> _sendNudge() async {
+    final peer = _peer;
+    if (peer == null || _nudgeBusy || _uploading) return;
+    setState(() => _nudgeBusy = true);
+    try {
+      final data = await widget.api.sendDmNudge(peer['id'].toString());
+      final msg = data['message'];
+      if (msg is Map && mounted) {
+        setState(() {
+          final map = Map<String, dynamic>.from(msg);
+          if (!_messages.any((m) => m['id'] == map['id'])) {
+            _messages = [..._messages, map];
+          }
+        });
+      }
+      await PanicVibration.nudge();
+      await playNudgeTone();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      if (mounted) setState(() => _nudgeBusy = false);
     }
   }
 
@@ -668,13 +694,26 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
   }
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(withData: false, type: FileType.any);
+    final result = await FilePicker.platform.pickFiles(
+      withData: false,
+      type: FileType.custom,
+      allowedExtensions: kDocumentExtensions,
+    );
     final f = result?.files.single;
     if (f?.path == null) return;
+    if (!isDocumentFile(name: f!.name)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tipo no permitido (PDF, Office, ZIP, texto…)'),
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
     final caption = await showMediaSendConfirm(
       context,
-      path: f!.path!,
+      path: f.path!,
       kind: 'file',
       filename: f.name,
       initialCaption: _draft.text.trim().isEmpty ? null : _draft.text.trim(),
@@ -683,7 +722,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     await _sendMediaFile(
       path: f.path!,
       filename: f.name,
-      type: classifyUploadName(f.name),
+      type: 'file',
       caption: caption,
     );
   }
@@ -899,6 +938,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
             url: AppConfig.publicLiveKitUrl(data['url'] as String),
             role: 'caller',
             e2eeKey: data['e2eeKey']?.toString(),
+            e2ee: data['e2ee'] == true,
             mode: isVideo ? 'video' : 'call',
           ),
         ),
@@ -1146,15 +1186,18 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                                     ? Map<String, dynamic>.from(m['sticker'] as Map)
                                     : null;
                                 final isSticker = m['type']?.toString() == 'sticker' && sticker != null;
+                                final isNudge = m['type']?.toString() == 'nudge';
                                 final body = deleted
                                     ? 'Mensaje eliminado'
-                                    : (caption?.isNotEmpty == true
-                                        ? caption!
-                                        : (isSticker
-                                            ? ''
-                                            : (mediaUrl == null
-                                                ? (mediaName ?? m['type']?.toString() ?? '')
-                                                : '')));
+                                    : isNudge
+                                        ? '¡Zumbido!'
+                                        : (caption?.isNotEmpty == true && caption != 'nudge'
+                                            ? caption!
+                                            : (isSticker
+                                                ? ''
+                                                : (mediaUrl == null
+                                                    ? (mediaName ?? m['type']?.toString() ?? '')
+                                                    : '')));
                                 final reply = m['reply'] is Map
                                     ? Map<String, dynamic>.from(m['reply'] as Map)
                                     : null;
@@ -1288,6 +1331,13 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                                                                       ? m['mediaSize'] as int
                                                                       : int.tryParse('${m['mediaSize'] ?? ''}'),
                                                                   gallery: imageGallery,
+                                                                  senderName: mine
+                                                                      ? (widget.api.user?['displayName']
+                                                                              ?.toString() ??
+                                                                          'Tú')
+                                                                      : userDisplayLabel(_peer),
+                                                                  senderId: m['senderId']?.toString(),
+                                                                  mine: mine,
                                                                 ),
                                                               ),
                                                             if (body.isNotEmpty)
@@ -1361,21 +1411,12 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                                       Flexible(
                                         child: deleted
                                             ? bubble
-                                            : Dismissible(
+                                            : wrapChatSwipeReply(
                                                 key: ValueKey('dm-swipe-$mid'),
-                                                direction: DismissDirection.startToEnd,
-                                                confirmDismiss: (_) async {
+                                                onReply: () {
                                                   setState(() => _replyTo = m);
                                                   _composerFocus.requestFocus();
-                                                  return false;
                                                 },
-                                                background: const Align(
-                                                  alignment: Alignment.centerLeft,
-                                                  child: Padding(
-                                                    padding: EdgeInsets.only(left: 12),
-                                                    child: Icon(Icons.reply, color: kInstOlive, size: 22),
-                                                  ),
-                                                ),
                                                 child: bubble,
                                               ),
                                       ),
@@ -1419,120 +1460,37 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                           ),
                         ),
                       ),
-                    Material(
-                      color: kComposerBar,
-                      elevation: 0,
-                      child: SafeArea(
-                        top: false,
-                        bottom: !_showEmojiPanel,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(4, 6, 6, 6),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              IconButton(
-                                onPressed: _uploading ? null : _openAttachMenu,
-                                icon: Icon(
-                                  _uploading ? Icons.hourglass_top : Icons.add_circle_outline,
-                                  color: kInstOlive,
-                                  size: 26,
-                                ),
-                                tooltip: 'Adjuntar',
-                              ),
-                              Expanded(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(22),
-                                    border: Border.all(color: const Color(0xFFE0E0E0)),
-                                  ),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      IconButton(
-                                        visualDensity: VisualDensity.compact,
-                                        onPressed: _uploading ? null : _toggleEmojiPanel,
-                                        icon: Icon(
-                                          _showEmojiPanel
-                                              ? Icons.keyboard_alt_outlined
-                                              : Icons.emoji_emotions_outlined,
-                                          color: kChatMeta,
-                                        ),
-                                        tooltip: _showEmojiPanel ? 'Teclado' : 'Emojis y stickers',
-                                      ),
-                                      Expanded(
-                                        child: TextField(
-                                          controller: _draft,
-                                          focusNode: _composerFocus,
-                                          autofocus: widget.initialPeerId != null,
-                                          minLines: 1,
-                                          maxLines: 5,
-                                          enabled: !_uploading,
-                                          style: const TextStyle(
-                                            fontSize: 15.5,
-                                            height: 1.3,
-                                            color: kInstInk,
-                                          ),
-                                          decoration: InputDecoration(
-                                            hintText: _uploading ? 'Subiendo…' : 'Mensaje',
-                                            hintStyle: const TextStyle(color: kChatMeta, fontSize: 15),
-                                            border: InputBorder.none,
-                                            enabledBorder: InputBorder.none,
-                                            focusedBorder: InputBorder.none,
-                                            disabledBorder: InputBorder.none,
-                                            isDense: true,
-                                            contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                                          ),
-                                          onTap: () {
-                                            if (_showEmojiPanel) {
-                                              setState(() => _showEmojiPanel = false);
-                                            }
-                                          },
-                                          onSubmitted: (_) => _send(),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Material(
-                                color: kInstOlive,
-                                shape: const CircleBorder(),
-                                elevation: 1,
-                                shadowColor: Colors.black26,
-                                child: InkWell(
-                                  customBorder: const CircleBorder(),
-                                  onTap: _uploading ? null : _send,
-                                  child: const SizedBox(
-                                    width: 46,
-                                    height: 46,
-                                    child: Icon(Icons.send_rounded, color: Colors.white, size: 22),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                    ChatComposer(
+                      api: widget.api,
+                      controller: _draft,
+                      focusNode: _composerFocus,
+                      uploading: _uploading,
+                      nudgeBusy: _nudgeBusy,
+                      onNudge: _sendNudge,
+                      autofocus: widget.initialPeerId != null,
+                      errorText: (_error != null && _peer != null) ? _error : null,
+                      onDismissError: () => setState(() => _error = null),
+                      onSendText: _send,
+                      onSendSticker: _sendSticker,
+                      onSendVoice: ({
+                        required String path,
+                        required String filename,
+                        required String mime,
+                      }) {
+                        return _sendMediaFile(
+                          path: path,
+                          filename: filename,
+                          mime: mime,
+                          type: 'audio',
+                        );
+                      },
+                      onBeforeVoiceStart: () => AudioSessionSetup.pauseForCamera(),
+                      onAfterVoiceEnd: () => AudioSessionSetup.resumeAfterCamera(),
+                      onPickCamera: () => _pickImage(ImageSource.camera),
+                      onPickGallery: () => _pickImage(ImageSource.gallery),
+                      onPickVideo: _pickVideo,
+                      onPickFile: _pickFile,
                     ),
-                    if (_showEmojiPanel)
-                      ChatEmojiPanel(
-                        api: widget.api,
-                        onRequestKeyboard: _showKeyboard,
-                        onEmoji: (e) {
-                          final t = _draft.text;
-                          final sel = _draft.selection;
-                          final start = sel.isValid ? sel.start : t.length;
-                          final end = sel.isValid ? sel.end : t.length;
-                          final next = t.replaceRange(start, end, e);
-                          _draft.value = TextEditingValue(
-                            text: next,
-                            selection: TextSelection.collapsed(offset: start + e.length),
-                          );
-                        },
-                        onSticker: _sendSticker,
-                      ),
                   ],
                 ),
               ),
@@ -1554,6 +1512,9 @@ class _DmMediaChip extends StatefulWidget {
     this.type,
     this.size,
     this.gallery = const [],
+    this.senderName = '?',
+    this.senderId,
+    this.mine = false,
   });
 
   final ApiClient api;
@@ -1563,6 +1524,9 @@ class _DmMediaChip extends StatefulWidget {
   final String? type;
   final int? size;
   final List<ChatGalleryItem> gallery;
+  final String senderName;
+  final String? senderId;
+  final bool mine;
 
   @override
   State<_DmMediaChip> createState() => _DmMediaChipState();
@@ -1608,6 +1572,15 @@ class _DmMediaChipState extends State<_DmMediaChip> {
 
   @override
   Widget build(BuildContext context) {
+    if (isAudioMedia(type: widget.type, mime: widget.mime, name: widget.name)) {
+      return ChatVoiceBubble(
+        api: widget.api,
+        mediaUrl: widget.mediaUrl,
+        senderName: widget.senderName,
+        senderId: widget.senderId,
+        mine: widget.mine,
+      );
+    }
     final video = isVideoMedia(type: widget.type, mime: widget.mime, name: widget.name);
     final image = isImageMedia(type: widget.type, mime: widget.mime, name: widget.name);
     if (image) {

@@ -12,18 +12,58 @@ import 'app_focus.dart';
 import 'call_ringtone.dart';
 import 'incoming_call_wake.dart';
 import 'message_tone.dart';
+import 'panic_vibration.dart';
 import 'remote_camera_prefs.dart';
 import 'remote_camera_wake.dart';
 import 'ringer_mode.dart';
+import 'sound_prefs.dart';
 
-const kPushChannelId = 'tacticalptx_alerts_radio';
-const kPushChannelName = 'Alertas TacticalPtx';
-/// v2: USAGE_NOTIFICATION_RINGTONE (Android no actualiza canales existentes).
-const kCallChannelId = 'tacticalptx_calls_v2';
-const kCallChannelName = 'Llamadas TacticalPtx';
-/// Chirp radio táctico (doble pip) en `res/raw/tactical_msg.wav`.
+const kPushChannelId = 'tacticalptx_alerts_v3';
+const kPushChannelName = 'Alertas SICOM';
+/// v4: sin sonido de canal — CallRingtone es la única fuente de audio.
+const kCallChannelId = 'tacticalptx_calls_v4_silent';
+const kCallChannelName = 'Llamadas SICOM';
+/// v2: Importance.max + sonido zumbido.
+const kNudgeChannelId = 'tacticalptx_nudge_v2';
+const kNudgeChannelName = 'Zumbidos SICOM';
+/// Defaults (cuando prefs no cargan).
 const kMessageSoundRaw = 'tactical_msg';
 const kMessageSoundIos = 'tactical_msg.wav';
+const kNudgeSoundRaw = 'nudge_buzz';
+const kNudgeSoundIos = 'nudge_buzz.wav';
+
+/// Canal Android v4 + sufijo de tono (Android no cambia el sonido de un id fijo).
+Future<({
+  String channelId,
+  String channelName,
+  bool playSound,
+  RawResourceAndroidNotificationSound? androidSound,
+  String? iosSound,
+})> _resolveChatNotifAudio({required bool nudge}) async {
+  final tone =
+      nudge ? await SoundPrefs.nudgeTone() : await SoundPrefs.messageTone();
+  final baseId = nudge ? 'tacticalptx_nudge_v4' : 'tacticalptx_alerts_v4';
+  final baseName = nudge ? 'Zumbidos SICOM' : 'Alertas SICOM';
+  final suffix = SoundPrefs.channelSuffix(tone);
+  if (tone == AppToneId.silent) {
+    return (
+      channelId: '${baseId}_silent',
+      channelName: '$baseName (silencio)',
+      playSound: false,
+      androidSound: null,
+      iosSound: null,
+    );
+  }
+  final raw = tone.androidRaw ?? (nudge ? kNudgeSoundRaw : kMessageSoundRaw);
+  final ios = tone.iosFileName ?? (nudge ? kNudgeSoundIos : kMessageSoundIos);
+  return (
+    channelId: '${baseId}_$suffix',
+    channelName: '$baseName (${tone.labelEs})',
+    playSound: true,
+    androidSound: RawResourceAndroidNotificationSound(raw),
+    iosSound: ios,
+  );
+}
 
 const _notifyNative = MethodChannel('com.tacticalptx.app/notifications');
 
@@ -41,6 +81,8 @@ bool _isCallPushType(String? type) {
   return type == 'private_call' ||
       type == 'private_radio' ||
       type == 'private_video' ||
+      type == 'private_call_invite' ||
+      type == 'private_video_invite' ||
       type == 'private_video_request' ||
       type == 'group_video';
 }
@@ -65,7 +107,7 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
   // Si ya viene payload `notification`, el sistema la muestra al estar killed.
   if (message.notification != null) return;
 
-  final title = message.data['title']?.toString() ?? 'TacticalPtx';
+  final title = message.data['title']?.toString() ?? 'SICOM';
   final body = message.data['body']?.toString() ?? 'Nuevo aviso';
   final isCall = _isCallPushType(type);
   final groupId = message.data['groupId']?.toString();
@@ -79,7 +121,7 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
     } else {
       payload = 'call:${callId ?? ''}';
     }
-  } else if (type == 'dm' && peerId != null) {
+  } else if ((type == 'dm' || type == 'dm_nudge') && peerId != null) {
     payload = 'peer:$peerId';
   } else {
     payload = groupId;
@@ -95,51 +137,94 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
   );
   final androidPlugin = local.resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>();
+  final nudge = type == 'dm_nudge';
+  final audio = isCall
+      ? null
+      : await _resolveChatNotifAudio(nudge: nudge);
+  final channelId = isCall
+      ? kCallChannelId
+      : (audio?.channelId ?? (nudge ? kNudgeChannelId : kPushChannelId));
+  final channelName = isCall
+      ? kCallChannelName
+      : (audio?.channelName ?? (nudge ? kNudgeChannelName : kPushChannelName));
   await androidPlugin?.createNotificationChannel(
     AndroidNotificationChannel(
-      isCall ? kCallChannelId : kPushChannelId,
-      isCall ? kCallChannelName : kPushChannelName,
-      importance: isCall ? Importance.max : Importance.high,
-      playSound: true,
+      channelId,
+      channelName,
+      description: nudge
+          ? 'Zumbidos DM'
+          : (isCall
+              ? 'Llamadas y videollamadas (timbre vía app)'
+              : 'Mensajes y alertas'),
+      importance: Importance.max,
+      playSound: isCall ? false : (audio?.playSound ?? true),
       enableVibration: true,
       audioAttributesUsage: isCall
           ? AudioAttributesUsage.notificationRingtone
           : AudioAttributesUsage.notification,
-      sound: isCall
-          ? null
-          : const RawResourceAndroidNotificationSound(kMessageSoundRaw),
+      sound: isCall ? null : audio?.androidSound,
     ),
   );
 
   final notifId = _stableId(tag ?? 'msg:${message.messageId ?? body}');
-  final callPrefs = isCall ? await incomingCallNotifPrefs() : null;
+  // Llamadas: audio solo vía CallRingtone; notificación sin segundo tono.
+  final vibrate = isCall
+      ? (await incomingCallNotifPrefs()).enableVibration
+      : true;
+  final bodyShow = nudge
+      ? ((body.isEmpty || body == 'nudge') ? '¡Zumbido!' : body)
+      : body;
   await local.show(
     notifId,
     title,
-    body,
+    bodyShow,
     NotificationDetails(
       android: AndroidNotificationDetails(
-        isCall ? kCallChannelId : kPushChannelId,
-        isCall ? kCallChannelName : kPushChannelName,
-        importance: isCall ? Importance.max : Importance.high,
-        priority: isCall ? Priority.max : Priority.high,
+        channelId,
+        channelName,
+        channelDescription: nudge
+            ? 'Zumbidos DM'
+            : (isCall
+                ? 'Llamadas y videollamadas (timbre vía app)'
+                : 'Mensajes y alertas'),
+        importance: Importance.max,
+        priority: Priority.max,
         icon: '@mipmap/ic_launcher',
         tag: tag,
-        category: isCall ? AndroidNotificationCategory.call : null,
+        category: isCall ? AndroidNotificationCategory.call : AndroidNotificationCategory.message,
         fullScreenIntent: isCall,
-        playSound: callPrefs?.playSound ?? !isCall,
-        enableVibration: callPrefs?.enableVibration ?? true,
+        visibility: NotificationVisibility.public,
+        // Galaxy/Samsung: ongoing + timeout ayuda a que FSI no quede solo heads-up.
+        ongoing: isCall,
+        autoCancel: !isCall,
+        timeoutAfter: isCall ? 55000 : null,
+        playSound: isCall ? false : (audio?.playSound ?? true),
+        enableVibration: vibrate,
         audioAttributesUsage: isCall
             ? AudioAttributesUsage.notificationRingtone
             : AudioAttributesUsage.notification,
-        sound: isCall
-            ? null
-            : const RawResourceAndroidNotificationSound(kMessageSoundRaw),
+        sound: isCall ? null : audio?.androidSound,
+        actions: isCall
+            ? <AndroidNotificationAction>[
+                const AndroidNotificationAction(
+                  'call_accept',
+                  'Contestar',
+                  showsUserInterface: true,
+                  cancelNotification: true,
+                ),
+                const AndroidNotificationAction(
+                  'call_reject',
+                  'Rechazar',
+                  cancelNotification: true,
+                ),
+              ]
+            : null,
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
-        presentSound: callPrefs?.playSound ?? true,
-        sound: isCall ? null : kMessageSoundIos,
+        presentSound: isCall ? false : (audio?.playSound ?? true),
+        sound: isCall ? null : audio?.iosSound,
+        interruptionLevel: InterruptionLevel.timeSensitive,
       ),
     ),
     payload: payload,
@@ -174,10 +259,40 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     }
   }
 
+  if (type == 'dm_nudge') {
+    try {
+      // Background: vibra aquí + suena el canal de notificación (`nudge_buzz` /
+      // kNudgeChannelId vía _showFromBackgroundMessage). NUNCA AudioPlayer /
+      // playNudgeTone / applyReceivedNudgeFeedback en este isolate — pelea el
+      // mic con WhatsApp («no se pueden grabar mensajes de voz durante una llamada»).
+      await PanicVibration.nudge();
+    } catch (e) {
+      debugPrint('FCM nudge vibrate: $e');
+    }
+  }
+
   try {
     await _showFromBackgroundMessage(message);
   } catch (e) {
     debugPrint('FCM background local: $e');
+  }
+}
+
+/// Acciones Contestar/Rechazar con app en background/killed.
+@pragma('vm:entry-point')
+void notificationActionBackground(NotificationResponse resp) {
+  final action = resp.actionId;
+  final payload = resp.payload ?? '';
+  final callId = payload.startsWith('call:') ? payload.substring(5) : payload;
+  if (callId.isEmpty) return;
+  if (action == 'call_reject') {
+    // ignore: unawaited_futures
+    IncomingCallWake.rejectFromNotification(callId);
+    return;
+  }
+  if (action == 'call_accept') {
+    // ignore: unawaited_futures
+    IncomingCallWake.persistAction(callId: callId, action: 'accept');
   }
 }
 
@@ -279,27 +394,30 @@ class PushService {
       await _local.initialize(
         const InitializationSettings(android: androidInit, iOS: iosInit),
         onDidReceiveNotificationResponse: (resp) {
-          _applyLocalPayload(resp.payload);
+          _handleLocalNotificationResponse(resp);
         },
+        onDidReceiveBackgroundNotificationResponse: notificationActionBackground,
       );
 
       // Cold start: tap de notificación local (data-only FCM → showLocal).
       final launch = await _local.getNotificationAppLaunchDetails();
-      if (launch?.didNotificationLaunchApp == true) {
-        _applyLocalPayload(
-          launch!.notificationResponse?.payload,
+      if (launch?.didNotificationLaunchApp == true &&
+          launch?.notificationResponse != null) {
+        _handleLocalNotificationResponse(
+          launch!.notificationResponse!,
           invokeCallbacks: false,
         );
       }
 
       final androidPlugin = _local.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
+      // Canales legacy (compat builds anteriores) + v4 según preferencia actual.
       await androidPlugin?.createNotificationChannel(
         const AndroidNotificationChannel(
           kPushChannelId,
           kPushChannelName,
-          description: 'Mensajes y alertas (tono SMS Nokia / Morse)',
-          importance: Importance.high,
+          description: 'Mensajes y alertas (prioridad alta)',
+          importance: Importance.max,
           playSound: true,
           enableVibration: true,
           sound: RawResourceAndroidNotificationSound(kMessageSoundRaw),
@@ -309,18 +427,63 @@ class PushService {
         const AndroidNotificationChannel(
           kCallChannelId,
           kCallChannelName,
-          description: 'Llamadas y videollamadas entrantes (timbre)',
+          description: 'Llamadas y videollamadas (timbre vía app)',
           importance: Importance.max,
-          playSound: true,
+          playSound: false,
           enableVibration: true,
           audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
         ),
       );
+      await androidPlugin?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          kNudgeChannelId,
+          kNudgeChannelName,
+          description: 'Zumbidos DM (nudge_buzz)',
+          importance: Importance.max,
+          playSound: true,
+          enableVibration: true,
+          sound: RawResourceAndroidNotificationSound(kNudgeSoundRaw),
+        ),
+      );
+      try {
+        final msgAudio = await _resolveChatNotifAudio(nudge: false);
+        await androidPlugin?.createNotificationChannel(
+          AndroidNotificationChannel(
+            msgAudio.channelId,
+            msgAudio.channelName,
+            description: 'Mensajes y alertas',
+            importance: Importance.max,
+            playSound: msgAudio.playSound,
+            enableVibration: true,
+            sound: msgAudio.androidSound,
+          ),
+        );
+        final nudgeAudio = await _resolveChatNotifAudio(nudge: true);
+        await androidPlugin?.createNotificationChannel(
+          AndroidNotificationChannel(
+            nudgeAudio.channelId,
+            nudgeAudio.channelName,
+            description: 'Zumbidos DM',
+            importance: Importance.max,
+            playSound: nudgeAudio.playSound,
+            enableVibration: true,
+            sound: nudgeAudio.androidSound,
+          ),
+        );
+      } catch (e) {
+        debugPrint('pref notification channels: $e');
+      }
       await androidPlugin?.requestNotificationsPermission();
       try {
         await androidPlugin?.requestFullScreenIntentPermission();
       } catch (e) {
         debugPrint('Full screen intent permission: $e');
+      }
+      // Samsung Tab: si el SO deniega FSI, abrir pantalla de ajustes una vez.
+      try {
+        await IncomingCallWake.ensureFullScreenIntent(openSettings: true);
+      } catch (e) {
+        debugPrint('ensureFullScreenIntent: $e');
       }
       localReady = true;
     } catch (e) {
@@ -398,6 +561,8 @@ class PushService {
     required String body,
     String? payload,
     bool isCall = false,
+    bool isNudge = false,
+    CallRingKind ringKind = CallRingKind.voice,
     String? groupId,
     String? peerId,
     String? callId,
@@ -406,16 +571,42 @@ class PushService {
     // Chat abierto en primer plano: tono tenue, sin notificación de bandeja.
     if (!isCall &&
         isViewingConversation(peerId: peerId, groupId: groupId)) {
-      await playInChatMessageTone();
+      if (isNudge) {
+        await applyReceivedNudgeFeedback(peerId: peerId);
+      } else {
+        await playInChatMessageTone();
+      }
       return;
     }
-    final channelId = isCall ? kCallChannelId : kPushChannelId;
-    final channelName = isCall ? kCallChannelName : kPushChannelName;
     final tag =
         _conversationTag(groupId: groupId, peerId: peerId, callId: callId);
     final notifId =
         _stableId(tag ?? 't:${DateTime.now().millisecondsSinceEpoch}');
     final callPrefs = isCall ? await incomingCallNotifPrefs() : null;
+    final audio =
+        isCall ? null : await _resolveChatNotifAudio(nudge: isNudge);
+    final channelId = isCall
+        ? kCallChannelId
+        : (audio?.channelId ?? (isNudge ? kNudgeChannelId : kPushChannelId));
+    final channelName = isCall
+        ? kCallChannelName
+        : (audio?.channelName ??
+            (isNudge ? kNudgeChannelName : kPushChannelName));
+    if (!isCall && audio != null) {
+      final androidPlugin = _local.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      await androidPlugin?.createNotificationChannel(
+        AndroidNotificationChannel(
+          audio.channelId,
+          audio.channelName,
+          description: isNudge ? 'Zumbidos DM' : 'Mensajes y alertas',
+          importance: Importance.max,
+          playSound: audio.playSound,
+          enableVibration: true,
+          sound: audio.androidSound,
+        ),
+      );
+    }
     await _local.show(
       notifId,
       title,
@@ -426,29 +617,47 @@ class PushService {
           channelName,
           channelDescription: isCall
               ? 'Llamadas y videollamadas entrantes (timbre)'
-              : 'Mensajes y alertas (tono SMS Nokia / Morse)',
-          importance: isCall ? Importance.max : Importance.high,
-          priority: isCall ? Priority.max : Priority.high,
+              : (isNudge ? 'Zumbidos DM' : 'Mensajes y alertas'),
+          importance: Importance.max,
+          priority: Priority.max,
           icon: '@mipmap/ic_launcher',
           tag: tag,
-          category: isCall ? AndroidNotificationCategory.call : null,
+          category: isCall
+              ? AndroidNotificationCategory.call
+              : AndroidNotificationCategory.message,
           fullScreenIntent: isCall,
-          playSound: callPrefs?.playSound ?? !isCall,
+          visibility: NotificationVisibility.public,
+          ongoing: isCall,
+          autoCancel: !isCall,
+          timeoutAfter: isCall ? 55000 : null,
+          // Llamadas: CallRingtone es la única fuente de audio (evita doble tono).
+          playSound: isCall ? false : (audio?.playSound ?? true),
           enableVibration: callPrefs?.enableVibration ?? true,
           audioAttributesUsage: isCall
               ? AudioAttributesUsage.notificationRingtone
               : AudioAttributesUsage.notification,
-          sound: isCall
-              ? null
-              : const RawResourceAndroidNotificationSound(kMessageSoundRaw),
+          sound: isCall ? null : audio?.androidSound,
+          actions: isCall
+              ? <AndroidNotificationAction>[
+                  const AndroidNotificationAction(
+                    'call_accept',
+                    'Contestar',
+                    showsUserInterface: true,
+                    cancelNotification: true,
+                  ),
+                  const AndroidNotificationAction(
+                    'call_reject',
+                    'Rechazar',
+                    cancelNotification: true,
+                  ),
+                ]
+              : null,
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
-          presentSound: callPrefs?.playSound ?? true,
-          sound: isCall ? null : kMessageSoundIos,
-          interruptionLevel: isCall
-              ? InterruptionLevel.timeSensitive
-              : InterruptionLevel.active,
+          presentSound: isCall ? false : (audio?.playSound ?? true),
+          sound: isCall ? null : audio?.iosSound,
+          interruptionLevel: InterruptionLevel.timeSensitive,
         ),
       ),
       payload: payload,
@@ -456,7 +665,7 @@ class PushService {
     // Primer plano: arrancar timbre nativo ya (la UI de Contestar también lo inicia).
     if (isCall && !appInBackground) {
       // ignore: unawaited_futures
-      CallRingtone.start();
+      CallRingtone.start(kind: ringKind);
     }
   }
 
@@ -493,6 +702,11 @@ class PushService {
       if (type == 'panic') {
         onNotificationData?.call(Map<String, dynamic>.from(msg.data));
       }
+      if (type == 'dm_nudge') {
+        // ignore: unawaited_futures
+        applyReceivedNudgeFeedback(peerId: peerId);
+        onNotificationData?.call(Map<String, dynamic>.from(msg.data));
+      }
       return;
     }
     // Llamada en primer plano: no banner; la UI Contestar ya se abrió.
@@ -501,8 +715,11 @@ class PushService {
     }
 
     final n = msg.notification;
-    final title = n?.title ?? msg.data['title']?.toString() ?? 'TacticalPtx';
-    final body = n?.body ?? msg.data['body']?.toString() ?? '';
+    final title = n?.title ?? msg.data['title']?.toString() ?? 'SICOM';
+    var body = n?.body ?? msg.data['body']?.toString() ?? '';
+    if (type == 'dm_nudge' && (body.isEmpty || body == 'nudge')) {
+      body = '¡Zumbido!';
+    }
     String? payload;
     if (isCall) {
       if (type == 'group_video' && groupId != null && groupId.isNotEmpty) {
@@ -510,7 +727,7 @@ class PushService {
       } else {
         payload = 'call:${callId ?? ''}';
       }
-    } else if (type == 'dm' && peerId != null) {
+    } else if ((type == 'dm' || type == 'dm_nudge') && peerId != null) {
       payload = 'peer:$peerId';
     } else {
       payload = groupId;
@@ -521,10 +738,50 @@ class PushService {
       body: body,
       payload: payload,
       isCall: isCall,
+      isNudge: type == 'dm_nudge',
+      ringKind: (type != null && type.contains('video')) || type == 'group_video'
+          ? CallRingKind.video
+          : CallRingKind.voice,
       groupId: groupId,
       peerId: peerId,
       callId: callId,
     );
+  }
+
+  /// Interpreta tap / Contestar / Rechazar de notificación local.
+  void _handleLocalNotificationResponse(
+    NotificationResponse resp, {
+    bool invokeCallbacks = true,
+  }) {
+    final action = resp.actionId;
+    final payload = resp.payload ?? '';
+    if (action == 'call_accept' || action == 'call_reject') {
+      final callId =
+          payload.startsWith('call:') ? payload.substring(5) : payload;
+      if (callId.isEmpty) return;
+      if (action == 'call_reject') {
+        // ignore: unawaited_futures
+        IncomingCallWake.rejectFromNotification(callId);
+        clearConversationNotifications(callId: callId);
+        return;
+      }
+      // ignore: unawaited_futures
+      IncomingCallWake.persistAction(callId: callId, action: 'accept');
+      final data = <String, dynamic>{
+        'type': 'private_call',
+        'callId': callId,
+        'autoAccept': '1',
+      };
+      pendingIncomingCall = data;
+      if (invokeCallbacks) {
+        onNotificationData?.call(data);
+      }
+      clearConversationNotifications(callId: callId);
+      // ignore: unawaited_futures
+      IncomingCallWake.bringUiToFront();
+      return;
+    }
+    _applyLocalPayload(payload, invokeCallbacks: invokeCallbacks);
   }
 
   /// Interpreta payload de notificación local (`peer:uuid` | `call:id` | groupId).
@@ -579,10 +836,13 @@ class PushService {
     if (messageId != null && messageId.isNotEmpty) {
       pendingMessageId = messageId;
     }
-    if (type == 'dm') {
+    if (type == 'dm' || type == 'dm_nudge') {
       pendingPeerId = data['peerId']?.toString();
       if (invokeCallbacks) {
-        onNotificationData?.call(data);
+        onNotificationData?.call({
+          ...data,
+          'type': 'dm',
+        });
       }
       clearConversationNotifications(peerId: pendingPeerId);
       return;
@@ -590,6 +850,8 @@ class PushService {
     if (type == 'private_call' ||
         type == 'private_radio' ||
         type == 'private_video' ||
+        type == 'private_call_invite' ||
+        type == 'private_video_invite' ||
         type == 'private_remote_camera' ||
         type == 'private_video_request') {
       pendingIncomingCall = Map<String, dynamic>.from(data);

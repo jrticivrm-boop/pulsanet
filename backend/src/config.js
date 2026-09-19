@@ -3,6 +3,8 @@ import { APP_VERSION } from './version.js';
 
 const nodeEnv = process.env.NODE_ENV || 'development';
 const isProd = nodeEnv === 'production';
+/** Dominio publico (DuckDNS/Caddy): exige mismos secretos fuertes que production. */
+const publicExposed = Boolean(String(process.env.PUBLIC_DOMAIN || '').trim());
 
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-cambiar-en-produccion';
 const weakSecrets = new Set([
@@ -34,6 +36,15 @@ function assertUnlockSecret(value) {
     );
     process.exit(1);
   }
+}
+
+if (publicExposed && !isProd) {
+  console.error(
+    'FATAL: PUBLIC_DOMAIN está definido pero NODE_ENV≠production. ' +
+      'El borde público exige production (secretos fuertes). ' +
+      'Pon NODE_ENV=production en backend/.env'
+  );
+  process.exit(1);
 }
 
 if (isProd) {
@@ -107,6 +118,28 @@ export const config = {
     process.env.RATE_LIMIT_MAX || (isProd ? '300' : '2000'),
     10
   ),
+  /**
+   * Interfaz de listen HTTP(S).
+   * Con dominio publico / production: solo loopback (Caddy hace de edge).
+   * Dev LAN: LISTEN_HOST=0.0.0.0 + TPX_FW_DEV=1.
+   * Forzar all-interfaces con edge público: TPX_LISTEN_UNSAFE=1 (no recomendado).
+   */
+  listenHost: (() => {
+    const raw = String(process.env.LISTEN_HOST || '').trim();
+    const locked = isProd || publicExposed;
+    const unsafe = process.env.TPX_LISTEN_UNSAFE === '1';
+    if (locked && !unsafe) {
+      if (raw && raw !== '127.0.0.1' && raw !== '::1') {
+        console.warn(
+          `[config] LISTEN_HOST=${raw} ignorado con production/PUBLIC_DOMAIN; usando 127.0.0.1 (TPX_LISTEN_UNSAFE=1 para anular).`
+        );
+      }
+      return '127.0.0.1';
+    }
+    if (raw) return raw;
+    if (locked) return '127.0.0.1';
+    return '0.0.0.0';
+  })(),
   /** Secreto OTA APK (header X-App-Update-Key). Obligatorio en production. */
   appUpdateSecret: (process.env.APP_UPDATE_SECRET || '').trim(),
   livekit: {

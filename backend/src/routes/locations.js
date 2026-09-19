@@ -13,7 +13,7 @@ import {
   unitInTrackScope,
 } from '../services/orgUnits.js';
 import {
-  getOrgPresenceOfflineRedMs,
+  getOrgPresenceThresholds,
   listOrgPresence,
   listPresence,
   pickBestFocus,
@@ -28,8 +28,27 @@ function toIsoUtc(value) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+function mergePresenceRow(prev, next) {
+  if (!prev) return { ...next };
+  const focus = pickBestFocus([prev.focus, next.focus]);
+  const awayCandidates = [prev, next]
+    .filter((x) => x?.awaySince != null && (x.focus === 'background' || x.focus === 'service'))
+    .map((x) => Number(x.awaySince))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  let awaySince = null;
+  if (focus === 'background' || focus === 'service') {
+    awaySince = awayCandidates.length ? Math.min(...awayCandidates) : next.awaySince || prev.awaySince || null;
+  }
+  return {
+    userId: next.userId || prev.userId,
+    displayName: next.displayName || prev.displayName,
+    focus,
+    awaySince,
+  };
+}
+
 async function buildOrgPresenceMap(orgId) {
-  /** @type {Map<string, { userId: string, displayName: string, focus: string }>} */
+  /** @type {Map<string, { userId: string, displayName: string, focus: string, awaySince?: number|null }>} */
   const presenceByUser = new Map();
   const { rows: groups } = await query(
     `SELECT id FROM groups WHERE organization_id = $1 AND is_active = TRUE`,
@@ -38,20 +57,12 @@ async function buildOrgPresenceMap(orgId) {
   for (const g of groups) {
     const members = await listPresence(g.id);
     for (const m of members) {
-      const prev = presenceByUser.get(m.userId);
-      presenceByUser.set(
-        m.userId,
-        prev ? { ...m, focus: pickBestFocus([prev.focus, m.focus]) } : m
-      );
+      presenceByUser.set(m.userId, mergePresenceRow(presenceByUser.get(m.userId), m));
     }
   }
   try {
     for (const m of await listOrgPresence(orgId)) {
-      const prev = presenceByUser.get(m.userId);
-      presenceByUser.set(
-        m.userId,
-        prev ? { ...m, focus: pickBestFocus([prev.focus, m.focus]) } : m
-      );
+      presenceByUser.set(m.userId, mergePresenceRow(presenceByUser.get(m.userId), m));
     }
   } catch {
     /* ignore */
@@ -118,7 +129,15 @@ export function createLocationsRouter(io) {
       params
     );
 
-    const offlineRedMs = await getOrgPresenceOfflineRedMs(req.user.orgId);
+    const thresholds = await getOrgPresenceThresholds(req.user.orgId);
+    const {
+      offlineRedMs,
+      absenceMs,
+      offlineRedMinutes,
+      absenceMinutes,
+      showAway,
+      showOffline,
+    } = thresholds;
     const presenceByUser = await buildOrgPresenceMap(req.user.orgId);
     const now = Date.now();
 
@@ -130,10 +149,14 @@ export function createLocationsRouter(io) {
         unitCount: scope.orgWide ? null : scope.unitIds.length,
         groupIds: rawGroupIds.length ? rawGroupIds.filter(Boolean) : null,
       },
-      presenceOfflineRedMinutes: Math.round(offlineRedMs / 60_000),
+      presenceOfflineRedMinutes: offlineRedMinutes,
+      presenceAbsenceMinutes: absenceMinutes,
+      presenceShowAway: showAway,
+      presenceShowOffline: showOffline,
       locations: rows.map((r) => {
         const online = presenceByUser.get(r.user_id);
         const focus = online?.focus || null;
+        const awaySince = online?.awaySince ?? null;
         const lastSeenAt = toIsoUtc(r.last_seen_at);
         const recordedAt = toIsoUtc(r.recorded_at);
         return {
@@ -151,11 +174,16 @@ export function createLocationsRouter(io) {
           recordedAt,
           lastSeenAt,
           focus,
+          awaySince,
           presence: resolvePresenceStatus({
             focus,
+            awaySince,
             lastSeenAt,
             recordedAt,
             offlineRedMs,
+            absenceMs,
+            showAway,
+            showOffline,
             now,
           }),
         };
@@ -165,7 +193,7 @@ export function createLocationsRouter(io) {
 
   /**
    * Ruta probable por calles entre el último fix antes de perder señal y el
-   * primero al reconectar (tramo predictivo amarillo del mapa).
+   * primero al reconectar (tramo predictivo naranja del mapa).
    * Se declara antes de `/:userId/track` por claridad (no colisionan: 1 vs 2 segmentos).
    */
   router.get('/track-gap-route', async (req, res) => {

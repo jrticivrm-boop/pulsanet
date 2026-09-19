@@ -117,12 +117,12 @@ export function registerDmHandlers(io) {
         });
         notifyUserDevices({
           userId: peer.id,
-          title: user.displayName || 'TacticalPtx',
+          title: user.displayName || 'SICOM',
           body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
           data: {
             type: 'dm',
             peerId: user.sub,
-            title: user.displayName || 'TacticalPtx',
+            title: user.displayName || 'SICOM',
             body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
           },
         }).catch(() => {});

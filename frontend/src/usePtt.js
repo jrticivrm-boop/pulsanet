@@ -22,10 +22,18 @@ import { socketAuth } from './deviceId';
 import { assertMediaDevices, createVoiceRecorder, VOICE_AUDIO_CONSTRAINTS } from './voiceRecord';
 import { playPanicAlarm, startPanicAlarm, stopPanicAlarm, unlockPanicAudio } from './panicSound';
 import { notifyBackgroundChat, notifyBackgroundPtt } from './backgroundKeepalive';
-import { playChannelFreeTone } from './appNotify';
+import { playChannelFreeTone, playPttPressTone, playPttReleaseTone, setOnAirTabIndicator } from './appNotify';
+
+let lastLocalPttReleaseAt = 0;
 import { esMsg } from './esMsg';
+import { canManageUsers } from './api';
 
 const SOCKET_URL = socketUrl();
+
+/** Admins (root/zona/unidad): latch. Operadores: hold-to-talk. */
+export function pttUsesLatch(user) {
+  return canManageUsers(user);
+}
 
 /**
  * Socket.IO (floor + presencia + chat) + LiveKit (audio).
@@ -502,7 +510,9 @@ export function usePtt({
     if (ensureLiveKitInflightRef.current) return ensureLiveKitInflightRef.current;
 
     const run = (async () => {
-      const ids = talkGroupIdsRef.current;
+      const talkIds = talkGroupIdsRef.current;
+      const listenIds = listenGroupIdsRef.current;
+      const ids = [...new Set([...talkIds, ...listenIds].filter(Boolean))];
       const tok = tokenRef.current;
       if (!tok || !ids.length) {
         setLivekitReady(false);
@@ -540,18 +550,24 @@ export function usePtt({
 
       /** @type {Error[]} */
       const errors = [];
-      for (const gid of ids) {
+      // Primero canales Hablar (PTT); luego Escuchar — no tumbar todo si falla uno.
+      const ordered = [
+        ...talkIds.filter((id) => ids.includes(id)),
+        ...listenIds.filter((id) => ids.includes(id) && !talkIds.includes(id)),
+      ];
+      for (const gid of ordered) {
         try {
           await connectTalkRoom(gid, tok);
         } catch (err) {
           errors.push(err instanceof Error ? err : new Error(String(err?.message || err)));
-          // Un canal fallido no tumba el resto (PTT multi-canal).
         }
       }
       if (!micRef.current) {
         micRef.current = [...micsByGroupRef.current.values()][0] || null;
       }
-      const ok = roomsByGroupRef.current.size > 0;
+      const ok =
+        talkIds.some((id) => roomsByGroupRef.current.has(id)) ||
+        roomsByGroupRef.current.size > 0;
       setLivekitReady(ok);
       if (ok) {
         setError(null);
@@ -709,7 +725,7 @@ export function usePtt({
       });
     });
 
-    socket.on('ptt:denied', ({ groupId, reason }) => {
+    socket.on('ptt:denied', ({ groupId, reason, speakerName }) => {
       const wait = floorWaitRef.current;
       if (!wait.requested.has(groupId) && !talkGroupIdsRef.current.includes(groupId)) {
         return;
@@ -719,14 +735,45 @@ export function usePtt({
         wait.requested.size > 0 &&
         [...wait.requested].every((id) => wait.granted.has(id) || wait.denied.has(id));
       if (wait.granted.size === 0 && allResolved) {
-        setDenied({
-          reason:
-            reason === 'listen_only' ? 'solo escucha (sin PTT)' : 'ocupado',
-        });
+        let deniedReason =
+          reason === 'listen_only' ? 'solo escucha (sin PTT)' : 'ocupado';
+        if (reason !== 'listen_only' && speakerName) {
+          deniedReason = `ocupado por ${speakerName}`;
+        }
+        setDenied({ reason: deniedReason });
         setHolding(false);
         holdingRef.current = false;
         setStatus('listening');
       }
+    });
+
+    socket.on('ptt:taken', async ({
+      groupId,
+      byDisplayName,
+      previousUserId,
+      holderSocketId,
+      reason,
+    }) => {
+      if (previousUserId !== user?.id) return;
+      // Este cliente es el que acaba de tomar el mic: no cortarse a sí mismo.
+      if (holderSocketId && socket.id && holderSocketId === socket.id) return;
+      if (!holdingRef.current && !talkGroupIdsRef.current.includes(groupId)) {
+        return;
+      }
+      holdingRef.current = false;
+      setHolding(false);
+      await muteMic();
+      floorWaitRef.current = {
+        requested: new Set(),
+        granted: new Set(),
+        denied: new Set(),
+      };
+      const msg =
+        reason === 'same_user_other_client'
+          ? 'Micrófono pasado a otra sesión tuya'
+          : `Canal tomado por ${byDisplayName || 'mando'}`;
+      setDenied({ reason: msg });
+      setStatus('listening');
     });
 
     socket.on('ptt:speaker', ({ groupId, userId, displayName, cargo }) => {
@@ -765,7 +812,10 @@ export function usePtt({
         return;
       }
       clearSpeaker(groupId);
-      playChannelFreeTone({ soft: !document.hidden });
+      // Evita doble pitido: el soltar local ya tocó playPttReleaseTone.
+      if (Date.now() - lastLocalPttReleaseAt > 450) {
+        playChannelFreeTone({ soft: !document.hidden });
+      }
       setStatus('ready');
     });
 
@@ -892,7 +942,7 @@ export function usePtt({
           focus: typeof document !== 'undefined' && document.hidden ? 'background' : 'foreground',
         });
       }
-    }, 30000);
+    }, 15000);
 
     return () => {
       cancelled = true;
@@ -977,7 +1027,13 @@ export function usePtt({
     return undefined;
   }, [talkIdsKey, listenIdsKey, presenceIdsKey, token, ensureLiveKit]);
 
-  // Quitar speakers de canales que ya no están en Escuchar/Hablar/primario.
+  // Aviso en pestaña (título + favicon) mientras el operador está al aire.
+  useEffect(() => {
+    setOnAirTabIndicator(holding);
+    return () => setOnAirTabIndicator(false);
+  }, [holding]);
+
+  // Quitar speakers de canales que ya no estén en Escuchar/Hablar/primario.
   useEffect(() => {
     const keep = new Set([
       ...resolvedTalkIds,
@@ -994,6 +1050,7 @@ export function usePtt({
     const ids = talkGroupIdsRef.current;
     if (!socketRef.current?.connected || !ids.length || holdingRef.current) return;
     unlockPanicAudio();
+    playPttPressTone();
     setDenied(null);
     floorWaitRef.current = {
       requested: new Set(ids),
@@ -1015,8 +1072,13 @@ export function usePtt({
       ...floorWaitRef.current.requested,
     ]);
     if (holdingRef.current || ids.size) {
+      const wasHolding = holdingRef.current;
       holdingRef.current = false;
       setHolding(false);
+      if (wasHolding || ids.size) {
+        lastLocalPttReleaseAt = Date.now();
+        playPttReleaseTone();
+      }
       await muteMic();
       for (const gid of ids) {
         socketRef.current.emit('ptt:release', { groupId: gid });
@@ -1335,6 +1397,7 @@ export function usePtt({
     press,
     release,
     toggle,
+    usesLatch: pttUsesLatch(user),
     postChat,
     postMedia,
     postSticker,

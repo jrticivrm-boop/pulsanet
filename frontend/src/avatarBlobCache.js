@@ -1,11 +1,13 @@
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-/** key → { full: dataUrl|null, thumb: dataUrl|null } */
+/**
+ * Cache por userId (una entrada por usuario).
+ * `avatarUrl` solo invalida si cambia (nueva foto); no se usa como clave
+ * para evitar que la llamada (sin URL) borre la foto ya cargada en el chat.
+ */
 const entries = new Map();
-
-function cacheKey(userId, avatarUrl) {
-  return `${userId}:${avatarUrl || ''}`;
-}
+/** userId → Promise en vuelo (dedupe). */
+const inflight = new Map();
 
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
@@ -52,38 +54,64 @@ export function toCircularMarkerThumb(fullDataUrl, size = 88) {
   });
 }
 
-async function loadEntry(userId, token, avatarUrl) {
-  const key = cacheKey(userId, avatarUrl);
-  if (entries.has(key)) return entries.get(key);
-
-  for (const k of [...entries.keys()]) {
-    if (!k.startsWith(`${userId}:`) || k === key) continue;
-    entries.delete(k);
-  }
-
+async function fetchUserAvatarFull(userId, token) {
   const base = API_BASE || '';
-  let full = null;
   try {
     const res = await fetch(`${base}/api/avatars/${encodeURIComponent(userId)}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (res.ok) {
-      const blob = await res.blob();
-      if (
-        blob.size > 0 &&
-        (blob.type.startsWith('image/') || blob.type === 'application/octet-stream')
-      ) {
-        full = await blobToDataUrl(blob);
-      }
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    if (
+      blob.size > 0 &&
+      (blob.type.startsWith('image/') || blob.type === 'application/octet-stream')
+    ) {
+      return blobToDataUrl(blob);
     }
   } catch {
-    full = null;
+    /* ignore */
+  }
+  return null;
+}
+
+async function loadEntry(userId, token, avatarUrl) {
+  const uid = String(userId || '');
+  if (!uid || !token) return { full: null, thumb: null, avatarUrl: '' };
+
+  const wantUrl = avatarUrl || '';
+  const existing = entries.get(uid);
+  // Reutilizar foto válida; revalidar solo si cambió avatarUrl conocido.
+  if (existing?.full) {
+    if (!wantUrl || !existing.avatarUrl || existing.avatarUrl === wantUrl) {
+      return existing;
+    }
+  }
+  // Miss cacheado sin foto: reintentar si ahora hay URL (antes no) o no hay miss reciente forzada.
+  if (existing && existing.full === null && existing.avatarUrl === wantUrl) {
+    return existing;
   }
 
-  const thumb = full ? await toCircularMarkerThumb(full) : null;
-  const entry = { full, thumb };
-  entries.set(key, entry);
-  return entry;
+  if (inflight.has(uid)) return inflight.get(uid);
+
+  const job = (async () => {
+    const full = await fetchUserAvatarFull(uid, token);
+    const thumb = full ? await toCircularMarkerThumb(full) : null;
+    const entry = { full, thumb, avatarUrl: wantUrl };
+    // No pisar una foto buena con un miss (carrera llamada vs chat).
+    const prev = entries.get(uid);
+    if (!full && prev?.full) {
+      return prev;
+    }
+    entries.set(uid, entry);
+    return entry;
+  })();
+
+  inflight.set(uid, job);
+  try {
+    return await job;
+  } finally {
+    inflight.delete(uid);
+  }
 }
 
 /** Lista lateral: foto completa. */
@@ -95,31 +123,42 @@ export async function fetchAvatarBlobUrl(userId, token, avatarUrl = '') {
 /** Marcador mapa: miniatura circular. */
 export async function fetchAvatarMarkerThumb(userId, token, avatarUrl = '') {
   const entry = await loadEntry(userId, token, avatarUrl);
-  return entry.thumb;
+  return entry.thumb ?? entry.full;
 }
 
 export function hasAvatarEntry(userId, avatarUrl = '') {
-  return entries.has(cacheKey(userId, avatarUrl));
+  const e = entries.get(String(userId || ''));
+  if (!e) return false;
+  const want = avatarUrl || '';
+  // Si hay foto, cuenta como lista (cualquier URL).
+  if (e.full) return true;
+  // Miss: solo si misma URL (evita no-reintentar cuando chat trae URL después).
+  return e.avatarUrl === want;
 }
 
 export function peekAvatarBlobUrl(userId, avatarUrl = '') {
-  const entry = entries.get(cacheKey(userId, avatarUrl));
+  void avatarUrl;
+  const entry = entries.get(String(userId || ''));
   if (!entry) return undefined;
   return entry.full;
 }
 
 export function peekAvatarMarkerThumb(userId, avatarUrl = '') {
-  const entry = entries.get(cacheKey(userId, avatarUrl));
+  void avatarUrl;
+  const entry = entries.get(String(userId || ''));
   if (!entry) return undefined;
   return entry.thumb ?? entry.full;
 }
 
 export function invalidateAvatarBlob(userId, avatarUrl = '') {
-  entries.delete(cacheKey(userId, avatarUrl));
+  void avatarUrl;
+  entries.delete(String(userId || ''));
 }
 
+/** Solo para logout / cambio de sesión. No usar al desmontar un mapa. */
 export function clearAvatarBlobCache() {
   entries.clear();
+  inflight.clear();
 }
 
 function groupCacheKey(groupId, avatarUrl) {
@@ -169,6 +208,10 @@ export function peekGroupAvatarBlobUrl(groupId, avatarUrl = '') {
   const entry = entries.get(groupCacheKey(groupId, avatarUrl));
   if (!entry) return undefined;
   return entry.full;
+}
+
+export function hasGroupAvatarEntry(groupId, avatarUrl = '') {
+  return entries.has(groupCacheKey(groupId, avatarUrl));
 }
 
 export function invalidateGroupAvatarBlob(groupId, avatarUrl = '') {

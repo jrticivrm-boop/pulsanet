@@ -2,7 +2,7 @@ import { query } from '../db.js';
 import { assertGroupMember } from './presence.js';
 import { notifyGroupMembers } from './fcm.js';
 import { insertGroupMessage } from '../socket/chat.js';
-import { packWireEvent } from './wireCrypto.js';
+import { emitWireToUserIds } from '../socket/dispatch.js';
 import { logActivity } from './activity.js';
 
 function formatPanic(row) {
@@ -27,18 +27,16 @@ function formatPanic(row) {
 
 /**
  * Consola de despacho: solo sockets de miembros del grupo (sala user:{id}).
- * No usa dispatch:track:* (esa ruta era a nivel unidad/org).
+ * Wire se sella por clave de cada socket (mint en dispatch:join).
  */
 export async function emitPanicToGroupMembers(io, eventName, payload, groupId) {
   if (!io || !groupId || !eventName) return;
-  const packed = packWireEvent(payload);
   const { rows } = await query(
     `SELECT user_id FROM group_members WHERE group_id = $1`,
     [groupId]
   );
-  for (const r of rows) {
-    io.to(`user:${r.user_id}`).emit(eventName, packed);
-  }
+  const userIds = rows.map((r) => r.user_id);
+  await emitWireToUserIds(io, eventName, payload, userIds);
 }
 
 export async function triggerPanic({

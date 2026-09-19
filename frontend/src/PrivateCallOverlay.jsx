@@ -733,6 +733,7 @@ export default function PrivateCallOverlay({
     <PersonAvatar
       userId={call.peerId}
       name={call.peerName}
+      avatarUrl={call.peerAvatarUrl}
       token={call.authToken}
       className="private-call-avatar private-call-avatar-lg solo"
     />
@@ -923,6 +924,7 @@ export default function PrivateCallOverlay({
               <PersonAvatar
                 userId={call.peerId}
                 name={call.peerName}
+                avatarUrl={call.peerAvatarUrl}
                 token={call.authToken}
                 className="private-call-mini-photo"
               />

@@ -36,8 +36,208 @@ class AvatarBytesCache {
   static void clear() => _byUrl.clear();
 }
 
+/// Visor a pantalla completa de foto de perfil / grupo (estilo WhatsApp).
+Future<void> openAvatarPreview({
+  required BuildContext context,
+  required String name,
+  String? avatarUrl,
+  Map<String, String>? headers,
+  Uint8List? bytes,
+  bool group = false,
+}) async {
+  final hasUrl = avatarUrl != null && avatarUrl.isNotEmpty;
+  final cached = hasUrl ? AvatarBytesCache.get(avatarUrl) : null;
+  final initial = bytes ?? cached;
+
+  await Navigator.of(context).push(
+    PageRouteBuilder<void>(
+      opaque: false,
+      barrierColor: Colors.black87,
+      pageBuilder: (ctx, anim, secondary) {
+        return _AvatarPreviewPage(
+          name: name,
+          avatarUrl: avatarUrl,
+          headers: headers,
+          initialBytes: initial,
+          group: group,
+        );
+      },
+      transitionsBuilder: (ctx, anim, secondary, child) {
+        return FadeTransition(opacity: anim, child: child);
+      },
+    ),
+  );
+}
+
+class _AvatarPreviewPage extends StatefulWidget {
+  const _AvatarPreviewPage({
+    required this.name,
+    this.avatarUrl,
+    this.headers,
+    this.initialBytes,
+    this.group = false,
+  });
+
+  final String name;
+  final String? avatarUrl;
+  final Map<String, String>? headers;
+  final Uint8List? initialBytes;
+  final bool group;
+
+  @override
+  State<_AvatarPreviewPage> createState() => _AvatarPreviewPageState();
+}
+
+class _AvatarPreviewPageState extends State<_AvatarPreviewPage> {
+  Uint8List? _bytes;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _bytes = widget.initialBytes;
+    if (_bytes == null) {
+      final url = widget.avatarUrl;
+      if (url != null && url.isNotEmpty) _load(url);
+    }
+  }
+
+  Future<void> _load(String url) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final auth = widget.headers?['Authorization'];
+      final res = await http.get(
+        Uri.parse(url),
+        headers: {
+          if (auth != null && auth.isNotEmpty) 'Authorization': auth,
+        },
+      );
+      if (!mounted) return;
+      if (res.statusCode >= 400 || res.bodyBytes.isEmpty) {
+        setState(() {
+          _loading = false;
+          _error = 'No se pudo cargar la foto';
+        });
+        return;
+      }
+      AvatarBytesCache.put(url, res.bodyBytes);
+      setState(() {
+        _bytes = res.bodyBytes;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'No se pudo cargar la foto';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            GestureDetector(
+              onTap: () => Navigator.of(context).pop(),
+              behavior: HitTestBehavior.opaque,
+              child: Center(child: _buildBody()),
+            ),
+            Positioned(
+              top: 8,
+              left: 16,
+              right: 56,
+              child: Text(
+                widget.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TacticalFonts.display(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              right: 4,
+              child: IconButton(
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black54,
+                  foregroundColor: Colors.white,
+                ),
+                tooltip: 'Cerrar',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_bytes != null) {
+      return InteractiveViewer(
+        minScale: 0.8,
+        maxScale: 5,
+        child: Image.memory(
+          _bytes!,
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+        ),
+      );
+    }
+    if (_loading) {
+      return const CircularProgressIndicator(
+        color: Colors.white54,
+        strokeWidth: 2,
+      );
+    }
+    if (_error != null) {
+      return Text(_error!, style: const TextStyle(color: Colors.white70));
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        CircleAvatar(
+          radius: 96,
+          backgroundColor: widget.group
+              ? kInstOlive.withValues(alpha: 0.35)
+              : kInstOliveMid.withValues(alpha: 0.45),
+          child: widget.group
+              ? const Text('👥', style: TextStyle(fontSize: 72))
+              : Text(
+                  userAvatarInitials(widget.name),
+                  style: const TextStyle(
+                    color: kInstOnPrimary,
+                    fontSize: 56,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          widget.group ? 'Sin foto de grupo' : 'Sin foto de perfil',
+          style: const TextStyle(color: Colors.white54, fontSize: 14),
+        ),
+      ],
+    );
+  }
+}
+
 /// Avatar circular: descarga con Authorization Bearer → [Image.memory].
 /// Si falla la red, muestra iniciales (o emoji en grupos).
+/// Por defecto, un toque abre la foto en grande (estilo WhatsApp).
 class UserAvatar extends StatefulWidget {
   const UserAvatar({
     super.key,
@@ -47,6 +247,7 @@ class UserAvatar extends StatefulWidget {
     this.headers,
     this.group = false,
     this.radius = 26,
+    this.previewOnTap = true,
   });
 
   final String name;
@@ -55,6 +256,8 @@ class UserAvatar extends StatefulWidget {
   final Map<String, String>? headers;
   final bool group;
   final double radius;
+  /// Si es true, tocar abre visor a pantalla completa.
+  final bool previewOnTap;
 
   @override
   State<UserAvatar> createState() => _UserAvatarState();
@@ -178,6 +381,17 @@ class _UserAvatarState extends State<UserAvatar> {
     );
   }
 
+  void _openPreview(BuildContext context) {
+    openAvatarPreview(
+      context: context,
+      name: widget.name,
+      avatarUrl: widget.avatarUrl,
+      headers: widget.headers,
+      bytes: _bytes,
+      group: widget.group,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final photo = widget.avatarUrl;
@@ -187,10 +401,11 @@ class _UserAvatarState extends State<UserAvatar> {
         : kRadioBlue.withValues(alpha: 0.15);
     final fg = widget.group ? kInstOlive : kRadioBlue;
 
-    if (photo == null || photo.isEmpty) return _initials();
-
-    if (_bytes != null) {
-      return ClipOval(
+    Widget face;
+    if (photo == null || photo.isEmpty) {
+      face = _initials();
+    } else if (_bytes != null) {
+      face = ClipOval(
         child: Image.memory(
           _bytes!,
           width: size,
@@ -199,10 +414,8 @@ class _UserAvatarState extends State<UserAvatar> {
           gaplessPlayback: true,
         ),
       );
-    }
-
-    if (_loading) {
-      return SizedBox(
+    } else if (_loading) {
+      face = SizedBox(
         width: size,
         height: size,
         child: DecoratedBox(
@@ -216,8 +429,22 @@ class _UserAvatarState extends State<UserAvatar> {
           ),
         ),
       );
+    } else {
+      face = _initials();
     }
 
-    return _initials();
+    if (!widget.previewOnTap) return face;
+
+    return GestureDetector(
+      onTap: () => _openPreview(context),
+      behavior: HitTestBehavior.opaque,
+      child: Semantics(
+        button: true,
+        label: widget.group
+            ? 'Ver foto del grupo ${widget.name}'
+            : 'Ver foto de ${widget.name}',
+        child: face,
+      ),
+    );
   }
 }

@@ -32,9 +32,9 @@ export function privateCallRoom(userA, userB, mode = 'call', callId = null) {
 }
 
 export async function assertSameOrgPeer(orgId, userId, peerId) {
-  if (!peerId || peerId === userId) return null;
+  if (!peerId) return null;
   const { rows } = await query(
-    `SELECT id, username, email, display_name, role, is_active
+    `SELECT id, username, email, display_name, role, is_active, grade, avatar_url
      FROM users
      WHERE id = $1 AND organization_id = $2 AND is_active = TRUE`,
     [peerId, orgId]
@@ -42,31 +42,54 @@ export async function assertSameOrgPeer(orgId, userId, peerId) {
   return rows[0] || null;
 }
 
-export async function listOrgContacts(orgId, excludeUserId) {
+const CONTACT_SELECT = `
+  u.id, u.username, u.email, u.display_name, u.role, u.last_seen_at, u.avatar_url, u.grade,
+  COALESCE((
+    SELECT MIN(cg.sort_order)
+    FROM cat_grades cg
+    WHERE cg.organization_id = u.organization_id
+      AND cg.is_active = TRUE
+      AND u.grade IS NOT NULL
+      AND TRIM(u.grade) <> ''
+      AND (
+        LOWER(TRIM(cg.abbreviation)) = LOWER(TRIM(u.grade))
+        OR LOWER(TRIM(cg.name)) = LOWER(TRIM(u.grade))
+      )
+  ), 999999) AS grade_sort_order
+`;
+
+export async function listOrgContacts(orgId, excludeUserId, { includeSelf = false } = {}) {
   const { rows } = await query(
-    `SELECT id, username, email, display_name, role, last_seen_at, avatar_url
-     FROM users
-     WHERE organization_id = $1 AND is_active = TRUE AND id <> $2
-     ORDER BY display_name`,
-    [orgId, excludeUserId]
+    `SELECT ${CONTACT_SELECT}
+     FROM users u
+     WHERE u.organization_id = $1 AND u.is_active = TRUE
+       AND ($3::boolean OR u.id <> $2)
+     ORDER BY u.display_name`,
+    [orgId, excludeUserId, includeSelf]
   );
   return rows.map(mapContactRow);
 }
 
 /**
- * Contactos con los que compartes al menos un grupo (membresía activa).
- * Si te sacan de un grupo, dejan de aparecer aquí (los DM con historial siguen en conversaciones).
+ * Contactos con los que compartes al menos un grupo (membresía activa),
+ * más el propio usuario (chat contigo).
  */
 export async function listSharedGroupContacts(orgId, userId) {
   const { rows } = await query(
-    `SELECT DISTINCT u.id, u.username, u.email, u.display_name, u.role, u.last_seen_at, u.avatar_url
-     FROM group_members me
-     JOIN group_members peer ON peer.group_id = me.group_id AND peer.user_id <> me.user_id
-     JOIN users u ON u.id = peer.user_id
-     JOIN groups g ON g.id = me.group_id AND g.is_active = TRUE
-     WHERE me.user_id = $1
-       AND u.organization_id = $2
+    `SELECT ${CONTACT_SELECT}
+     FROM users u
+     WHERE u.organization_id = $2
        AND u.is_active = TRUE
+       AND (
+         u.id = $1
+         OR EXISTS (
+           SELECT 1
+           FROM group_members me
+           JOIN group_members peer ON peer.group_id = me.group_id AND peer.user_id = u.id
+           JOIN groups g ON g.id = me.group_id AND g.is_active = TRUE
+           WHERE me.user_id = $1
+         )
+       )
      ORDER BY u.display_name`,
     [userId, orgId]
   );
@@ -80,6 +103,8 @@ function mapContactRow(u) {
     email: u.email,
     displayName: u.display_name,
     role: u.role,
+    grade: u.grade || null,
+    gradeSortOrder: Number(u.grade_sort_order) || 999999,
     lastSeenAt: u.last_seen_at,
     avatarUrl: u.avatar_url
       ? `/api/avatars/file/${encodeURIComponent(u.avatar_url)}`
@@ -531,6 +556,7 @@ function computeCallOutcome(call, { reason = 'hangup', endedBy = null } = {}) {
 export function createPrivateCall({
   callerId,
   callerName,
+  callerAvatarUrl = null,
   targetId,
   targetName,
   room = null,
@@ -548,6 +574,7 @@ export function createPrivateCall({
     orgId,
     callerId,
     callerName,
+    callerAvatarUrl: callerAvatarUrl || null,
     targetId,
     targetName,
     room: roomName,
@@ -781,7 +808,11 @@ export async function persistPrivateCallLog({ call, reason = 'hangup', endedBy =
   return { outcome, durationSec };
 }
 
-export async function listPrivateCallHistory(userId, orgId, { limit = 80, peerId = null, missedOnly = false } = {}) {
+export async function listPrivateCallHistory(
+  userId,
+  orgId,
+  { limit = 80, peerId = null, missedOnly = false, receivedOnly = false } = {}
+) {
   if (!userId || !orgId) return [];
   const lim = Math.min(Math.max(Number(limit) || 80, 1), 200);
   const params = [userId, orgId];
@@ -790,7 +821,13 @@ export async function listPrivateCallHistory(userId, orgId, { limit = 80, peerId
     params.push(peerId);
     peerFilter = ` AND (l.caller_id = $3 OR l.target_id = $3)`;
   }
-  const missedFilter = missedOnly ? ` AND l.outcome IN ('missed', 'rejected')` : '';
+  let outcomeFilter = '';
+  if (missedOnly) {
+    outcomeFilter = ` AND l.outcome IN ('missed', 'rejected')`;
+  } else if (receivedOnly) {
+    /* Entrantes contestadas (no perdidas/rechazadas) */
+    outcomeFilter = ` AND l.caller_id <> $1 AND l.outcome NOT IN ('missed', 'rejected')`;
+  }
   const { rows } = await query(
     `SELECT l.id, l.caller_id, l.target_id, l.mode, l.outcome, l.reason,
             l.started_at, l.answered_at, l.ended_at, l.duration_sec,
@@ -803,7 +840,7 @@ export async function listPrivateCallHistory(userId, orgId, { limit = 80, peerId
      WHERE l.organization_id = $2
        AND (l.caller_id = $1 OR l.target_id = $1)
        ${peerFilter}
-       ${missedFilter}
+       ${outcomeFilter}
      ORDER BY l.ended_at DESC
      LIMIT ${lim}`,
     params
@@ -824,4 +861,16 @@ export async function listPrivateCallHistory(userId, orgId, { limit = 80, peerId
     endedAt: r.ended_at,
     durationSec: r.duration_sec,
   }));
+}
+
+/** Borra el historial de llamadas privadas visibles para el usuario. */
+export async function clearPrivateCallHistory(userId, orgId) {
+  if (!userId || !orgId) return 0;
+  const { rowCount } = await query(
+    `DELETE FROM private_call_logs
+     WHERE organization_id = $1
+       AND (caller_id = $2 OR target_id = $2)`,
+    [orgId, userId]
+  );
+  return rowCount || 0;
 }

@@ -4,7 +4,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { isDispatch } from '../services/roles.js';
 import { createRoomToken, isLiveKitConfigured, resolveLiveKitUrl } from '../services/livekit.js';
 import { voiceE2eeKeyForRoom } from '../services/voiceE2ee.js';
-import { notifyUserDevices } from '../services/fcm.js';
+import { notifyUserDevicesDataOnly } from '../services/fcm.js';
 import {
   endGroupVideoSession,
   getGroupVideoSession,
@@ -67,16 +67,16 @@ async function broadcastGroupVideoInvite(io, { group, session, startedBy, starte
   for (const row of rows) {
     if (String(row.user_id) === String(startedBy)) continue;
     io.to(`user:${row.user_id}`).emit('group:video_incoming', payload);
-    notifyUserDevices({
+    notifyUserDevicesDataOnly({
       userId: row.user_id,
-      title: 'Transmisión grupal en vivo',
-      body: `${startedByName || 'Un operador'} inició video en «${group.name || 'grupo'}»`,
       data: {
         type: 'group_video',
         groupId: group.id,
         groupName: group.name,
         startedBy,
         startedByName,
+        title: 'Transmisión grupal en vivo',
+        body: `${startedByName || 'Un operador'} inició video en «${group.name || 'grupo'}»`,
       },
     }).catch(() => {});
   }

@@ -56,9 +56,9 @@ function looksLikeJwt(token) {
 }
 
 /**
- * Autoriza manifiesto OTA con:
- * 1) X-App-Update-Key / ?key= / Bearer == APP_UPDATE_SECRET
- * 2) Bearer JWT de sesión (APKs sin dart-define del secreto aún pueden actualizar tras login)
+ * Autoriza manifiesto OTA solo con APP_UPDATE_SECRET:
+ * X-App-Update-Key / X-TacticalPtx-Update-Key / Bearer (secreto, no JWT).
+ * Query ?key= deshabilitado (fuga en logs/proxies).
  */
 function requireUpdateKey(req, res, next) {
   const secret = config.appUpdateSecret;
@@ -81,25 +81,13 @@ function requireUpdateKey(req, res, next) {
     return next();
   }
 
-  const q = String(req.query?.key || '').trim();
-  if (q && timingSafeEqualStr(q, secret)) {
-    return next();
-  }
-
   const auth = req.get('authorization') || '';
   const m = auth.match(/^Bearer\s+(.+)$/i);
   if (m) {
     const tok = m[1].trim();
+    // Solo secreto OTA en Bearer — no JWT de sesión
     if (!looksLikeJwt(tok) && timingSafeEqualStr(tok, secret)) {
       return next();
-    }
-    if (looksLikeJwt(tok)) {
-      try {
-        jwt.verify(tok, config.jwtSecret);
-        return next();
-      } catch {
-        /* fallthrough → 401 */
-      }
     }
   }
 

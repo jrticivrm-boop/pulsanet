@@ -1,4 +1,6 @@
+import { timingSafeEqual } from 'crypto';
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { isRoot } from '../services/roles.js';
 import { authMiddleware } from '../middleware/auth.js';
 import {
@@ -12,6 +14,22 @@ import {
 import { query } from '../db.js';
 
 export const securityRouter = Router();
+
+function secretsEqual(a, b) {
+  const ba = Buffer.from(String(a || ''), 'utf8');
+  const bb = Buffer.from(String(b || ''), 'utf8');
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
+
+/** Estricto: desbloqueo sin JWT = objetivo de fuerza bruta si el API es público. */
+const unlockLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.UNLOCK_RATE_MAX || '5', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Demasiados intentos de desbloqueo. Espera unos minutos.' },
+});
 
 /** Estado público mínimo (sin detalle sensible). */
 securityRouter.get('/status', async (_req, res) => {
@@ -30,7 +48,7 @@ securityRouter.get('/status', async (_req, res) => {
  * Desbloqueo de emergencia (no usa JWT).
  * Body: { unlockSecret: "..." }
  */
-securityRouter.post('/unlock', async (req, res) => {
+securityRouter.post('/unlock', unlockLimiter, async (req, res) => {
   try {
     await clearLockdown({
       unlockSecret: req.body?.unlockSecret,
@@ -46,13 +64,13 @@ securityRouter.post('/unlock', async (req, res) => {
  * Desbloqueo de emergencia de una cuenta (no usa JWT).
  * Body: { unlockSecret: "...", username: "ggomezd2" }
  */
-securityRouter.post('/unlock-user', async (req, res) => {
+securityRouter.post('/unlock-user', unlockLimiter, async (req, res) => {
   try {
     const expected = String(process.env.LOCKDOWN_UNLOCK_SECRET || '').trim();
     if (!expected || expected.length < 16) {
       return res.status(403).json({ ok: false, error: 'LOCKDOWN_UNLOCK_SECRET no configurado' });
     }
-    if (String(req.body?.unlockSecret || '') !== expected) {
+    if (!secretsEqual(req.body?.unlockSecret, expected)) {
       return res.status(403).json({ ok: false, error: 'Secreto de desbloqueo inválido' });
     }
     const username = String(req.body?.username || '').trim().toLowerCase();

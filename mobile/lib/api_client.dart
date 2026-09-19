@@ -6,14 +6,16 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'config.dart';
+import 'duckdns_hairpin.dart';
 import 'secure_store.dart';
 
 class ApiClient {
   ApiClient();
 
-  static const _timeout = Duration(seconds: 18);
+  static const _timeout = Duration(seconds: 8);
 
   String? _token;
   Map<String, dynamic>? _user;
@@ -22,6 +24,28 @@ class ApiClient {
   String? get token => _token;
   Map<String, dynamic>? get user => _user;
   bool get isLoggedIn => _token != null && _token!.isNotEmpty;
+
+  /// Proxy/SPA devolvió HTML en vez de JSON (p. ej. Caddy sin `/api*` → Vite).
+  static bool isHtmlOrRoutingError(Object e) {
+    final s = e.toString().toLowerCase();
+    return s.contains('devolvió html') ||
+        s.contains('en lugar de json') ||
+        (s.contains('caddy') && s.contains('/api'));
+  }
+
+  /// Auth real: no soft-fail (hay que mostrar / re-login).
+  static bool isAuthError(Object e) {
+    final s = e.toString().toLowerCase();
+    return s.contains('token requerido') ||
+        s.contains('token inválido') ||
+        s.contains('token invalido') ||
+        s.contains('no autorizado') ||
+        s.contains('unauthorized') ||
+        s.contains('sesión vencida') ||
+        s.contains('sesion vencida') ||
+        s.contains('jwt') ||
+        RegExp(r'\b401\b').hasMatch(s);
+  }
 
   Future<void> loadSession() async {
     final s = await SecureStore.readSession();
@@ -40,16 +64,29 @@ class ApiClient {
       _user != null && (_user!['mustChangePassword'] == true);
 
   Future<Map<String, dynamic>> login(String username, String password) async {
-    final res = await http
+    Future<http.Response> once() => http
         .post(
           Uri.parse('${AppConfig.apiBaseUrl}/api/auth/login'),
           headers: {'Content-Type': 'application/json', ..._ua()},
           body: jsonEncode({'username': username, 'password': password}),
         )
         .timeout(_timeout);
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    if (res.statusCode >= 400 || data['ok'] != true) {
-      throw Exception(data['error'] ?? 'Login falló');
+
+    Future<Map<String, dynamic>> attempt() async {
+      final res = await once();
+      return _parse(res, path: '/api/auth/login');
+    }
+
+    Map<String, dynamic> data;
+    try {
+      data = await attempt();
+    } catch (e) {
+      if (!DuckDnsHairpin.looksLikeTransportFail(e) &&
+          !e.toString().contains('Respuesta inválida')) {
+        rethrow;
+      }
+      await DuckDnsHairpin.failoverAfterTransportFail();
+      data = await attempt();
     }
     await _saveSession(
       data['token'] as String,
@@ -81,15 +118,32 @@ class ApiClient {
     final s = await SecureStore.readSession();
     final refresh = s.refresh;
     if (refresh == null || refresh.isEmpty) return false;
-    final res = await http
+
+    Future<http.Response> once() => http
         .post(
           Uri.parse('${AppConfig.apiBaseUrl}/api/auth/refresh'),
           headers: {'Content-Type': 'application/json', ..._ua()},
           body: jsonEncode({'refreshToken': refresh}),
         )
         .timeout(_timeout);
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    if (res.statusCode >= 400 || data['ok'] != true) {
+
+    http.Response res;
+    try {
+      res = await once();
+    } catch (e) {
+      if (!DuckDnsHairpin.looksLikeTransportFail(e)) rethrow;
+      await DuckDnsHairpin.failoverAfterTransportFail();
+      try {
+        res = await once();
+      } catch (_) {
+        return false;
+      }
+    }
+
+    Map<String, dynamic> data;
+    try {
+      data = await _parse(res, path: '/api/auth/refresh');
+    } catch (_) {
       await logout();
       return false;
     }
@@ -190,7 +244,7 @@ class ApiClient {
     );
     final streamed = await req.send().timeout(const Duration(seconds: 40));
     final res = await http.Response.fromStream(streamed);
-    final data = _parse(res);
+    final data = await _parse(res, path: '/api/me/avatar');
     final nextUser = data['user'] is Map
         ? Map<String, dynamic>.from(data['user'] as Map)
         : {
@@ -217,6 +271,10 @@ class ApiClient {
     _user = null;
     _avatarTicket = null;
     await SecureStore.clearSession();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('tacticalptx_groups_cache');
+    } catch (_) {}
   }
 
   Future<List<Map<String, dynamic>>> fetchGroups({bool membersOnly = true}) async {
@@ -353,14 +411,21 @@ class ApiClient {
     int limit = 80,
     String? peerId,
     bool missedOnly = false,
+    bool receivedOnly = false,
   }) async {
     final q = <String>[
       'limit=$limit',
       if (peerId != null && peerId.isNotEmpty) 'peerId=$peerId',
       if (missedOnly) 'missed=1',
+      if (receivedOnly) 'received=1',
     ].join('&');
     final data = await _get('/api/calls/history?$q');
     return (data['history'] as List? ?? []).cast<Map<String, dynamic>>();
+  }
+
+  Future<int> clearCallHistory() async {
+    final data = await _delete('/api/calls/history');
+    return (data['deleted'] as num?)?.toInt() ?? 0;
   }
 
   Future<Map<String, dynamic>> fetchLiveKitToken(String groupId) async {
@@ -452,6 +517,10 @@ class ApiClient {
     });
   }
 
+  Future<Map<String, dynamic>> sendDmNudge(String userId) {
+    return _post('/api/dm/$userId/messages/nudge', {});
+  }
+
   Future<void> postLocation({
     required double latitude,
     required double longitude,
@@ -464,6 +533,62 @@ class ApiClient {
     });
   }
 
+  /// Refuerzo de presencia (socket + HTTP). focus: foreground|background|service.
+  Future<void> presenceHeartbeat({String focus = 'service'}) async {
+    try {
+      await _post('/api/presence/heartbeat', {'focus': focus});
+    } catch (_) {
+      // Socket sigue siendo la vía principal.
+    }
+  }
+
+  /// Últimas ubicaciones en alcance (root/admin/zona/unidad). Opcional: filtrar por grupos.
+  Future<Map<String, dynamic>> fetchLocations({List<String>? groupIds}) async {
+    var path = '/api/locations';
+    if (groupIds != null && groupIds.isNotEmpty) {
+      path =
+          '$path?groupIds=${groupIds.map(Uri.encodeComponent).join(',')}';
+    }
+    return _get(path);
+  }
+
+  /// Historial de track de un usuario (horas 1–72).
+  Future<Map<String, dynamic>> fetchUserTrack(
+    String userId, {
+    int hours = 8,
+  }) async {
+    final h = hours.clamp(1, 72);
+    return _get(
+      '/api/locations/${Uri.encodeComponent(userId)}/track?hours=$h',
+    );
+  }
+
+  /// Ruta OSRM para un hueco de señal (sin recta A→B).
+  Future<Map<String, dynamic>> fetchTrackGapRoute({
+    required double fromLat,
+    required double fromLng,
+    required double toLat,
+    required double toLng,
+  }) async {
+    final q = Uri(
+      queryParameters: {
+        'from': '$fromLat,$fromLng',
+        'to': '$toLat,$toLng',
+      },
+    ).query;
+    return _get('/api/locations/track-gap-route?$q');
+  }
+
+  Future<Map<String, dynamic>> fetchTacticalSiteGroups() =>
+      _get('/api/tactical-sites/groups');
+
+  Future<Map<String, dynamic>> fetchTacticalSites({String? groupId}) {
+    final q = (groupId != null && groupId.isNotEmpty)
+        ? '?groupId=${Uri.encodeComponent(groupId)}'
+        : '';
+    return _get('/api/tactical-sites$q');
+  }
+
   Future<Map<String, dynamic>> uploadMedia(
     String groupId, {
     required String filePath,
@@ -474,7 +599,9 @@ class ApiClient {
     String? replyToId,
   }) async {
     return _uploadChatMedia(
-      Uri.parse('${AppConfig.apiBaseUrl}/api/groups/$groupId/messages/media'),
+      () => Uri.parse(
+        '${AppConfig.apiBaseUrl}/api/groups/$groupId/messages/media',
+      ),
       filePath: filePath,
       filename: filename,
       mime: mime,
@@ -494,7 +621,7 @@ class ApiClient {
     String? replyToId,
   }) async {
     return _uploadChatMedia(
-      Uri.parse('${AppConfig.apiBaseUrl}/api/dm/$peerId/messages/media'),
+      () => Uri.parse('${AppConfig.apiBaseUrl}/api/dm/$peerId/messages/media'),
       filePath: filePath,
       filename: filename,
       mime: mime,
@@ -505,13 +632,14 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> _uploadChatMedia(
-    Uri uri, {
+    Uri Function() uriBuilder, {
     required String filePath,
     required String filename,
     String? mime,
     String type = 'file',
     String? body,
     String? replyToId,
+    bool hairpinRetried = false,
   }) async {
     MediaType? contentType;
     if (mime != null && mime.isNotEmpty) {
@@ -521,7 +649,8 @@ class ApiClient {
     }
 
     Future<http.MultipartRequest> build() async {
-      final request = http.MultipartRequest('POST', uri);
+      final request = http.MultipartRequest('POST', uriBuilder());
+      request.headers.addAll(_ua());
       if (_token != null) {
         request.headers['Authorization'] = 'Bearer $_token';
       }
@@ -539,17 +668,49 @@ class ApiClient {
       return request;
     }
 
-    var request = await build();
-    var streamed = await request.send();
-    if (streamed.statusCode == 401) {
-      if (await tryRefresh()) {
-        request = await build();
-        streamed = await request.send();
+    try {
+      var request = await build();
+      var streamed = await request.send().timeout(_timeout);
+      if (streamed.statusCode == 401) {
+        if (await tryRefresh()) {
+          request = await build();
+          streamed = await request.send().timeout(_timeout);
+        }
       }
+      final res = await http.Response.fromStream(streamed);
+      final data = await _parse(
+        res,
+        path: '/api/media-upload',
+        onNonJson: hairpinRetried
+            ? null
+            : () => _uploadChatMedia(
+                  uriBuilder,
+                  filePath: filePath,
+                  filename: filename,
+                  mime: mime,
+                  type: type,
+                  body: body,
+                  replyToId: replyToId,
+                  hairpinRetried: true,
+                ),
+      );
+      return data['message'] as Map<String, dynamic>;
+    } catch (e) {
+      if (hairpinRetried || !DuckDnsHairpin.looksLikeTransportFail(e)) {
+        rethrow;
+      }
+      await DuckDnsHairpin.failoverAfterTransportFail();
+      return _uploadChatMedia(
+        uriBuilder,
+        filePath: filePath,
+        filename: filename,
+        mime: mime,
+        type: type,
+        body: body,
+        replyToId: replyToId,
+        hairpinRetried: true,
+      );
     }
-    final res = await http.Response.fromStream(streamed);
-    final data = _parse(res);
-    return data['message'] as Map<String, dynamic>;
   }
 
   /// Absolute URL for authenticated media (use with headers).
@@ -594,10 +755,10 @@ class ApiClient {
   Future<void> unregisterDevice({String? fcmToken}) async {
     final res = await http.delete(
       Uri.parse('${AppConfig.apiBaseUrl}/api/devices'),
-      headers: _headers(),
+      headers: _jsonHeaders(),
       body: jsonEncode({if (fcmToken != null) 'fcmToken': fcmToken}),
     );
-    _parse(res);
+    await _parse(res, path: '/api/devices');
   }
 
   Future<Map<String, dynamic>> triggerPanic({
@@ -640,60 +801,134 @@ class ApiClient {
     return _patch('/api/panic/$panicId', {'status': 'acked'});
   }
 
-  Future<Map<String, dynamic>> _get(String path, {bool retried = false}) async {
-    final res = await http
-        .get(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers())
-        .timeout(_timeout);
-    if (res.statusCode == 401 && !retried) {
-      if (await tryRefresh()) return _get(path, retried: true);
+  Future<Map<String, dynamic>> _get(
+    String path, {
+    bool retried = false,
+    bool hairpinRetried = false,
+  }) async {
+    try {
+      final res = await http
+          .get(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers())
+          .timeout(_timeout);
+      if (res.statusCode == 401 && !retried) {
+        if (await tryRefresh()) {
+          return _get(path, retried: true, hairpinRetried: hairpinRetried);
+        }
+      }
+      return _parse(
+        res,
+        path: path,
+        onNonJson: hairpinRetried
+            ? null
+            : () => _get(path, retried: retried, hairpinRetried: true),
+      );
+    } catch (e) {
+      if (hairpinRetried || !DuckDnsHairpin.looksLikeTransportFail(e)) {
+        rethrow;
+      }
+      await DuckDnsHairpin.failoverAfterTransportFail();
+      return _get(path, retried: retried, hairpinRetried: true);
     }
-    return _parse(res);
   }
 
   Future<Map<String, dynamic>> _post(
     String path,
     Map<String, dynamic> body, {
     bool retried = false,
+    bool hairpinRetried = false,
   }) async {
-    final res = await http
-        .post(
-          Uri.parse('${AppConfig.apiBaseUrl}$path'),
-          headers: _headers(),
-          body: jsonEncode(body),
-        )
-        .timeout(_timeout);
-    if (res.statusCode == 401 && !retried) {
-      if (await tryRefresh()) return _post(path, body, retried: true);
+    try {
+      final res = await http
+          .post(
+            Uri.parse('${AppConfig.apiBaseUrl}$path'),
+            headers: _jsonHeaders(),
+            body: jsonEncode(body),
+          )
+          .timeout(_timeout);
+      if (res.statusCode == 401 && !retried) {
+        if (await tryRefresh()) {
+          return _post(path, body, retried: true, hairpinRetried: hairpinRetried);
+        }
+      }
+      return _parse(
+        res,
+        path: path,
+        onNonJson: hairpinRetried
+            ? null
+            : () => _post(path, body, retried: retried, hairpinRetried: true),
+      );
+    } catch (e) {
+      if (hairpinRetried || !DuckDnsHairpin.looksLikeTransportFail(e)) {
+        rethrow;
+      }
+      await DuckDnsHairpin.failoverAfterTransportFail();
+      return _post(path, body, retried: true, hairpinRetried: true);
     }
-    return _parse(res);
   }
 
   Future<Map<String, dynamic>> _patch(
     String path,
     Map<String, dynamic> body, {
     bool retried = false,
+    bool hairpinRetried = false,
   }) async {
-    final res = await http
-        .patch(
-          Uri.parse('${AppConfig.apiBaseUrl}$path'),
-          headers: _headers(),
-          body: jsonEncode(body),
-        )
-        .timeout(_timeout);
-    if (res.statusCode == 401 && !retried) {
-      if (await tryRefresh()) return _patch(path, body, retried: true);
+    try {
+      final res = await http
+          .patch(
+            Uri.parse('${AppConfig.apiBaseUrl}$path'),
+            headers: _jsonHeaders(),
+            body: jsonEncode(body),
+          )
+          .timeout(_timeout);
+      if (res.statusCode == 401 && !retried) {
+        if (await tryRefresh()) {
+          return _patch(path, body, retried: true, hairpinRetried: hairpinRetried);
+        }
+      }
+      return _parse(
+        res,
+        path: path,
+        onNonJson: hairpinRetried
+            ? null
+            : () => _patch(path, body, retried: retried, hairpinRetried: true),
+      );
+    } catch (e) {
+      if (hairpinRetried || !DuckDnsHairpin.looksLikeTransportFail(e)) {
+        rethrow;
+      }
+      await DuckDnsHairpin.failoverAfterTransportFail();
+      return _patch(path, body, retried: true, hairpinRetried: true);
     }
-    return _parse(res);
   }
 
-  Future<Map<String, dynamic>> _delete(String path, {bool retried = false}) async {
-    final res = await http
-        .delete(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers())
-        .timeout(_timeout);
-    if (res.statusCode == 401 && !retried) {
-      if (await tryRefresh()) return _delete(path, retried: true);
+  Future<Map<String, dynamic>> _delete(
+    String path, {
+    bool retried = false,
+    bool hairpinRetried = false,
+  }) async {
+    try {
+      final res = await http
+          .delete(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers())
+          .timeout(_timeout);
+      if (res.statusCode == 401 && !retried) {
+        if (await tryRefresh()) {
+          return _delete(path, retried: true, hairpinRetried: hairpinRetried);
+        }
+      }
+      return _parse(
+        res,
+        path: path,
+        onNonJson: hairpinRetried
+            ? null
+            : () => _delete(path, retried: retried, hairpinRetried: true),
+      );
+    } catch (e) {
+      if (hairpinRetried || !DuckDnsHairpin.looksLikeTransportFail(e)) {
+        rethrow;
+      }
+      await DuckDnsHairpin.failoverAfterTransportFail();
+      return _delete(path, retried: true, hairpinRetried: true);
     }
-    return _parse(res);
   }
 
   Map<String, String> _ua() => {
@@ -701,7 +936,14 @@ class ApiClient {
         'Accept': 'application/json',
       };
 
+  /// GET/DELETE: sin Content-Type (algunos proxies responden 400 HTML).
   Map<String, String> _headers() {
+    final h = <String, String>{..._ua()};
+    if (_token != null) h['Authorization'] = 'Bearer $_token';
+    return h;
+  }
+
+  Map<String, String> _jsonHeaders() {
     final h = <String, String>{
       'Content-Type': 'application/json',
       ..._ua(),
@@ -710,12 +952,48 @@ class ApiClient {
     return h;
   }
 
-  Map<String, dynamic> _parse(http.Response res) {
+  Future<Map<String, dynamic>> _parse(
+    http.Response res, {
+    String? path,
+    Future<Map<String, dynamic>> Function()? onNonJson,
+  }) async {
     late Map<String, dynamic> data;
     try {
-      data = jsonDecode(res.body) as Map<String, dynamic>;
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map<String, dynamic>) {
+        data = decoded;
+      } else if (decoded is Map) {
+        data = Map<String, dynamic>.from(decoded);
+      } else {
+        throw const FormatException('not a json object');
+      }
     } catch (_) {
-      throw Exception('Respuesta inválida (${res.statusCode})');
+      if (onNonJson != null && res.statusCode >= 400) {
+        try {
+          await DuckDnsHairpin.failoverAfterTransportFail();
+          return await onNonJson();
+        } catch (_) {
+          /* caer al error descriptivo */
+        }
+      }
+      final raw = res.body.trim();
+      final where = (path != null && path.isNotEmpty) ? ' $path' : '';
+      final looksHtml = raw.startsWith('<!') ||
+          raw.toLowerCase().contains('<html') ||
+          raw.toLowerCase().startsWith('<!doctype');
+      if (looksHtml) {
+        throw Exception(
+          'El servidor devolvió HTML (${res.statusCode})$where '
+          'en lugar de JSON. Comprueba que la API esté en marcha '
+          'y que Caddy enrute /api* al backend.',
+        );
+      }
+      final preview = raw.isEmpty
+          ? 'vacío'
+          : (raw.length <= 80 ? raw : '${raw.substring(0, 80)}…');
+      throw Exception(
+        'Respuesta inválida (${res.statusCode})$where: $preview',
+      );
     }
     if (res.statusCode >= 400 || data['ok'] == false) {
       throw Exception(data['error'] ?? 'Error ${res.statusCode}');

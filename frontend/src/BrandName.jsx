@@ -1,20 +1,35 @@
-/** Marca TacticalPtx (texto partido + logo opcional). */
-export default function BrandName({ className = '', withLogo = false, size = 'md' }) {
+/** Marca SICOM (logo completo o emblema + wordmark). */
+export const SICOM_FULL_NAME =
+  'Sistema de Comunicaciones para Operaciones Militares';
+
+export default function BrandName({
+  className = '',
+  withLogo = false,
+  size = 'md',
+  showFullName = false,
+  wordmark = true,
+}) {
+  const logoPx = size === 'lg' ? 280 : size === 'sm' ? 32 : 160;
   return (
     <span className={`brand-name brand-name--${size} ${className}`.trim()}>
       {withLogo ? (
         <img
           className="brand-logo"
-          src="/brand/tacticalptx.png"
-          alt=""
-          width={size === 'lg' ? 72 : size === 'sm' ? 28 : 40}
-          height={size === 'lg' ? 72 : size === 'sm' ? 28 : 40}
+          src="/brand/sicom.png?v=4"
+          alt="SICOM"
+          width={logoPx}
+          height={Math.round(logoPx * 0.33)}
+          style={{ width: logoPx, height: 'auto', objectFit: 'contain', background: 'transparent' }}
         />
       ) : null}
-      <span className="brand-wordmark" aria-label="TacticalPtx">
-        <span className="brand-tactical">Tactical</span>
-        <span className="brand-ptx">Ptx</span>
-      </span>
+      {wordmark && !withLogo ? (
+        <span className="brand-wordmark" aria-label="SICOM">
+          <span className="brand-sicom">SICOM</span>
+        </span>
+      ) : null}
+      {showFullName ? (
+        <span className="brand-fullname">{SICOM_FULL_NAME}</span>
+      ) : null}
     </span>
   );
 }

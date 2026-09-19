@@ -3,17 +3,18 @@ import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 
 /**
  * Cuenta operadores visibles por estado de presencia (+ pánico).
- * service (En espera) se suma a online.
- * @param {Array<{ presence?: string, focus?: string, lastSeenAt?: string }>} locations
- * @param {Iterable<string>|Set<string>} [panicUserIds]
- * @param {number} [offlineRedMinutes]
  */
-export function countPresenceLegend(locations, panicUserIds, offlineRedMinutes = 15) {
-  const counts = { online: 0, offline: 0, stale: 0, panic: 0 };
+export function countPresenceLegend(
+  locations,
+  panicUserIds,
+  offlineRedMinutes = 15,
+  absenceMinutes = 15,
+  showAway = true,
+  showOffline = true
+) {
+  const counts = { online: 0, away: 0, offline: 0, stale: 0, panic: 0 };
   const panicSet =
-    panicUserIds instanceof Set
-      ? panicUserIds
-      : new Set(panicUserIds || []);
+    panicUserIds instanceof Set ? panicUserIds : new Set(panicUserIds || []);
   const now = Date.now();
   for (const loc of locations || []) {
     const status = resolvePresenceStatus({
@@ -21,10 +22,15 @@ export function countPresenceLegend(locations, panicUserIds, offlineRedMinutes =
       focus: loc.focus,
       lastSeenAt: loc.lastSeenAt,
       recordedAt: loc.recordedAt,
+      awaySince: loc.awaySince,
       offlineRedMinutes,
+      absenceMinutes,
+      showAway,
+      showOffline,
       now,
     });
     if (status === 'online') counts.online += 1;
+    else if (status === 'away') counts.away += 1;
     else if (status === 'stale') counts.stale += 1;
     else counts.offline += 1;
     if (panicSet.has(loc.userId)) counts.panic += 1;
@@ -33,16 +39,19 @@ export function countPresenceLegend(locations, panicUserIds, offlineRedMinutes =
 }
 
 /** Leyenda compacta de presencia (overlay sobre el mapa, junto al zoom). */
-export default function PresenceMapLegend({ counts = null, overlay = false }) {
-  const items = useMemo(
-    () => [
-      { key: 'online', color: '#22c55e' },
-      { key: 'offline', color: '#9ca3af' },
-      { key: 'stale', color: '#ef4444' },
-      /* Pánico: oculto por ahora en leyenda; reactivar cuando se pida. */
-    ],
-    []
-  );
+export default function PresenceMapLegend({
+  counts = null,
+  overlay = false,
+  showAway = true,
+  showOffline = true,
+}) {
+  const items = useMemo(() => {
+    const list = [{ key: 'online', color: '#22c55e' }];
+    if (showAway) list.push({ key: 'away', color: '#eab308' });
+    if (showOffline) list.push({ key: 'offline', color: '#9ca3af' });
+    list.push({ key: 'stale', color: '#ef4444' });
+    return list;
+  }, [showAway, showOffline]);
 
   const n = (key) => {
     if (!counts || counts[key] == null) return null;

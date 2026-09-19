@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import 'api_client.dart';
+import 'audio_session_setup.dart';
 import 'background_radio.dart';
 import 'camera_session_gate.dart';
 import 'config.dart';
@@ -96,7 +97,10 @@ class RemoteCameraSession {
       // Solo hangup en socket dedicado; el control llega por ChannelSession (una sola vía).
       _listenHangup(api, callId);
 
-      final e2ee = await buildVoiceE2eeOptions(e2eeKey);
+      final e2ee = await buildVoiceE2eeOptions(
+        e2eeKey,
+        required: data['e2ee'] == true,
+      );
       final room = Room(roomOptions: streamingRoomOptions(encryption: e2ee));
       _listener = room.createListener();
       _listener!.on<DataReceivedEvent>((event) {
@@ -229,6 +233,8 @@ class RemoteCameraSession {
         return;
       }
     }
+    // El modo voz solo mientras el despacho tiene el mic remoto abierto.
+    if (on) await AudioSessionSetup.acquireVoice();
     try {
       await lp.setMicrophoneEnabled(on);
       _micOn = on;
@@ -236,6 +242,7 @@ class RemoteCameraSession {
     } catch (e) {
       debugPrint('RemoteCameraSession.setMicrophoneEnabled: $e');
     }
+    if (!on) await AudioSessionSetup.downgradeFromVoice();
   }
 
   Map<String, dynamic>? _asStringKeyedMap(dynamic data) {
@@ -410,6 +417,8 @@ class RemoteCameraSession {
     try {
       await BackgroundRadio.setRemoteCameraActive(false);
     } catch (_) {}
+    // No dejar el teléfono «en llamada» tras cerrar la cámara remota.
+    await AudioSessionSetup.downgradeFromVoice();
     CameraSessionGate.release(CameraOwner.remoteCam);
     _api = null;
     _callId = null;

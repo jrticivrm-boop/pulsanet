@@ -8,7 +8,7 @@ import { authMiddleware, signAccessToken } from '../middleware/auth.js';
 import { logActivity } from '../services/activity.js';
 import { normalizeUsername } from '../services/rfcUsername.js';
 import { validateNewPassword } from '../services/tempPassword.js';
-import { exportWireKeyB64, isWireEncryptionEnabled } from '../services/wireCrypto.js';
+import { isWireEncryptionEnabled } from '../services/wireCrypto.js';
 import {
   isLockdownActive,
   registerLoginFailure,
@@ -17,7 +17,7 @@ import {
   clientIpFromReq,
 } from '../services/intrusion.js';
 import { mintAvatarTicket } from '../services/avatarTicket.js';
-import { isAdmin } from '../services/roles.js';
+import { isAdmin, isDispatch } from '../services/roles.js';
 import {
   normalizeDeviceId,
   notifySessionReplaced,
@@ -33,15 +33,16 @@ const loginLimiter = rateLimit({
   message: { ok: false, error: 'Demasiados intentos de acceso. Espera unos minutos.' },
 });
 
-/** Solo wireKey (GPS/pánico). contentKey ya no se exporta — cifrado en reposo es solo servidor. */
-function cryptoSessionPayload() {
-  const wireKey = exportWireKeyB64();
-  const wireEnabled = isWireEncryptionEnabled();
-  if (!wireKey && !wireEnabled) return undefined;
+/**
+ * Wire: solo flag para consola de despacho. La clave AES se entrega en
+ * dispatch:joined (por socket), no en login/me/refresh.
+ */
+function cryptoSessionPayload(user) {
+  if (!isWireEncryptionEnabled()) return undefined;
+  if (!user || !isDispatch(user.role)) return undefined;
   return {
     alg: 'aes-256-gcm',
-    wireKey: wireKey || undefined,
-    wireEnabled,
+    wireEnabled: true,
   };
 }
 
@@ -100,10 +101,10 @@ function sessionExtras(user) {
     return {
       avatarTicket: ticket,
       avatarTicketExpiresIn,
-      crypto: cryptoSessionPayload(),
+      crypto: cryptoSessionPayload(user),
     };
   } catch {
-    return { crypto: cryptoSessionPayload() };
+    return { crypto: cryptoSessionPayload(user) };
   }
 }
 

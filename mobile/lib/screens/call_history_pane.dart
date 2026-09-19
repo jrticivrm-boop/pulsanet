@@ -1,13 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../api_client.dart';
 import '../config.dart';
+import '../es_msg.dart';
 import '../screens/private_call_screen.dart';
 import '../theme.dart';
+import '../widgets/app_overflow_menu.dart';
 import '../widgets/user_avatar.dart';
 
-enum CallHistoryFilter { all, missed }
+enum CallHistoryFilter { all, received, missed }
 
 /// Historial de llamadas estilo WhatsApp (voz, video, radio).
 class CallHistoryPane extends StatefulWidget {
@@ -15,10 +19,19 @@ class CallHistoryPane extends StatefulWidget {
     super.key,
     required this.api,
     required this.onOpenDm,
+    this.onOverflowMenu,
+    this.showLogout = false,
+    this.locationMenuLabel = 'Ubicación GPS',
+    this.embedHeader = true,
   });
 
   final ApiClient api;
   final Future<void> Function(String peerId, String peerName) onOpenDm;
+  final ValueChanged<String>? onOverflowMenu;
+  final bool showLogout;
+  final String locationMenuLabel;
+  /// false = solo lista (el padre ya muestra título/menú).
+  final bool embedHeader;
 
   @override
   State<CallHistoryPane> createState() => _CallHistoryPaneState();
@@ -45,6 +58,7 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
     try {
       final list = await widget.api.fetchCallHistory(
         missedOnly: _filter == CallHistoryFilter.missed,
+        receivedOnly: _filter == CallHistoryFilter.received,
       );
       if (!mounted) return;
       setState(() {
@@ -53,8 +67,19 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
       });
     } catch (e) {
       if (!mounted) return;
+      // HTML 404/502 del borde (SPA) → lista vacía, sin Exception roja.
+      // Auth (401/token) sí se muestra; el resto con mensaje corto.
+      if (ApiClient.isHtmlOrRoutingError(e) && !ApiClient.isAuthError(e)) {
+        setState(() {
+          _items = [];
+          _error = null;
+          _loading = false;
+        });
+        return;
+      }
       setState(() {
-        _error = e.toString();
+        _items = [];
+        _error = esMsg(e, 'No se pudo cargar el historial');
         _loading = false;
       });
     }
@@ -103,56 +128,73 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
     }
   }
 
+  int? _durationSec(Map<String, dynamic> e) {
+    final raw = e['durationSec'] ?? e['duration_sec'];
+    if (raw == null) return null;
+    if (raw is int) return raw;
+    if (raw is num) return raw.round();
+    return int.tryParse(raw.toString());
+  }
+
   String _formatDuration(int? sec) {
     if (sec == null || sec <= 0) return '';
-    final m = sec ~/ 60;
+    final h = sec ~/ 3600;
+    final m = (sec % 3600) ~/ 60;
     final s = sec % 60;
-    if (m <= 0) return '${s}s';
-    return '${m} min${m > 1 ? '' : ''} ${s > 0 ? '${s}s' : ''}'.trim();
+    if (h > 0) {
+      return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
+    return '$m:${s.toString().padLeft(2, '0')}';
   }
 
   String _subtitle(Map<String, dynamic> e) {
     final direction = e['direction']?.toString() ?? 'outgoing';
-    final mode = e['mode']?.toString() ?? 'call';
     final outcome = e['outcome']?.toString() ?? 'completed';
-    final dirLabel = direction == 'incoming' ? 'Entrante' : 'Saliente';
-    final modeLabel = mode == 'video'
-        ? 'Videollamada'
-        : mode == 'radio'
-            ? 'Radio'
-            : 'Llamada';
-    if (outcome == 'missed' || outcome == 'rejected') {
-      return '$dirLabel · ${outcome == 'rejected' ? 'Rechazada' : 'Perdida'} · $modeLabel';
-    }
-    final dur = _formatDuration(e['durationSec'] as int?);
-    if (dur.isNotEmpty) return '$dirLabel · $modeLabel · $dur';
-    return '$dirLabel · $modeLabel';
-  }
+    final dur = _formatDuration(_durationSec(e));
 
-  IconData _modeIcon(String mode) {
-    switch (mode) {
-      case 'video':
-        return Icons.videocam_rounded;
-      case 'radio':
-        return Icons.cell_tower_rounded;
-      default:
-        return Icons.call_rounded;
+    if (outcome == 'missed' || outcome == 'rejected') {
+      return outcome == 'rejected' ? 'Rechazada' : 'Perdida';
     }
+    if (direction == 'incoming') {
+      return dur.isNotEmpty ? 'Recibida · $dur' : 'Recibida';
+    }
+    // Saliente contestada
+    return dur.isNotEmpty ? 'Saliente · $dur' : 'Saliente';
   }
 
   Color _subtitleColor(Map<String, dynamic> e) {
+    final direction = e['direction']?.toString() ?? 'outgoing';
     final outcome = e['outcome']?.toString() ?? 'completed';
     if (outcome == 'missed' || outcome == 'rejected') return kInstDanger;
+    if (direction == 'incoming') return kInstOk;
     return kInstMuted;
   }
 
-  IconData _directionIcon(Map<String, dynamic> e) {
+  /// Icono voz/video; color lo aporta [_subtitleColor] (rojo perdida / verde recibida).
+  IconData _statusIcon(Map<String, dynamic> e) {
     final direction = e['direction']?.toString() ?? 'outgoing';
+    final mode = e['mode']?.toString() ?? 'call';
     final outcome = e['outcome']?.toString() ?? 'completed';
-    if (outcome == 'missed' || outcome == 'rejected') {
-      return direction == 'incoming' ? Icons.call_missed : Icons.call_missed_outgoing;
+    final missed = outcome == 'missed' || outcome == 'rejected';
+    final incoming = direction == 'incoming';
+
+    if (mode == 'video') {
+      if (missed) return Icons.missed_video_call_rounded;
+      if (incoming) return Icons.videocam_rounded;
+      return Icons.video_call_rounded;
     }
-    return direction == 'incoming' ? Icons.call_received : Icons.call_made;
+    if (mode == 'radio') {
+      return Icons.cell_tower_rounded;
+    }
+    if (missed) {
+      return incoming ? Icons.call_missed_rounded : Icons.call_missed_outgoing_rounded;
+    }
+    return incoming ? Icons.call_received_rounded : Icons.call_made_rounded;
+  }
+
+  IconData _actionIcon(String mode) {
+    if (mode == 'video') return Icons.videocam_rounded;
+    return Icons.call_rounded;
   }
 
   Future<void> _startCall(String peerId, String peerName, String mode) async {
@@ -259,6 +301,62 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
     }
   }
 
+  Future<void> _confirmClearHistory() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Borrar registro'),
+        content: const Text(
+          'Se eliminará todo el historial de llamadas. Esta acción no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: kInstDanger),
+            child: const Text('Borrar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await widget.api.clearCallHistory();
+      if (!mounted) return;
+      setState(() => _items = []);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Registro de llamadas borrado')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(esMsg(e, 'No se pudo borrar el registro'))),
+      );
+    }
+  }
+
+  void _onMenuSelected(String value) {
+    if (value == 'clear_calls') {
+      unawaited(_confirmClearHistory());
+      return;
+    }
+    widget.onOverflowMenu?.call(value);
+  }
+
+  String get _emptyTitle {
+    switch (_filter) {
+      case CallHistoryFilter.missed:
+        return 'No hay llamadas perdidas';
+      case CallHistoryFilter.received:
+        return 'No hay llamadas recibidas';
+      case CallHistoryFilter.all:
+        return 'Sin llamadas recientes';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final groups = _grouped;
@@ -268,30 +366,65 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'LLAMADAS',
-                  style: TacticalFonts.display(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: kTacOnSurface,
-                    letterSpacing: 1.2,
+          if (widget.embedHeader)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 4, 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 4, right: 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'LLAMADAS',
+                            style: TacticalFonts.display(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                              color: kTacOnSurface,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                          Text(
+                            'Historial de voz y video',
+                            style: TacticalFonts.body(
+                              fontSize: 13,
+                              color: kTacMuted.withValues(alpha: 0.9),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-                Text(
-                  'Historial de voz y video',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: kTacMuted.withValues(alpha: 0.9),
+                  IconButton(
+                    tooltip: 'Borrar registro de llamadas',
+                    onPressed: _items.isEmpty ? null : _confirmClearHistory,
+                    icon: const Icon(
+                      Icons.delete_sweep_outlined,
+                      color: kTacOnSurface,
+                    ),
                   ),
-                ),
-              ],
+                  if (widget.onOverflowMenu != null)
+                    AppOverflowMenuButton(
+                      showLogout: widget.showLogout,
+                      showClearCallLog: true,
+                      locationMenuLabel: widget.locationMenuLabel,
+                      onSelected: _onMenuSelected,
+                    ),
+                ],
+              ),
+            )
+          else
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _items.isEmpty ? null : _confirmClearHistory,
+                icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+                label: const Text('Borrar registro'),
+              ),
             ),
-          ),
           SizedBox(
             height: 40,
             child: ListView(
@@ -303,6 +436,14 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
                   selected: _filter == CallHistoryFilter.all,
                   onTap: () {
                     setState(() => _filter = CallHistoryFilter.all);
+                    _load();
+                  },
+                ),
+                _FilterChip(
+                  label: 'Recibidas',
+                  selected: _filter == CallHistoryFilter.received,
+                  onTap: () {
+                    setState(() => _filter = CallHistoryFilter.received);
                     _load();
                   },
                 ),
@@ -353,9 +494,7 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
                             Icon(Icons.history_rounded, size: 56, color: kInstMuted.withValues(alpha: 0.5)),
                             const SizedBox(height: 12),
                             Text(
-                              _filter == CallHistoryFilter.missed
-                                  ? 'No hay llamadas perdidas'
-                                  : 'Sin llamadas recientes',
+                              _emptyTitle,
                               textAlign: TextAlign.center,
                               style: const TextStyle(color: kInstMuted, fontSize: 15),
                             ),
@@ -396,8 +535,8 @@ class _CallHistoryPaneState extends State<CallHistoryPane> {
                                 ),
                                 subtitle: _subtitle(e),
                                 subtitleColor: _subtitleColor(e),
-                                directionIcon: _directionIcon(e),
-                                modeIcon: _modeIcon(e['mode']?.toString() ?? 'call'),
+                                statusIcon: _statusIcon(e),
+                                actionIcon: _actionIcon(e['mode']?.toString() ?? 'call'),
                                 avatarUrl: widget.api.peerAvatarNetworkUrl(
                                   e['peerId']?.toString() ?? '',
                                   e['peerAvatarUrl']?.toString(),
@@ -465,8 +604,8 @@ class _CallLogTile extends StatelessWidget {
     required this.time,
     required this.subtitle,
     required this.subtitleColor,
-    required this.directionIcon,
-    required this.modeIcon,
+    required this.statusIcon,
+    required this.actionIcon,
     required this.avatarUrl,
     required this.headers,
     required this.onTap,
@@ -477,8 +616,8 @@ class _CallLogTile extends StatelessWidget {
   final String time;
   final String subtitle;
   final Color subtitleColor;
-  final IconData directionIcon;
-  final IconData modeIcon;
+  final IconData statusIcon;
+  final IconData actionIcon;
   final String? avatarUrl;
   final Map<String, String>? headers;
   final VoidCallback onTap;
@@ -522,9 +661,7 @@ class _CallLogTile extends StatelessWidget {
                     const SizedBox(height: 3),
                     Row(
                       children: [
-                        Icon(directionIcon, size: 14, color: subtitleColor),
-                        const SizedBox(width: 4),
-                        Icon(modeIcon, size: 14, color: subtitleColor),
+                        Icon(statusIcon, size: 16, color: subtitleColor),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
@@ -553,9 +690,9 @@ class _CallLogTile extends StatelessWidget {
                 child: InkWell(
                   customBorder: const CircleBorder(),
                   onTap: onCall,
-                  child: const Padding(
-                    padding: EdgeInsets.all(10),
-                    child: Icon(Icons.call, color: kInstOlive, size: 20),
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Icon(actionIcon, color: kInstOlive, size: 20),
                   ),
                 ),
               ),

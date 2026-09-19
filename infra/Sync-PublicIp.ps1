@@ -48,6 +48,7 @@ function Get-TpxEnvValue {
     [string]$Key
   )
   $files = @(
+    (Join-Path $Root 'infra\secrets\stable-domain.env'),
     (Join-Path $Root 'Soporte\Secrets\stable-domain.env'),
     (Join-Path $Root 'backend\.env')
   )
@@ -179,10 +180,21 @@ function Update-TpxDuckDns {
 
   $sub = $sub.Trim().ToLowerInvariant() -replace '\.duckdns\.org$', ''
   try {
+    $fqdn = "$sub.duckdns.org"
+    $aaaa = $null
+    try {
+      $aaaa = @(Resolve-DnsName -Name $fqdn -Type AAAA -Server 8.8.8.8 -DnsOnly -ErrorAction SilentlyContinue |
+        Where-Object { $_.Type -eq 'AAAA' -or $_.IPAddress })
+    } catch {}
+    # `&ipv6=` vacío NO borra un AAAA ya publicado. clear=true sí, luego reponer A.
+    if ($aaaa -and $aaaa.Count -gt 0) {
+      $clearUrl = "https://www.duckdns.org/update?domains=$sub&token=$token&clear=true"
+      $null = & curl.exe -4 -s --max-time 15 $clearUrl 2>$null
+    }
     $url = "https://www.duckdns.org/update?domains=$sub&token=$token&ip=$PublicIp"
-    $resp = (Invoke-RestMethod -Uri $url -TimeoutSec 15).ToString().Trim()
+    $resp = (& curl.exe -4 -s --max-time 15 $url 2>$null).ToString().Trim()
     if ($resp -eq 'OK') {
-      Write-Host "DuckDNS OK: $sub.duckdns.org -> $PublicIp" -ForegroundColor Green
+      Write-Host "DuckDNS OK: $fqdn -> $PublicIp (sin AAAA)" -ForegroundColor Green
       return $true
     }
     Write-Host "DuckDNS respuesta: $resp" -ForegroundColor Yellow
@@ -308,4 +320,150 @@ function Invoke-TpxPublicIpRealign {
     Write-Host "Sync-PublicIp: alineado node-ip=$current domain=$dom (LiveKit reiniciado)" -ForegroundColor Green
   }
   return $ok
+}
+
+# --- LAN preferida: host estable por Ethernet (cable); mesh/Wi‑Fi solo si no hay cable ---
+function Get-TpxPreferredLanIp {
+  $ips = New-Object System.Collections.Generic.List[string]
+  try {
+    Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.IPAddress -like '192.168.*' -and
+        $_.PrefixOrigin -ne 'WellKnown' -and
+        $_.IPAddress -notlike '169.254.*'
+      } |
+      ForEach-Object { [void]$ips.Add($_.IPAddress) }
+  } catch {}
+  if ($ips.Count -eq 0) {
+    foreach ($line in (& ipconfig.exe 2>$null)) {
+      if ($line -match 'IPv4.*:\s*(192\.168\.\d+\.\d+)') {
+        [void]$ips.Add($Matches[1])
+      }
+    }
+  }
+  # 1) Ethernet cableado (política host: LAN fija, no Wi‑Fi del PC).
+  try {
+    $eth = Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Ethernet' -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.IPAddress -like '192.168.*' -and
+        $_.IPAddress -notlike '169.254.*'
+      } |
+      Select-Object -First 1 -ExpandProperty IPAddress
+    if ($eth) { return $eth }
+  } catch {}
+  # 2) Cualquier 192.168.1.x (LAN ISP típica del cable).
+  $isp = $ips | Where-Object { $_ -like '192.168.1.*' } | Select-Object -First 1
+  if ($isp) { return $isp }
+  # 3) Mesh Deco solo si el host está cableado ahí (sin Ethernet 1.x). Legacy.
+  # Preferir Set-StableLanIp (192.168.1.77) en el PC servidor.
+  if ($ips -contains '192.168.68.58') { return '192.168.68.58' }
+  if ($ips -contains '192.168.68.51') { return '192.168.68.51' }
+  $mesh = $ips | Where-Object { $_ -like '192.168.68.*' } | Select-Object -First 1
+  if ($mesh) { return $mesh }
+  return ($ips | Select-Object -First 1)
+}
+
+function Get-TpxPreferredLanIpv6 {
+  try {
+    $dhcp = Get-NetIPAddress -AddressFamily IPv6 -InterfaceAlias 'Ethernet' -ErrorAction SilentlyContinue |
+      Where-Object { $_.IPAddress -notlike 'fe80*' -and $_.PrefixOrigin -eq 'Dhcp' } |
+      Select-Object -First 1 -ExpandProperty IPAddress
+    if ($dhcp) { return $dhcp }
+    $stable = Get-NetIPAddress -AddressFamily IPv6 -InterfaceAlias 'Ethernet' -ErrorAction SilentlyContinue |
+      Where-Object { $_.IPAddress -notlike 'fe80*' -and $_.SuffixOrigin -ne 'Random' } |
+      Select-Object -First 1 -ExpandProperty IPAddress
+    if ($stable) { return $stable }
+  } catch {}
+  return $null
+}
+
+function Start-TpxUPnPServices {
+  foreach ($name in @('SSDPSRV', 'upnphost')) {
+    try {
+      $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+      if (-not $svc) { continue }
+      if ($svc.StartType -eq 'Disabled') {
+        Set-Service -Name $name -StartupType Manual -ErrorAction SilentlyContinue
+      }
+      if ($svc.Status -ne 'Running') {
+        Start-Service -Name $name -ErrorAction SilentlyContinue
+      }
+    } catch {}
+  }
+  Start-Sleep -Milliseconds 800
+}
+
+# $true si hay colección IGD; $false si router no expone UPnP.
+function Test-TpxUPnPAvailable {
+  Start-TpxUPnPServices
+  try {
+    $nat = New-Object -ComObject HNetCfg.NATUPnP
+    if ($null -ne $nat.StaticPortMappingCollection) { return $true }
+  } catch {}
+  # Fallback: SSDP encuentra IGD aunque COM falle (Deco / dual-NIC)
+  try {
+    . (Join-Path $PSScriptRoot 'Soap-UPnP.ps1')
+    $igds = @(Get-TpxIgds)
+    return ($igds.Count -gt 0)
+  } catch {
+    return $false
+  }
+}
+
+# Health del borde SIN depender de hairpin NAT (resolve a LAN o 127.0.0.1).
+function Test-TpxLocalEdgeHealth {
+  param(
+    [string]$Domain,
+    [string]$LanIp = ''
+  )
+  if (-not $Domain) { return $false }
+  $targets = @()
+  if ($LanIp) { $targets += $LanIp }
+  $targets += '127.0.0.1'
+  foreach ($ip in $targets) {
+    $code = & curl.exe -sk --connect-timeout 5 --max-time 10 `
+      --resolve "${Domain}:443:${ip}" `
+      -o NUL -w '%{http_code}' "https://${Domain}/api/health" 2>$null
+    if ($code -eq '200') { return $true }
+    $code = & curl.exe -sk --connect-timeout 4 --max-time 8 `
+      -H "Host: $Domain" `
+      -o NUL -w '%{http_code}' "https://${ip}/api/health" 2>$null
+    if ($code -eq '200') { return $true }
+  }
+  return $false
+}
+
+# Estado resumido del borde (local vs WAN/UPnP).
+function Get-TpxEdgeStatus {
+  param(
+    [string]$Root = (Get-TpxRepoRoot)
+  )
+  $dom = Get-TpxPublicDomainFromEnv -Root $Root
+  if (-not $dom) { $dom = Get-TpxStablePublicDomain -Root $Root }
+  $lan = Get-TpxPreferredLanIp
+  $caddyUp = [bool](Get-Process -Name caddy -ErrorAction SilentlyContinue)
+  $listen443 = $false
+  try {
+    $listen443 = [bool](& netstat.exe -ano 2>$null | Select-String -Pattern 'LISTENING' | Select-String -Pattern ':443\s')
+  } catch {}
+  $localOk = $false
+  if ($dom -and ($caddyUp -or $listen443)) {
+    $localOk = Test-TpxLocalEdgeHealth -Domain $dom -LanIp $lan
+  }
+  $upnp = Test-TpxUPnPAvailable
+  $wanCode = '000'
+  if ($dom) {
+    $wanCode = & curl.exe -sk --connect-timeout 6 --max-time 10 `
+      -o NUL -w '%{http_code}' "https://${dom}/api/health" 2>$null
+  }
+  return [pscustomobject]@{
+    Domain     = $dom
+    LanIp      = $lan
+    Caddy      = $caddyUp
+    Listen443  = $listen443
+    LocalOk    = $localOk
+    UPnP       = $upnp
+    WanCode    = $wanCode
+    WanOk      = ($wanCode -eq '200')
+  }
 }

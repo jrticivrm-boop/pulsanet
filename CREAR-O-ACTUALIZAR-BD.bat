@@ -15,7 +15,8 @@ if /I "%~1"=="/nopause" set "NO_PAUSE=1"
 if /I "%~1"=="-nopause" set "NO_PAUSE=1"
 
 set "ROOT=%~dp0"
-if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+REM %~dp0 siempre termina en \; no usar if ...=="\" (rompe el parseo CMD).
+set "ROOT=%ROOT:~0,-1%"
 
 if not exist "%ROOT%\backend\package.json" (
   echo ERROR: no parece un repo TacticalPtx - falta backend\package.json
@@ -23,7 +24,8 @@ if not exist "%ROOT%\backend\package.json" (
   exit /b 1
 )
 
-set "PATH=C:\Program Files\nodejs;C:\Program Files\PostgreSQL\18\bin;C:\Program Files\PostgreSQL\17\bin;C:\Program Files\PostgreSQL\16\bin;%SystemRoot%\System32;%PATH%"
+set "PATH=C:\Program Files\nodejs;C:\Program Files\PostgreSQL\18\bin;C:\Program Files\PostgreSQL\17\bin;C:\Program Files\PostgreSQL\16\bin;C:\Program Files\PostgreSQL\15\bin;%SystemRoot%\System32;%PATH%"
+for /d %%D in ("C:\Program Files\PostgreSQL\*") do if exist "%%~D\bin\psql.exe" set "PATH=%%~D\bin;!PATH!"
 
 echo.
 echo === TacticalPtx: crear o actualizar PostgreSQL ===
@@ -40,12 +42,19 @@ if errorlevel 1 (
 echo Node: 
 node.exe -v
 
+REM Comprobar que PostgreSQL responde (puerto 5432 o servicio)
+netstat -ano 2>nul | findstr /R /C:":5432 .*LISTENING" >nul
+if errorlevel 1 (
+  echo AVISO: nada escucha en :5432 - inicia el servicio PostgreSQL antes
+  echo        services.msc ^> postgresql-x64-*  o  net start postgresql-x64-18
+)
+
 if not exist "%ROOT%\backend\.env" (
   echo AVISO: falta backend\.env - copia backend\.env.example a backend\.env
   echo        El nombre de BD por defecto en el ejemplo es tacticalptx_db
 )
 
-if not exist "%ROOT%\backend\node_modules\" (
+if not exist "%ROOT%\backend\node_modules" (
   echo Instalando dependencias API ^(npm install^)...
   pushd "%ROOT%\backend"
   call npm.cmd install --no-fund --no-audit

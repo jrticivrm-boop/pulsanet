@@ -116,9 +116,17 @@ if ($drift.Current) {
 
 $pubDom = Get-TpxPublicDomainFromEnv -Root $Root
 if ($pubDom) {
+  $lan = Get-TpxPreferredLanIp
+  $localOk = Test-TpxLocalEdgeHealth -Domain $pubDom -LanIp $lan
   $code = & curl.exe -sk --connect-timeout 8 --max-time 12 -o NUL -w '%{http_code}' "https://$pubDom/api/health" 2>$null
-  if ($code -eq '200') { Ok "Edge publico OK https://$pubDom/api/health" }
-  else { Bad "Edge publico health=$code en https://$pubDom (Caddy/UPnP?)" }
+  if ($code -eq '200') {
+    Ok "Edge publico OK https://$pubDom/api/health"
+  } elseif ($localOk) {
+    Ok "Edge LOCAL OK https://$pubDom (Caddy en LAN $lan)"
+    Warn "Edge WAN health=$code - falta UPnP/port-forward 80+443 -> $lan (4G)"
+  } else {
+    Bad "Edge publico health=$code en https://$pubDom (Caddy/UPnP?)"
+  }
 } elseif ($drift.Current) {
   Warn 'PUBLIC_DOMAIN ausente en .env'
 }

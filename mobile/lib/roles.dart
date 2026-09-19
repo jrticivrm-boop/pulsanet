@@ -20,5 +20,9 @@ bool canManageUsers(Map<String, dynamic>? user) {
       role == 'unit_admin';
 }
 
+/// Puede ver seguimiento GPS en vivo (mapa APK): root, región, zona, unidad.
+/// Alineado con `canManageUsers` (no incluye dispatcher/operador).
+bool canViewGpsTrack(Map<String, dynamic>? user) => canManageUsers(user);
+
 /// Salir de la app: solo Superadmin, Región, Zona y Admin de unidad.
 bool canLogoutFromApp(Map<String, dynamic>? user) => canManageUsers(user);

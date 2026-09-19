@@ -1,23 +1,23 @@
 {
-  "name": "TacticalPtx",
-  "short_name": "TacticalPtx",
-  "description": "Radio PTT, chat y despacho — cliente web de respaldo / mesa ligera.",
+  "name": "SICOM — Sistema de Comunicaciones para Operaciones Militares",
+  "short_name": "SICOM",
+  "description": "Sistema de Comunicaciones para Operaciones Militares — radio PTT, chat y despacho.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0c1410",
-  "theme_color": "#243d20",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
   "lang": "es-MX",
   "icons": [
     {
-      "src": "/brand/tacticalptx.png",
-      "sizes": "512x512",
+      "src": "/brand/sicom.png",
+      "sizes": "any",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/brand/tacticalptx_round.png",
+      "src": "/brand/sicom_round.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

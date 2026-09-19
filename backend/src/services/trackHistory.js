@@ -21,6 +21,12 @@ import { query } from '../db.js';
 const DEDUPE_DECIMALS = 4;
 /** Silencio que ya se considera hueco de señal (delimita tramos). */
 const GAP_SECONDS = 90;
+/**
+ * Tras Douglas–Peucker, tramos consecutivos más largos que esto se remarcan
+ * como hueco para pedir ruta por calles (evita cuerdas verdes de varios km
+ * sobre campo). 1200 m: por debajo suele ser trazo GPS denso legítimo.
+ */
+const POST_SIMPLIFY_JUMP_M = parseInt(process.env.TRACK_POST_SIMPLIFY_JUMP_M || '1200', 10);
 /** Tope duro de filas leídas de la BD (a 5 s/punto, 72 h ≈ 52 000). */
 const DB_ROW_CAP = 60_000;
 /** Objetivo de puntos entregados al mapa tras simplificar. */
@@ -140,13 +146,16 @@ function atMs(value) {
   return Number.isFinite(t) ? t : 0;
 }
 
-/** Corta la traza en tramos continuos: Douglas–Peucker nunca debe cruzar un hueco. */
+/**
+ * Corta la traza en tramos continuos: Douglas–Peucker nunca debe cruzar un hueco.
+ * Usa silencio temporal Y marcas `gapBefore` (saltos espaciales ya detectados).
+ */
 function splitOnGaps(points, gapSeconds = GAP_SECONDS) {
   const runs = [];
   let start = 0;
   for (let i = 1; i < points.length; i += 1) {
     const dt = (atMs(points[i].recordedAt) - atMs(points[i - 1].recordedAt)) / 1000;
-    if (dt > gapSeconds) {
+    if (dt > gapSeconds || points[i].gapBefore) {
       runs.push([start, i - 1]);
       start = i;
     }
@@ -242,8 +251,16 @@ export async function loadUserTrack({ userId, hours, maxPoints = DEFAULT_MAX_POI
     recordedAt: r.recorded_at instanceof Date ? r.recorded_at.toISOString() : r.recorded_at,
   }));
 
-  const gapCount = markGaps(dedupped);
+  const gapCountRaw = markGaps(dedupped);
   const { points, epsilonM } = simplifyTrack(dedupped, { maxPoints });
+  // Tras RDP, dos puntos consecutivos pueden quedar a km sin `gapBefore`
+  // (se borraron los fixes intermedios de la carretera). Remarcar para que el
+  // mapa pida OSRM y no pinte una cuerda verde sobre campo/bases.
+  const gapCount = markGaps(points, {
+    ...TRACK_GAP_DEFAULTS,
+    minMeters: Math.min(TRACK_GAP_DEFAULTS.minMeters, POST_SIMPLIFY_JUMP_M),
+    jumpMeters: POST_SIMPLIFY_JUMP_M,
+  });
 
   return {
     points,
@@ -256,8 +273,9 @@ export async function loadUserTrack({ userId, hours, maxPoints = DEFAULT_MAX_POI
       pointsReturned: points.length,
       /** Tolerancia Douglas–Peucker aplicada (0 = ninguna). */
       simplifiedEpsilonM: Math.round(epsilonM * 10) / 10,
-      /** Huecos de señal reales detectados en la ventana. */
+      /** Huecos (señal + cuerdas post-simplificar) a resolver por calles. */
       gaps: gapCount,
+      gapsBeforeSimplify: gapCountRaw,
       /** La ventana se leyó completa: sin truncado por LIMIT. */
       windowComplete: rawTotal < DB_ROW_CAP,
     },

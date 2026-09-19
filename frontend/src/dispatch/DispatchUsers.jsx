@@ -7,6 +7,7 @@ import {
   canManageUsers,
   unlockAdminUserLogin,
   isRootUser,
+  isAdminUser,
   patchAdminUser,
   previewAdminUsername,
   usersCsvUrl,
@@ -337,6 +338,7 @@ export default function DispatchUsers({ session }) {
   const [copied, setCopied] = useState(false);
   const canManage = canManageUsers(session.user);
   const isRoot = isRootUser(session.user);
+  const canExportCsv = isAdminUser(session.user);
 
   const composedDisplayName = preview.displayName || '';
 
@@ -849,9 +851,11 @@ export default function DispatchUsers({ session }) {
               + Nuevo usuario
             </button>
           )}
-          <button type="button" className="cc-btn" onClick={downloadCsv}>
-            Exportar CSV
-          </button>
+          {canExportCsv && (
+            <button type="button" className="cc-btn" onClick={downloadCsv}>
+              Exportar CSV
+            </button>
+          )}
           <button
             type="button"
             className="cc-btn ghost"
