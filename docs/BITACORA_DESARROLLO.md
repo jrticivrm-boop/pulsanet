@@ -1,3 +1,11 @@
+## 2026-09-18 — Codemagic: integrations ASC en yaml
+
+- **Tipo:** infra | fix
+- **Área:** infra | mobile
+- **Qué:**
+  - `codemagic.yaml`: `integrations.app_store_connect: Codemagic TacticalPtx` en workflows TestFlight y build-only (valida `auth: integration`).
+- **Archivos / refs:** `codemagic.yaml`
+
 ## 2026-09-18 — APK sideload 1.8.167+177 (sin OTA)
 
 - **Tipo:** release | ux
