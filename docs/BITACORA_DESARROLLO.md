@@ -5,10 +5,10 @@
 - **Qué:**
   - Fase 1: `START-PUBLIC-EDGE` — IP pública alineada (`189.175.60.174`), UPnP 80/443/LiveKit, DuckDNS/Caddy OK; checks externos HTTP 200.
   - Fase 2: keepalive edge cada 20 min (`EdgeKeepaliveLoop` + `START-EDGE-KEEPALIVE.cmd`) **sin** matar API/Web; `Register-EdgeKeepalive.ps1` listo si hay admin para schtasks.
-  - Fase 3: commit del WIP de despacho/Eventos/Radio (sin secretos ni basura `_preview`/`.netlify`).
-  - Fase 4: OTA APK 1.8.177 tras health OK (force=false).
-- **Por qué / notas:** Sin desfases: no se reinició el supervisor completo (mata start-api/web).
-- **Archivos / refs:** `infra/EdgeKeepaliveLoop.ps1`, `START-EDGE-KEEPALIVE.cmd`, `Register-EdgeKeepalive.ps1`
+  - Fase 3: commit `7e5be4b` del WIP despacho/Eventos/Radio (95 archivos; sin secretos ni basura).
+  - Fase 4: OTA **1.8.177+187** (`force=false`) = mismo binario sideload → `backend/app-updates/` (sin rebuild).
+- **Por qué / notas:** Sin desfases: no se reinició el supervisor completo (mata start-api/web). Schtasks denegado sin admin.
+- **Archivos / refs:** `infra/EdgeKeepaliveLoop.ps1`, `START-EDGE-KEEPALIVE.cmd`, `Register-EdgeKeepalive.ps1`, `backend/app-updates/android.json`
 
 ## 2026-09-21 — Edge público: UPnP 443 caído (timeout WAN)
 
