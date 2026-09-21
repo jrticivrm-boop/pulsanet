@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeToggle, useTheme } from '../theme';
 import { fetchGroups, fetchAuthMe, persistSession, canManageUsers } from '../api';
-import { usePtt, pttUsesLatch } from '../usePtt';
+import { usePtt } from '../usePtt';
+import PttModeSegment from '../PttModeSegment.jsx';
 import { useGpsReporter } from '../useGpsReporter';
 import { useDispatchListen } from '../useDispatchListen';
 import { unlockMediaAudio } from '../unlockMediaAudio';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
 import DispatchPanicHost from './DispatchPanicHost.jsx';
+import DispatchGeofenceToastHost from './DispatchGeofenceToastHost.jsx';
 import RadioPage from '../pages/RadioPage.jsx';
 import { PEER_EVENTS, openPeoplePalette } from '../peerActions';
 import { useIsPhone, useIsCoarsePointer } from '../useMediaQuery.js';
@@ -217,6 +219,28 @@ function saveNavOrder(order) {
   } catch {
     /* ignore */
   }
+}
+
+/** Etiqueta del dock: canales de Hablar (talkIds), no solo el grupo primario. */
+function talkDockLabel(groups, talkIds) {
+  const byId = new Map((groups || []).map((g) => [String(g.id), g]));
+  const names = (talkIds || [])
+    .map((id) => byId.get(String(id))?.name)
+    .filter(Boolean);
+  if (!names.length) {
+    return { short: 'Sin canal PTT', full: 'Sin canal de Hablar' };
+  }
+  if (names.length === 1) {
+    return { short: names[0], full: `Hablar: ${names[0]}` };
+  }
+  if (names.length <= 3) {
+    const joined = names.join(' · ');
+    return { short: joined, full: `Hablar (${names.length}): ${names.join(', ')}` };
+  }
+  return {
+    short: `PTT → ${names.length} canales`,
+    full: `Hablar (${names.length}): ${names.join(', ')}`,
+  };
 }
 
 /** Logos rail: Verde/Claro = Tactical 1/2; Obscuro = Tactical 3 (+ crop circular). */
@@ -716,9 +740,9 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     };
   }, [ptt.unlockAudio]);
 
-  /* Espacio = PTT (latch admins / hold operadores) en todas las pestañas */
+  /* Espacio = PTT (Toque / Mantén según preferencia) en todas las pestañas */
   useEffect(() => {
-    const latch = pttUsesLatch(session.user);
+    const latch = ptt.usesLatch;
     const onKeyDown = (e) => {
       if (e.code !== 'Space' || e.repeat) return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
@@ -747,7 +771,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [ptt.toggle, ptt.press, ptt.release, session.user]);
+  }, [ptt.toggle, ptt.press, ptt.release, ptt.usesLatch, ptt.unlockAudio]);
 
   function applyTalkIds(ids) {
     const valid = (ids || []).filter((id) => groups.some((g) => g.id === id));
@@ -895,8 +919,9 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     selfUserId: session.user?.id,
     groupNameFor: (gid) => groups.find((g) => g.id === gid)?.name,
     livekitReady: ptt.livekitReady,
-    hasPttGroup: Boolean(group),
+    hasPttGroup: Boolean(group) || talkIds.length > 0,
   });
+  const talkDock = talkDockLabel(groups, talkIds);
 
   const outletContext = {
     session,
@@ -949,6 +974,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
         onChannelPanicAck={ptt.ackPanic}
         onChannelPanicSilence={ptt.silencePanicAlarm}
       />
+      <DispatchGeofenceToastHost session={session} />
       {!isPhone ? (
         <aside id="cc-mod-rail" className="cc-mod-rail" aria-label="Módulos">
             <div
@@ -1041,7 +1067,6 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
           {!onRadioPage ? (
           <div
             className={`cc-radio-strip${ptt.speaking || ptt.holding ? ' live' : ''}${ptt.listenMuted ? ' is-muted' : ''}`}
-            title="Canal de habla y escucha. Cámbialos en Configuración → Canales."
           >
             {/* Consola (DispatchMap) porta los KPI aquí: izquierda de la misma fila */}
             <div id="cc-ops-kpi-host" className="cc-ops-kpi-host" />
@@ -1049,56 +1074,49 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
               className={`cc-radio-dock${ptt.speaking || ptt.holding ? ' live' : ''}${ptt.listenMuted ? ' is-muted' : ''}`}
             >
               <span className="cc-radio-dock-dot" aria-hidden="true" />
-              {group ? (
-                <Link
-                  to="/despacho/configuracion/canales"
-                  className="cc-radio-dock-ch-link"
-                  title="Elegir canales a oír y canal de PTT"
-                >
-                  <span className="cc-radio-dock-ch">
-                    {talkIds.length > 1
-                      ? `PTT → ${talkIds.length} · ${group.name}`
-                      : group.name}
-                  </span>
-                  <span className="cc-radio-dock-listen">
-                    Oír {listenIds.length || 0}
-                    {groups.length ? `/${groups.length}` : ''}
-                  </span>
-                </Link>
-              ) : (
-                <Link
-                  to="/despacho/configuracion/canales"
-                  className="cc-radio-dock-ch-link"
-                  title="Elegir canal de PTT"
-                >
-                  <span className="cc-radio-dock-ch">Sin canal PTT</span>
-                  <span className="cc-radio-dock-listen">
-                    Oír {listenIds.length || 0}
-                    {groups.length ? `/${groups.length}` : ''}
-                  </span>
-                </Link>
-              )}
+              <div
+                className="cc-radio-dock-ch-info"
+                title={
+                  talkIds.length
+                    ? `${talkDock.full}. Canales de Hablar/Escuchar: en Radio.`
+                    : 'Sin canal de Hablar. Elige canales en Radio.'
+                }
+              >
+                <span className="cc-radio-dock-ch">{talkDock.short}</span>
+                <span className="cc-radio-dock-listen">
+                  Oír {listenIds.length || 0}
+                  {groups.length ? `/${groups.length}` : ''}
+                </span>
+              </div>
               <span className="cc-radio-dock-status">{speaker}</span>
             </div>
+            <PttModeSegment
+              className="ptt-mode-seg--dock"
+              latch={!!ptt.usesLatch}
+              disabled={!!ptt.holding}
+              onChange={(nextLatch) => {
+                if (!nextLatch && ptt.holding) ptt.release();
+              }}
+            />
             <button
               type="button"
               className={`cc-ptt-mini tp-coarse-touch${ptt.holding ? ' holding' : ''}`}
               disabled={!group || !ptt.livekitReady}
               onPointerDown={(e) => {
                 unlockMediaAudio(() => ptt.unlockAudio?.()).catch(() => {});
-                if (!pttUsesLatch(session.user) && e.button === 0) {
+                if (!ptt.usesLatch && e.button === 0) {
                   e.preventDefault();
                   ptt.press();
                 }
               }}
               onPointerUp={(e) => {
-                if (!pttUsesLatch(session.user) && e.button === 0) {
+                if (!ptt.usesLatch && e.button === 0) {
                   e.preventDefault();
                   ptt.release();
                 }
               }}
               onPointerCancel={() => {
-                if (!pttUsesLatch(session.user)) ptt.release();
+                if (!ptt.usesLatch) ptt.release();
               }}
               onClick={async (e) => {
                 e.preventDefault();
@@ -1107,7 +1125,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                 } catch {
                   /* ignore */
                 }
-                if (pttUsesLatch(session.user)) ptt.toggle();
+                if (ptt.usesLatch) ptt.toggle();
               }}
               onContextMenu={(e) => e.preventDefault()}
               aria-pressed={ptt.holding}
@@ -1117,10 +1135,10 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                   : !ptt.livekitReady
                     ? 'Conectando radio…'
                     : ptt.holding
-                      ? pttUsesLatch(session.user)
+                      ? ptt.usesLatch
                         ? 'Toca o Espacio para soltar'
                         : 'Suelta para dejar de transmitir'
-                      : pttUsesLatch(session.user)
+                      : ptt.usesLatch
                         ? 'Toca o Espacio para hablar'
                         : 'Mantén pulsado o Espacio para hablar'
               }
@@ -1128,7 +1146,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
               <span className="cc-ptt-mini-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
               <span className="cc-ptt-mini-hint">
                 {ptt.livekitReady
-                  ? pttUsesLatch(session.user)
+                  ? ptt.usesLatch
                     ? ptt.holding
                       ? 'soltar'
                       : 'tocar'
@@ -1145,9 +1163,15 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                 unlockMediaAudio(() => ptt.unlockAudio?.()).catch(() => {});
                 ptt.setListenMuted(!ptt.listenMuted);
               }}
-              disabled={!group}
+              disabled={!listenIds.length && !talkIds.length}
               aria-pressed={ptt.listenMuted}
-              title={ptt.listenMuted ? 'Activar altavoz de radio' : 'Silenciar radio'}
+              title={
+                !listenIds.length && !talkIds.length
+                  ? 'Selecciona un canal en Escuchar o Hablar'
+                  : ptt.listenMuted
+                    ? 'Activar altavoz de radio'
+                    : 'Silenciar radio'
+              }
             >
               {ptt.listenMuted ? 'MUTE' : 'Altavoz'}
             </button>

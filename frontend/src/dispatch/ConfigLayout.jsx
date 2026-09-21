@@ -17,6 +17,7 @@ export default function ConfigLayout({ session }) {
         ? [
             { to: '/despacho/configuracion/respaldos', label: 'Respaldos' },
             { to: '/despacho/configuracion/presencia', label: 'Presencia' },
+            { to: '/despacho/configuracion/eventos', label: 'Eventos' },
             { to: '/despacho/configuracion/auditoria', label: 'Historial / Auditoría' },
           ]
         : []),

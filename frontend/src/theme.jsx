@@ -65,7 +65,7 @@ function nextTheme(current) {
 export const FAVICON_BY_THEME = {
   light: '/brand/sicom_round.png',
   verde: '/brand/sicom_round.png',
-  obscuro: '/brand/tactical_favicon_obscuro.png?v=1',
+  obscuro: '/brand/tactical_favicon_obscuro.png?v=2',
 };
 
 export function faviconForTheme(theme) {

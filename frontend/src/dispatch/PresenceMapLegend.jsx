@@ -38,25 +38,33 @@ export function countPresenceLegend(
   return counts;
 }
 
-/** Leyenda compacta de presencia (overlay sobre el mapa, junto al zoom). */
+/** Leyenda compacta de presencia (overlay sobre el mapa, junto al zoom).
+ *  selectedStatusIds: si viene, solo se pintan esos estados (filtro ESTADO).
+ *  null = todos los que la org deja visibles (showAway / showOffline).
+ */
 export default function PresenceMapLegend({
   counts = null,
   overlay = false,
   showAway = true,
   showOffline = true,
+  selectedStatusIds = null,
 }) {
   const items = useMemo(() => {
     const list = [{ key: 'online', color: '#22c55e' }];
     if (showAway) list.push({ key: 'away', color: '#eab308' });
     if (showOffline) list.push({ key: 'offline', color: '#9ca3af' });
     list.push({ key: 'stale', color: '#ef4444' });
-    return list;
-  }, [showAway, showOffline]);
+    if (selectedStatusIds == null) return list;
+    const selected = new Set(selectedStatusIds.map(String));
+    return list.filter((it) => selected.has(it.key));
+  }, [showAway, showOffline, selectedStatusIds]);
 
   const n = (key) => {
     if (!counts || counts[key] == null) return null;
     return Number(counts[key]) || 0;
   };
+
+  if (!items.length) return null;
 
   return (
     <div

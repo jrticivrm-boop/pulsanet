@@ -241,11 +241,14 @@ body {
 }
 
 .login-hero-mark {
+  /* Misma caja en todos los temas (sicom.png y tactical_login_obscuro = 971×390) */
   width: min(92vw, 32rem);
+  aspect-ratio: 971 / 390;
   height: auto;
   max-height: none;
   border-radius: 0;
   object-fit: contain;
+  object-position: left center;
   border: none;
   box-shadow: none;
   background: transparent;
@@ -589,6 +592,7 @@ body {
 
   .login-hero-mark {
     width: min(94vw, 26rem);
+    aspect-ratio: 971 / 390;
     height: auto;
     max-height: none;
   }

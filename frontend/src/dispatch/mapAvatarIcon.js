@@ -21,13 +21,16 @@ function escapeCssUrl(url) {
 }
 
 /**
- * Foto del marcador: siempre la del operador.
- * La foto del grupo no se usa en pines individuales (confundía identidad
- * en «Por grupo»: todos salían con el emblema del radio-grupo).
+ * Foto del marcador según modo Operadores:
+ * - Por operador → foto del usuario
+ * - Por grupo → foto del grupo; si no hay, fallback a la del usuario
  */
 export function pickMapMarkerPhotoSrc({
+  operatorMode = 'operator',
   userPhotoSrc,
+  groupPhotoSrc,
 } = {}) {
+  if (operatorMode === 'group' && groupPhotoSrc) return groupPhotoSrc;
   return userPhotoSrc || null;
 }
 
@@ -71,8 +74,8 @@ export function resolveOperatorGroupForMarker({
  * @param {boolean} [opts.showOffline]
  * @param {boolean} [opts.selected]
  * @param {string} [opts.photoSrc] — foto del usuario
- * @param {string} [opts.groupPhotoSrc] — ignorado en pines (compat; no sustituye al usuario)
- * @param {string} [opts.operatorMode] — all|group (compat; no cambia la foto del pin)
+ * @param {string} [opts.groupPhotoSrc] — foto del grupo (solo modo Por grupo)
+ * @param {string} [opts.operatorMode] — operator|group
  * @param {boolean} [opts.panic] — pánico: color alerta + animación (sobrescribe presencia)
  */
 export function mapAvatarIcon({
@@ -89,13 +92,15 @@ export function mapAvatarIcon({
   showOffline = true,
   selected,
   photoSrc,
-  groupPhotoSrc: _groupPhotoSrc,
-  operatorMode: _operatorMode = 'all',
+  groupPhotoSrc,
+  operatorMode = 'operator',
   panic,
   awaySince,
 }) {
   const effectivePhoto = pickMapMarkerPhotoSrc({
+    operatorMode,
     userPhotoSrc: photoSrc,
+    groupPhotoSrc,
   });
   const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
   const hasPhoto = Boolean(effectivePhoto);

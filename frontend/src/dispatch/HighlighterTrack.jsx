@@ -7,7 +7,8 @@ import { useGapRoutes } from './useGapRoutes.js';
 
 /**
  * Naranja único de la "ruta probable" para los huecos de señal.
- * Solo se dibuja cuando hay geometría OSRM por calles (nunca cuerda recta).
+ * Preferimos geometría OSRM por calles; si el routing falla, un corredor
+ * estimado multi-punto (nunca la cuerda A→B de 2 vértices).
  */
 export const PREDICTED_COLOR = '#e87812';
 /** Compat: alias del color unificado (antes era el naranja de "ruta estimada"). */
@@ -17,6 +18,7 @@ export const ESTIMATED_COLOR = PREDICTED_COLOR;
  * para que en basemap «Claro» (crema/peach de carreteras) el ámbar se lea claro.
  */
 const PREDICTED_STYLE = { opacity: 0.58, weight: 14 };
+const ESTIMATE_STYLE = { opacity: 0.45, weight: 11, dashArray: '10 8' };
 
 /**
  * Un renderer Canvas por mapa, compartido por todas las rutas.
@@ -49,8 +51,8 @@ function durLabel(s) {
  * - Verde translúcido y grueso: deja leer calles debajo.
  * - Los tramos repasados varias veces se dibujan en capas más opacas.
  * - Los huecos de señal NO se unen en verde: van en naranja como "ruta probable"
- *   **solo cuando OSRM devolvió geometría por calles**. Nunca se dibuja la
- *   cuerda recta A→B (atravesaría terreno sin vialidad).
+ *   (sólido si OSRM devolvió calles; punteado si solo hay corredor estimado).
+ *   Nunca se dibuja la cuerda A→B de 2 vértices atravesando terreno.
  *
  * @param {{
  *   points: Array,
@@ -103,14 +105,20 @@ export default function HighlighterTrack({
         ? gaps.map((gap) => {
             const key = gapKey(gap);
             const route = gapRoutes[key];
-            // Solo se dibuja geometría vial real (OSRM). Nunca la cuerda A→B:
-            // atravesaría campo/bases aunque haya avenidas al lado.
             const hasRoad =
               route &&
               !route.estimated &&
+              route.source === 'osrm' &&
               Array.isArray(route.points) &&
               route.points.length >= 2;
-            if (hasRoad) {
+            const hasEstimate =
+              !hasRoad &&
+              route &&
+              route.estimated &&
+              route.source === 'estimate' &&
+              Array.isArray(route.points) &&
+              route.points.length >= 3;
+            if (hasRoad || hasEstimate) {
               return (
                 <Polyline
                   key={`gap-${key}`}
@@ -118,8 +126,9 @@ export default function HighlighterTrack({
                   pathOptions={{
                     renderer,
                     color: PREDICTED_COLOR,
-                    weight: PREDICTED_STYLE.weight,
-                    opacity: PREDICTED_STYLE.opacity,
+                    weight: hasRoad ? PREDICTED_STYLE.weight : ESTIMATE_STYLE.weight,
+                    opacity: hasRoad ? PREDICTED_STYLE.opacity : ESTIMATE_STYLE.opacity,
+                    dashArray: hasRoad ? undefined : ESTIMATE_STYLE.dashArray,
                     lineCap: 'round',
                     lineJoin: 'round',
                     fill: false,
@@ -128,15 +137,19 @@ export default function HighlighterTrack({
                   <Popup>
                     <strong>Tramo sin señal{displayName ? ` · ${displayName}` : ''}</strong>
                     <br />
-                    Ruta probable por calles
+                    {hasRoad
+                      ? 'Ruta probable por calles'
+                      : 'Ruta probable estimada (sin servicio de calles)'}
                     <br />
                     <span style={{ opacity: 0.75, fontSize: 12 }}>
                       Salto {kmLabel(gap.meters)}
                       {gap.seconds > 0
                         ? ` · sin reportar ${durLabel(gap.seconds) || `${Math.round(gap.seconds)} s`}`
                         : ''}
-                      {route.distanceM ? ` · por carretera ${kmLabel(route.distanceM)}` : ''}
-                      {route.durationS ? ` (~${durLabel(route.durationS)})` : ''}
+                      {hasRoad && route.distanceM
+                        ? ` · por carretera ${kmLabel(route.distanceM)}`
+                        : ''}
+                      {hasRoad && route.durationS ? ` (~${durLabel(route.durationS)})` : ''}
                     </span>
                   </Popup>
                 </Polyline>

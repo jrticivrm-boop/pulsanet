@@ -25,19 +25,36 @@ import { isDispatch } from '../services/roles.js';
 const MAX_BODY = 2000;
 
 async function withOnlineFlags(orgId, selfId, contacts) {
-  let onlineIds = new Set();
+  /** @type {Map<string, { focus?: string }>} */
+  const byId = new Map();
   try {
     const members = await listOrgPresence(orgId);
-    onlineIds = new Set((members || []).map((m) => String(m.userId)));
+    for (const m of members || []) {
+      byId.set(String(m.userId), m);
+    }
   } catch {
     /* ignore */
   }
-  onlineIds.add(String(selfId));
-  return (contacts || []).map((c) => ({
-    ...c,
-    online: onlineIds.has(String(c.id)),
-    isSelf: String(c.id) === String(selfId),
-  }));
+  const self = String(selfId);
+  return (contacts || []).map((c) => {
+    const id = String(c.id);
+    const isSelf = id === self;
+    const p = byId.get(id);
+    let presence = 'offline';
+    if (isSelf) {
+      presence = 'online';
+    } else if (p) {
+      const f = String(p.focus || 'foreground');
+      presence = f === 'background' || f === 'service' ? 'away' : 'online';
+    }
+    return {
+      ...c,
+      online: presence !== 'offline',
+      presence,
+      focus: p?.focus || (isSelf ? 'foreground' : null),
+      isSelf,
+    };
+  });
 }
 
 export function createDmRouter(io) {

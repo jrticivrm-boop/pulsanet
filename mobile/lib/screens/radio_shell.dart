@@ -21,6 +21,7 @@ import '../location_heartbeat.dart';
 import '../chat_message_banner.dart';
 import '../user_display.dart';
 import '../message_tone.dart';
+import '../nudge_shake.dart';
 import '../panic_maps.dart';
 import '../panic_vibration.dart';
 import '../private_call_gate.dart';
@@ -80,6 +81,14 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     ChatMessageBanner.instance.onTap = _onMessageBannerTap;
+    AudioSessionSetup.shouldKeepVoiceMode = () =>
+        PrivateCallGate.uiOpen ||
+        GroupVideoScreen.uiOpen ||
+        _privateCallDialogOpen ||
+        _groupVideoDialogOpen ||
+        (_session?.holding == true) ||
+        (_session?.pttArmed == true) ||
+        BackgroundRadio.remoteMicActive;
     _registerPushNavHandlers();
     _bootstrap();
   }
@@ -100,6 +109,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    AudioSessionSetup.shouldKeepVoiceMode = null;
     clearViewingChat();
     final push = PushService.instance;
     push.onNotificationOpen = null;
@@ -369,32 +379,34 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
-      // Si no hay PTT/llamada activa, salir de MODE_IN_COMMUNICATION (WhatsApp mic).
+      // Minimizar / multitarea: volumen multimedia (no «llamadas»), salvo PTT/llamada.
       final sess = _session;
       if (!PrivateCallGate.uiOpen &&
           !GroupVideoScreen.uiOpen &&
           sess != null &&
-          !sess.holding) {
-        unawaited(AudioSessionSetup.downgradeFromVoice());
+          !sess.holding &&
+          !sess.pttArmed) {
+        unawaited(AudioSessionSetup.reclaimNormalVolume(forceFull: true));
       }
-      // Pantalla bloqueada / app minimizada: FGS + GPS + audio (+ cámara si activa).
       BackgroundRadio.start(channelName: name).catchError((_) {});
       LocationHeartbeat.start(widget.api).catchError((_) {});
       _session?.ensureBackgroundAudio();
       if (RemoteCameraSession.instance.isActive) {
         unawaited(BackgroundRadio.setRemoteCameraActive(true));
       }
+    } else if (state == AppLifecycleState.detached) {
+      unawaited(AudioSessionSetup.reclaimNormalVolume(forceFull: true));
     } else if (state == AppLifecycleState.resumed) {
       BackgroundRadio.start(channelName: name).catchError((_) {});
       LocationHeartbeat.start(widget.api).catchError((_) {});
       _session?.ensureBackgroundAudio();
+      // Al volver: multimedia; en pestaña Radio se reafirma media si hace falta.
+      unawaited(AudioSessionSetup.reclaimNormalVolume());
       if (RemoteCameraSession.instance.isActive) {
         unawaited(BackgroundRadio.setRemoteCameraActive(true));
       }
-      // App despertada por FCM / unlock: aceptar cámara remota pendiente.
       unawaited(_drainRemoteCameraWake());
       unawaited(_drainIncomingCallWake());
-      // Recuperar mensajes perdidos mientras el socket estuvo caído / app inactiva.
       unawaited(_session?.refreshChatHistory() ?? Future<void>.value());
       unawaited(_session?.syncActivePanic() ?? Future<void>.value());
       unawaited(_inboxKey.currentState?.refreshInbox() ?? Future<void>.value());
@@ -732,11 +744,21 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
+  bool _sessionUiScheduled = false;
+
   void _onSession() {
     if (!mounted) return;
     final session = _session;
     if (session == null) return;
-    setState(() {});
+    // Coalesce notifyListeners del canal en un solo setState por frame
+    // (antes cada evento de presencia/PTT/chat reconstruía todo RadioShell).
+    if (!_sessionUiScheduled) {
+      _sessionUiScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _sessionUiScheduled = false;
+        if (mounted) setState(() {});
+      });
+    }
 
     final taken = session.consumePttTakenNotice();
     if (taken != null && taken.isNotEmpty) {
@@ -835,7 +857,8 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
             isNudge: isNudge,
           );
         } else if (isNudge) {
-          // Primer plano, otro chat: vibrar + tono zumbido.
+          // Primer plano, otro hilo: sacudir la UI visible + aviso.
+          NudgeShake.play();
           // ignore: unawaited_futures
           applyReceivedNudgeFeedback(peerId: peerId);
           ChatMessageBanner.instance.show(
@@ -1882,12 +1905,24 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     if (tab == _MainTab.gps && !canViewGpsTrack(widget.api.user)) {
       return;
     }
+    final leavingRadio = _tab == _MainTab.radio && tab != _MainTab.radio;
     setState(() {
       _tab = tab;
       _overlay = _OverlayPane.none;
     });
     if (tab == _MainTab.chats || tab == _MainTab.calls) {
       PushService.instance.clearAllNotifications();
+    }
+    // Volumen «llamadas» solo con PTT/llamada: al salir de Radio → multimedia.
+    if (leavingRadio) {
+      final sess = _session;
+      if (!PrivateCallGate.uiOpen &&
+          !GroupVideoScreen.uiOpen &&
+          sess != null &&
+          !sess.holding &&
+          !sess.pttArmed) {
+        unawaited(AudioSessionSetup.reclaimNormalVolume(forceFull: true));
+      }
     }
   }
 
@@ -2122,7 +2157,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
 
     return Stack(
       children: [
-        shell,
+        NudgeShakeHost(child: shell),
         if (session.incomingPanicActive)
           Positioned.fill(
             child: Material(
@@ -2218,11 +2253,13 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
               ),
             ),
           ),
-        const Positioned(
+        Positioned(
           top: 0,
           left: 0,
           right: 0,
-          child: ChatMessageBannerOverlay(),
+          child: NudgeShakeHost(
+            child: const ChatMessageBannerOverlay(),
+          ),
         ),
       ],
     );

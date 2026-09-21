@@ -66,11 +66,23 @@ export function moveInboxTab(order, fromId, toId) {
   return next;
 }
 
-/** Comparador Contactos: en línea → grado militar → último mensaje. */
+/** 0 en línea → 1 ausente → 2 fuera de línea → 3 desconectado (paridad APK). */
+function presenceSortRank(presence, online) {
+  const p = String(presence || '')
+    .toLowerCase()
+    .trim();
+  if (p === 'online' || p === 'radio' || p === 'active' || p === 'foreground') return 0;
+  if (p === 'away' || p === 'background' || p === 'service') return 1;
+  if (p === 'stale') return 2;
+  if (p === 'offline') return 3;
+  return online ? 0 : 3;
+}
+
+/** Comparador Contactos: presencia → grado militar → último mensaje. */
 export function compareContactRows(a, b) {
-  const ao = a.online ? 1 : 0;
-  const bo = b.online ? 1 : 0;
-  if (bo !== ao) return bo - ao;
+  const ar = presenceSortRank(a.presence, a.online);
+  const br = presenceSortRank(b.presence, b.online);
+  if (ar !== br) return ar - br;
   const ag = Number.isFinite(a.gradeSortOrder) ? a.gradeSortOrder : 999999;
   const bg = Number.isFinite(b.gradeSortOrder) ? b.gradeSortOrder : 999999;
   if (ag !== bg) return ag - bg;

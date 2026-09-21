@@ -36,6 +36,7 @@ import { isAbsurdGpsJump } from '../gpsQuality.js';
 import { mapAvatarIcon } from './mapAvatarIcon.js';
 import PresenceMapLegend, { countPresenceLegend } from './PresenceMapLegend.jsx';
 import { MapMaximizeNearZoom } from './MapMaximizeButton.jsx';
+import { useMapViewportMaximize } from './useMapViewportMaximize.js';
 import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, smoothMapFocus, focusFromSearchParams, loadMapView, PersistMapView, CargoZoomGate } from './mapLeafletUtils.jsx';
@@ -148,21 +149,31 @@ function InvalidateOnLayout({ tick }) {
         /* ignore */
       }
     };
-    // Una sola pasada tras el layout (evitar 3 invalidate seguidos = mapa “bloqueado”).
     const id = window.setTimeout(run, 80);
     return () => window.clearTimeout(id);
   }, [map, tick]);
   useEffect(() => {
-    let t = 0;
+    const timers = [];
+    const run = () => {
+      try {
+        map.invalidateSize({ animate: false });
+      } catch {
+        /* ignore */
+      }
+    };
     const onFs = () => {
-      window.clearTimeout(t);
-      t = window.setTimeout(() => map.invalidateSize({ animate: false }), 80);
+      timers.splice(0).forEach((id) => clearTimeout(id));
+      run();
+      // Stagger after Fullscreen API chrome hide/show (mitiga freeze Leaflet ~1–2s).
+      [50, 120, 250, 450].forEach((ms) => timers.push(window.setTimeout(run, ms)));
     };
     document.addEventListener('fullscreenchange', onFs);
+    document.addEventListener('webkitfullscreenchange', onFs);
     window.addEventListener('resize', onFs);
     return () => {
-      window.clearTimeout(t);
+      timers.forEach((id) => clearTimeout(id));
       document.removeEventListener('fullscreenchange', onFs);
+      document.removeEventListener('webkitfullscreenchange', onFs);
       window.removeEventListener('resize', onFs);
     };
   }, [map]);
@@ -391,30 +402,11 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
     return () => clearInterval(t);
   }, []);
 
-  const exitMaximize = useCallback(() => {
-    setMaximized(false);
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-  }, []);
-
-  const enterMaximize = useCallback(() => {
-    // Solo CSS fixed (.lt-page--maximized): requestFullscreen congela el mapa ~1–2s.
-    setMaximized(true);
-  }, []);
-
-  const toggleMaximize = useCallback(() => {
-    if (maximized) exitMaximize();
-    else enterMaximize();
-  }, [maximized, enterMaximize, exitMaximize]);
-
-  useEffect(() => {
-    const onFs = () => {
-      if (!document.fullscreenElement) setMaximized(false);
-    };
-    document.addEventListener('fullscreenchange', onFs);
-    return () => document.removeEventListener('fullscreenchange', onFs);
-  }, []);
+  const { enterMaximize, exitMaximize, toggleMaximize } = useMapViewportMaximize(
+    pageRef,
+    maximized,
+    setMaximized
+  );
 
   useEffect(() => {
     const el = pageRef.current;
@@ -1149,6 +1141,10 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
           onListenChange={dispatchCtx.onListenChange}
           onVideoIdsChange={dispatchCtx.onVideoIdsChange}
           onAlertIdsChange={dispatchCtx.onAlertIdsChange}
+          onListenModeChange={dispatchCtx.onListenModeChange}
+          onTalkModeChange={dispatchCtx.onTalkModeChange}
+          onVideoModeChange={dispatchCtx.onVideoModeChange}
+          onAlertModeChange={dispatchCtx.onAlertModeChange}
           portalHost={pageRef.current || document.fullscreenElement || document.body}
         />
       ) : null}

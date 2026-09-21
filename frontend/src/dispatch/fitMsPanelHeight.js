@@ -12,18 +12,23 @@ function measureRowHeight(list) {
   return 28;
 }
 
-/** Reaplica layout de lista al alto actual del panel (p. ej. tras resize:vertical). */
+/** Reaplica layout de lista al alto actual del panel (p. ej. tras resize:both). */
 export function applyMsPanelListLayout(menuEl) {
   if (!menuEl) return;
   const head = menuEl.querySelector('.cc-ms-head');
   const list = menuEl.querySelector('.cc-ms-list');
   if (!head || !list) return;
 
+  const footer = menuEl.querySelector('.cc-ms-footer');
+  const footerH = footer ? footer.offsetHeight : 0;
   const borderChrome = 2;
   const rowH = measureRowHeight(list);
   const headH = head.offsetHeight;
   const listMin = rowH + 4;
-  const listViewport = Math.max(listMin, menuEl.offsetHeight - headH - borderChrome);
+  const listViewport = Math.max(
+    listMin,
+    menuEl.offsetHeight - headH - footerH - borderChrome
+  );
   const savedScroll = list.scrollTop;
 
   list.style.minHeight = `${listMin}px`;
@@ -53,6 +58,8 @@ export function fitMsPanelHeight(menuEl, {
   const list = menuEl.querySelector('.cc-ms-list');
   if (!head || !list) return;
 
+  const footer = menuEl.querySelector('.cc-ms-footer');
+  const footerH = footer ? footer.offsetHeight : 0;
   const maxH = Math.min(maxCap, window.innerHeight - 24);
   const openPreferred = Math.min(preferred, maxH);
   const borderChrome = 2;
@@ -66,8 +73,8 @@ export function fitMsPanelHeight(menuEl, {
   const rowH = measureRowHeight(list);
   const headH = head.offsetHeight;
   const listNatural = list.scrollHeight;
-  const naturalTotal = headH + listNatural + borderChrome;
-  const minH = headH + rowH * Math.max(1, minRows) + 4 + borderChrome;
+  const naturalTotal = headH + listNatural + footerH + borderChrome;
+  const minH = headH + rowH * Math.max(1, minRows) + 4 + footerH + borderChrome;
 
   menuEl.style.maxHeight = `${maxH}px`;
   menuEl.style.minHeight = `${minH}px`;

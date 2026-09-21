@@ -608,17 +608,13 @@ export default function CommandCenter({ session }) {
           <strong>{overview?.onlineCount ?? '—'}</strong>
           <span>En línea</span>
         </div>
-        <div className={`cc-kpi-item${speakingNow.length ? ' hot' : ''}`}>
-          <strong>{speakingNow.length}</strong>
-          <span>Al aire ahora</span>
-        </div>
         <div className="cc-kpi-item">
           <strong>{overview?.groupsCount ?? '—'}</strong>
-          <span>Canales</span>
+          <span>Grupos</span>
         </div>
         <div className="cc-kpi-item">
           <strong>{locations.length}</strong>
-          <span>Con GPS</span>
+          <span>Operadores</span>
         </div>
         <div className="cc-kpi-item">
           <strong>{geofences.length}</strong>
@@ -626,7 +622,7 @@ export default function CommandCenter({ session }) {
         </div>
         <div className={`cc-kpi-item${activePanics.length ? ' hot panic' : ''}`}>
           <strong>{activePanics.length}</strong>
-          <span>Alertas activas</span>
+          <span>Alertas</span>
         </div>
         <div className="cc-kpi-item">
           <strong>{recordings.length}</strong>
@@ -768,14 +764,16 @@ export default function CommandCenter({ session }) {
               <MapSizeFix />
               <MapWorldFillMinZoom />
               <CenterOn target={centerTarget} />
-              {geofences.map((g) => (
+              {geofences.map((g) => {
+                const stroke = g.color || '#5b9fd4';
+                return (
                 <Circle
                   key={g.id}
                   center={[g.centerLat, g.centerLng]}
                   radius={g.radiusM}
                   pathOptions={{
-                    color: '#5b9fd4',
-                    fillColor: '#5b9fd4',
+                    color: stroke,
+                    fillColor: stroke,
                     fillOpacity: 0.12,
                     weight: 2,
                   }}
@@ -783,10 +781,11 @@ export default function CommandCenter({ session }) {
                   <Popup>
                     <strong>{g.name}</strong>
                     <br />
-                    Radio {Math.round(g.radiusM)} m
+                    Radio {Math.round(Number(g.radiusM)).toLocaleString('es-MX')} m
                   </Popup>
                 </Circle>
-              ))}
+                );
+              })}
               <TacticalSitesLayer
                 sites={tacticalSites}
                 visibleGroupIds={visibleGroupIds}

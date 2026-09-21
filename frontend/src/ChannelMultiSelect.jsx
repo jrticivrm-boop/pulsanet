@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 const NONE = '';
 
+/** Igual que ReorderableCatalogTabs / nav PV: evita “drag” por jitter al solo hacer clic. */
+const DRAG_THRESHOLD_PX = 8;
+
 const LAYOUT_KEY = 'tacticalptx_channel_layout';
 const PANEL_KEY = 'tacticalptx_channel_active_panel';
 const LAYOUT_EVENT = 'tacticalptx:channel-layout';
@@ -303,9 +306,14 @@ export default function ChannelMultiSelect({
     [groups, orderIds]
   );
   const orderedIds = useMemo(() => ordered.map((g) => g.id), [ordered]);
+  const orderedIdsRef = useRef(orderedIds);
+  orderedIdsRef.current = orderedIds;
 
-  const dragId = useRef(null);
+  const [draggingId, setDraggingId] = useState(null);
   const [overId, setOverId] = useState(null);
+  const dragSessionRef = useRef(null);
+  const draggingIdRef = useRef(null);
+  const overIdRef = useRef(null);
   const [sortDir, setSortDir] = useState('asc');
   const [listenQuery, setListenQuery] = useState('');
   const [talkQuery, setTalkQuery] = useState('');
@@ -494,23 +502,50 @@ export default function ChannelMultiSelect({
     }
   }
 
-  function onDragStart(e, id) {
-    dragId.current = id;
-    e.dataTransfer.effectAllowed = 'move';
-    try {
-      e.dataTransfer.setData('text/plain', id);
-    } catch {
-      /* ignore */
+  function setDragVisual(nextDrag, nextOver) {
+    if (draggingIdRef.current !== nextDrag) {
+      draggingIdRef.current = nextDrag;
+      setDraggingId(nextDrag);
+      document.documentElement.classList.toggle('channel-dual-dragging', !!nextDrag);
+    }
+    if (overIdRef.current !== nextOver) {
+      overIdRef.current = nextOver;
+      setOverId(nextOver);
     }
   }
 
-  function onDrop(e, toId) {
-    e.preventDefault();
-    const fromId = dragId.current || e.dataTransfer.getData('text/plain');
-    setOverId(null);
-    dragId.current = null;
+  function clearChannelDrag() {
+    const sess = dragSessionRef.current;
+    if (sess) {
+      if (sess.onMove || sess.onUp) {
+        window.removeEventListener('pointermove', sess.onMove, true);
+        window.removeEventListener('pointerup', sess.onUp, true);
+        window.removeEventListener('pointercancel', sess.onUp, true);
+      }
+      if (sess.target) {
+        try {
+          if (sess.target.hasPointerCapture?.(sess.pointerId)) {
+            sess.target.releasePointerCapture(sess.pointerId);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    dragSessionRef.current = null;
+    setDragVisual(null, null);
+    document.documentElement.classList.remove('channel-dual-dragging');
+  }
+
+  function channelIdFromPoint(clientX, clientY) {
+    const el = document.elementFromPoint(clientX, clientY);
+    const row = el?.closest?.('li[data-channel-id]');
+    return row?.getAttribute('data-channel-id') || null;
+  }
+
+  function reorderChannels(fromId, toId) {
     if (!fromId || !toId || fromId === toId) return;
-    const next = [...orderedIds];
+    const next = [...orderedIdsRef.current];
     const from = next.indexOf(fromId);
     const to = next.indexOf(toId);
     if (from < 0 || to < 0) return;
@@ -518,6 +553,90 @@ export default function ChannelMultiSelect({
     next.splice(to, 0, fromId);
     emitOrder(next);
   }
+
+  function onHandlePointerDown(e, id) {
+    if (e.button !== 0) return;
+    if (dragSessionRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const target = e.currentTarget;
+    const pointerId = e.pointerId;
+    const session = {
+      id,
+      x: e.clientX,
+      y: e.clientY,
+      moved: false,
+      pointerId,
+      target,
+      onMove: null,
+      onUp: null,
+    };
+    dragSessionRef.current = session;
+
+    try {
+      target.setPointerCapture?.(pointerId);
+    } catch {
+      /* ignore */
+    }
+
+    const onMove = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      const start = dragSessionRef.current;
+      if (!start || start.id !== id) return;
+      if (!start.moved) {
+        if (
+          Math.abs(ev.clientX - start.x) < DRAG_THRESHOLD_PX &&
+          Math.abs(ev.clientY - start.y) < DRAG_THRESHOLD_PX
+        ) {
+          return;
+        }
+        start.moved = true;
+        setDragVisual(id, channelIdFromPoint(ev.clientX, ev.clientY));
+        return;
+      }
+      setDragVisual(id, channelIdFromPoint(ev.clientX, ev.clientY));
+    };
+
+    const onUp = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      const start = dragSessionRef.current;
+      if (start && start.id === id && start.moved) {
+        const hit = channelIdFromPoint(ev.clientX, ev.clientY);
+        if (hit) reorderChannels(id, hit);
+      }
+      clearChannelDrag();
+    };
+
+    session.onMove = onMove;
+    session.onUp = onUp;
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onUp, true);
+  }
+
+  /* Escape / visibilidad / unmount: no dejar cursor ni listeners pegados. */
+  useEffect(() => {
+    const onKey = (ev) => {
+      if (ev.key !== 'Escape') return;
+      if (!dragSessionRef.current && !draggingIdRef.current) return;
+      clearChannelDrag();
+    };
+    const onVis = () => {
+      if (document.visibilityState !== 'hidden') return;
+      if (!dragSessionRef.current && !draggingIdRef.current) return;
+      clearChannelDrag();
+    };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('visibilitychange', onVis);
+      clearChannelDrag();
+    };
+    // Intencional: solo montaje/desmontaje; clearChannelDrag usa refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function ensureListenIncludes(talkNext) {
     const need = (talkNext || []).filter(Boolean);
@@ -818,23 +937,26 @@ export default function ChannelMultiSelect({
     return (
       <li
         key={`${column}-${g.id}`}
+        data-channel-id={g.id}
         className={`channel-dual-row${selected ? ' on' : ''}${
           column === 'listen' && isListen ? ' listen' : ''
         }${column === 'talk' && isTalk ? ' talk' : ''}${
           column === 'video' && isVideo ? ' video' : ''
         }${column === 'alert' && isAlert ? ' alert' : ''}${isFirst ? ' is-first' : ''}${
           isLast ? ' is-last' : ''
-        }${overId === g.id ? ' drag-over' : ''}`}
-        draggable
-        onDragStart={(e) => onDragStart(e, g.id)}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setOverId(g.id);
-        }}
-        onDragLeave={() => setOverId((cur) => (cur === g.id ? null : cur))}
-        onDrop={(e) => onDrop(e, g.id)}
+        }${draggingId === g.id ? ' is-dragging' : ''}${
+          overId === g.id && draggingId && overId !== draggingId ? ' is-drag-over' : ''
+        }`}
       >
-        <span className="channel-dual-drag" title="Arrastrar para ordenar" aria-hidden="true">
+        <span
+          className="channel-dual-drag"
+          title="Arrastrar para ordenar"
+          aria-label="Arrastrar para ordenar"
+          role="button"
+          tabIndex={-1}
+          onPointerDown={(e) => onHandlePointerDown(e, g.id)}
+          onClick={(e) => e.preventDefault()}
+        >
           ⋮⋮
         </span>
         <label className="channel-dual-item">

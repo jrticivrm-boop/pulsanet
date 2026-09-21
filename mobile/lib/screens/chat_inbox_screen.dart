@@ -111,6 +111,7 @@ class InboxRow {
     this.favorite = false,
     this.isContactOnly = false,
     this.online = false,
+    this.presence,
     this.gradeSortOrder = 999999,
     this.isSelf = false,
   });
@@ -126,6 +127,8 @@ class InboxRow {
   final bool favorite;
   final bool isContactOnly;
   final bool online;
+  /// online | away | stale | offline (semáforo GPS).
+  final String? presence;
   final int gradeSortOrder;
   final bool isSelf;
 }
@@ -613,6 +616,7 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
         unread: _unread['dm:$id'] ?? 0,
         favorite: _favorites.dm.contains(id),
         online: meta.$1,
+        presence: meta.$4,
         gradeSortOrder: meta.$2,
         isSelf: meta.$3,
       ));
@@ -624,6 +628,9 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
       if (items.any((i) => i.kind == 'dm' && i.id == id)) continue;
       if (_hidden.isHidden('dm', id)) continue;
       final isSelf = c['isSelf'] == true || id == _selfId;
+      final presence = (c['presence']?.toString() ??
+              (c['online'] == true || isSelf ? 'online' : 'offline'))
+          .toLowerCase();
       items.add(InboxRow(
         key: 'dm:$id',
         kind: 'dm',
@@ -637,7 +644,8 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
         unread: _unread['dm:$id'] ?? 0,
         favorite: _favorites.dm.contains(id),
         isContactOnly: true,
-        online: c['online'] == true || isSelf,
+        online: presence != 'offline' || isSelf,
+        presence: isSelf ? 'online' : presence,
         gradeSortOrder: (c['gradeSortOrder'] as num?)?.toInt() ?? 999999,
         isSelf: isSelf,
       ));
@@ -646,17 +654,21 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
     return items;
   }
 
-  (bool, int, bool) _contactMeta(String id) {
+  (bool, int, bool, String) _contactMeta(String id) {
     final isSelf = id == _selfId;
     for (final c in _contacts) {
       if (c['id']?.toString() != id) continue;
+      final presence = (c['presence']?.toString() ??
+              (c['online'] == true || isSelf ? 'online' : 'offline'))
+          .toLowerCase();
       return (
-        c['online'] == true || isSelf,
+        presence != 'offline' || isSelf,
         (c['gradeSortOrder'] as num?)?.toInt() ?? 999999,
         c['isSelf'] == true || isSelf,
+        isSelf ? 'online' : presence,
       );
     }
-    return (isSelf, 999999, isSelf);
+    return (isSelf, 999999, isSelf, isSelf ? 'online' : 'offline');
   }
 
   List<InboxRow> _filteredRows(List<InboxRow> rows) {
@@ -672,6 +684,8 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
             bGrade: b.gradeSortOrder,
             aAt: a.at,
             bAt: b.at,
+            aPresence: a.presence,
+            bPresence: b.presence,
           ),
         );
         break;
@@ -1083,12 +1097,34 @@ class _InboxTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
-              UserAvatar(
-                name: row.name,
-                userId: row.kind == 'dm' ? row.id : null,
-                avatarUrl: row.avatarUrl,
-                headers: avatarHeaders,
-                group: row.kind == 'group',
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  UserAvatar(
+                    name: row.name,
+                    userId: row.kind == 'dm' ? row.id : null,
+                    avatarUrl: row.avatarUrl,
+                    headers: avatarHeaders,
+                    group: row.kind == 'group',
+                  ),
+                  if (row.kind == 'dm')
+                    Positioned(
+                      right: -1,
+                      bottom: -1,
+                      child: Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: presenceSemaphoreColor(
+                            row.presence,
+                            online: row.online,
+                          ),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: kInstSurface, width: 2),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),
               Expanded(

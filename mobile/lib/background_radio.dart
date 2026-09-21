@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'api_client.dart';
+import 'audio_session_setup.dart';
 
 /// Mantiene Radio / socket / audio / GPS (/ cámara remota / llamada) vivos.
 class BackgroundRadio {
@@ -19,12 +20,21 @@ class BackgroundRadio {
   static String _privateCallPeer = '';
 
   static bool get remoteCameraActive => _remoteCameraActive;
+  static bool get remoteMicActive => _remoteMicActive;
+
+  static void _onFgsTick(Object _) {
+    // Solo MODE_NORMAL nativo — no rearmar LiveKit (congelaba Radio en UI).
+    // ignore: unawaited_futures
+    AudioSessionSetup.lightEnsureNormal();
+  }
 
   static Future<void> init({bool force = false}) async {
     if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     if (_inited && !force) return;
 
     FlutterForegroundTask.initCommunicationPort();
+    FlutterForegroundTask.removeTaskDataCallback(_onFgsTick);
+    FlutterForegroundTask.addTaskDataCallback(_onFgsTick);
 
     final callMode = _privateCallActive;
     FlutterForegroundTask.init(
@@ -135,16 +145,14 @@ class BackgroundRadio {
     String title;
     String text;
     if (_privateCallActive) {
+      // Videollamada / Contestar (incl. remote_camera con UI): aviso explícito OK.
       title = 'Llamada en curso';
       text = _privateCallPeer.isNotEmpty
           ? 'Con $_privateCallPeer · toca para volver'
           : 'Toca para volver a la llamada';
-    } else if (_remoteCameraActive) {
-      title = 'Cámara de despacho activa';
-      text = _remoteMicActive
-          ? 'Transmitiendo cámara y micrófono · $_channelLabel'
-          : 'Transmitiendo cámara con pantalla bloqueada · $_channelLabel';
     } else {
+      // Radio / GPS y también cámara oculta (RemoteCameraSession headless):
+      // Android exige notificación de FGS, pero no debe revelar transmisión de cámara.
       title = 'SICOM activo';
       text = '$_channelLabel · radio y ubicación en segundo plano';
     }

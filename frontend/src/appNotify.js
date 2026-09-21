@@ -154,6 +154,19 @@ export function playChannelFreeTone({ soft = false } = {}) {
   });
 }
 
+/** Campanita corta para enter/exit de geocerca (consola). */
+export function playGeofenceBellTone({ soft = false } = {}) {
+  const now = Date.now();
+  if (now - lastToneAt < 220) return;
+  lastToneAt = now;
+  if (!unlocked) {
+    unlockAppNotifyAudio().catch(() => {});
+  }
+  playUri(buildToneUri({ durationSec: 0.22, freq: 1040, dual: true }), {
+    volume: soft ? 0.28 : 0.55,
+  });
+}
+
 /** Pitido fuerte al pulsar PTT. */
 export function playPttPressTone() {
   const now = Date.now();
@@ -410,7 +423,7 @@ const ON_AIR_FAVICON =
 function defaultFaviconHref() {
   try {
     if (document.documentElement.getAttribute('data-theme') === 'obscuro') {
-      return '/brand/tactical_favicon_obscuro.png?v=1';
+      return '/brand/tactical_favicon_obscuro.png?v=2';
     }
   } catch {
     /* ignore */

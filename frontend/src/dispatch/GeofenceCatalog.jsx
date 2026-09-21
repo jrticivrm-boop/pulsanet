@@ -59,6 +59,7 @@ export default function GeofenceCatalog({ session }) {
           <thead>
             <tr>
               <th>Nombre</th>
+              <th>Color</th>
               <th>Centro</th>
               <th>Radio</th>
               <th />
@@ -67,7 +68,7 @@ export default function GeofenceCatalog({ session }) {
           <tbody>
             {geofences.length === 0 && (
               <tr>
-                <td colSpan={4} className="muted">
+                <td colSpan={5} className="muted">
                   Sin geocercas
                 </td>
               </tr>
@@ -76,11 +77,19 @@ export default function GeofenceCatalog({ session }) {
               <tr key={g.id}>
                 <td>{g.name}</td>
                 <td>
+                  <span
+                    className="cc-tactical-dot"
+                    style={{ background: g.color || '#243d20' }}
+                    title={g.color || '#243d20'}
+                    aria-label={`Color ${g.color || '#243d20'}`}
+                  />
+                </td>
+                <td>
                   <code className="cc-mono">
                     {Number(g.centerLat).toFixed(5)}, {Number(g.centerLng).toFixed(5)}
                   </code>
                 </td>
-                <td>{g.radiusM} m</td>
+                <td>{Math.round(Number(g.radiusM)).toLocaleString('es-MX')} m</td>
                 <td>
                   <button
                     type="button"
@@ -100,7 +109,13 @@ export default function GeofenceCatalog({ session }) {
       <AppDialog
         open={Boolean(pendingId)}
         title="Eliminar geocerca"
-        message="¿Eliminar esta geocerca?"
+        message={(() => {
+          const fence = geofences.find((g) => String(g.id) === String(pendingId));
+          const name = String(fence?.name || '').trim();
+          return name
+            ? `Se eliminará la geocerca «${name}». Esta acción no se puede deshacer.`
+            : 'Se eliminará esta geocerca. Esta acción no se puede deshacer.';
+        })()}
         confirmLabel="Eliminar"
         danger
         busy={Boolean(busyId)}

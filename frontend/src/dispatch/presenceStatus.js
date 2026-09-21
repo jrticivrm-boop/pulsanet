@@ -120,11 +120,28 @@ export function visiblePresenceStatusIds({ showAway = true, showOffline = true }
   return ids;
 }
 
+/**
+ * Normaliza clave de presencia (paridad APK inbox_tab_order).
+ * @param {string|null|undefined} presence
+ * @param {boolean} [online=false]
+ */
+export function normalizePresenceKey(presence, online = false) {
+  const p = String(presence || '')
+    .toLowerCase()
+    .trim();
+  if (p === 'away' || p === 'background' || p === 'service') return 'away';
+  if (p === 'online' || p === 'radio' || p === 'active' || p === 'foreground') {
+    return 'online';
+  }
+  if (p === 'stale') return 'stale';
+  if (p === 'offline') return 'offline';
+  return online ? 'online' : 'offline';
+}
+
 /** Clase CSS del punto de chat / lista. */
-export function presenceDotClass(status) {
-  switch (status) {
+export function presenceDotClass(status, { online = false } = {}) {
+  switch (normalizePresenceKey(status, online)) {
     case 'online':
-    case 'service':
       return 'active';
     case 'away':
       return 'away';

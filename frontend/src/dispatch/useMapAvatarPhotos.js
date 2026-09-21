@@ -13,18 +13,18 @@ import { resolveOperatorGroupForMarker } from './mapAvatarIcon.js';
 
 /**
  * Precarga avatares para lista (full) y marcadores.
- * Los pines usan siempre la foto del usuario; en «Por grupo» también
- * precarga fotos de grupo como respaldo si el operador no tiene avatar.
+ * En «Por grupo» precarga fotos de grupo; el pin usa la del grupo
+ * (fallback a la del usuario vía pickMapMarkerPhotoSrc).
  *
  * @param {Array<{ userId: string, avatarUrl?: string|null }>} people
  * @param {string} token
  * @param {object} [opts]
- * @param {'all'|'group'} [opts.operatorMode]
+ * @param {'operator'|'group'} [opts.operatorMode]
  * @param {string[]} [opts.selectedGroupIds]
  * @param {Array<{ id: string, avatarUrl?: string|null }>} [opts.groups]
  */
 export function useMapAvatarPhotos(people, token, opts = {}) {
-  const operatorMode = opts.operatorMode === 'group' ? 'group' : 'all';
+  const operatorMode = opts.operatorMode === 'group' ? 'group' : 'operator';
   const selectedGroupIds = useMemo(
     () => [...new Set((opts.selectedGroupIds || []).map(String).filter(Boolean))],
     [opts.selectedGroupIds]

@@ -117,7 +117,7 @@ export function createLocationsRouter(io) {
     }
 
     const { rows } = await query(
-      `SELECT u.id AS user_id, u.display_name, u.cargo, u.role, u.is_active, u.avatar_url, u.unit_id,
+      `SELECT u.id AS user_id, u.display_name, u.grade, u.cargo, u.role, u.is_active, u.avatar_url, u.unit_id,
               u.last_seen_at,
               l.latitude, l.longitude, l.accuracy_m, l.recorded_at
        FROM users u
@@ -162,6 +162,7 @@ export function createLocationsRouter(io) {
         return {
           userId: r.user_id,
           displayName: r.display_name,
+          grade: r.grade || null,
           cargo: r.cargo || null,
           role: r.role,
           unitId: r.unit_id || null,
@@ -213,7 +214,9 @@ export function createLocationsRouter(io) {
     if (!from || !to) {
       return res.status(400).json({ ok: false, error: 'from y to como "lat,lng" requeridos' });
     }
-    const route = await routeBetween(from, to);
+    const headingRaw = Number(req.query.heading);
+    const headingDeg = Number.isFinite(headingRaw) ? headingRaw : null;
+    const route = await routeBetween(from, to, { headingDeg });
     res.json(route);
   });
 
@@ -222,7 +225,50 @@ export function createLocationsRouter(io) {
     if (!isDispatch(req.user.role)) {
       return res.status(403).json({ ok: false, error: 'Sin permiso' });
     }
-    const hours = Math.min(Math.max(parseInt(req.query.hours || '8', 10) || 8, 1), 72);
+
+    /** Ventana: span ≤ 30 d; mirada atrás ≤ 31 d; sin futuro. */
+    const TRACK_SPAN_MAX_MS = 30 * 24 * 3600 * 1000;
+    const TRACK_LOOKBACK_MS = 31 * 24 * 3600 * 1000;
+    const now = Date.now();
+    const earliest = now - TRACK_LOOKBACK_MS;
+
+    let fromIso = typeof req.query.from === 'string' ? req.query.from.trim() : '';
+    let toIso = typeof req.query.to === 'string' ? req.query.to.trim() : '';
+    let hours = Math.min(
+      Math.max(parseInt(req.query.hours || '8', 10) || 8, 1),
+      31 * 24
+    );
+
+    let fromDate;
+    let toDate;
+    if (fromIso || toIso) {
+      if (!fromIso || !toIso) {
+        return res.status(400).json({ ok: false, error: 'Indica from y to (ISO) juntos' });
+      }
+      fromDate = new Date(fromIso);
+      toDate = new Date(toIso);
+      if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+        return res.status(400).json({ ok: false, error: 'from/to inválidos' });
+      }
+      let fromMs = fromDate.getTime();
+      let toMs = toDate.getTime();
+      if (toMs > now) toMs = now;
+      if (fromMs < earliest) fromMs = earliest;
+      if (toMs < earliest) toMs = earliest;
+      if (fromMs > toMs) {
+        return res.status(400).json({ ok: false, error: 'from debe ser anterior a to' });
+      }
+      if (toMs - fromMs > TRACK_SPAN_MAX_MS) {
+        fromMs = toMs - TRACK_SPAN_MAX_MS;
+      }
+      fromDate = new Date(fromMs);
+      toDate = new Date(toMs);
+      hours = Math.max(1, Math.ceil((toMs - fromMs) / 3600000));
+    } else {
+      toDate = new Date(now);
+      fromDate = new Date(Math.max(earliest, now - hours * 3600 * 1000));
+    }
+
     const { rows: users } = await query(
       `SELECT id, display_name, unit_id FROM users
        WHERE id = $1 AND organization_id = $2 AND is_active = TRUE`,
@@ -237,14 +283,18 @@ export function createLocationsRouter(io) {
       return res.status(403).json({ ok: false, error: 'Fuera de tu alcance de seguimiento' });
     }
 
-    // Antes: `ORDER BY recorded_at ASC LIMIT 5000` devolvía solo las primeras ~6 h
-    // de la ventana (el latido GPS es de 5 s) y cortaba el recorrido reciente.
-    const track = await loadUserTrack({ userId: req.params.userId, hours });
+    const track = await loadUserTrack({
+      userId: req.params.userId,
+      from: fromDate,
+      to: toDate,
+    });
 
     res.json({
       ok: true,
       user: { id: users[0].id, displayName: users[0].display_name },
       hours,
+      from: fromDate.toISOString(),
+      to: toDate.toISOString(),
       ...track.meta,
       points: track.points.map((p) => ({
         latitude: p.latitude,

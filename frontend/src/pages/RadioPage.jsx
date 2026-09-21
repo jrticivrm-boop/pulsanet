@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { canDispatch, canManageUsers, fetchGroups, fetchLiveKitStatus } from '../api';
 import { ThemeToggle } from '../theme';
-import { usePtt, pttUsesLatch } from '../usePtt';
+import { usePtt } from '../usePtt';
+import PttModeSegment from '../PttModeSegment.jsx';
 import { useGpsReporter } from '../useGpsReporter';
 import ChatInbox from '../ChatInbox';
 import ChannelMultiSelect from '../ChannelMultiSelect';
@@ -345,7 +346,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   useEffect(() => {
     /* En despacho el Espacio lo maneja DispatchLayout (todas las pestañas) */
     if (embedded) return undefined;
-    const latch = pttUsesLatch(session.user);
+    const latch = ptt.usesLatch;
     const onKeyDown = (e) => {
       if (e.code !== 'Space' || e.repeat) return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -369,7 +370,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [embedded, ptt.toggle, ptt.press, ptt.release, session.user]);
+  }, [embedded, ptt.toggle, ptt.press, ptt.release, ptt.usesLatch]);
 
   const speakerLabel = radioSpeakerStatusLabel({
     listenMuted: ptt.listenMuted,
@@ -590,12 +591,14 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                   unlockMediaAudio(() => ptt.unlockAudio?.()).catch(() => {});
                   ptt.setListenMuted(!ptt.listenMuted);
                 }}
-                disabled={!group}
+                disabled={!listenIds.length && !talkIds.length}
                 aria-pressed={ptt.listenMuted}
                 title={
-                  ptt.listenMuted
-                    ? 'Audio desactivado — toca para oír el canal'
-                    : 'Audio activado — toca para dejar de oír el canal'
+                  !listenIds.length && !talkIds.length
+                    ? 'Selecciona un canal en Escuchar o Hablar'
+                    : ptt.listenMuted
+                      ? 'Audio desactivado — toca para oír el canal'
+                      : 'Audio activado — toca para dejar de oír el canal'
                 }
               >
                 <span aria-hidden="true">{ptt.listenMuted ? '🔇' : '🔊'}</span>
@@ -646,25 +649,33 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
               </button>
             </div>
 
-            <button
+            <div className="radio-ptt-stack">
+              <PttModeSegment
+                latch={!!ptt.usesLatch}
+                disabled={!!ptt.holding}
+                onChange={(nextLatch) => {
+                  if (!nextLatch && ptt.holding) ptt.release();
+                }}
+              />
+              <button
               type="button"
               className={`ptt-btn radio-ptt ${ptt.holding ? 'holding' : ''}`}
               disabled={!ready}
               onPointerDown={(e) => {
                 unlockMediaAudio(() => ptt.unlockAudio?.()).catch(() => {});
-                if (!pttUsesLatch(session.user) && e.button === 0) {
+                if (!ptt.usesLatch && e.button === 0) {
                   e.preventDefault();
                   ptt.press();
                 }
               }}
               onPointerUp={(e) => {
-                if (!pttUsesLatch(session.user) && e.button === 0) {
+                if (!ptt.usesLatch && e.button === 0) {
                   e.preventDefault();
                   ptt.release();
                 }
               }}
               onPointerCancel={() => {
-                if (!pttUsesLatch(session.user)) ptt.release();
+                if (!ptt.usesLatch) ptt.release();
               }}
               onClick={async (e) => {
                 e.preventDefault();
@@ -673,16 +684,16 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                 } catch {
                   /* gesto ya liberó autoplay en la mayoría de casos */
                 }
-                if (pttUsesLatch(session.user)) ptt.toggle();
+                if (ptt.usesLatch) ptt.toggle();
               }}
               onContextMenu={(e) => e.preventDefault()}
               aria-pressed={ptt.holding}
               title={
                 ptt.holding
-                  ? pttUsesLatch(session.user)
+                  ? ptt.usesLatch
                     ? 'Toca o Espacio para soltar'
                     : 'Suelta para dejar de transmitir'
-                  : pttUsesLatch(session.user)
+                  : ptt.usesLatch
                     ? 'Toca o Espacio para hablar'
                     : 'Mantén pulsado o Espacio para hablar'
               }
@@ -690,7 +701,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
               <span className="ptt-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
               <span className="ptt-sub">
                 {ready
-                  ? pttUsesLatch(session.user)
+                  ? ptt.usesLatch
                     ? ptt.holding
                       ? 'soltar'
                       : 'tocar'
@@ -700,6 +711,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                   : '…'}
               </span>
             </button>
+            </div>
           </div>
 
           <p className={`speaker radio-ops-speaker radio-ops-speaker--below-ptt ${ptt.holding || ptt.speaking ? 'active' : ''}`}>

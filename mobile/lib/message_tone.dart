@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -6,35 +8,71 @@ import 'app_focus.dart';
 import 'panic_vibration.dart';
 import 'sound_prefs.dart';
 
-/// Pitido breve cuando otro operador suelta el PTT (canal libre).
+/// Pitido breve cuando otro operador suelta el PTT (canal libre) — fallback.
 DateTime? _lastChannelFreeToneAt;
 DateTime? _lastPttCueAt;
 bool _toneCtxReady = false;
 
-final AudioPlayer _pttCueTone = AudioPlayer();
+/// Players separados: stop/play concurrente no cancela el otro (press vs release).
+final AudioPlayer _pttPressPlayer = AudioPlayer(playerId: 'ptt_press');
+final AudioPlayer _pttReleasePlayer = AudioPlayer(playerId: 'ptt_release');
+bool _pttPlayersWarmed = false;
+
+/// Precalienta contexto + players (llamar al entrar a radio).
+Future<void> warmPttCuePlayers() async {
+  try {
+    await _ensureToneAudioContext();
+    if (_pttPlayersWarmed) return;
+    await Future.wait([
+      _pttPressPlayer.setPlayerMode(PlayerMode.lowLatency),
+      _pttReleasePlayer.setPlayerMode(PlayerMode.lowLatency),
+      _pttPressPlayer.setReleaseMode(ReleaseMode.stop),
+      _pttReleasePlayer.setReleaseMode(ReleaseMode.stop),
+    ]);
+    _pttPlayersWarmed = true;
+  } catch (e) {
+    debugPrint('ptt warm: $e');
+  }
+}
 
 /// Pitido fuerte y claro al pulsar / soltar PTT (bip alto vs bip bajo).
 Future<void> playPttPressTone() async {
-  await _playPttCue(asset: 'sounds/ptt_press.wav', volume: 0.88);
+  await _playPttCue(
+    player: _pttPressPlayer,
+    asset: 'sounds/ptt_press.wav',
+    volume: 0.95,
+  );
 }
 
 Future<void> playPttReleaseTone() async {
-  await _playPttCue(asset: 'sounds/ptt_release.wav', volume: 0.82);
+  await _playPttCue(
+    player: _pttReleasePlayer,
+    asset: 'sounds/ptt_release.wav',
+    volume: 0.9,
+  );
 }
 
-Future<void> _playPttCue({required String asset, required double volume}) async {
+Future<void> _playPttCue({
+  required AudioPlayer player,
+  required String asset,
+  required double volume,
+}) async {
   final now = DateTime.now();
+  // Throttle corto; no bloquear press→release seguidos.
   if (_lastPttCueAt != null &&
-      now.difference(_lastPttCueAt!) < const Duration(milliseconds: 90)) {
+      now.difference(_lastPttCueAt!) < const Duration(milliseconds: 45)) {
     return;
   }
   _lastPttCueAt = now;
   try {
     await _ensureToneAudioContext();
-    await _pttCueTone.stop();
-    await _pttCueTone.setReleaseMode(ReleaseMode.stop);
-    await _pttCueTone.setVolume(volume);
-    await _pttCueTone.play(AssetSource(asset), volume: volume);
+    if (!_pttPlayersWarmed) {
+      await warmPttCuePlayers();
+    }
+    // No await stop largo: dispara el asset al instante.
+    unawaited(player.stop());
+    await player.setVolume(volume);
+    await player.play(AssetSource(asset), volume: volume, mode: PlayerMode.lowLatency);
   } catch (e) {
     debugPrint('ptt cue: $e');
     try {
@@ -76,10 +114,14 @@ Future<void> playChannelFreeTone() async {
     return;
   }
   _lastChannelFreeToneAt = now;
+  // Preferir el mismo WAV de release (más audible que SystemSound.click).
   try {
-    await SystemSound.play(SystemSoundType.click);
+    await playPttReleaseTone();
   } catch (e) {
     debugPrint('channel free tone: $e');
+    try {
+      await SystemSound.play(SystemSoundType.click);
+    } catch (_) {}
   }
 }
 

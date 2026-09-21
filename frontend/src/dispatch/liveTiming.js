@@ -102,6 +102,7 @@ export function mergeLocations(prev, incoming) {
         ...loc,
         displayName: loc.displayName || old?.displayName || loc.userId,
         cargo: loc.cargo ?? old?.cargo ?? null,
+        grade: loc.grade ?? old?.grade ?? null,
         avatarUrl: loc.avatarUrl ?? old?.avatarUrl ?? null,
       };
       if (old && isAbsurdGpsJump(old, next, recordedAtMs)) {
@@ -115,6 +116,9 @@ export function mergeLocations(prev, incoming) {
         }
         if (loc.cargo && loc.cargo !== old.cargo) {
           patched = { ...patched, cargo: loc.cargo };
+        }
+        if (loc.grade && loc.grade !== old.grade) {
+          patched = { ...patched, grade: loc.grade };
         }
         if (patched !== old) map.set(loc.userId, patched);
         continue;
@@ -134,6 +138,7 @@ export function upsertLocation(prev, payload) {
     userId: payload.userId,
     displayName: payload.displayName || old?.displayName || payload.userId,
     cargo: payload.cargo ?? old?.cargo ?? null,
+    grade: payload.grade ?? old?.grade ?? null,
     avatarUrl: payload.avatarUrl ?? old?.avatarUrl ?? null,
     latitude: Number(payload.latitude),
     longitude: Number(payload.longitude),

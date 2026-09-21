@@ -144,7 +144,7 @@
 }
 
 .map-page .map-frame.pick-mode {
-  cursor: crosshair;
+  cursor: pointer;
   outline: 2px dashed color-mix(in srgb, var(--accent, #c45c26) 55%, transparent);
 }
 

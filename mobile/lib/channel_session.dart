@@ -269,6 +269,11 @@ class ChannelSession extends ChangeNotifier {
   /// Aviso de takeover (`ptt:taken`). Consumir en UI (SnackBar).
   String? pttTakenNotice;
   bool holding = false;
+  /// Dedo/intención de transmitir (hold). Permite soltar antes de `ptt:granted`
+  /// sin quedar al aire como si fuera latch (bug Pulsación Corta).
+  bool _pttWantTransmit = false;
+  /// true entre pressPtt y grant/release (aún sin `holding`).
+  bool get pttArmed => _pttWantTransmit;
   DateTime? _lastLocalPttReleaseAt;
   bool gpsOk = false;
   bool panicSending = false;
@@ -519,6 +524,7 @@ class ChannelSession extends ChangeNotifier {
           _socket!.auth = {'token': api.token};
         } catch (_) {}
         connected = true;
+        unawaited(warmPttCuePlayers());
         for (final gid in listenGroupIds) {
           _socket!.emit('ptt:join', {
             'groupId': gid,
@@ -734,21 +740,32 @@ class ChannelSession extends ChangeNotifier {
         notifyListeners();
       })
       ..on('ptt:granted', (_) async {
+        // Hold: el usuario ya soltó antes del grant → cancelar (como web floorWait).
+        if (!_pttWantTransmit) {
+          _socket?.emit('ptt:release', {'groupId': talkGroupId});
+          return;
+        }
         holding = true;
         error = null;
         notifyListeners();
         try {
           await _publishMic();
+          // Race tardía: soltó mientras publicábamos.
+          if (!_pttWantTransmit && holding) {
+            await releasePtt();
+          }
         } catch (e) {
           error = e.toString();
           _socket?.emit('ptt:release', {'groupId': talkGroupId});
           holding = false;
+          _pttWantTransmit = false;
           notifyListeners();
           await _restoreRadioAudio();
         }
       })
       ..on('ptt:denied', (data) {
         holding = false;
+        _pttWantTransmit = false;
         final m = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
         final who = m['speakerName']?.toString();
         if (m['reason'] == 'listen_only') {
@@ -776,6 +793,7 @@ class ChannelSession extends ChangeNotifier {
         }
         if (prev != null && me != null && prev == me && holding) {
           holding = false;
+          _pttWantTransmit = false;
           await _muteMic();
           final reason = m['reason']?.toString();
           pttTakenNotice = reason == 'same_user_other_client'
@@ -789,12 +807,17 @@ class ChannelSession extends ChangeNotifier {
         final m = Map<String, dynamic>.from(data as Map);
         final gid = m['groupId']?.toString();
         if (!_isListenGroup(gid)) return;
+        final uid = m['userId']?.toString();
         _noteRemoteSpeaker(
           gid!,
-          m['userId'] as String?,
+          uid,
           m['displayName'] as String?,
         );
-        // Sin notificación local en PTT (solo UI + audio LiveKit).
+        // Destinatarios: mismo bip de press que el remitente.
+        final me = api.user?['id']?.toString();
+        if (uid != null && uid.isNotEmpty && uid != me) {
+          unawaited(playPttPressTone());
+        }
       })
       ..on('ptt:released', (data) async {
         final m = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
@@ -809,6 +832,7 @@ class ChannelSession extends ChangeNotifier {
         }
         if (holding && (gid == null || gid == talkGroupId)) {
           holding = false;
+          _pttWantTransmit = false;
           await _muteMic();
           await _restoreRadioAudio();
         } else if (!holding) {
@@ -817,7 +841,7 @@ class ChannelSession extends ChangeNotifier {
               ? const Duration(days: 1)
               : DateTime.now().difference(_lastLocalPttReleaseAt!);
           if (sinceRelease.inMilliseconds > 450) {
-            playChannelFreeTone();
+            unawaited(playPttReleaseTone());
           }
         }
         notifyListeners();
@@ -1158,11 +1182,16 @@ class ChannelSession extends ChangeNotifier {
     await _applyListenMute();
   }
 
+  /// Llamada 1:1 o video grupal ya tienen la sesión de voz. No bajar a media.
+  bool _callOwnsAudio() =>
+      PrivateCallGate.uiOpen || GroupVideoScreen.uiOpen;
+
   Future<void> _connectLiveKit() async {
     try {
       await _disposeAllRooms();
       // Sesión media ANTES de PeerConnection (evita MODE_IN_COMMUNICATION al conectar).
-      if (!listenMuted) {
+      // No pisar llamada/video en curso: acquireRadio fuerza MODE_NORMAL y silencia WebRTC.
+      if (!listenMuted && !_callOwnsAudio()) {
         await AudioSessionSetup.acquireRadio();
         await NativeAudioMode.ensureNormal();
       }
@@ -1331,7 +1360,7 @@ class ChannelSession extends ChangeNotifier {
   }
 
   Future<void> pressPtt() async {
-    if (!connected || holding) return;
+    if (!connected || holding || _pttWantTransmit) return;
     error = null;
     if (openChannel) {
       final dest = effectivePttGroupId;
@@ -1346,8 +1375,20 @@ class ChannelSession extends ChangeNotifier {
         return;
       }
     }
-    unawaited(playPttPressTone());
+    _pttWantTransmit = true;
+    // Bip primero (players lowLatency); luego voz — evita que acquireVoice mutee el cue.
+    await playPttPressTone();
+    // Si soltó durante el bip, no pedir floor (releasePtt ya limpió).
+    if (!_pttWantTransmit) {
+      notifyListeners();
+      return;
+    }
     await AudioSessionSetup.acquireVoice();
+    if (!_pttWantTransmit) {
+      await _restoreRadioAudio();
+      notifyListeners();
+      return;
+    }
     // Precalentar en paralelo al request
     unawaited(_ensureMicReady());
     _socket?.emit('ptt:request', {'groupId': talkGroupId});
@@ -1355,19 +1396,27 @@ class ChannelSession extends ChangeNotifier {
   }
 
   Future<void> releasePtt() async {
-    if (!holding) return;
+    // Hold: cancelar también si aún no llegó `ptt:granted` (web: floorWait.requested).
+    if (!_pttWantTransmit && !holding) return;
+    final wasHolding = holding;
+    final hadPending = _pttWantTransmit;
+    _pttWantTransmit = false;
     holding = false;
     _lastLocalPttReleaseAt = DateTime.now();
-    unawaited(playPttReleaseTone());
-    await _muteMic();
+    if (wasHolding || hadPending) {
+      await playPttReleaseTone();
+    }
+    if (wasHolding) {
+      await _muteMic();
+    }
     _socket?.emit('ptt:release', {'groupId': talkGroupId});
     await _restoreRadioAudio();
     notifyListeners();
   }
 
-  /// Toque 1 = al aire; toque 2 = liberar (roles con latch).
+  /// Toque 1 = al aire; toque 2 = liberar (Pulsación Larga / latch).
   Future<void> togglePtt() async {
-    if (holding) {
+    if (holding || _pttWantTransmit) {
       await releasePtt();
     } else {
       await pressPtt();

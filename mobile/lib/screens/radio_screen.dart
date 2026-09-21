@@ -7,7 +7,7 @@ import '../api_client.dart';
 import '../channel_session.dart';
 import '../panic_vibration.dart';
 import '../peer_actions.dart';
-import '../roles.dart';
+import '../ptt_interaction_mode.dart';
 import '../theme.dart';
 import '../widgets/app_overflow_menu.dart';
 import '../widgets/ptt_wave_bars.dart';
@@ -146,7 +146,7 @@ class RadioScreen extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      displayName,
+                                      zoneName,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TacticalFonts.body(
@@ -155,7 +155,7 @@ class RadioScreen extends StatelessWidget {
                                       ),
                                     ),
                                     Text(
-                                      zoneName,
+                                      displayName,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TacticalFonts.label(
@@ -387,7 +387,7 @@ class RadioScreen extends StatelessWidget {
                   children: [
                     _SideChip(label: zoneName, icon: Icons.layers_rounded),
                     const SizedBox(width: 12),
-                    _PttPad(session: session, latchMode: canManageUsers(api?.user)),
+                    _PttZone(session: session, user: api?.user),
                     const SizedBox(width: 12),
                     Column(
                       mainAxisSize: MainAxisSize.min,
@@ -447,7 +447,7 @@ class RadioScreen extends StatelessWidget {
                 ),
               ),
             Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
               child: Row(
                 children: [
                   IconButton(
@@ -469,6 +469,7 @@ class RadioScreen extends StatelessWidget {
                           final name = groups.isEmpty
                               ? '${i + 1}'
                               : (groups[i]['name'] as String? ?? '${i + 1}');
+                          // No seleccionados: número claro; seleccionado: nombre (acotado).
                           final label = selected
                               ? (name.length > 14
                                   ? '${name.substring(0, 13)}…'
@@ -626,7 +627,174 @@ Color _presenceDotColor(PresenceMember m) {
   }
 }
 
-/// Botón PTT circular — latch (admins) o hold-to-talk (operadores).
+/// Zona PTT: selector Mantén | Toque + botón circular.
+class _PttZone extends StatefulWidget {
+  const _PttZone({required this.session, this.user});
+
+  final ChannelSession session;
+  final Map<String, dynamic>? user;
+
+  @override
+  State<_PttZone> createState() => _PttZoneState();
+}
+
+class _PttZoneState extends State<_PttZone> {
+  PttInteractionMode _mode = PttInteractionMode.hold;
+  bool _readyMode = false;
+  /// Evita que el load async de prefs pise una elección ya hecha (salto Corta→Larga).
+  bool _userPicked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _mode = defaultPttModeForUser(widget.user);
+    loadPttInteractionMode(widget.user).then((m) {
+      if (!mounted || _userPicked) return;
+      setState(() {
+        _mode = m;
+        _readyMode = true;
+      });
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _PttZone oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.user != widget.user && !_readyMode && !_userPicked) {
+      _mode = defaultPttModeForUser(widget.user);
+    }
+  }
+
+  Future<void> _setMode(PttInteractionMode next) async {
+    if (next == _mode) return;
+    _userPicked = true;
+    // Al pasar a Corta (hold) con mic abierto, soltar para no quedar trabado.
+    if (next == PttInteractionMode.hold && widget.session.holding) {
+      await widget.session.releasePtt();
+    }
+    setState(() => _mode = next);
+    await savePttInteractionMode(next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Pulsación',
+          style: TacticalFonts.label(
+            fontSize: 11,
+            letterSpacing: 1.6,
+            color: kInstGoldSoft.withValues(alpha: 0.9),
+          ),
+        ),
+        const SizedBox(height: 6),
+        _PttModeSegment(
+          mode: _mode,
+          enabled: !widget.session.holding,
+          onChanged: _setMode,
+        ),
+        const SizedBox(height: 10),
+        _PttPad(
+          session: widget.session,
+          latchMode: _mode.isLatch,
+        ),
+      ],
+    );
+  }
+}
+
+class _PttModeSegment extends StatelessWidget {
+  const _PttModeSegment({
+    required this.mode,
+    required this.onChanged,
+    this.enabled = true,
+  });
+
+  final PttInteractionMode mode;
+  final ValueChanged<PttInteractionMode> onChanged;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    // Consola radio es cromo oscuro institucional; no usar surface claro del Theme.
+    final track = const Color(0xFF152018);
+    final border = kInstGold.withValues(alpha: 0.45);
+    final selectedBg = kInstOlive;
+    final selectedFg = kInstOnPrimary;
+    final idleFg = kInstGoldSoft;
+
+    return Semantics(
+      label: 'Pulsación: ${mode.label}',
+      child: Opacity(
+        opacity: enabled ? 1 : 0.55,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: track,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _segBtn(
+                label: 'Corta',
+                selected: mode == PttInteractionMode.hold,
+                selectedBg: selectedBg,
+                selectedFg: selectedFg,
+                idleFg: idleFg,
+                onTap: enabled
+                    ? () => onChanged(PttInteractionMode.hold)
+                    : null,
+              ),
+              _segBtn(
+                label: 'Larga',
+                selected: mode == PttInteractionMode.latch,
+                selectedBg: selectedBg,
+                selectedFg: selectedFg,
+                idleFg: idleFg,
+                onTap: enabled
+                    ? () => onChanged(PttInteractionMode.latch)
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _segBtn({
+    required String label,
+    required bool selected,
+    required Color selectedBg,
+    required Color selectedFg,
+    required Color idleFg,
+    VoidCallback? onTap,
+  }) {
+    return Material(
+      color: selected ? selectedBg : Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Text(
+            label,
+            style: TacticalFonts.label(
+              fontSize: 12,
+              color: selected ? selectedFg : idleFg,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Botón PTT circular — latch (Larga) o hold-to-talk (Corta).
 class _PttPad extends StatelessWidget {
   const _PttPad({required this.session, required this.latchMode});
 
@@ -643,6 +811,81 @@ class _PttPad extends StatelessWidget {
             ? (holding ? 'TOCAR · SOLTAR' : 'TOCAR')
             : (holding ? 'SUELTA' : 'MANTÉN'));
 
+    final pad = AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      width: 172,
+      height: 172,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: holding
+              ? const [Color(0xFF3F6B36), kInstOlive, kInstOliveDeep]
+              : const [kInstOliveMid, kInstOlive, kInstOliveDeep],
+        ),
+        border: Border.all(
+          color: holding ? kInstGoldSoft : kInstGold,
+          width: holding ? 3.5 : 2.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: (holding ? kInstOk : kInstOlive).withValues(
+              alpha: holding ? 0.35 : 0.22,
+            ),
+            blurRadius: holding ? 22 : 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Center(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 118,
+          height: 118,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: holding ? const Color(0xFF152018) : const Color(0xFF1A2A16),
+            border: Border.all(
+              color: kInstGoldSoft.withValues(alpha: holding ? 0.9 : 0.45),
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              PttWaveBars(
+                active: holding,
+                color: holding ? kInstGoldSoft : kInstOnPrimary,
+                height: 28,
+                width: 36,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                holding ? 'AL AIRE' : 'PTT',
+                style: TacticalFonts.display(
+                  fontSize: holding ? 15 : 20,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: holding ? 1.4 : 2.2,
+                  color: holding ? kInstGoldSoft : kInstOnPrimary,
+                  height: 1.05,
+                ),
+              ),
+              Text(
+                hint,
+                style: TacticalFonts.label(
+                  fontSize: 9,
+                  letterSpacing: 1.0,
+                  color: kInstOnPrimary.withValues(alpha: 0.72),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
     return Semantics(
       button: true,
       enabled: ready,
@@ -653,105 +896,38 @@ class _PttPad extends StatelessWidget {
           : (holding
               ? 'Al aire, suelta para dejar de transmitir'
               : 'PTT, mantén pulsado para hablar'),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: ready && latchMode
-            ? () {
-                HapticFeedback.selectionClick();
-                session.togglePtt();
-              }
-            : null,
-        onTapDown: ready && !latchMode
-            ? (_) {
-                HapticFeedback.selectionClick();
-                session.pressPtt();
-              }
-            : null,
-        onTapUp: ready && !latchMode
-            ? (_) {
-                session.releasePtt();
-              }
-            : null,
-        onTapCancel: ready && !latchMode
-            ? () {
-                session.releasePtt();
-              }
-            : null,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-          width: 172,
-          height: 172,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: holding
-                  ? const [Color(0xFF3F6B36), kInstOlive, kInstOliveDeep]
-                  : const [kInstOliveMid, kInstOlive, kInstOliveDeep],
+      child: latchMode
+          ? GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: ready
+                  ? () {
+                      HapticFeedback.selectionClick();
+                      session.togglePtt();
+                    }
+                  : null,
+              child: pad,
+            )
+          // Corta (hold): Listener — más fiable que onTapDown/Up (gesture arena).
+          : Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: ready
+                  ? (_) {
+                      HapticFeedback.selectionClick();
+                      session.pressPtt();
+                    }
+                  : null,
+              onPointerUp: ready
+                  ? (_) {
+                      session.releasePtt();
+                    }
+                  : null,
+              onPointerCancel: ready
+                  ? (_) {
+                      session.releasePtt();
+                    }
+                  : null,
+              child: pad,
             ),
-            border: Border.all(
-              color: holding ? kInstGoldSoft : kInstGold,
-              width: holding ? 3.5 : 2.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: (holding ? kInstOk : kInstOlive).withValues(
-                  alpha: holding ? 0.35 : 0.22,
-                ),
-                blurRadius: holding ? 22 : 14,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              width: 118,
-              height: 118,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: holding ? const Color(0xFF152018) : const Color(0xFF1A2A16),
-                border: Border.all(
-                  color: kInstGoldSoft.withValues(alpha: holding ? 0.9 : 0.45),
-                  width: 1.5,
-                ),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  PttWaveBars(
-                    active: holding,
-                    color: holding ? kInstGoldSoft : kInstOnPrimary,
-                    height: 28,
-                    width: 36,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    holding ? 'AL AIRE' : 'PTT',
-                    style: TacticalFonts.display(
-                      fontSize: holding ? 15 : 20,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: holding ? 1.4 : 2.2,
-                      color: holding ? kInstGoldSoft : kInstOnPrimary,
-                      height: 1.05,
-                    ),
-                  ),
-                  Text(
-                    hint,
-                    style: TacticalFonts.label(
-                      fontSize: 9,
-                      letterSpacing: 1.0,
-                      color: kInstOnPrimary.withValues(alpha: 0.72),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

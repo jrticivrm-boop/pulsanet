@@ -246,42 +246,37 @@ export default function CatalogTacticalSites({ session }) {
     }, 350);
   }
 
-  function openColorPalette(index) {
+  /** Doble clic en bolita → paleta nativa (sin cuadro intermedio). */
+  function openColorPalette(index, hex) {
     colorEditIndexRef.current = index;
+    setGroupColor(hex);
     const input = colorInputRef.current;
     if (!input) return;
-    input.value = palette[index] || TACTICAL_SITE_COLORS[0];
-    // showPicker (Chromium) abre la paleta y permite arrastrar con eventos input en vivo
-    if (typeof input.showPicker === 'function') {
-      try {
+    input.value = normalizeHex(hex) || TACTICAL_SITE_COLORS[0];
+    try {
+      input.focus({ preventScroll: true });
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (typeof input.showPicker === 'function') {
         input.showPicker();
         return;
-      } catch {
-        /* fallback click */
       }
+    } catch {
+      /* fallback click */
     }
-    input.click();
+    try {
+      input.click();
+    } catch {
+      /* ignore */
+    }
   }
 
-  /** Mientras arrastras la bolita en la paleta (evento input). */
+  /** Mientras arrastras el color en la paleta (evento input). */
   function onPaletteColorInput(e) {
     const color = paintLiveColor(e.target.value);
     if (color) schedulePersistGroupColor(color);
-  }
-
-  /** Al confirmar / cerrar la paleta. */
-  function onPaletteColorChange(e) {
-    const color = paintLiveColor(e.target.value);
-    if (!color || !selectedGroupId) return;
-    window.clearTimeout(colorPersistTimerRef.current);
-    void (async () => {
-      try {
-        await patchTacticalSiteGroup(session.token, selectedGroupId, { color });
-        notifyTacticalSitesChanged();
-      } catch (err) {
-        setDialog({ title: 'Error', message: err.message, alertOnly: true });
-      }
-    })();
   }
 
   useEffect(
@@ -560,30 +555,31 @@ export default function CatalogTacticalSites({ session }) {
                 onKeyDown={(e) => e.key === 'Enter' && addGroup()}
               />
               <div className="cc-tactical-colors" role="group" aria-label="Color en mapa">
-                <input
-                  ref={colorInputRef}
-                  type="color"
-                  className="cc-tactical-color-native"
-                  aria-hidden
-                  tabIndex={-1}
-                  onInput={onPaletteColorInput}
-                  onChange={onPaletteColorChange}
-                />
                 {palette.map((c, i) => (
                   <button
                     key={i}
                     type="button"
                     className={`cc-tactical-color${groupColor === c ? ' is-active' : ''}`}
                     style={{ background: c }}
-                    title={`${c} — clic elige · doble clic paleta (arrastra la bolita)`}
+                    title={`${c} — clic elige · doble clic abre paleta`}
                     onClick={() => setGroupColor(c)}
                     onDoubleClick={(ev) => {
                       ev.preventDefault();
                       ev.stopPropagation();
-                      openColorPalette(i);
+                      openColorPalette(i, c);
                     }}
                   />
                 ))}
+                <input
+                  ref={colorInputRef}
+                  type="color"
+                  className="cc-tactical-color-native"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  defaultValue={groupColor}
+                  onInput={onPaletteColorInput}
+                  onChange={onPaletteColorInput}
+                />
               </div>
               <button type="button" className="cc-btn cc-cat-add-btn" disabled={busy} onClick={addGroup}>
                 + Agrupación

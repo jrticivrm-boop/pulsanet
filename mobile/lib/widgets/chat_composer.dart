@@ -17,7 +17,7 @@ import 'chat_emoji_panel.dart';
 import 'composer_error_balloon.dart';
 
 /// Composer unificado estilo WhatsApp (grupo + 1:1):
-/// [emoji] [zumbido?] Mensaje [clip] [cámara]  ·  (mic | enviar)
+/// [+] [zumbido?] [🙂] Mensaje [cámara]  ·  (mic | enviar)
 /// Al grabar: panel timer + onda + borrar / pausar / enviar.
 /// [onNudge] solo en DM (paridad web); en chat de grupo queda null.
 class ChatComposer extends StatefulWidget {
@@ -62,7 +62,7 @@ class ChatComposer extends StatefulWidget {
   final ValueChanged<bool>? onTyping;
   final Future<void> Function()? onBeforeVoiceStart;
   final Future<void> Function()? onAfterVoiceEnd;
-  /// DM: envía zumbido (Icons.vibration). Null en chat de grupo.
+  /// DM: envía zumbido (glyph 🫨, paridad web). Null en chat de grupo.
   final FutureOr<void> Function()? onNudge;
   final bool nudgeBusy;
   final bool uploading;
@@ -456,12 +456,35 @@ class _ChatComposerState extends State<ChatComposer> {
     );
   }
 
+  /// Botón compacto del composer (paridad visual web: +, 🙂, 🫨).
+  Widget _composerGlyphBtn({
+    required String tooltip,
+    required VoidCallback? onPressed,
+    required Widget child,
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 40),
+      visualDensity: VisualDensity.compact,
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: _iconGrey,
+        disabledForegroundColor: _iconGrey.withValues(alpha: 0.35),
+      ),
+      icon: child,
+    );
+  }
+
   Widget _buildIdleComposer() {
+    // Orden alineado a web DM/grupo: + · [zumbido DM] · 🙂 · Mensaje · cámara
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
           child: Container(
+            clipBehavior: Clip.none,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(24),
@@ -477,36 +500,41 @@ class _ChatComposerState extends State<ChatComposer> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _blocked ? null : _toggleEmoji,
-                  icon: Icon(
-                    _showEmoji
-                        ? Icons.keyboard_alt_outlined
-                        : Icons.sticky_note_2_outlined,
-                    color: _iconGrey,
-                    size: 24,
+                _composerGlyphBtn(
+                  tooltip: 'Adjuntar',
+                  onPressed: _blocked ? null : _openAttach,
+                  child: const Text(
+                    '+',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                      height: 1,
+                      color: _iconGrey,
+                    ),
                   ),
-                  tooltip: _showEmoji ? 'Teclado' : 'Emojis y stickers',
                 ),
                 if (widget.onNudge != null)
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
+                  _composerGlyphBtn(
+                    tooltip: 'Enviar zumbido',
                     onPressed: (_blocked || widget.nudgeBusy)
                         ? null
                         : () {
                             final result = widget.onNudge!.call();
                             if (result is Future) unawaited(result);
                           },
-                    icon: Icon(
-                      Icons.vibration,
-                      color: widget.nudgeBusy
-                          ? _iconGrey.withValues(alpha: 0.4)
-                          : _iconGrey,
-                      size: 22,
+                    child: Opacity(
+                      opacity: widget.nudgeBusy ? 0.4 : 1,
+                      child: const Text('🫨', style: TextStyle(fontSize: 20, height: 1)),
                     ),
-                    tooltip: 'Enviar zumbido',
                   ),
+                _composerGlyphBtn(
+                  tooltip: _showEmoji ? 'Teclado' : 'Emojis y stickers',
+                  onPressed: _blocked ? null : _toggleEmoji,
+                  child: Text(
+                    _showEmoji ? '⌨️' : '🙂',
+                    style: const TextStyle(fontSize: 20, height: 1),
+                  ),
+                ),
                 Expanded(
                   child: TextField(
                     controller: widget.controller,
@@ -543,25 +571,14 @@ class _ChatComposerState extends State<ChatComposer> {
                     },
                   ),
                 ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _blocked ? null : _openAttach,
-                  icon: const Icon(
-                    Icons.attach_file,
-                    color: _iconGrey,
-                    size: 22,
-                  ),
-                  tooltip: 'Adjuntar',
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
+                _composerGlyphBtn(
+                  tooltip: 'Cámara',
                   onPressed: _blocked ? null : _quickCamera,
-                  icon: const Icon(
+                  child: const Icon(
                     Icons.photo_camera_outlined,
                     color: _iconGrey,
                     size: 22,
                   ),
-                  tooltip: 'Cámara',
                 ),
               ],
             ),

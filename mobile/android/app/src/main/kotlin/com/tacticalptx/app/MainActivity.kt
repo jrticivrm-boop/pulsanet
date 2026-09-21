@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -188,11 +189,42 @@ class MainActivity : FlutterActivity() {
                 val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
                 when (call.method) {
                     "getMode" -> result.success(audioModeName(am.mode))
-                    // Solo si NO está ya en normal: no cortar telefonía real.
+                    // Fuerza MODE_NORMAL (volumen multimedia). No tocar si ya hay
+                    // telefonía celular real en MODE_IN_CALL con llamada del sistema.
                     "ensureNormalMode" -> {
                         try {
-                            if (am.mode != AudioManager.MODE_NORMAL) {
-                                am.mode = AudioManager.MODE_NORMAL
+                            val mode = am.mode
+                            // IN_CALL del sistema (SIM) no lo pisamos; IN_COMMUNICATION
+                            // es VoIP (LiveKit) y sí hay que soltarlo.
+                            if (mode == AudioManager.MODE_IN_COMMUNICATION ||
+                                mode == AudioManager.MODE_RINGTONE ||
+                                mode == AudioManager.MODE_NORMAL
+                            ) {
+                                if (mode != AudioManager.MODE_NORMAL) {
+                                    am.mode = AudioManager.MODE_NORMAL
+                                }
+                                @Suppress("DEPRECATION")
+                                try {
+                                    am.isSpeakerphoneOn = false
+                                } catch (_: Exception) {
+                                }
+                                try {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                        val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                                            .setAudioAttributes(
+                                                AudioAttributes.Builder()
+                                                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                                                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                                    .build()
+                                            )
+                                            .build()
+                                        am.abandonAudioFocusRequest(req)
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        am.abandonAudioFocus(null)
+                                    }
+                                } catch (_: Exception) {
+                                }
                             }
                             result.success(audioModeName(am.mode))
                         } catch (e: Exception) {
@@ -394,6 +426,8 @@ class MainActivity : FlutterActivity() {
         stopCallRingtone()
         stopOutgoingRingback()
 
+        // STREAM_VOICE_CALL: audible en MODE_IN_COMMUNICATION (el ring no se corta
+        // al conectar). release() puede volver a MODE_NORMAL; Dart reafirma la voz.
         val tg = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 70)
         ringbackTone = tg
         val handler = Handler(Looper.getMainLooper())

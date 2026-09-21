@@ -33,7 +33,7 @@ export const DEFAULT_GAP_OPTS = {
   /** Por debajo es deriva de GPS o un túnel: interpolar no aporta nada. */
   minMeters: 300,
   /** Desplazamiento así de grande es hueco aunque los timestamps estén cerca. */
-  jumpMeters: 1500,
+  jumpMeters: 700,
 };
 
 const EARTH_R = 6371000;
@@ -92,23 +92,45 @@ export function normalizeTrackPoints(points) {
 }
 
 /**
+ * Rumbo inicial (grados 0–360) del tramo previo al hueco, si hay ≥2 fixes.
+ * Sirve para la estimación por dead-reckoning cuando OSRM no responde.
+ */
+export function approachBearingDeg(pts, gapIndex) {
+  if (!pts || gapIndex < 1) return null;
+  const to = pts[gapIndex - 1];
+  const from = gapIndex >= 2 ? pts[gapIndex - 2] : null;
+  if (!from || !to) return null;
+  const d = haversineM(from.lat, from.lng, to.lat, to.lng);
+  if (d < 25) return null;
+  const φ1 = (from.lat * Math.PI) / 180;
+  const φ2 = (to.lat * Math.PI) / 180;
+  const Δλ = ((to.lng - from.lng) * Math.PI) / 180;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  const brng = (Math.atan2(y, x) * 180) / Math.PI;
+  return (brng + 360) % 360;
+}
+
+/**
  * Huecos de señal entre fixes consecutivos.
  *
- * Si la traza viene marcada por el servidor (`gapBefore`) se usan esas marcas y
- * nada más: sobre una traza ya simplificada el espaciado entre puntos NO indica
- * pérdida de señal (Douglas–Peucker borra puntos en tramos rectos, así que dos
- * puntos pueden quedar a 13 km y 10 min sin que hubiera ningún corte).
- * El heurístico local queda para trazas sin marcas (rastro en vivo, pares [lat,lng]).
+ * Prioriza marcas del servidor (`gapBefore`). Además, en trazas ya marcadas
+ * también corta saltos espaciales grandes sin marca (cuerdas verdes post-RDP
+ * que el backend no remarcó). El heurístico temporal completo queda para
+ * trazas sin marcas (rastro en vivo, pares [lat,lng]).
  *
- * @returns {{ index: number, from: object, to: object, meters: number, seconds: number, server: boolean }[]}
+ * @returns {{ index: number, from: object, to: object, meters: number, seconds: number, server: boolean, bearingDeg?: number|null }[]}
  */
 export function detectTrackGaps(pts, opts = {}) {
-  const serverMarked = pts.some((p) => p.gapBefore);
+  const { minSeconds, minMeters, jumpMeters } = { ...DEFAULT_GAP_OPTS, ...opts };
   const gaps = [];
+  const seen = new Set();
+  const serverMarked = pts.some((p) => p.gapBefore);
 
   if (serverMarked) {
     for (let i = 1; i < pts.length; i += 1) {
       if (!pts[i].gapBefore) continue;
+      seen.add(i);
       gaps.push({
         index: i,
         from: pts[i - 1],
@@ -116,19 +138,45 @@ export function detectTrackGaps(pts, opts = {}) {
         meters: pts[i].gapMeters || haversineM(pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng),
         seconds: pts[i].gapSeconds || 0,
         server: true,
+        bearingDeg: approachBearingDeg(pts, i),
       });
+    }
+    // Cuerdas post-simplificar sin gapBefore: solo salto espacial (no tiempo).
+    for (let i = 1; i < pts.length; i += 1) {
+      if (seen.has(i)) continue;
+      const a = pts[i - 1];
+      const b = pts[i];
+      const meters = haversineM(a.lat, a.lng, b.lat, b.lng);
+      if (meters > jumpMeters) {
+        gaps.push({
+          index: i,
+          from: a,
+          to: b,
+          meters,
+          seconds: a.t && b.t ? (b.t - a.t) / 1000 : 0,
+          server: false,
+          bearingDeg: approachBearingDeg(pts, i),
+        });
+      }
     }
     return gaps;
   }
 
-  const { minSeconds, minMeters, jumpMeters } = { ...DEFAULT_GAP_OPTS, ...opts };
   for (let i = 1; i < pts.length; i += 1) {
     const a = pts[i - 1];
     const b = pts[i];
     const meters = haversineM(a.lat, a.lng, b.lat, b.lng);
     const seconds = a.t && b.t ? (b.t - a.t) / 1000 : 0;
     if (meters > minMeters && (seconds > minSeconds || meters > jumpMeters)) {
-      gaps.push({ index: i, from: a, to: b, meters, seconds, server: false });
+      gaps.push({
+        index: i,
+        from: a,
+        to: b,
+        meters,
+        seconds,
+        server: false,
+        bearingDeg: approachBearingDeg(pts, i),
+      });
     }
   }
   return gaps;

@@ -23,7 +23,8 @@ const kPushChannelName = 'Alertas SICOM';
 /// v4: sin sonido de canal — CallRingtone es la única fuente de audio.
 const kCallChannelId = 'tacticalptx_calls_v4_silent';
 const kCallChannelName = 'Llamadas SICOM';
-/// v2: Importance.max + sonido zumbido.
+/// v2: Importance.max + sonido zumbido. El patrón de vibración vive en v5
+/// (Android no actualiza el patrón de un canal ya creado).
 const kNudgeChannelId = 'tacticalptx_nudge_v2';
 const kNudgeChannelName = 'Zumbidos SICOM';
 /// Defaults (cuando prefs no cargan).
@@ -31,6 +32,12 @@ const kMessageSoundRaw = 'tactical_msg';
 const kMessageSoundIos = 'tactical_msg.wav';
 const kNudgeSoundRaw = 'nudge_buzz';
 const kNudgeSoundIos = 'nudge_buzz.wav';
+
+/// Ráfaga alternada (~izquierda/derecha). El shade de Android no anima
+/// RemoteViews; la notificación no se desplaza, vibra con este patrón.
+final Int64List kNudgeShakeVibration = Int64List.fromList(const <int>[
+  0, 40, 30, 55, 30, 40, 30, 70, 40, 40, 30, 55, 30, 40, 80, 50,
+]);
 
 /// Canal Android v4 + sufijo de tono (Android no cambia el sonido de un id fijo).
 Future<({
@@ -42,7 +49,7 @@ Future<({
 })> _resolveChatNotifAudio({required bool nudge}) async {
   final tone =
       nudge ? await SoundPrefs.nudgeTone() : await SoundPrefs.messageTone();
-  final baseId = nudge ? 'tacticalptx_nudge_v4' : 'tacticalptx_alerts_v4';
+  final baseId = nudge ? 'tacticalptx_nudge_v5' : 'tacticalptx_alerts_v4';
   final baseName = nudge ? 'Zumbidos SICOM' : 'Alertas SICOM';
   final suffix = SoundPrefs.channelSuffix(tone);
   if (tone == AppToneId.silent) {
@@ -159,6 +166,7 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
       importance: Importance.max,
       playSound: isCall ? false : (audio?.playSound ?? true),
       enableVibration: true,
+      vibrationPattern: nudge ? kNudgeShakeVibration : null,
       audioAttributesUsage: isCall
           ? AudioAttributesUsage.notificationRingtone
           : AudioAttributesUsage.notification,
@@ -200,6 +208,8 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
         timeoutAfter: isCall ? 55000 : null,
         playSound: isCall ? false : (audio?.playSound ?? true),
         enableVibration: vibrate,
+        vibrationPattern: nudge ? kNudgeShakeVibration : null,
+        ticker: nudge ? '¡Zumbido!' : null,
         audioAttributesUsage: isCall
             ? AudioAttributesUsage.notificationRingtone
             : AudioAttributesUsage.notification,
@@ -467,6 +477,7 @@ class PushService {
             importance: Importance.max,
             playSound: nudgeAudio.playSound,
             enableVibration: true,
+            vibrationPattern: kNudgeShakeVibration,
             sound: nudgeAudio.androidSound,
           ),
         );
@@ -603,6 +614,7 @@ class PushService {
           importance: Importance.max,
           playSound: audio.playSound,
           enableVibration: true,
+          vibrationPattern: isNudge ? kNudgeShakeVibration : null,
           sound: audio.androidSound,
         ),
       );
@@ -633,6 +645,8 @@ class PushService {
           // Llamadas: CallRingtone es la única fuente de audio (evita doble tono).
           playSound: isCall ? false : (audio?.playSound ?? true),
           enableVibration: callPrefs?.enableVibration ?? true,
+          vibrationPattern: isNudge ? kNudgeShakeVibration : null,
+          ticker: isNudge ? '¡Zumbido!' : null,
           audioAttributesUsage: isCall
               ? AudioAttributesUsage.notificationRingtone
               : AudioAttributesUsage.notification,

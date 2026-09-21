@@ -357,19 +357,15 @@
   font-weight: 700;
 }
 
-.cc-radio-dock-ch-link {
+/* Solo informativo: sin enlace ni hover de atajo */
+.cc-radio-dock-ch-info {
   display: flex;
   flex-direction: column;
   min-width: 0;
   max-width: 14rem;
-  text-decoration: none;
   color: inherit;
   gap: 0.05rem;
-}
-
-.cc-radio-dock-ch-link:hover .cc-radio-dock-ch {
-  color: var(--cc-accent);
-  text-decoration: underline;
+  cursor: default;
 }
 
 .cc-radio-dock-listen {
@@ -714,6 +710,31 @@
   background: var(--cc-panel);
   border: 1px solid var(--cc-border);
   border-radius: 8px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  box-sizing: border-box;
+}
+
+.cc-kpi-item.is-draggable {
+  cursor: pointer;
+}
+
+.cc-kpi-item.is-dragging {
+  opacity: 0.55;
+}
+
+.cc-kpi-item.is-drag-over {
+  border-color: color-mix(in srgb, var(--cc-accent, #3d7ea6) 55%, var(--cc-border));
+}
+
+/* Manita abierta al reordenar KPI (mismo criterio que pestañas ops). */
+html.cc-ops-kpi-dragging,
+html.cc-ops-kpi-dragging body {
+  cursor: grab !important;
+}
+html.cc-ops-kpi-dragging .cc-kpi-item {
+  cursor: grab !important;
 }
 
 .cc-kpi-item strong {
@@ -1581,6 +1602,17 @@
   align-items: stretch;
   /* Top un poco menor que el 0.65rem de --spread: equilibra hueco sobre labels vs bajo controles */
   padding-top: 0.4rem;
+  /* Fuente de verdad = .trp-trigger (Desde/Hasta): misma altura en Sitios/Operadores/Ruta/Geocerca */
+  --map-ops-ctrl-pad-y: 0.32rem;
+  --map-ops-ctrl-pad-x: 0.45rem;
+  --map-ops-ctrl-fs: 0.78rem;
+  --map-ops-ctrl-lh: 1.25;
+  --map-ops-ctrl-min-h: calc(
+    (var(--map-ops-ctrl-pad-y) * 2) + (var(--map-ops-ctrl-fs) * var(--map-ops-ctrl-lh)) + 2px
+  );
+  /* Label (con ? de 1rem) + gap del .map-field + control → una sola altura de fila entre pestañas */
+  --map-ops-field-gap: 0.25rem;
+  --map-ops-panel-body-h: calc(1rem + var(--map-ops-field-gap) + var(--map-ops-ctrl-min-h));
 }
 
 /* Ops en pestañas: franja compacta + un solo panel activo */
@@ -1592,12 +1624,135 @@
   padding: 0.4rem 0.65rem 0.55rem;
 }
 
+/* Misma altura de cuerpo al cambiar Sitios/Operadores/Ruta/Geocerca (no se encoge ni crece). */
+.cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panels {
+  box-sizing: border-box;
+  height: var(--map-ops-panel-body-h);
+  min-height: var(--map-ops-panel-body-h);
+  max-height: var(--map-ops-panel-body-h);
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  width: 100%;
+  position: relative;
+  z-index: 2;
+}
+
+.cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panel {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-hint {
+  align-self: flex-end;
+  min-height: var(--map-ops-ctrl-min-h);
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
 .cc-shell .map-ops-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem;
   align-items: stretch;
   min-width: 0;
+  flex: 1 1 auto;
+}
+
+.cc-shell .map-ops-tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  min-width: 0;
+  width: 100%;
+}
+
+/* Ocultar / Mostrar (solo maximizado): misma familia que .lt-sheet-toggle / chrome CC */
+.cc-shell .map-ops-chrome-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
+  box-sizing: border-box;
+  min-height: 2.15rem;
+  padding: 0.28rem 0.65rem;
+  border: 1px solid var(--cc-border);
+  border-radius: 8px;
+  background: var(--cc-panel-2);
+  color: var(--cc-text);
+  font-family: var(--cc-font);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cc-shell .map-ops-chrome-btn:hover {
+  border-color: color-mix(in srgb, var(--cc-accent, #3b8eff) 40%, var(--cc-border));
+  background: color-mix(in srgb, var(--cc-accent, #3b8eff) 10%, var(--cc-panel-2));
+  color: var(--cc-text);
+}
+
+.cc-shell .map-ops-chrome-btn__ico {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+/* Ocultar/Mostrar panel: anclado abajo al centro del mapa (solo maximizado) */
+.dispatch-page.map-page--maximized .map-ops-chrome-btn--dock {
+  position: absolute;
+  left: 50%;
+  bottom: 0.85rem;
+  transform: translateX(-50%);
+  z-index: 1410;
+  pointer-events: auto;
+  min-height: var(--map-chrome-h, 2rem);
+  padding: 0.32rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: rgba(255, 255, 255, 0.94);
+  color: #1a1f24;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+}
+
+.dispatch-page.map-page--maximized .map-ops-chrome-btn--dock:hover {
+  border-color: var(--cc-olive, #4a6b3a);
+  color: var(--cc-olive, #4a6b3a);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+:is([data-theme='verde'], [data-theme='obscuro'])
+  .dispatch-page.map-page--maximized
+  .map-ops-chrome-btn--dock {
+  background: rgba(21, 32, 24, 0.92);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--cc-text);
+}
+
+[data-theme='obscuro'] .dispatch-page.map-page--maximized .map-ops-chrome-btn--dock {
+  background: rgba(26, 29, 39, 0.94);
+}
+
+:is([data-theme='verde'], [data-theme='obscuro'])
+  .dispatch-page.map-page--maximized
+  .map-ops-chrome-btn--dock:hover {
+  border-color: var(--cc-accent);
+  color: var(--cc-text);
+  background: color-mix(in srgb, var(--cc-accent) 12%, rgba(21, 32, 24, 0.92));
 }
 
 .cc-shell .map-ops-tab {
@@ -1618,6 +1773,13 @@
   line-height: 1.2;
   cursor: pointer;
   box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.cc-shell .map-ops-tab.is-draggable {
+  cursor: pointer;
 }
 
 .cc-shell .map-ops-tab svg {
@@ -1625,6 +1787,7 @@
   width: 18px;
   height: 18px;
   opacity: 0.9;
+  pointer-events: none;
 }
 
 .cc-shell .map-ops-tab:hover:not(:disabled) {
@@ -1638,9 +1801,28 @@
   border-color: color-mix(in srgb, var(--cc-accent, #3d7ea6) 35%, var(--cc-border));
 }
 
+.cc-shell .map-ops-tab.is-dragging {
+  opacity: 0.55;
+}
+
+.cc-shell .map-ops-tab.is-drag-over {
+  border-color: color-mix(in srgb, var(--cc-accent, #3d7ea6) 55%, var(--cc-border));
+  color: var(--cc-text);
+}
+
 .cc-shell .map-ops-tab:disabled {
   opacity: 0.38;
   cursor: not-allowed;
+  touch-action: auto;
+}
+
+/* Solo con drag activo (pointer DnD): manita abierta (grab), no puño (grabbing). */
+html.map-ops-tabs-dragging,
+html.map-ops-tabs-dragging body {
+  cursor: grab !important;
+}
+html.map-ops-tabs-dragging .map-ops-tab {
+  cursor: grab !important;
 }
 
 .cc-shell .map-ops-panels {
@@ -1691,6 +1873,284 @@
   padding: 0.2rem 0;
 }
 
+/* Ruta: periodo Desde/Hasta (disparadores + popover calendario propio) */
+.cc-shell .map-track-range {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 0.45rem 0.65rem;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+.cc-shell .map-field--track-trigger {
+  flex: 0 0 auto;
+  min-width: 10.5rem;
+  max-width: 13.5rem;
+  width: auto;
+}
+.cc-shell .trp-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  width: 100%;
+  margin: 0;
+  min-height: var(--map-ops-ctrl-min-h, calc(0.64rem + 0.78rem * 1.25 + 2px));
+  padding: var(--map-ops-ctrl-pad-y, 0.32rem) var(--map-ops-ctrl-pad-x, 0.45rem);
+  border-radius: 6px;
+  border: 1px solid var(--cc-border);
+  background: var(--cc-panel);
+  color: var(--cc-text);
+  font: inherit;
+  font-size: var(--map-ops-ctrl-fs, 0.78rem);
+  font-weight: 600;
+  line-height: var(--map-ops-ctrl-lh, 1.25);
+  box-sizing: border-box;
+  cursor: pointer;
+  text-align: left;
+}
+.cc-shell .map-field--track-trigger.is-open .trp-trigger,
+.cc-shell .trp-trigger:hover {
+  border-color: color-mix(in srgb, var(--cc-accent) 50%, var(--cc-border));
+}
+.cc-shell .trp-trigger__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-shell .trp-trigger__ico {
+  flex: 0 0 auto;
+  opacity: 0.55;
+  font-size: 0.7rem;
+}
+
+.trp-panel {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.45rem 0.5rem 0.4rem;
+  border-radius: 8px;
+  border: 1px solid var(--cc-border, #c2cbb8);
+  background: var(--cc-panel, #f8f9f5);
+  color: var(--cc-text, #172015);
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 20%, transparent);
+  font-family: var(--cc-body, inherit);
+}
+[data-theme='verde'] .trp-panel {
+  background: var(--cc-panel, #141412);
+  border-color: var(--cc-border, #3a3428);
+  color: var(--cc-text, #e8e4d4);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+}
+[data-theme='obscuro'] .trp-panel {
+  background: var(--cc-panel, #1a1d27);
+  border-color: var(--cc-border, #2e3348);
+  color: var(--cc-text, #e2e8f0);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+}
+.trp-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+  line-height: 1.2;
+}
+.trp-panel__head strong {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.trp-panel__limit {
+  font-size: 0.62rem;
+  color: var(--cc-muted, #5c6756);
+}
+.trp-cal__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  margin-bottom: 0.2rem;
+}
+.trp-cal__title {
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.trp-cal__nav-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--cc-border, #c2cbb8) 80%, transparent);
+  background: var(--cc-panel-2, #eef2e8);
+  color: var(--cc-text, #172015);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.trp-cal__nav-btn:hover {
+  border-color: color-mix(in srgb, var(--cc-accent) 45%, var(--cc-border));
+}
+.trp-cal__weekdays,
+.trp-cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.1rem;
+}
+.trp-cal__weekdays span {
+  text-align: center;
+  font-size: 0.58rem;
+  font-weight: 650;
+  color: var(--cc-muted, #5c6756);
+  padding: 0.05rem 0;
+  line-height: 1.2;
+}
+.trp-cal__cell {
+  width: 100%;
+  min-height: 1.9rem; /* ~30–34px: denso pero usable en desktop */
+  aspect-ratio: 1;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cc-text, #172015);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.trp-cal__cell--empty {
+  pointer-events: none;
+  min-height: 0;
+}
+.trp-cal__cell:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cc-accent) 14%, transparent);
+}
+.trp-cal__cell.is-today:not(.is-selected) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cc-accent) 55%, transparent);
+}
+.trp-cal__cell.is-selected {
+  background: var(--cc-accent, #2a3d22);
+  color: #fff;
+}
+[data-theme='verde'] .trp-cal__cell.is-selected {
+  color: #0a0a0a;
+}
+.trp-cal__cell:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+}
+.trp-time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  justify-content: center;
+  align-items: center;
+  padding: 0.25rem 0 0.05rem;
+  border-top: 1px solid color-mix(in srgb, var(--cc-border) 55%, transparent);
+}
+.trp-stepper {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.3rem;
+}
+.trp-stepper__label {
+  font-size: 0.58rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cc-muted);
+  line-height: 1;
+}
+.trp-stepper__ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+.trp-stepper__btn {
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid var(--cc-border);
+  background: var(--cc-panel-2);
+  color: var(--cc-text);
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.trp-stepper__btn:hover {
+  border-color: color-mix(in srgb, var(--cc-accent) 45%, var(--cc-border));
+}
+.trp-stepper__value {
+  min-width: 1.55rem;
+  text-align: center;
+  font-size: 0.88rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.trp-panel__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  padding-top: 0.2rem;
+  border-top: 1px solid color-mix(in srgb, var(--cc-border) 55%, transparent);
+}
+.trp-link {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--cc-accent);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.trp-panel__actions {
+  display: flex;
+  gap: 0.3rem;
+}
+.trp-btn {
+  min-height: 0;
+  min-width: 4.75rem;
+  height: auto;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+.trp-btn.cc-btn.ghost {
+  border-color: var(--cc-danger, #7a1f1f);
+  color: var(--cc-danger, #7a1f1f);
+  background: transparent;
+}
+.trp-btn.cc-btn.ghost:hover,
+.trp-btn.cc-btn.ghost:focus-visible {
+  border-color: var(--cc-danger, #7a1f1f);
+  background: var(--cc-danger, #7a1f1f);
+  color: var(--cc-panel, #f8f9f5);
+  outline: none;
+}
+.trp-btn.cc-btn.primary {
+  /* Aplicar sigue primary (relleno acento) */
+  padding: 1px 10px;
+}
+
 /*
  * Geocerca: UNA fila en desktop
  * (Clic en mapa… | Nombre | Latitud | Longitud | Radio | Guardar/Cancelar).
@@ -1735,12 +2195,33 @@
   width: 5.5rem;
 }
 
+.cc-shell .geofence-form--in-panel .map-field--color {
+  flex: 0 0 auto;
+  max-width: none;
+  width: auto;
+  min-width: 0;
+}
+
+.cc-shell .geofence-form--in-panel .map-field--color > span {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--cc-muted, var(--muted));
+}
+
+.cc-shell .geofence-form--in-panel .map-field--color .cc-tactical-colors {
+  min-height: var(--map-ops-ctrl-min-h, 2.45rem);
+  align-items: center;
+}
+
 .cc-shell .map-fix-toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   flex: 0 0 auto;
-  min-height: 2.45rem;
+  min-height: var(--map-ops-ctrl-min-h, 2.45rem);
   padding: 0.35rem 0.7rem;
   margin: 0;
   border: 1px solid var(--cc-border, var(--border));
@@ -1757,10 +2238,19 @@
   white-space: nowrap;
 }
 
-.cc-shell .map-fix-toggle input {
+/* Gana a .map-ops-panel input (padding/width de campo de texto) para no inflar el toggle. */
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .map-fix-toggle input {
   width: 0.95rem;
   height: 0.95rem;
+  min-height: 0;
+  max-height: 0.95rem;
   margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: none;
   accent-color: var(--cc-accent, var(--accent));
   cursor: pointer;
 }
@@ -1776,22 +2266,42 @@
   display: inline-flex;
   flex: 0 0 auto;
   gap: 0.4rem;
-  align-items: center;
+  align-items: stretch;
+  align-self: flex-end;
   margin-left: auto;
   grid-template-columns: none;
 }
 
+/* Misma altura fija que inputs/selects del panel (no solo min-height: 2.45rem). */
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel--geocerca.is-editing .map-form-actions .cc-btn,
+.cc-shell .map-toolbar.map-toolbar--ops .geofence-form--in-panel .map-form-actions .cc-btn,
 .cc-shell .map-ops-panel--geocerca.is-editing > .map-form-actions .cc-btn,
 .cc-shell .geofence-form--in-panel .map-form-actions .cc-btn {
-  min-height: 2.45rem;
-  padding: 0.4rem 0.7rem;
-  font-size: 0.82rem;
+  height: var(--map-ops-ctrl-min-h);
+  min-height: var(--map-ops-ctrl-min-h);
+  max-height: var(--map-ops-ctrl-min-h);
+  padding: var(--map-ops-ctrl-pad-y) var(--map-ops-ctrl-pad-x);
+  font-size: var(--map-ops-ctrl-fs);
+  line-height: var(--map-ops-ctrl-lh);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   white-space: nowrap;
 }
 
 @media (max-width: 900px) {
-  .cc-shell .map-ops-panel--geocerca.is-editing {
+  .cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panels:has(.map-ops-panel--geocerca.is-editing) {
+    height: auto;
+    max-height: none;
+  }
+
+  .cc-shell .map-ops-panel--geocerca.is-editing,
+  .cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panel--geocerca.is-editing {
     flex-wrap: wrap;
+    height: auto;
+    max-height: none;
+    overflow-y: visible;
   }
 
   .cc-shell .map-ops-panel--geocerca.is-editing > .map-form-actions {
@@ -1831,18 +2341,98 @@
   min-width: 0;
 }
 
-/* Misma altura que .map-field select / .cc-tactical-ms-trigger / .map-action */
+/* Misma altura que .trp-trigger / selects / .map-action (ops) */
 .cc-shell .map-toolbar--spread .lt-layers button {
   width: 100%;
-  min-height: 2.45rem;
+  min-height: var(--map-ops-ctrl-min-h, 2.45rem);
   box-sizing: border-box;
-  padding: 0.5rem 0.35rem;
+  padding: var(--map-ops-ctrl-pad-y, 0.5rem) 0.35rem;
+  font-size: var(--map-ops-ctrl-fs, 0.82rem);
+  line-height: var(--map-ops-ctrl-lh, 1.25);
 }
 
 .cc-shell .map-toolbar--ops .cc-tactical-ms {
   flex: 0 1 11rem;
   min-width: 8.5rem;
+  max-width: 11rem;
+  width: 11rem;
   align-self: flex-end;
+}
+
+/* Misma especificidad que .map-ops-panel--row > .map-field (evita que crezca a 16rem). */
+.cc-shell .map-toolbar--ops .map-ops-panel--row > .map-field.cc-tactical-ms,
+.cc-shell .map-toolbar--ops .map-ops-panel--row > .cc-tactical-ms {
+  flex: 0 1 11rem;
+  min-width: 8.5rem;
+  max-width: 11rem;
+  width: 11rem;
+  overflow: hidden;
+}
+
+/* Operadores (Por operador/Por grupo): mismo ancho que el select de Sitios */
+.cc-shell .map-toolbar--ops .map-ops-panel--row > .map-field.map-field--ops-primary {
+  flex: 0 1 11rem;
+  min-width: 8.5rem;
+  max-width: 11rem;
+  width: 11rem;
+  align-self: flex-end;
+}
+
+/* Geocerca (lista): mismo ancho de trigger que Persona/Grupo/Sitios (11rem) */
+.cc-shell .map-toolbar--ops .map-ops-panel--geocerca:not(.is-editing) > .map-field.cc-tactical-ms {
+  flex: 0 1 11rem;
+  min-width: 8.5rem;
+  max-width: 11rem;
+  width: 11rem;
+  align-self: flex-end;
+}
+
+.cc-shell .map-toolbar--ops .map-ops-panel--geocerca:not(.is-editing) > .map-action {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+}
+
+/*
+ * Ops multi-selects (Persona / Estado / Grupo / Sitios / Ruta): ver reglas de
+ * trigger/value/caret tras tokens de altura ops (ellipsis + caret visible).
+ */
+
+/* Ruta: una fila compacta a la izquierda — Ruta · Desde · Hasta · Ruta probable */
+.cc-shell .map-ops-panel--ruta {
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 0.65rem 0.85rem;
+}
+.cc-shell .map-toolbar--ops .map-ops-panel--ruta > .map-field.cc-tactical-ms,
+.cc-shell .map-toolbar--ops .map-ops-panel--ruta > .cc-tactical-ms {
+  flex: 0 0 15rem;
+  width: 15rem;
+  min-width: 15rem;
+  max-width: 15rem;
+  z-index: 2;
+  overflow: hidden;
+  position: relative;
+}
+.cc-shell .map-ops-panel--ruta > .cc-tactical-ms.is-open {
+  z-index: 3;
+}
+/* Sin grow ni wrap: el bloque no ocupa 100% ni empuja el check a otra línea/esquina. */
+.cc-shell .map-toolbar--ops .map-ops-panel--ruta > .map-track-range {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  min-width: min-content;
+  max-width: none;
+  width: auto;
+  z-index: 1;
+  position: relative;
+}
+.cc-shell .map-ops-panel--ruta > .map-fix-toggle--probable,
+.cc-shell .map-ops-panel--ruta > .map-form-toggle--probable {
+  align-self: flex-end;
+  flex: 0 0 auto;
+  margin-left: 0;
 }
 
 .cc-shell .map-toolbar--ops .map-toolbar-trail {
@@ -1866,23 +2456,57 @@
 }
 
 /*
- * Consola ops (Sitios / Operadores / Ruta / Geocerca): misma altura en selects,
- * multi-select, botones e inputs (antes el compact 2rem dejaba selects más bajos).
- */
+ * Consola ops (Sitios / Operadores / Ruta / Geocerca): misma altura que .trp-trigger
+ * (tokens --map-ops-ctrl-* en .map-toolbar--ops). No toca paneles desplegables.
+ * height (no solo min-height): el <select> nativo de Operadores no encoge con min-height. */
 .cc-shell .map-toolbar.map-toolbar--ops select,
 .cc-shell .map-toolbar.map-toolbar--ops .map-field select,
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel select,
 .cc-shell .map-toolbar.map-toolbar--ops .cc-tactical-ms-trigger,
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .cc-tactical-ms-trigger,
 .cc-shell .map-toolbar.map-toolbar--ops .map-action,
 .cc-shell .map-toolbar.map-toolbar--ops button.map-action,
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel input:not([type='checkbox']):not([type='radio']),
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .cc-btn,
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .map-form-toggle,
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .map-fix-toggle,
-.cc-shell .map-toolbar.map-toolbar--ops .lt-layers button {
-  min-height: 2.45rem;
-  padding: 0.5rem 0.65rem;
-  font-size: 0.82rem;
-  line-height: 1.25;
+.cc-shell .map-toolbar.map-toolbar--ops .lt-layers button,
+.cc-shell .map-toolbar.map-toolbar--ops .trp-trigger {
+  height: var(--map-ops-ctrl-min-h);
+  min-height: var(--map-ops-ctrl-min-h);
+  max-height: var(--map-ops-ctrl-min-h);
+  padding: var(--map-ops-ctrl-pad-y) var(--map-ops-ctrl-pad-x);
+  font-size: var(--map-ops-ctrl-fs);
+  line-height: var(--map-ops-ctrl-lh);
   box-sizing: border-box;
+}
+
+/* Select nativo (modo Por operador/Por grupo): caret ≈ .cc-tactical-ms-caret (▾ 0.75rem / 0.65). */
+.cc-shell .map-toolbar.map-toolbar--ops select,
+.cc-shell .map-toolbar.map-toolbar--ops .map-field select,
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: linear-gradient(
+      45deg,
+      transparent 50%,
+      color-mix(in srgb, currentColor 65%, transparent) 50%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, currentColor 65%, transparent) 50%,
+      transparent 50%
+    );
+  background-position:
+    calc(100% - 0.72rem) calc(50% - 0.08rem),
+    calc(100% - 0.48rem) calc(50% - 0.08rem);
+  background-size: 0.28rem 0.28rem, 0.28rem 0.28rem;
+  background-repeat: no-repeat;
+  padding-right: 1.35rem;
+}
+.cc-shell .map-toolbar.map-toolbar--ops select::-ms-expand {
+  display: none;
 }
 
 .cc-shell .map-toolbar.map-toolbar--ops .map-action,
@@ -1892,9 +2516,30 @@
   justify-content: center;
 }
 
+.cc-shell .map-toolbar.map-toolbar--ops .cc-tactical-ms-trigger,
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .cc-tactical-ms-trigger {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  gap: 0.3rem;
+}
+
 .cc-shell .map-toolbar.map-toolbar--ops .cc-tactical-ms-value,
-.cc-shell .map-toolbar.map-toolbar--ops .map-field .cc-tactical-ms-value {
-  font-size: 0.82rem;
+.cc-shell .map-toolbar.map-toolbar--ops .map-field .cc-tactical-ms-value,
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .cc-tactical-ms-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--map-ops-ctrl-fs);
+}
+
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .cc-tactical-ms-caret {
+  flex-shrink: 0;
 }
 
 .cc-shell .map-field {
@@ -1903,13 +2548,43 @@
   min-width: 0;
 }
 
-.cc-shell .map-field span {
+.cc-shell .map-field > span,
+.cc-shell .map-field-label-row {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--cc-muted);
   font-family: var(--cc-font);
+}
+
+.cc-shell .map-field-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.cc-shell .map-ops-field-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--cc-muted);
+  border: 1px solid color-mix(in srgb, var(--cc-border) 80%, transparent);
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.cc-shell .map-ops-field-hint:hover {
+  color: var(--cc-text);
+  border-color: color-mix(in srgb, var(--cc-accent, #3d7ea6) 45%, var(--cc-border));
 }
 
 .cc-shell .map-field select,
@@ -1949,7 +2624,10 @@
 }
 
 /*
- * Panel ops: forzar misma altura (select / multi-select / botón / input / Guardar).
+ * Panel ops: reforzar misma altura (select / multi-select / botón / input / Guardar /
+ * toggles «Fijar en mapa» y «Ruta probable»).
+ * Incluye padding/font: reglas genéricas posteriores (.map-ops-panel select) no deben
+ * devolver Operadores a 0.5rem/0.88rem. El checkbox interior queda fuera (no es el control).
  */
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel input:not([type='checkbox']):not([type='radio']),
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel select,
@@ -1957,19 +2635,36 @@
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .map-action,
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel button.map-action,
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .cc-btn,
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .map-form-toggle,
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .map-fix-toggle {
-  min-height: 2.45rem;
+  height: var(--map-ops-ctrl-min-h);
+  min-height: var(--map-ops-ctrl-min-h);
+  max-height: var(--map-ops-ctrl-min-h);
+  padding: var(--map-ops-ctrl-pad-y) var(--map-ops-ctrl-pad-x);
+  font-size: var(--map-ops-ctrl-fs);
+  line-height: var(--map-ops-ctrl-lh);
   box-sizing: border-box;
+}
+
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 1.35rem;
 }
 
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .map-action,
 .cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel button.map-action {
-  padding: 0.5rem 0.65rem;
-  font-size: 0.82rem;
-  line-height: 1.25;
+  padding: var(--map-ops-ctrl-pad-y) var(--map-ops-ctrl-pad-x);
+  font-size: var(--map-ops-ctrl-fs);
+  line-height: var(--map-ops-ctrl-lh);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.cc-shell .map-toolbar.map-toolbar--ops .map-coords {
+  min-height: var(--map-ops-ctrl-min-h);
 }
 
 .cc-shell .map-coords {
@@ -1989,6 +2684,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/* En panel ops geocerca, no dejar que el min-height 2.45rem pise el token compacto. */
+.cc-shell .map-toolbar.map-toolbar--ops .geofence-form--in-panel .map-form-actions .cc-btn {
+  min-height: var(--map-ops-ctrl-min-h);
 }
 
 /* Borrador geocerca: una sola fila (Nombre | Latitud | Longitud | Radio | Guardar | Cancelar) */
@@ -2033,7 +2733,7 @@
 .cc-shell .geofence-form .map-form-actions .cc-btn {
   min-width: 5.5rem;
   width: auto;
-  padding: 0 0.85rem;
+  padding-inline: 0.85rem;
   box-sizing: border-box;
 }
 
@@ -2232,30 +2932,133 @@
   font-size: var(--map-chrome-count-font);
 }
 
-/* Pantalla completa — Mapa en vivo */
-.dispatch-page.map-page--maximized {
-  position: fixed;
-  inset: 0;
-  z-index: 10050;
-  width: 100%;
-  height: 100dvh;
-  max-height: 100dvh;
-  min-height: 100svh;
-  margin: 0;
-  padding: 0.65rem;
+/*
+ * Pantalla completa — Mapa en vivo / Seguimiento.
+ *
+ * Historia: overflow:visible vía :has() en ancestros del shell NO bastaba —
+ * flex + overflow en .cc-shell / .cc-shell-main / .cc-body / .cc-main /
+ * .cc-outlet-panel siguen actuando como containing block de position:fixed,
+ * así que inset:0 solo llenaba el outlet (label «Restaurar», rail/topbar
+ * visibles). Solución: JS reparenta el nodo a document.body + clase
+ * html.map-viewport-max + element.requestFullscreen() (useMapViewportMaximize.js).
+ * invalidateSize escalonado mitiga el freeze Leaflet al entrar/salir de FS.
+ */
+html.map-viewport-max,
+html.map-viewport-max body {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+html.map-viewport-max #root {
+  /* El mapa vive en body; el shell queda detrás sin capturar scroll. */
+  overflow: hidden !important;
+}
+
+html.map-viewport-max .cc-mod-rail,
+html.map-viewport-max .cc-topbar,
+html.map-viewport-max .cc-radio-strip,
+html.map-viewport-max .cc-phone-tabbar,
+html.map-viewport-max .cc-phone-more,
+html.map-viewport-max .cc-phone-more-backdrop {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Belt-and-suspenders si el nodo aún estuviera bajo el shell */
+.cc-shell:has(.map-page--maximized),
+.cc-shell:has(.lt-page--maximized),
+.cc-shell:has(.map-page--maximized) .cc-shell-main,
+.cc-shell:has(.lt-page--maximized) .cc-shell-main,
+.cc-shell:has(.map-page--maximized) .cc-body,
+.cc-shell:has(.lt-page--maximized) .cc-body,
+.cc-shell:has(.map-page--maximized) .cc-main,
+.cc-shell:has(.lt-page--maximized) .cc-main,
+.cc-shell:has(.map-page--maximized) .cc-outlet-panel,
+.cc-shell:has(.lt-page--maximized) .cc-outlet-panel,
+.cc-shell:has(.map-page--maximized) .cc-radio-keepalive,
+.cc-shell:has(.lt-page--maximized) .cc-radio-keepalive,
+.cc-shell:has(.map-page--maximized) .cc-shell-body,
+.cc-shell:has(.lt-page--maximized) .cc-shell-body {
+  overflow: visible !important;
+  transform: none !important;
+  filter: none !important;
+  perspective: none !important;
+  contain: none !important;
+  clip-path: none !important;
+  will-change: auto !important;
+}
+
+/* Gana a .cc-shell .dispatch-page.map-page--fill (altura/padding del área central).
+   body > …: tras reparent; .cc-shell …: fallback si reparent falla. */
+body > .dispatch-page.map-page--maximized,
+.cc-shell .dispatch-page.map-page--fill.map-page--maximized,
+.dispatch-page.map-page--maximized,
+html.map-viewport-max .dispatch-page.map-page--maximized,
+.dispatch-page.map-page--maximized:fullscreen,
+.dispatch-page.map-page--maximized:-webkit-full-screen {
+  position: fixed !important;
+  inset: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  z-index: 200000;
+  width: 100vw !important;
+  width: 100dvw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  max-height: none !important;
+  min-width: 100vw !important;
+  min-height: 100svh !important;
+  margin: 0 !important;
+  padding: 0 !important;
   box-sizing: border-box;
   background: var(--cc-bg, #0f1419);
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0;
   overflow: hidden;
+  flex: none !important;
 }
 
+.dispatch-page.map-page--maximized:fullscreen,
+.dispatch-page.map-page--maximized:-webkit-full-screen {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
+}
+
+/* Ops chrome: head/sideband/error fuera en maximizado; toolbar visible salvo colapso manual.
+ * .map-page--ops-collapsed solo oculta la toolbar si también hay .map-page--maximized
+ * (fuera de maximizado la barra ops siempre se ve, aunque la preferencia local diga cerrado). */
 .dispatch-page.map-page--maximized .map-page-head,
-.dispatch-page.map-page--maximized .map-toolbar,
 .dispatch-page.map-page--maximized .map-sideband,
 .dispatch-page.map-page--maximized > .error {
+  display: none !important;
+}
+
+.dispatch-page.map-page--maximized .map-toolbar.map-toolbar--ops {
+  display: flex;
+  flex-direction: column;
   flex-shrink: 0;
+  width: 100%;
+  margin: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  z-index: 1300;
+}
+
+/* Gana a .cc-shell .map-toolbar--ops-tabs { display:flex } tras reparent (page = .cc-shell). */
+.dispatch-page.map-page--maximized.map-page--ops-collapsed .map-toolbar.map-toolbar--ops,
+.dispatch-page.map-page--maximized.map-page--ops-collapsed #map-ops-toolbar,
+.cc-shell.map-page--maximized.map-page--ops-collapsed .map-toolbar.map-toolbar--ops,
+.cc-shell.map-page--maximized.map-page--ops-collapsed #map-ops-toolbar,
+#map-ops-toolbar[hidden] {
+  display: none !important;
 }
 
 .dispatch-page.map-page--maximized .map-frame {
@@ -2263,7 +3066,11 @@
   min-height: 0 !important;
   height: auto !important;
   max-height: none !important;
-  border-radius: 12px;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  position: relative;
+  isolation: isolate;
 }
 
 .dispatch-page.map-page--maximized .map-frame .leaflet-container {
@@ -2271,8 +3078,12 @@
   height: 100% !important;
 }
 
-/* Chrome / zoom clicables por encima de paneles Leaflet densos en maximizado */
-.dispatch-page.map-page--maximized .map-frame-chrome,
+/* Chrome (leyenda + capas) por encima de Leaflet; isolation del frame evita que
+   z-index alto se mezcle con la toolbar (1300) y las tape. */
+.dispatch-page.map-page--maximized .map-frame-chrome {
+  z-index: 1400;
+}
+
 .dispatch-page.map-page--maximized .leaflet-top,
 .dispatch-page.map-page--maximized .leaflet-bottom {
   z-index: 1200;
@@ -2316,6 +3127,22 @@
   .cc-shell .geofence-form--in-panel label.map-field {
     max-width: none;
   }
+
+  .cc-shell .map-toolbar--ops .map-ops-panel--row > .map-field.map-field--ops-primary,
+  .cc-shell .map-toolbar--ops .cc-tactical-ms,
+  .cc-shell .map-toolbar--ops .map-ops-panel--row > .map-field.cc-tactical-ms {
+    max-width: none;
+    width: auto;
+  }
+
+  /* Ruta: mantener ancho fijo del select para no solapar Desde/Hasta */
+  .cc-shell .map-toolbar--ops .map-ops-panel--ruta > .map-field.cc-tactical-ms,
+  .cc-shell .map-toolbar--ops .map-ops-panel--ruta > .cc-tactical-ms {
+    flex: 0 0 15rem;
+    width: 15rem;
+    min-width: 15rem;
+    max-width: 15rem;
+  }
 }
 
 @media (max-width: 560px) {
@@ -2325,9 +3152,19 @@
   .cc-shell .map-toolbar--ops .map-toolbar-trail .map-action,
   .cc-shell .map-ops-panel--row > .map-field,
   .cc-shell .map-ops-panel--row > .cc-tactical-ms,
-  .cc-shell .map-ops-panel--row > .map-action {
+  .cc-shell .map-ops-panel--row > .map-action,
+  .cc-shell .map-toolbar--ops .map-ops-panel--row > .map-field.map-field--ops-primary,
+  .cc-shell .map-toolbar--ops .map-ops-panel--ruta > .map-field.cc-tactical-ms,
+  .cc-shell .map-toolbar--ops .map-ops-panel--ruta > .map-track-range {
     flex-basis: 100%;
     max-width: none;
+    width: auto;
+    min-width: 0;
+  }
+
+  /* Teléfono: el panel puede apilar; Desde/Hasta siguen en una fila interna. */
+  .cc-shell .map-ops-panel--ruta {
+    flex-wrap: wrap;
   }
 }
 
@@ -2438,7 +3275,8 @@
 .cc-shell .map-ops-panel input,
 .cc-shell .admin-form input,
 .cc-shell .admin-form select {
-  background: var(--cc-panel);
+  /* background-color (no shorthand): no borrar caret CSS de selects ops */
+  background-color: var(--cc-panel);
   color: var(--cc-text);
   border: 1px solid var(--cc-border);
   border-radius: 8px;
@@ -3319,6 +4157,7 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 .cc-catalogs-body > .cc-dependencias,
 .cc-catalogs-body > .cc-backups,
 .cc-catalogs-body > .cc-audit,
+.cc-catalogs-body > .cc-events,
 .cc-catalogs-body > .cc-channels-cfg,
 .cc-catalogs-body > .cc-groups-page {
   flex: 0 0 auto;
@@ -4223,15 +5062,20 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 }
 
 .lt-state-legend--collapsed {
-  /* Misma altura que ⛶ Maximizar (chrome unificado) */
+  /* Misma altura que ⛶ Maximizar — shell transparente; el chip vive en el toggle */
   box-sizing: border-box;
   padding: 0;
   height: var(--map-chrome-h, var(--lt-chrome-h, 23px));
   min-height: var(--map-chrome-h, var(--lt-chrome-h, 23px));
   max-height: var(--map-chrome-h, var(--lt-chrome-h, 23px));
   max-width: none;
+  border: 0;
   border-radius: var(--map-chrome-radius, 6px);
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
   align-items: stretch;
+  overflow: visible;
 }
 
 /* Panel que se contrae hacia el botón (derecha) con transición */
@@ -4315,14 +5159,25 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 }
 
 .lt-state-legend--collapsed .lt-state-legend__toggle {
+  /* Un solo chip (mismo look que Maximizar / leyenda presencia) */
   box-sizing: border-box;
   height: 100%;
   min-height: 0;
-  padding: 0 0.55rem;
-  border-radius: var(--map-chrome-btn-radius, 5px);
+  padding: 0 var(--map-chrome-pad-x, 0.7rem);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: var(--map-chrome-radius, 6px);
+  background: rgba(255, 255, 255, 0.94);
+  color: #1a1f24;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
   font-size: var(--map-chrome-font, 0.68rem);
   line-height: 1;
   writing-mode: horizontal-tb;
+}
+
+.lt-state-legend--collapsed .lt-state-legend__toggle:hover {
+  border-color: var(--cc-olive, #4a6b3a);
+  color: var(--cc-olive, #4a6b3a);
+  background: rgba(255, 255, 255, 0.98);
 }
 
 .lt-map-chrome > .lt-state-legend--collapsed,
@@ -4348,18 +5203,68 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   border-color: color-mix(in srgb, var(--cc-border) 80%, transparent);
 }
 
-.lt-page--maximized {
-  position: fixed;
-  inset: 0;
-  z-index: 9500;
-  width: 100%;
-  height: 100dvh;
-  max-height: 100dvh;
-  min-height: 100svh;
+:is([data-theme='verde'], [data-theme='obscuro']) .lt-state-legend--collapsed {
+  background: transparent;
+  border-color: transparent;
+}
+
+:is([data-theme='verde'], [data-theme='obscuro']) .lt-state-legend--collapsed .lt-state-legend__toggle {
+  background: rgba(21, 32, 24, 0.92);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--cc-text, #f4f6f2);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='obscuro'] .lt-state-legend--collapsed .lt-state-legend__toggle {
+  background: rgba(26, 29, 39, 0.94);
+}
+
+:is([data-theme='verde'], [data-theme='obscuro']) .lt-state-legend--collapsed .lt-state-legend__toggle:hover {
+  border-color: var(--cc-olive, #4a6b3a);
+  color: var(--cc-olive, #4a6b3a);
+  background: rgba(21, 32, 24, 0.98);
+}
+
+[data-theme='obscuro'] .lt-state-legend--collapsed .lt-state-legend__toggle:hover {
+  background: rgba(26, 29, 39, 0.98);
+}
+
+body > .lt-page--maximized,
+.lt-page--maximized,
+html.map-viewport-max .lt-page--maximized,
+.lt-page--maximized:fullscreen,
+.lt-page--maximized:-webkit-full-screen {
+  position: fixed !important;
+  inset: 0 !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  z-index: 200000;
+  width: 100vw !important;
+  width: 100dvw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  max-height: none !important;
+  min-width: 100vw !important;
+  min-height: 100svh !important;
+  margin: 0 !important;
+  padding: 0 !important;
   /* Debe ganar a .lt-page--sheet-collapsed (si no, el mapa cae en columna ~3.5rem y se ve verde) */
   grid-template-columns: minmax(0, 1fr) !important;
   grid-template-rows: minmax(0, 1fr);
   background: var(--cc-call-bg, #0c1410);
+  flex: none !important;
+  overflow: hidden;
+}
+
+.lt-page--maximized:fullscreen,
+.lt-page--maximized:-webkit-full-screen {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
 }
 
 .lt-page.lt-page--maximized.lt-page--sheet-collapsed {
@@ -4500,24 +5405,57 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   max-height: min(420px, calc(100vh - 24px));
   display: flex;
   flex-direction: column;
-  background: #f7f8f4;
-  color: #172015;
-  border: 1px solid #c5cebc;
-  border-radius: 12px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
+  /* Tokens locales: light por defecto; verde/obscuro los reescriben abajo. */
+  --ink: #172015;
   --border: #c5cebc;
+  --border-soft: #d5dcce;
   --muted: #5c6756;
   --accent: #243d20;
   --surface: #f7f8f4;
+  --surface-raised: #fff;
+  --panel-2: #eef1ea;
+  --focus-border: #a8b39c;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  color-scheme: light;
   font-family: inherit;
   pointer-events: auto;
+}
+
+[data-theme='verde'] .lt-ptt-float-menu {
+  --ink: #e8e4d4;
+  --border: #3a3428;
+  --border-soft: #3a3428;
+  --muted: #a89f84;
+  --accent: #9aaf6a;
+  --surface: #141412;
+  --surface-raised: #1a1c14;
+  --panel-2: #1a1c14;
+  --focus-border: #5a5040;
+  color-scheme: dark;
+}
+
+[data-theme='obscuro'] .lt-ptt-float-menu {
+  --ink: #e2e8f0;
+  --border: #2e3348;
+  --border-soft: #2e3348;
+  --muted: #8892a4;
+  --accent: #3b82f6;
+  --surface: #1a1d27;
+  --surface-raised: #222636;
+  --panel-2: #222636;
+  --focus-border: #4a5570;
+  color-scheme: dark;
 }
 
 .lt-ptt-float-menu .channel-panel-tabs {
   padding: 0.45rem 0.45rem 0.25rem;
   margin: 0;
-  border-bottom: 1px solid #c5cebc;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -4525,16 +5463,16 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   font: inherit;
   font-size: 0.8rem;
   font-weight: 700;
-  color: #5c6756;
+  color: var(--muted);
   padding: 0.35rem 0.55rem;
 }
 
 .lt-ptt-float-menu .channel-panel-tab.on {
-  color: #243d20;
-  background: #fff;
-  border-color: #c5cebc;
-  border-bottom-color: #fff;
-  box-shadow: inset 0 -2px 0 #243d20;
+  color: var(--accent);
+  background: var(--surface-raised);
+  border-color: var(--border);
+  border-bottom-color: var(--surface-raised);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .lt-ptt-float-menu-select-wrap {
@@ -4542,7 +5480,7 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   flex-direction: column;
   gap: 0.25rem;
   padding: 0.55rem 0.7rem 0.35rem;
-  border-bottom: 1px solid #d5dcce;
+  border-bottom: 1px solid var(--border-soft);
   flex-shrink: 0;
 }
 
@@ -4551,20 +5489,21 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #5c6756;
+  color: var(--muted);
 }
 
 .lt-ptt-float-menu-select {
   font: inherit;
   font-size: 0.88rem;
   font-weight: 600;
-  border: 1px solid #c5cebc;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.4rem 0.55rem;
-  background: #fff;
-  color: #172015;
+  background: var(--surface-raised);
+  color: var(--ink);
   outline: none;
   box-shadow: none;
+  color-scheme: inherit;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -4573,17 +5512,68 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 .lt-ptt-float-menu-select:focus-visible,
 .lt-ptt-float-menu-select:active {
   outline: none;
-  border-color: #a8b39c;
+  border-color: var(--focus-border);
   box-shadow: none;
 }
 
+.lt-ptt-float-menu-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem 0.2rem;
+  flex-shrink: 0;
+  min-height: 0;
+}
+
 .lt-ptt-float-menu-title {
-  padding: 0.45rem 0.75rem 0.25rem;
+  padding: 0;
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #5c6756;
+  color: var(--muted);
+  line-height: 1.2;
+  min-width: 0;
+}
+
+/* Compacto Individual/Múltiple — mismo espíritu que .channel-col-mode (Radio). */
+.lt-ptt-float-menu-mode {
+  flex: 0 0 auto;
+  max-width: 6.75rem;
+  font: inherit;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.25;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 1.05rem 0.1rem 0.4rem;
+  color: var(--ink);
+  outline: none;
+  box-shadow: none;
+  cursor: pointer;
+  color-scheme: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: color-mix(in srgb, var(--surface-raised) 92%, var(--accent) 8%);
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 0.55rem) 55%,
+    calc(100% - 0.35rem) 55%;
+  background-size: 0.28rem 0.28rem, 0.28rem 0.28rem;
+  background-repeat: no-repeat;
+}
+
+.lt-ptt-float-menu-mode:focus,
+.lt-ptt-float-menu-mode:focus-visible {
+  outline: none;
+  border-color: var(--focus-border);
+}
+
+.lt-ptt-float-menu-mode option {
+  background: var(--surface-raised);
+  color: var(--ink);
 }
 
 .lt-ptt-float-menu-list {
@@ -4596,7 +5586,7 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 .lt-ptt-float-menu-empty {
   margin: 0.4rem 0.5rem;
   font-size: 0.85rem;
-  color: #5c6756;
+  color: var(--muted);
 }
 
 .lt-ptt-float-menu-row {
@@ -4610,12 +5600,12 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 }
 
 .lt-ptt-float-menu-row:hover {
-  background: rgba(36, 61, 32, 0.08);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .lt-ptt-float-menu-row input {
   margin: 0;
-  accent-color: #243d20;
+  accent-color: var(--accent);
 }
 
 .lt-ptt-float-menu-name {
@@ -4633,11 +5623,16 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.45rem 0.55rem 0.6rem;
-  border-top: 1px solid #d5dcce;
-  background: #eef1ea;
+  border-top: 1px solid var(--border-soft);
+  background: var(--panel-2);
 }
 
 .lt-ptt-float-menu-panic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  box-sizing: border-box;
   border: none;
   border-radius: 8px;
   background: #8e0000;
@@ -4645,8 +5640,19 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   font: inherit;
   font-weight: 700;
   font-size: 0.85rem;
+  line-height: 1.25;
   padding: 0.45rem 0.6rem;
   cursor: pointer;
+}
+
+.lt-ptt-float-menu-panic .panic-ico {
+  /* Compacto en el float (mismas vars/anim que Radio) */
+  --panic-wave-size: 0.72rem;
+  --panic-wave-scale: 1.85;
+  width: 1.05rem;
+  height: 1.05rem;
+  font-size: 0.72rem;
+  flex-shrink: 0;
 }
 
 .lt-ptt-float-menu-panic:disabled {
@@ -4654,11 +5660,50 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   cursor: not-allowed;
 }
 
-.lt-ptt-float-menu-reset {
-  border: 1px solid #c5cebc;
+.lt-ptt-float-menu-panic:disabled .panic-wave {
+  animation-play-state: paused;
+  opacity: 0;
+}
+
+.lt-ptt-float-menu-video {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  box-sizing: border-box;
+  /* Mismo look fijo que Radio `.radio-video-call-btn` (blanco claro, texto oscuro). */
+  border: 1px solid rgba(0, 0, 0, 0.18);
   border-radius: 8px;
-  background: #fff;
-  color: #243d20;
+  background: #f4f6f2;
+  color: #1f2a1c;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.85rem;
+  line-height: 1.25;
+  /* Misma altura que `.lt-ptt-float-menu-panic`: padding vertical −1px por el borde. */
+  padding: calc(0.45rem - 1px) 0.6rem;
+  cursor: pointer;
+}
+
+.lt-ptt-float-menu-video:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lt-ptt-float-menu-video img {
+  /* Misma caja que `.lt-ptt-float-menu-panic .panic-ico`. */
+  width: 1.05rem;
+  height: 1.05rem;
+  flex-shrink: 0;
+  display: block;
+  object-fit: contain;
+}
+
+.lt-ptt-float-menu-reset {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--ink);
   font: inherit;
   font-weight: 600;
   font-size: 0.8rem;
@@ -5739,6 +6784,40 @@ body:not(.leaflet-dragging) .leaflet-container.tp-map-cursor .leaflet-control bu
   cursor: pointer !important;
 }
 
+/* Fijar en mapa (pick-mode): nunca flecha default dentro del mapa.
+   Idle = pointer (manita); pan/drag = move (4 flechas). Chrome UI fuera del
+   leaflet-container no se toca. Gana a .tp-map-cursor { default !important }. */
+.map-frame.pick-mode .tp-map-cursor,
+.map-frame.pick-mode .tp-map-cursor.leaflet-container,
+.map-frame.pick-mode .tp-map-cursor .leaflet-pane,
+.map-frame.pick-mode .tp-map-cursor .leaflet-tile-pane,
+.map-frame.pick-mode .tp-map-cursor .leaflet-overlay-pane,
+.map-frame.pick-mode .tp-map-cursor .leaflet-marker-pane,
+.map-frame.pick-mode .tp-map-cursor img.leaflet-tile,
+.map-frame.pick-mode .leaflet-container.tp-map-cursor,
+.map-frame.pick-mode .leaflet-container.tp-map-cursor.leaflet-grab,
+.map-frame.pick-mode .leaflet-container.tp-map-cursor.leaflet-touch-drag,
+.map-frame.pick-mode .leaflet-container.tp-map-cursor .leaflet-interactive {
+  cursor: pointer !important;
+}
+
+body.leaflet-dragging .map-frame.pick-mode .leaflet-container.tp-map-cursor,
+body.leaflet-dragging .map-frame.pick-mode .leaflet-container.tp-map-cursor.leaflet-grab,
+body.leaflet-dragging .map-frame.pick-mode .leaflet-container.tp-map-cursor .leaflet-pane,
+body.leaflet-dragging .map-frame.pick-mode .leaflet-container.tp-map-cursor .leaflet-tile-pane,
+body.leaflet-dragging .map-frame.pick-mode .leaflet-container.tp-map-cursor .leaflet-overlay-pane,
+body.leaflet-dragging .map-frame.pick-mode .leaflet-container.tp-map-cursor .leaflet-marker-pane,
+body.leaflet-dragging .map-frame.pick-mode .leaflet-container.tp-map-cursor img.leaflet-tile,
+body.leaflet-dragging .map-frame.pick-mode .leaflet-container.tp-map-cursor .leaflet-marker-icon,
+body.leaflet-dragging .map-frame.pick-mode .leaflet-container.tp-map-cursor .leaflet-interactive {
+  cursor: move !important;
+}
+
+body:not(.leaflet-dragging) .map-frame.pick-mode .leaflet-container.tp-map-cursor .leaflet-control a,
+body:not(.leaflet-dragging) .map-frame.pick-mode .leaflet-container.tp-map-cursor .leaflet-control button {
+  cursor: pointer !important;
+}
+
 /* Leaflet fuerza width:auto en imgs del marker-pane. */
 .leaflet-container .leaflet-marker-pane img.lt-wa-photo {
   width: 100% !important;
@@ -5803,14 +6882,15 @@ body:not(.leaflet-dragging) .leaflet-container.tp-map-cursor .leaflet-control bu
   width: var(--lt-cluster-size);
   height: var(--lt-cluster-size);
   border-radius: 50%;
-  background: var(--lt-cluster-pie);
+  /* Pastel en capa interna a tamaño completo; borde blanco encima (no encoge el conic). */
+  background: transparent;
   color: #fff;
   font-weight: 800;
   font-size: calc(var(--lt-cluster-size) * 0.4);
   line-height: 1;
   display: grid;
   place-items: center;
-  border: 2.5px solid #fff;
+  border: none;
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--lt-cluster-ring) 40%, transparent),
     0 2px 8px rgba(0, 0, 0, 0.35),
@@ -5818,6 +6898,56 @@ body:not(.leaflet-dragging) .leaflet-container.tp-map-cursor .leaflet-control bu
   text-shadow:
     0 0 3px rgba(0, 0, 0, 0.85),
     0 1px 2px rgba(0, 0, 0, 0.75);
+  overflow: hidden;
+}
+
+/* Rellena todo el círculo: las cuñas convergen en el centro geométrico. */
+.lt-cluster-pie {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 50%;
+  background: var(--lt-cluster-pie);
+  pointer-events: none;
+}
+
+/* Anillo blanco encima del pastel (no reduce el área del conic-gradient). */
+.lt-cluster-rim {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: 50%;
+  border: 2.5px solid #fff;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.lt-cluster-total {
+  position: relative;
+  z-index: 1;
+}
+
+/* Cifra sobre cada porción del pastel (verde 1 / rojo 20, etc.) — sin total encima */
+.lt-cluster-slice-n {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  transform: translate(-50%, -50%) rotate(var(--slice-mid, 0deg))
+    translateY(calc(var(--lt-cluster-size) * var(--slice-r, 0.28) * -1))
+    rotate(calc(-1 * var(--slice-mid, 0deg)));
+  font-size: calc(var(--lt-cluster-size) * 0.26);
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+  pointer-events: none;
+  text-shadow:
+    0 0 3px rgba(0, 0, 0, 0.95),
+    0 1px 2px rgba(0, 0, 0, 0.85);
+}
+
+.lt-cluster-slice-n--sm {
+  font-size: calc(var(--lt-cluster-size) * 0.22);
 }
 
 .lt-cluster-ring {
@@ -6869,13 +7999,13 @@ body:not(.leaflet-dragging) .leaflet-container.tp-map-cursor .leaflet-control bu
   border-color: var(--cc-accent, #c4a35a);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--cc-accent, #c4a35a) 55%, transparent);
 }
-/* Igual que pestañas: no forzar cursor en * (ciclaba / bloqueaba sensación de clic). */
+/* Igual que pestañas: manita abierta (grab); no forzar en * (ciclaba clics). */
 html.cc-cat-dragging,
 html.cc-cat-dragging body {
-  cursor: grabbing !important;
+  cursor: grab !important;
 }
 html.cc-cat-dragging .cc-cat-item {
-  cursor: grabbing !important;
+  cursor: grab !important;
 }
 .cc-cat-item-abbr {
   flex: 0 0 auto;
@@ -7377,6 +8507,261 @@ html.cc-cat-dragging .cc-cat-item {
   max-width: none;
   box-sizing: border-box;
 }
+
+/* Configuración → Eventos (por operador) */
+.cc-events {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+.cc-events-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: flex-end;
+}
+.cc-events-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--cc-muted);
+  min-width: 0;
+}
+.cc-events-filters label:first-child {
+  flex: 2 1 16rem;
+}
+.cc-events-filters select,
+.cc-events-filters input[type='date'] {
+  min-width: 10rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--cc-border);
+  background: var(--cc-bg, var(--cc-panel));
+  color: inherit;
+  box-sizing: border-box;
+}
+.cc-events-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--cc-border);
+  border-radius: 12px;
+  background: var(--cc-panel);
+  overflow: hidden;
+  max-height: min(70vh, 820px);
+  overflow-y: auto;
+}
+.cc-events-item {
+  display: grid;
+  grid-template-columns: 11rem 6.5rem minmax(0, 1fr) auto;
+  gap: 0.55rem 0.85rem;
+  align-items: baseline;
+  padding: 0.7rem 0.95rem;
+  border-bottom: 1px solid var(--cc-border);
+}
+.cc-events-item:last-child {
+  border-bottom: none;
+}
+.cc-events-item time {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.88rem;
+  color: var(--cc-muted);
+  white-space: nowrap;
+}
+.cc-events-kind {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cc-accent);
+}
+.cc-events-summary {
+  font-size: 0.95rem;
+  color: var(--cc-text);
+  min-width: 0;
+}
+.cc-events-open {
+  justify-self: end;
+  padding: 0.28rem 0.65rem;
+  border-radius: 7px;
+  border: 1px solid var(--cc-border);
+  background: var(--cc-bg, transparent);
+  color: var(--cc-accent);
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cc-events-open:hover {
+  border-color: var(--cc-accent);
+}
+.cc-events-open-spacer {
+  width: 2.5rem;
+}
+@media (max-width: 720px) {
+  .cc-events-item {
+    grid-template-columns: 1fr auto;
+    gap: 0.2rem 0.5rem;
+  }
+  .cc-events-item time {
+    grid-column: 1 / -1;
+  }
+  .cc-events-kind {
+    grid-column: 1;
+  }
+  .cc-events-summary {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Modal chat auditoría (solo lectura) */
+.cc-events-peek-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200100;
+  background: rgba(8, 12, 10, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.cc-events-peek {
+  width: min(42rem, 100%);
+  max-height: min(84vh, 720px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  background: var(--cc-panel, #f4f6f2);
+  color: var(--cc-text, #1a2218);
+  border-radius: 14px;
+  border: 1px solid var(--cc-border);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  padding: 0.85rem 1rem 1rem;
+  box-sizing: border-box;
+}
+.cc-events-peek-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.cc-events-peek-head .cc-hint {
+  margin: 0.2rem 0 0;
+}
+.cc-events-peek-list {
+  flex: 1;
+  min-height: 12rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.35rem 0.15rem;
+  border-radius: 10px;
+  background: var(--cc-bg, rgba(0, 0, 0, 0.03));
+}
+.cc-events-peek-msg {
+  align-self: flex-start;
+  max-width: 88%;
+  padding: 0.45rem 0.65rem;
+  border-radius: 10px;
+  background: var(--cc-panel, #fff);
+  border: 1px solid var(--cc-border);
+}
+.cc-events-peek-msg.is-mine {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--cc-accent, #2d6a4f) 14%, transparent);
+}
+.cc-events-peek-msg.is-highlight {
+  outline: 2px solid var(--cc-accent, #2d6a4f);
+  outline-offset: 1px;
+}
+.cc-events-peek-msg.is-deleted {
+  opacity: 0.65;
+  font-style: italic;
+}
+.cc-events-peek-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.72rem;
+  color: var(--cc-muted);
+  margin-bottom: 0.15rem;
+}
+.cc-events-peek-body {
+  font-size: 0.92rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Toast flotante geocerca */
+.cc-geofence-toasts {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 200080;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  width: min(22rem, calc(100vw - 2rem));
+  pointer-events: none;
+}
+.cc-geofence-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--cc-border, #2e3348);
+  background: var(--cc-panel, #1a1d27);
+  color: var(--cc-text, #e2e8f0);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  animation: cc-geofence-toast-in 0.22s ease-out;
+}
+.cc-geofence-toast.is-enter {
+  border-color: color-mix(in srgb, var(--cc-accent, #3b82f6) 45%, var(--cc-border));
+}
+.cc-geofence-toast.is-exit {
+  border-color: color-mix(in srgb, var(--cc-warn, #f59e0b) 40%, var(--cc-border));
+}
+.cc-geofence-toast-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
+}
+.cc-geofence-toast-text strong {
+  font-size: 0.92rem;
+}
+.cc-geofence-toast-text span {
+  font-size: 0.84rem;
+  color: var(--cc-muted, #8892a4);
+}
+.cc-geofence-toast-close {
+  border: none;
+  background: transparent;
+  color: var(--cc-muted);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.15rem;
+}
+@keyframes cc-geofence-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.4rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .cc-audit > .cc-backups-head {
   width: 100%;
   align-items: center;
@@ -7599,6 +8984,7 @@ html.cc-cat-dragging .cc-cat-item {
   border: 0;
   padding: 0;
 }
+
 .cc-tactical-color {
   width: 18px;
   height: 18px;
@@ -7606,10 +8992,19 @@ html.cc-cat-dragging .cc-cat-item {
   border: 2px solid transparent;
   cursor: pointer;
   padding: 0;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
-.cc-tactical-color.is-active {
-  border-color: #fff;
-  box-shadow: 0 0 0 1px #111;
+/* Anillo visible en claro/obscuro (ops y catálogo) */
+.cc-tactical-color.is-active,
+.cc-shell .map-ops-panel .cc-tactical-color.is-active,
+.cc-shell .geofence-form--in-panel .cc-tactical-color.is-active {
+  border-color: var(--cc-accent, #9aaf6a);
+  box-shadow:
+    0 0 0 2px var(--cc-panel, #fff),
+    0 0 0 3px color-mix(in srgb, var(--cc-text, #111) 75%, transparent);
+  transform: scale(1.12);
+  z-index: 1;
 }
 .cc-tactical-group-list,
 .cc-tactical-site-list {
@@ -7750,7 +9145,7 @@ html.cc-cat-dragging .cc-cat-item {
   width: 100%;
   min-width: 0;
 }
-/* Multi-select mapa (Ruta/Grupo/Geocerca): cabezal compacto PV + resize vertical */
+/* Multi-select mapa (Ruta/Grupo/Geocerca): cabezal compacto PV + resize 2D */
 .cc-route-ms-empty {
   padding: 0.55rem 0.55rem;
   font-size: 0.78rem;
@@ -7772,29 +9167,48 @@ html.cc-cat-dragging .cc-cat-item {
   cursor: pointer;
 }
 
-.cc-geofence-ms-row .cc-btn-sm {
+.cc-geofence-ms-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
   flex: 0 0 auto;
-  padding: 0.15rem 0.4rem;
-  font-size: 0.7rem;
-  min-height: 1.45rem;
 }
-.cc-geofence-ms-row .cc-btn-sm:disabled {
+.cc-geofence-ms-row .cc-cat-edit,
+.cc-geofence-ms-row .cc-cat-rm {
+  flex: 0 0 auto;
+  min-width: 1.4rem;
+  min-height: 1.4rem;
+  padding: 0;
+  line-height: 1;
+}
+.cc-geofence-ms-row .cc-cat-rm {
+  font-size: 13px;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  color: var(--cc-danger);
+}
+.cc-geofence-ms-row .cc-cat-rm:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--cc-danger) 78%, #fff);
+}
+.cc-geofence-ms-row .cc-cat-edit:disabled,
+.cc-geofence-ms-row .cc-cat-rm:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 
 .cc-ms-panel,
 .cc-route-ms-panel.cc-ms-panel,
-.cc-group-ms-panel.cc-ms-panel {
+.cc-group-ms-panel.cc-ms-panel,
+.cc-sites-ms-panel.cc-ms-panel {
   display: flex;
   flex-direction: column;
   gap: 0;
   overflow: hidden;
-  resize: vertical;
+  resize: both;
   box-sizing: border-box;
   padding: 0;
   min-width: 200px;
-  max-width: min(92vw, 28rem);
+  max-width: min(92vw, calc(100vw - 16px));
   min-height: 0;
   max-height: min(400px, calc(100vh - 24px));
   height: auto;
@@ -7863,6 +9277,73 @@ html.cc-cat-dragging .cc-cat-item {
   font-size: 9px;
   opacity: 0.85;
 }
+.cc-ms-accept-row {
+  display: none; /* legacy: Aceptar/Cancelar viven en .cc-ms-footer */
+}
+.cc-ms-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 14px 5px 8px; /* padding-right extra: no tapar grip resize */
+  border-top: 1px solid color-mix(in srgb, var(--cc-border, #c5cebc) 60%, transparent);
+  background: inherit;
+}
+/* Pie Ruta: mismo ancho / peso visual; hover rellena (no solo opacity) */
+.cc-ms-cancel,
+.cc-ms-accept {
+  margin: 0 !important;
+  padding: 1px 8px !important;
+  min-width: 5.5rem;
+  min-height: 0 !important;
+  height: auto !important;
+  box-sizing: border-box;
+  border-radius: 3px;
+  background: transparent !important;
+  font: inherit;
+  font-size: 9px !important;
+  font-weight: 600;
+  line-height: 1.2 !important;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-transform: none;
+  cursor: pointer;
+  box-shadow: none !important;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+.cc-ms-cancel {
+  border: 1px solid var(--cc-danger, #7a1f1f) !important;
+  color: var(--cc-danger, #7a1f1f);
+}
+.cc-ms-cancel:hover,
+.cc-ms-cancel:focus-visible {
+  border-color: var(--cc-danger, #7a1f1f) !important;
+  background: var(--cc-danger, #7a1f1f) !important;
+  color: var(--cc-panel, #f8f9f5);
+  outline: none;
+}
+.cc-ms-accept {
+  border: 1px solid var(--cc-accent, #c4a35a);
+  color: var(--cc-accent, #c4a35a);
+}
+.cc-ms-accept:hover:not(:disabled),
+.cc-ms-accept:focus-visible:not(:disabled) {
+  border-color: var(--cc-accent, #c4a35a);
+  background: var(--cc-accent, #c4a35a) !important;
+  color: var(--cc-panel, #f8f9f5);
+  outline: none;
+}
+.cc-ms-accept:disabled {
+  color: var(--cc-muted, #5c6b55);
+  border-color: var(--cc-border, #c5cebc);
+  background: transparent !important;
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .cc-ms-link {
   font-size: 9px !important;
   line-height: 1 !important;
@@ -7909,7 +9390,8 @@ html.cc-cat-dragging .cc-cat-item {
 .cc-ms-panel .cc-tactical-ms-name {
   font-size: 10px;
 }
-.cc-ms-panel .cc-tactical-ms-option input[type='checkbox'] {
+.cc-ms-panel .cc-tactical-ms-option input[type='checkbox'],
+.cc-ms-panel .cc-tactical-ms-option input[type='radio'] {
   width: 12px;
   height: 12px;
 }
@@ -7932,6 +9414,45 @@ html.cc-cat-dragging .cc-cat-item {
   font-size: 0.88rem;
   text-align: left;
   cursor: pointer;
+}
+
+/* Tras .cc-tactical-ms-trigger base: Operadores / ops deben seguir al token (no 2.45rem). */
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .cc-tactical-ms-trigger,
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel select {
+  height: var(--map-ops-ctrl-min-h);
+  min-height: var(--map-ops-ctrl-min-h);
+  max-height: var(--map-ops-ctrl-min-h);
+  padding: var(--map-ops-ctrl-pad-y) var(--map-ops-ctrl-pad-x);
+  font-size: var(--map-ops-ctrl-fs);
+  line-height: var(--map-ops-ctrl-lh);
+  box-sizing: border-box;
+}
+/* Select nativo ops: reafirmar caret pequeño + padding (tras reset de padding arriba). */
+.cc-shell .map-toolbar.map-toolbar--ops .map-field--ops-primary select,
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-color: var(--cc-panel);
+  background-image: linear-gradient(
+      45deg,
+      transparent 50%,
+      color-mix(in srgb, currentColor 65%, transparent) 50%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, currentColor 65%, transparent) 50%,
+      transparent 50%
+    );
+  background-position:
+    calc(100% - 0.72rem) calc(50% - 0.08rem),
+    calc(100% - 0.48rem) calc(50% - 0.08rem);
+  background-size: 0.28rem 0.28rem, 0.28rem 0.28rem;
+  background-repeat: no-repeat;
+  padding-right: 1.35rem;
+}
+.cc-shell .map-toolbar.map-toolbar--ops .map-ops-panel .cc-tactical-ms-value {
+  font-size: var(--map-ops-ctrl-fs);
 }
 .cc-tactical-ms-trigger.is-open,
 .cc-tactical-ms-trigger:focus-visible {
@@ -7970,10 +9491,15 @@ html.cc-cat-dragging .cc-cat-item {
   padding: 0.45rem 0.4rem 0.55rem;
   border: 1px solid var(--cc-border, #c5cebc);
   border-radius: 10px;
-  /* Opaco siempre (portal puede salir de .cc-shell y perder variables) */
-  background: #f8f9f5;
-  background: var(--cc-panel, #f8f9f5);
-  color: var(--cc-text, #1a2418);
+  /* Tokens locales: portal puede salir de .cc-shell y perder --cc-* */
+  --cc-panel: #f8f9f5;
+  --cc-panel-2: #eef2e8;
+  --cc-border: #c5cebc;
+  --cc-text: #1a2418;
+  --cc-accent: #2a3d22;
+  --cc-muted: #5c6756;
+  background: var(--cc-panel);
+  color: var(--cc-text);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
   box-sizing: border-box;
   opacity: 1;
@@ -7986,7 +9512,7 @@ html.cc-cat-dragging .cc-cat-item {
   gap: 0;
   padding: 0;
   overflow: hidden;
-  resize: vertical;
+  resize: both;
   max-height: min(400px, calc(100vh - 24px));
   border-radius: 5px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
@@ -7994,14 +9520,26 @@ html.cc-cat-dragging .cc-cat-item {
 [data-theme='verde'] .cc-tactical-ms-panel,
 html.tp-theme-dark .cc-tactical-ms-panel,
 body.tp-theme-dark .cc-tactical-ms-panel {
-  background: #152018;
-  border-color: #2a3a2c;
-  color: #e8eee4;
+  --cc-panel: #152018;
+  --cc-panel-2: #1c2e19;
+  --cc-border: #2a3a2c;
+  --cc-text: #e8eee4;
+  --cc-accent: #9aaf6a;
+  --cc-muted: #a89f84;
+  background: var(--cc-panel);
+  border-color: var(--cc-border);
+  color: var(--cc-text);
 }
 [data-theme='obscuro'] .cc-tactical-ms-panel {
-  background: #1a1d27;
-  border-color: #2e3348;
-  color: #e2e8f0;
+  --cc-panel: #1a1d27;
+  --cc-panel-2: #222636;
+  --cc-border: #2e3348;
+  --cc-text: #e2e8f0;
+  --cc-accent: #3b82f6;
+  --cc-muted: #8892a4;
+  background: var(--cc-panel);
+  border-color: var(--cc-border);
+  color: var(--cc-text);
 }
 .cc-tactical-ms-option {
   display: flex;
@@ -8015,29 +9553,15 @@ body.tp-theme-dark .cc-tactical-ms-panel {
   color: inherit;
   background: transparent;
 }
+/* Selección tipo PV Vehículos: tint sutil del acento (no relleno saturado) */
 .cc-tactical-ms-option:hover {
-  background: #ebe8dc;
+  background: color-mix(in srgb, var(--cc-accent) 9%, var(--cc-panel));
 }
 .cc-tactical-ms-option.is-on {
-  background: #e4e0d0;
+  background: color-mix(in srgb, var(--cc-accent) 16%, var(--cc-panel-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cc-accent) 22%, transparent);
 }
-[data-theme='verde'] .cc-tactical-ms-option:hover,
-html.tp-theme-dark .cc-tactical-ms-option:hover,
-body.tp-theme-dark .cc-tactical-ms-option:hover {
-  background: #1c2e19;
-}
-[data-theme='obscuro'] .cc-tactical-ms-option:hover {
-  background: #222636;
-}
-[data-theme='verde'] .cc-tactical-ms-option.is-on,
-html.tp-theme-dark .cc-tactical-ms-option.is-on,
-body.tp-theme-dark .cc-tactical-ms-option.is-on {
-  background: #243d20;
-}
-[data-theme='obscuro'] .cc-tactical-ms-option.is-on {
-  background: #1e3a8a;
-}
-/* Evitar que .map-toolbar input { width:100% } aplasté el nombre */
+/* Evitar que .map-toolbar input { width:100% } / styles.css input { border;padding;outline } aplasten el control */
 .cc-shell .map-toolbar .cc-tactical-ms-option input[type='checkbox'],
 .cc-shell .map-toolbar--spread .cc-tactical-ms-option input[type='checkbox'],
 .cc-tactical-ms-option input[type='checkbox'] {
@@ -8048,7 +9572,39 @@ body.tp-theme-dark .cc-tactical-ms-option.is-on {
   margin: 0;
   padding: 0;
   flex: 0 0 auto;
-  accent-color: var(--cc-accent, #c4a35a);
+  accent-color: var(--cc-accent);
+}
+/* Ruta singleSelect: radio circular sin caja/anillo cuadrado del input global */
+.cc-shell .map-toolbar .cc-tactical-ms-option input[type='radio'],
+.cc-shell .map-toolbar--spread .cc-tactical-ms-option input[type='radio'],
+.cc-tactical-ms-option input[type='radio'] {
+  width: 1rem !important;
+  min-width: 1rem;
+  max-width: 1rem;
+  height: 1rem;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: var(--cc-accent);
+  border: none !important;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none !important;
+  outline: none !important;
+}
+.cc-shell .map-toolbar .cc-tactical-ms-option input[type='radio']:focus,
+.cc-shell .map-toolbar .cc-tactical-ms-option input[type='radio']:focus-visible,
+.cc-shell .map-toolbar--spread .cc-tactical-ms-option input[type='radio']:focus,
+.cc-shell .map-toolbar--spread .cc-tactical-ms-option input[type='radio']:focus-visible,
+.cc-tactical-ms-option input[type='radio']:focus,
+.cc-tactical-ms-option input[type='radio']:focus-visible {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+/* Focus a11y en la fila (no en el input circular) */
+.cc-tactical-ms-option:has(input[type='radio']:focus-visible) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cc-accent) 40%, transparent);
 }
 .cc-shell .map-field .cc-tactical-ms-option .cc-tactical-ms-name,
 .cc-tactical-ms-name {

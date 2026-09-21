@@ -12,6 +12,12 @@ import {
   normalizeGpsSettings,
 } from '../services/orgGpsSettings.js';
 import { logActivity } from '../services/activity.js';
+import { logUserEvent } from '../services/userEvents.js';
+import {
+  buildUserTimeline,
+  listAuditDmMessages,
+  listAuditGroupMessages,
+} from '../services/userEventsTimeline.js';
 import { isAdmin, isDispatch, isRoot, isZoneAdmin, isUnitAdmin, canManageUsers, ORG_ROLES, defaultVisibilityFlags } from '../services/roles.js';
 import { buildUsername, buildCallSign, buildDisplayName } from '../services/rfcUsername.js';
 import { generateTemporaryPassword } from '../services/tempPassword.js';
@@ -764,6 +770,13 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
         matricula: matriculaTrim,
       },
     });
+    void logUserEvent({
+      organizationId: req.user.orgId,
+      subjectUserId: u.id,
+      kind: 'account',
+      summary: 'Cuenta creada',
+      meta: { username: u.username, role: u.role, by: req.user.sub },
+    });
     res.status(201).json({
       ok: true,
       user: mapUser(u),
@@ -837,7 +850,8 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
 
   const { rows: existing } = await query(
     `SELECT id, role, unit_id, admin_scope_unit_id, grade, specialty, cargo,
-            given_names, paternal_surname, maternal_surname, matricula, display_name
+            given_names, paternal_surname, maternal_surname, matricula, display_name,
+            is_active
      FROM users
      WHERE id = $1 AND organization_id = $2`,
     [req.params.id, req.user.orgId]
@@ -1037,6 +1051,15 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
       identityUpdated: identityPatch,
     },
   });
+  if (typeof isActive === 'boolean' && Boolean(existing[0].is_active) !== Boolean(u.is_active)) {
+    void logUserEvent({
+      organizationId: req.user.orgId,
+      subjectUserId: u.id,
+      kind: 'account',
+      summary: u.is_active ? 'Cuenta reactivada' : 'Cuenta desactivada',
+      meta: { by: req.user.sub, isActive: u.is_active },
+    });
+  }
   if (passwordHash) {
     await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [u.id]);
   }
@@ -1173,6 +1196,88 @@ adminRouter.get('/users.csv', requireAdmin, async (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="tacticalptx-users.csv"');
   res.send(`\uFEFF${lines.join('\n')}\n`);
+});
+
+/** Eventos legibles por operador — solo root/admin. Timeline unificada. */
+adminRouter.get('/user-events', requireAdmin, async (req, res) => {
+  const userId = String(req.query.userId || '').trim();
+  if (!userId) {
+    return res.status(400).json({ ok: false, error: 'userId requerido' });
+  }
+  const kind = String(req.query.kind || '').trim();
+  const fromRaw = String(req.query.from || '').trim();
+  const toRaw = String(req.query.to || '').trim();
+  const limit = Math.min(parseInt(req.query.limit || '200', 10) || 200, 500);
+
+  const { rows: subject } = await query(
+    `SELECT id, display_name, username FROM users
+     WHERE id = $1 AND organization_id = $2`,
+    [userId, req.user.orgId]
+  );
+  if (!subject[0]) {
+    return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+  }
+
+  let from = null;
+  let to = null;
+  if (fromRaw) {
+    const d = new Date(fromRaw);
+    if (!Number.isNaN(d.getTime())) from = d.toISOString();
+  }
+  if (toRaw) {
+    const d = new Date(toRaw);
+    if (!Number.isNaN(d.getTime())) to = d.toISOString();
+  }
+
+  const events = await buildUserTimeline({
+    orgId: req.user.orgId,
+    userId,
+    kind,
+    from,
+    to,
+    limit,
+  });
+
+  res.json({
+    ok: true,
+    user: {
+      id: subject[0].id,
+      displayName: subject[0].display_name,
+      username: subject[0].username,
+    },
+    events,
+  });
+});
+
+/** Chat DM solo lectura (auditoría Eventos). */
+adminRouter.get('/users/:userId/dm/:peerId/messages', requireAdmin, async (req, res) => {
+  const subjectId = String(req.params.userId || '').trim();
+  const peerId = String(req.params.peerId || '').trim();
+  const aroundId = String(req.query.around || '').trim() || null;
+  const limit = Math.min(parseInt(req.query.limit || '120', 10) || 120, 250);
+  const data = await listAuditDmMessages(req.user.orgId, subjectId, peerId, {
+    limit,
+    aroundId,
+  });
+  if (!data.peer) {
+    return res.status(404).json({ ok: false, error: 'Usuarios no encontrados en la org' });
+  }
+  res.json({ ok: true, readOnly: true, ...data });
+});
+
+/** Chat de grupo solo lectura (auditoría Eventos). */
+adminRouter.get('/users/:userId/groups/:groupId/messages', requireAdmin, async (req, res) => {
+  const groupId = String(req.params.groupId || '').trim();
+  const aroundId = String(req.query.around || '').trim() || null;
+  const limit = Math.min(parseInt(req.query.limit || '120', 10) || 120, 250);
+  const data = await listAuditGroupMessages(req.user.orgId, groupId, {
+    limit,
+    aroundId,
+  });
+  if (!data.group) {
+    return res.status(404).json({ ok: false, error: 'Grupo no encontrado' });
+  }
+  res.json({ ok: true, readOnly: true, ...data });
 });
 
 /** Historial / auditoría — solo root o admin de organización. */

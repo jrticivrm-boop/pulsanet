@@ -5,6 +5,11 @@ import {
   fetchGroupAvatarBlobUrl,
   peekGroupAvatarBlobUrl,
 } from './avatarBlobCache.js';
+import {
+  PRESENCE_LABELS,
+  normalizePresenceKey,
+  presenceDotClass,
+} from './dispatch/presenceStatus.js';
 
 function initials(name) {
   const parts = String(name || '?')
@@ -19,6 +24,7 @@ function initials(name) {
 /**
  * Avatar de usuario o grupo (lista chat, cabecera).
  * Sin foto: iniciales (usuario) o 👥 (grupo).
+ * presence + showPresence: punto semáforo (paridad APK Contactos / DM).
  */
 export default function PersonAvatar({
   userId,
@@ -28,6 +34,9 @@ export default function PersonAvatar({
   token,
   className = 'wa-inbox-avatar',
   group = false,
+  presence = null,
+  online = false,
+  showPresence = false,
 }) {
   const [rev, setRev] = useState(0);
   const id = group ? groupId : userId;
@@ -57,17 +66,26 @@ export default function PersonAvatar({
     : null;
   const cls = `${className}${group ? ' group' : ''}${photo ? ' has-photo' : ''}`;
 
-  if (photo) {
-    return (
-      <span className={cls} aria-hidden="true">
-        <img src={photo} alt="" />
-      </span>
-    );
-  }
-
-  return (
+  const avatarEl = photo ? (
+    <span className={cls} aria-hidden="true">
+      <img src={photo} alt="" />
+    </span>
+  ) : (
     <span className={cls} aria-hidden="true">
       {group ? '👥' : initials(name)}
+    </span>
+  );
+
+  if (!showPresence || group) return avatarEl;
+
+  const status = normalizePresenceKey(presence, online);
+  const dotCls = presenceDotClass(status, { online });
+  const label = PRESENCE_LABELS[status] || PRESENCE_LABELS.offline;
+
+  return (
+    <span className="person-avatar-with-presence" title={label}>
+      {avatarEl}
+      <span className={`presence-avatar-dot ${dotCls}`} aria-label={label} />
     </span>
   );
 }

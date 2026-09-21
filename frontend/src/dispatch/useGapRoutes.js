@@ -7,8 +7,9 @@ import { gapKey } from './trackHighlighter.js';
  *
  * Se pide una sola vez por hueco y se cachea en sessionStorage: el mapa repolla
  * la traza cada pocos segundos y el tramo entre dos coordenadas fijas no cambia.
- * Mientras no haya geometría OSRM válida el mapa NO dibuja recta (evita atajos
- * por campo). Se reintenta con backoff hasta obtener `estimated: false`.
+ * Preferimos geometría OSRM (`estimated: false`). Si el routing falla, el backend
+ * puede devolver un corredor estimado multi-punto (`source=estimate`) — nunca
+ * la cuerda A→B de 2 vértices. Se reintenta con backoff buscando OSRM real.
  *
  * Importante: al cancelar el efecto (Strict Mode, cambio de huecos, unmount)
  * hay que soltar las claves de `pendingRef`. Si se marcan todas al inicio y el
@@ -16,7 +17,7 @@ import { gapKey } from './trackHighlighter.js';
  * naranja nunca aparecería (caso Orión con ~37 huecos en 48 h).
  */
 
-const STORE_KEY = 'tacticalptx_gap_routes_v2';
+const STORE_KEY = 'tacticalptx_gap_routes_v3';
 /** Tope de entradas en sessionStorage (rutas largas pesan). */
 const STORE_MAX = 120;
 /** Reintentos: el demo OSRM público a veces falla en frío / rate-limit. */
@@ -24,6 +25,26 @@ const MAX_ATTEMPTS = 8;
 const RETRY_MS = 4_000;
 /** Peticiones en vuelo hacia la API (cada una llama OSRM en el Host). */
 const CONCURRENCY = 6;
+
+function isRoadRoute(value) {
+  return (
+    value &&
+    !value.estimated &&
+    value.source === 'osrm' &&
+    Array.isArray(value.points) &&
+    value.points.length > 1
+  );
+}
+
+function isUsableEstimate(value) {
+  return (
+    value &&
+    value.estimated &&
+    value.source === 'estimate' &&
+    Array.isArray(value.points) &&
+    value.points.length >= 3
+  );
+}
 
 function loadStore() {
   try {
@@ -78,9 +99,8 @@ export function useGapRoutes(token, gaps, { enabled = true } = {}) {
       if (pendingRef.current.has(key)) return false;
       const have = routesRef.current[key];
       if (!have) return true;
-      if (!have.estimated && Array.isArray(have.points) && have.points.length > 1) {
-        return false;
-      }
+      // OSRM listo: no re-fetch. Estimado usable: sí reintentar por si vuelve el router.
+      if (isRoadRoute(have)) return false;
       return (attemptsRef.current.get(key) || 0) < MAX_ATTEMPTS;
     };
 
@@ -98,13 +118,14 @@ export function useGapRoutes(token, gaps, { enabled = true } = {}) {
       const next = { ...prev };
       for (const { key } of missing) {
         const have = next[key];
-        if (have && !have.estimated && have.points?.length > 1) continue;
+        if (isRoadRoute(have)) continue;
         if (have?.pending) continue;
+        // Conservar estimado previo mientras reintentamos OSRM (evitar parpadeo).
         next[key] = {
-          points: [],
+          points: isUsableEstimate(have) ? have.points : [],
           estimated: true,
           pending: true,
-          source: have?.source || 'pending',
+          source: isUsableEstimate(have) ? 'estimate' : have?.source || 'pending',
           distanceM: have?.distanceM ?? null,
           durationS: have?.durationS ?? null,
         };
@@ -123,24 +144,29 @@ export function useGapRoutes(token, gaps, { enabled = true } = {}) {
         const data = await fetchTrackGapRoute(token, {
           from: [gap.from.lat, gap.from.lng],
           to: [gap.to.lat, gap.to.lng],
+          headingDeg: gap.bearingDeg,
         });
         if (cancelled) return false;
         const points = Array.isArray(data.points) ? data.points : [];
-        const estimated =
-          Boolean(data.estimated) || points.length < 2 || data.source !== 'osrm';
-        gotRoad = !estimated;
+        const isOsrm =
+          data.source === 'osrm' && !data.estimated && points.length >= 2;
+        const isEstimate =
+          !isOsrm &&
+          (data.source === 'estimate' || Boolean(data.estimated)) &&
+          points.length >= 3;
+        gotRoad = isOsrm;
         const value = {
-          points,
-          estimated,
-          pending: estimated && attempt < MAX_ATTEMPTS,
-          source: data.source,
+          points: isOsrm || isEstimate ? points : [],
+          estimated: !isOsrm,
+          pending: !isOsrm && attempt < MAX_ATTEMPTS,
+          source: isOsrm ? 'osrm' : isEstimate ? 'estimate' : 'pending',
           distanceM: data.distanceM,
           durationS: data.durationS,
           reason: data.reason,
         };
         setRoutes((prev) => {
           const next = { ...prev, [key]: value };
-          if (!value.estimated) saveStore(next);
+          if (isOsrm || isEstimate) saveStore(next);
           return next;
         });
       } catch {

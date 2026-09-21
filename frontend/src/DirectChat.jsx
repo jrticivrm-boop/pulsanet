@@ -477,6 +477,27 @@ export default function DirectChat({
       }
     });
 
+    /* Actualiza semáforo DM cuando llega presencia de un grupo compartido. */
+    socket.on('presence:update', ({ members }) => {
+      if (!Array.isArray(members) || !members.length) return;
+      const byId = new Map(
+        members.map((m) => [String(m.userId || m.id || ''), m]).filter(([id]) => id)
+      );
+      setContacts((prev) => {
+        let changed = false;
+        const next = prev.map((c) => {
+          const m = byId.get(String(c.id));
+          if (!m) return c;
+          const focus = String(m.focus || 'foreground');
+          const presence = focus === 'background' || focus === 'service' ? 'away' : 'online';
+          if (c.presence === presence && c.online === true) return c;
+          changed = true;
+          return { ...c, online: true, presence, focus };
+        });
+        return changed ? next : prev;
+      });
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -947,6 +968,20 @@ export default function DirectChat({
   const recentIds = new Set(conversations.map((c) => c.peerId));
   const otherContacts = contacts.filter((c) => !recentIds.has(c.id));
 
+  const contactPresence = (c) => {
+    if (!c) return 'offline';
+    if (c.isSelf || String(c.id) === String(me.id)) return 'online';
+    return String(c.presence || (c.online ? 'online' : 'offline')).toLowerCase();
+  };
+
+  const peerPresence = (() => {
+    if (!peer?.id) return null;
+    if (String(peer.id) === String(me.id)) return 'online';
+    const fromContact = contacts.find((c) => String(c.id) === String(peer.id));
+    if (fromContact) return contactPresence(fromContact);
+    return String(peer.presence || (peer.online ? 'online' : 'offline')).toLowerCase();
+  })();
+
   return (
     <div
       className={`dm-layout${embedded ? ' embedded' : ''}${hideSidebar ? ' dm-layout--pane' : ''}`}
@@ -982,6 +1017,13 @@ export default function DirectChat({
                       name={c.peerName}
                       token={token}
                       className="dm-avatar"
+                      showPresence
+                      presence={contactPresence(
+                        contacts.find((x) => String(x.id) === String(c.peerId))
+                      )}
+                      online={Boolean(
+                        contacts.find((x) => String(x.id) === String(c.peerId))?.online
+                      )}
                     />
                     <span className="dm-contact-text">
                       <strong>{c.peerName}</strong>
@@ -1013,6 +1055,9 @@ export default function DirectChat({
                     name={c.displayName}
                     token={token}
                     className="dm-avatar"
+                    showPresence
+                    presence={contactPresence(c)}
+                    online={Boolean(c.online)}
                   />
                   <span className="dm-contact-text">
                     <strong>{c.displayName}</strong>
@@ -1055,6 +1100,9 @@ export default function DirectChat({
                   name={peer.displayName}
                   token={token}
                   className="dm-avatar dm-avatar-lg"
+                  showPresence
+                  presence={peerPresence}
+                  online={peerPresence !== 'offline'}
                 />
                 <div>
                   <h2>{peer.displayName}</h2>

@@ -11,6 +11,7 @@ import {
   presenceTsKey,
 } from '../redis.js';
 import { query } from '../db.js';
+import { logPresenceTransition } from './userEvents.js';
 
 const FOCUS_RANK = { foreground: 3, background: 2, service: 1 };
 
@@ -409,6 +410,33 @@ async function writeOrgPresence(orgId, userId, displayName, focus) {
   pipe.expire(key, 86400);
   pipe.expire(tsKey, 86400);
   await pipe.exec();
+
+  const prevBand = presenceBand(prev.focus);
+  const nextBand = presenceBand(normalized);
+  if (prevBand !== nextBand) {
+    if (nextBand === 'online') {
+      void logPresenceTransition({
+        organizationId: orgId,
+        subjectUserId: uid,
+        status: 'online',
+        summary: prevBand === 'offline' ? 'En línea (volvió)' : 'En línea',
+      });
+    } else if (nextBand === 'away') {
+      void logPresenceTransition({
+        organizationId: orgId,
+        subjectUserId: uid,
+        status: 'away',
+        summary: 'Ausente',
+      });
+    }
+  }
+}
+
+function presenceBand(focus) {
+  const f = normalizePresenceFocus(focus);
+  if (f === 'foreground') return 'online';
+  if (f === 'background' || f === 'service') return 'away';
+  return 'offline';
 }
 
 async function clearOrgPresence(orgId, userId) {
@@ -418,6 +446,12 @@ async function clearOrgPresence(orgId, userId) {
   pipe.hdel(orgPresenceKey(orgId), String(userId));
   pipe.hdel(orgPresenceTsKey(orgId), String(userId));
   await pipe.exec();
+  void logPresenceTransition({
+    organizationId: orgId,
+    subjectUserId: String(userId),
+    status: 'offline',
+    summary: 'Desconectado',
+  });
 }
 
 /**

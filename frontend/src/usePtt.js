@@ -22,18 +22,18 @@ import { socketAuth } from './deviceId';
 import { assertMediaDevices, createVoiceRecorder, VOICE_AUDIO_CONSTRAINTS } from './voiceRecord';
 import { playPanicAlarm, startPanicAlarm, stopPanicAlarm, unlockPanicAudio } from './panicSound';
 import { notifyBackgroundChat, notifyBackgroundPtt } from './backgroundKeepalive';
-import { playChannelFreeTone, playPttPressTone, playPttReleaseTone, setOnAirTabIndicator } from './appNotify';
+import { playPttPressTone, playPttReleaseTone, setOnAirTabIndicator } from './appNotify';
 
 let lastLocalPttReleaseAt = 0;
 import { esMsg } from './esMsg';
-import { canManageUsers } from './api';
+import {
+  resolvePttLatch,
+  PTT_MODE_EVENT,
+} from './pttHoldMode';
+
+export { pttUsesLatch, resolvePttLatch, setPttLatchMode } from './pttHoldMode';
 
 const SOCKET_URL = socketUrl();
-
-/** Admins (root/zona/unidad): latch. Operadores: hold-to-talk. */
-export function pttUsesLatch(user) {
-  return canManageUsers(user);
-}
 
 /**
  * Socket.IO (floor + presencia + chat) + LiveKit (audio).
@@ -64,6 +64,7 @@ export function usePtt({
   const [lastPanicAt, setLastPanicAt] = useState(null);
   const [incomingPanic, setIncomingPanic] = useState(null);
   const [panicAcking, setPanicAcking] = useState(false);
+  const [usesLatch, setUsesLatch] = useState(() => resolvePttLatch(user));
 
   const socketRef = useRef(null);
   const roomRef = useRef(null);
@@ -95,6 +96,17 @@ export function usePtt({
     }
   });
   listenMutedRef.current = listenMuted;
+
+  useEffect(() => {
+    const sync = () => setUsesLatch(resolvePttLatch(user));
+    sync();
+    window.addEventListener(PTT_MODE_EVENT, sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener(PTT_MODE_EVENT, sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, [user]);
 
   const resolvedTalkIds = (
     Array.isArray(talkGroupIds) && talkGroupIds.length
@@ -591,7 +603,9 @@ export function usePtt({
   }, [connectTalkRoom]);
 
   useEffect(() => {
-    if (!token || !group?.id) return undefined;
+    // Consola despacho: mantener presencia aunque no haya canal Hablar seleccionado.
+    const hasPresenceTargets = presenceGroupIdsRef.current.length > 0;
+    if (!token || (!group?.id && !hasPresenceTargets)) return undefined;
 
     let cancelled = false;
     setError(null);
@@ -600,13 +614,15 @@ export function usePtt({
     setMessages([]);
     setOnline([]);
 
-    fetchMessages(token, group.id)
-      .then((data) => {
-        if (!cancelled) setMessages(data.messages || []);
-      })
-      .catch((err) => {
-        if (!cancelled) setChatError(esMsg(err.message));
-      });
+    if (group?.id) {
+      fetchMessages(token, group.id)
+        .then((data) => {
+          if (!cancelled) setMessages(data.messages || []);
+        })
+        .catch((err) => {
+          if (!cancelled) setChatError(esMsg(err.message));
+        });
+    }
 
     const socket = io(SOCKET_URL, {
       auth: socketAuth(token),
@@ -623,7 +639,7 @@ export function usePtt({
         ...listenGroupIdsRef.current,
         ...presenceGroupIdsRef.current,
       ]);
-      if (group.id) ids.add(group.id);
+      if (group?.id) ids.add(group.id);
       for (const gid of ids) {
         socket.emit('ptt:join', { groupId: gid, focus: presenceFocus() });
       }
@@ -648,6 +664,15 @@ export function usePtt({
         holdingRef.current = false;
         setHolding(false);
         await muteMic();
+      }
+      const wantsAudio =
+        talkGroupIdsRef.current.length > 0 || listenGroupIdsRef.current.length > 0;
+      if (!wantsAudio) {
+        if (!cancelled) {
+          setLivekitReady(false);
+          setStatus('ready');
+        }
+        return;
       }
       try {
         await ensureLiveKit();
@@ -674,7 +699,7 @@ export function usePtt({
     });
 
     socket.on('ptt:state', ({ groupId, speaker }) => {
-      if (groupId !== group.id) return;
+      if (group?.id && groupId !== group.id) return;
       if (speaker?.userId) {
         upsertSpeaker({
           userId: speaker.userId,
@@ -781,6 +806,7 @@ export function usePtt({
       upsertSpeaker({ userId, displayName, groupId, cargo });
       if (userId !== user?.id) {
         notifyBackgroundPtt({ speakerName: displayName });
+        playPttPressTone();
       }
     });
 
@@ -806,7 +832,7 @@ export function usePtt({
         return;
       }
       if (
-        groupId !== group.id &&
+        groupId !== group?.id &&
         !talkGroupIdsRef.current.includes(groupId)
       ) {
         return;
@@ -814,7 +840,7 @@ export function usePtt({
       clearSpeaker(groupId);
       // Evita doble pitido: el soltar local ya tocó playPttReleaseTone.
       if (Date.now() - lastLocalPttReleaseAt > 450) {
-        playChannelFreeTone({ soft: !document.hidden });
+        playPttReleaseTone();
       }
       setStatus('ready');
     });
@@ -822,7 +848,7 @@ export function usePtt({
     socket.on('ptt:error', ({ error: msg }) => setError(esMsg(msg)));
 
     socket.on('chat:message', (msg) => {
-      if (msg.groupId !== group.id) return;
+      if (!group?.id || msg.groupId !== group.id) return;
       setMessages((prev) => {
         const withoutLocal = prev.filter(
           (m) =>
@@ -850,17 +876,17 @@ export function usePtt({
     });
 
     socket.on('chat:edited', (msg) => {
-      if (msg.groupId !== group.id) return;
+      if (!group?.id || msg.groupId !== group.id) return;
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
     });
 
     socket.on('chat:deleted', (msg) => {
-      if (msg.groupId !== group.id) return;
+      if (!group?.id || msg.groupId !== group.id) return;
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
     });
 
     socket.on('chat:reaction', (payload) => {
-      if (payload.groupId !== group.id || !payload.messageId) return;
+      if (!group?.id || payload.groupId !== group.id || !payload.messageId) return;
       setMessages((prev) =>
         prev.map((m) =>
           m.id === payload.messageId ? { ...m, reactions: payload.reactions || [] } : m
@@ -869,7 +895,7 @@ export function usePtt({
     });
 
     socket.on('panic:alert', (event) => {
-      if (event.groupId !== group.id) return;
+      if (!group?.id || event.groupId !== group.id) return;
       setLastPanicAt(event.createdAt || new Date().toISOString());
       // Emisor: confirmación corta en sendPanic; receptores: sirena hasta Enterado
       if (event.userId && event.userId === user?.id) return;
@@ -888,7 +914,7 @@ export function usePtt({
     });
 
     socket.on('panic:update', (event) => {
-      if (event.groupId && event.groupId !== group.id) return;
+      if (event.groupId && group?.id && event.groupId !== group.id) return;
       if (!event?.status || event.status === 'active') return;
       // «acked» = otro dispositivo se dio por enterado: no silenciar aquí.
       // Solo resolved/cancelled cierran la alerta en todos.
@@ -901,7 +927,7 @@ export function usePtt({
     });
 
     socket.on('chat:receipts', (payload) => {
-      if (payload.groupId !== group.id || !payload.updates?.length) return;
+      if (!group?.id || payload.groupId !== group.id || !payload.updates?.length) return;
       const map = new Map(payload.updates.map((u) => [u.messageId, u]));
       setMessages((prev) =>
         prev.map((m) => {
@@ -917,7 +943,7 @@ export function usePtt({
     });
 
     socket.on('chat:typing', ({ groupId, userId, displayName, typing }) => {
-      if (groupId !== group.id || userId === user?.id) return;
+      if (!group?.id || groupId !== group.id || userId === user?.id) return;
       setTypingUsers((prev) => {
         const next = { ...prev };
         if (typing) next[userId] = displayName || 'Alguien';
@@ -937,9 +963,13 @@ export function usePtt({
 
     const ping = setInterval(() => {
       if (socket.connected) {
+        // Sin groupId → backend refresca todos los joinedGroups (consola sin canal Hablar).
         socket.emit('presence:ping', {
-          groupId: group.id,
-          focus: typeof document !== 'undefined' && document.hidden ? 'background' : 'foreground',
+          ...(group?.id ? { groupId: group.id } : {}),
+          focus:
+            typeof document !== 'undefined' && document.hidden
+              ? 'background'
+              : 'foreground',
         });
       }
     }, 15000);
@@ -954,7 +984,7 @@ export function usePtt({
         ...listenGroupIdsRef.current,
         ...presenceGroupIdsRef.current,
       ]);
-      if (group.id) leaveIds.add(group.id);
+      if (group?.id) leaveIds.add(group.id);
       for (const gid of leaveIds) {
         socket.emit('ptt:leave', { groupId: gid });
       }
@@ -981,7 +1011,22 @@ export function usePtt({
       setOnlineByGroup({});
       setStatus('idle');
     };
-  }, [token, group?.id, startPublishing, muteMic, teardownMic, ensureLiveKit, ensureMicReady, user?.id, user?.role, upsertSpeaker, clearSpeaker, isRelevantSpeakerGroup]);
+  }, [
+    token,
+    group?.id,
+    // Solo el flag: no reconectar al añadir grupos (eso lo hace el effect de sync).
+    resolvedPresenceIds.length > 0,
+    startPublishing,
+    muteMic,
+    teardownMic,
+    ensureLiveKit,
+    ensureMicReady,
+    user?.id,
+    user?.role,
+    upsertSpeaker,
+    clearSpeaker,
+    isRelevantSpeakerGroup,
+  ]);
 
   // Sincronizar joins al cambiar canales Hablar / Escuchar.
   const prevTalkKeyRef = useRef('');
@@ -1397,7 +1442,7 @@ export function usePtt({
     press,
     release,
     toggle,
-    usesLatch: pttUsesLatch(user),
+    usesLatch,
     postChat,
     postMedia,
     postSticker,

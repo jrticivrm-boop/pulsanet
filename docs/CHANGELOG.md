@@ -9,6 +9,109 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Configuración → Eventos (timeline):** sesión, presencia, geocerca, mensajes (uno a uno), llamadas, radio/PTT, pánico y cuenta. Botón **Ver** abre el chat DM/grupo en **solo lectura**.
+- **Configuración → Eventos:** historial legible por operador (select persona + tipo + fechas). Incluye enter/exit de geocerca y creación/desactivación/reactivación de cuenta.
+- **Consola — geocerca:** notificación flotante + campanita al entrar/salir de zona.
+- **Chat directo APK — selección múltiple:** mantener pulsado entra en modo selección (check, contador, borrar / compartir / copiar). Borrar solo mensajes propios con el delete ya existente; compartir solo texto y archivos que ya están en el teléfono.
+
+### Changed
+- **Consola — tooltip radio:** se quitó «Oír es aparte» del tooltip del canal de Hablar.
+- **Consola KPI:** Canales → Grupos, Con GPS → Operadores, Alertas activas → Alertas; se quitó el KPI «Al aire ahora».
+- **Consola / Sitios — color:** doble clic en la bolita abre una paleta propia; **doble clic en el color de esa paleta** confirma y cierra (ya no depende de la ventanita nativa del SO).
+- **Zumbido APK — notificación:** canal `tacticalptx_nudge_v5` con vibración alternada (el shade de Android no desplaza el banner). En primer plano, fuera de ese chat, la UI y el globo se sacuden.
+- **Consola Ruta — calendario:** la etiqueta del tope dice «Máx. 30 días» (antes «Máx. 30 d»).
+- **Consola mapa — leyenda de presencia:** las pastillas (En línea, Ausente, Desconectado, Fuera de línea) siguen el filtro ESTADO: lo desmarcado no se muestra. Los conteos son de los pines que siguen en el mapa.
+- **Consola — maximizado:** «Ocultar panel» / «Mostrar panel» abajo al centro del mapa (ya no en las pestañas ni junto a las capas).
+- **Consola — barra ops (maximizado):** pulido a11y/chrome; colapso solo en maximizado.
+
+### Fixed
+- **Consola ops — toolbar:** la franja de paneles ya no cambia de alto al pasar entre Sitios / Operadores / Ruta / Geocerca (altura fija de una fila label+control).
+- **Consola / Sitios — color:** se quitó el cuadro intermedio del portal; doble clic en la bolita abre solo la paleta nativa.
+- **Consola / Sitios — paleta nativa:** al doble clic en la bolita vuelve a abrirse el selector de color (antes solo se veía el swatch del portal y se cerraba al interactuar).
+- **Consola Geocerca — Guardar/Cancelar:** misma altura que los inputs del panel (`--map-ops-ctrl-min-h`); ya no agrandan la barra.
+- **Consola / Sitios — paleta de color:** al doble clic en la bolita la paleta ya se ve fija (portal); no se oculta detrás del toolbar ni se cierra sola al abrir.
+- **Consola Geocerca — ancho del select:** el multi-select de geocercas queda al mismo ancho (11rem) que Persona/Grupo/Sitios; el desplegable ya no abre más ancho que el resto.
+- **Llamada móvil:** el timbre/ringback sigue sonando, y al conectar se reafirma el audio de voz (el `ToneGenerator` de ringback ya no deja la llamada en silencio; la radio no pisa `MODE_NORMAL` durante la llamada).
+- **Zumbido APK:** el aviso de espera ya no muestra el prefijo `Exception:` (solo «Espera 10s para otro zumbido»). El chat se sacude al enviar y al recibir, como en la web.
+- **Consola ops — toggles:** «Fijar en mapa» y «Ruta probable» (`.map-fix-toggle`) usan la misma altura que select / trigger / `.cc-btn` (`--map-ops-ctrl-min-h`), alineados al pie de la fila. La fila Ruta no se mueve.
+- **Consola Ruta — fila de controles:** Ruta · Desde · Hasta · Ruta probable vuelven a una sola fila compacta a la izquierda (`nowrap`; el rango ya no wrappea ni ocupa 100%).
+- **Consola mapa maximizado — tipo de mapa:** Natural / Satélite / Claro no cambiaban tras reparent a `body`; delegación nativa `data-map-layer` (mismo listener que el panel).
+- **Consola mapa maximizado — pestañas ops:** el clic no llegaba tras reparent a `body`; delegación nativa `data-ops-tab-id`.
+- **Consola mapa maximizado — leyenda y capas:** vuelven a verse con la barra abierta (chrome por encima de Leaflet).
+- **Consola Ruta — «Ruta probable»:** el check queda junto a Hasta (sin hueco a la derecha); se quitó el `flex-grow` de `.map-track-range` en el panel Ruta.
+- **Consola Ruta:** la selección de operador ya no se borra al clic/pan en el mapa ni en el siguiente poll; se quitó la poda de `trackUserIds` contra pines filtrados (`visibleLocations`); Ruta sigue el universo `gpsPeople`.
+- **Geocerca color:** la bolita seleccionada muestra anillo visible (`is-active` compartido con Sitios).
+- **Ruta — radio singleSelect:** sin caja/anillo cuadrado alrededor del radio seleccionado (solo el círculo); checkboxes multi-select intactos.
+- **Cluster mapa — over-zoom:** al picar un cluster con miembros cercanos, el encuadre ya no acerca de más (pines fuera de frame); tope 16.5, padding 96 y soft +1 en web/mobile.
+- **Consola Geocerca:** el poll del mapa ya no deja KPI/lista en 0 por un `ReferenceError` (`loc` tras renombrar a `allLoc`) ni por `Promise.all` acoplado; geocercas se aplican con `allSettled` y no se vacían si falla GPS/overview.
+- **Ruta probable — cuerdas rectas sin sentido:** al perder GPS, el hueco ya no se deja como atajo verde; se pide OSRM (multi-base) y, si falla, un corredor estimado multi-punto naranja punteado (nunca A→B de 2 puntos). Saltos post-RDP ≥700 m también se tratan como hueco.
+
+### Release
+- **APK 1.8.177+187:** Radio — nombre de canal en encabezado y chip lateral; selector inferior con números; sin OTA. Artefactos en `pulsanet_soporte\APK\`.
+- **APK 1.8.176+186:** zumbido 1.8.175 más el fix de audio de llamada (ringback / voz tras el timbre); sin OTA. Artefactos en `pulsanet_soporte\APK\`.
+- **APK 1.8.175+185:** zumbido sin prefijo `Exception:`, shake del chat y vibración alternada en la notificación; sin OTA. Artefactos en `pulsanet_soporte\APK\`.
+- **APK 1.8.174+184:** sideload con código mobile pendiente tras 1.8.173; sin OTA. Artefactos en `pulsanet_soporte\APK\`.
+- **APK 1.8.173+183:** volumen «llamadas» solo PTT/llamada/video; al salir de Radio / minimizar / cerrar → multimedia. Sin OTA. Artefactos en `pulsanet_soporte\APK\`.
+- **APK 1.8.172+182:** fix volumen «llamadas» en segundo plano (`MODE_IN_COMMUNICATION`); sin OTA. Artefactos en `pulsanet_soporte\APK\`.
+- **APK 1.8.171+181:** PTT Pulsación Corta/Larga, tonos Walkie Talkie, composer +/🙂/🫨; `SERVER_LAN_IP=192.168.1.77`; sin OTA. Artefactos en `pulsanet_soporte\APK\`.
+
+### Changed
+- **Routing huecos:** `ROUTING_OSRM_FALLBACKS`, `ROUTING_OSRM_ALLOW_PUBLIC`; timeout default 20 s; `TRACK_POST_SIMPLIFY_JUMP_M` default 700; `TRACK_GAP_JUMP_METERS` default 1000.
+
+### Added
+- **Consola — maximizado + barra ops:** al maximizar se mantienen Operadores/Ruta/Geocerca/Sitios; solo ahí «Ocultar» / «Mostrar» para mapa a pantalla completa (preferencia local).
+- **Consola — pin «Ver ruta»:** selecciona ese operador en Ruta; conserva Desde/Hasta si ya había periodo/ruta; si no, hoy 00:00→ahora.
+- **Consola Ruta — check «Ruta probable»:** activa/desactiva huecos GPS (naranja) en mapa y leyenda; preferencia en localStorage.
+- **Ruta — periodo calendario (120 h):** atajos 8/24/48/120 h + Desde/Hasta; sin futuro ni más atrás de 130 h; API `from`/`to`; N operadores vía multi-select.
+- **Geocercas — color en mapa:** selector de color (swatches como sitios tácticos) en alta/edición; campo `color` en API/BD; círculos Leaflet y catálogo usan el hex elegido (default `#243d20`).
+- **PTT mapa — Individual/Múltiple:** selector compacto en el menú flotante (Escuchar/Hablar/Video/Alerta), sincronizado con Radio vía las mismas claves localStorage.
+- **Geocercas — editar en Consola:** mismo formulario de alta para PATCH (`updateGeofence`); acciones compactas ✎/× en multi-select alineadas a catálogos y temas.
+- **PTT mapa — Videollamada:** en el menú flotante (pestaña Video), botón de acción que abre videollamada de grupo con los canales seleccionados (`tacticalptx:open-group-video`), igual que Radio.
+- **Chat web — punto de presencia:** avatares de Contactos/DM y cabecera 1:1 con semáforo (paridad APK); colores `PRESENCE_CLUSTER_COLORS`.
+
+### Changed
+- **Selects vacíos:** placeholder «— elegir —» → «— Seleccionar —» (Ruta, Grupo, etc.).
+- **Ruta — Desde/Hasta calendario:** popover más compacto (padding/gaps/celdas/steppers/footer densos); menos huella sobre el mapa; temas intactos.
+- **PTT mapa — Videollamada:** misma altura que Alerta en el menú flotante (padding/borde e icono alineados).
+- **Ruta — Cancelar/Aceptar:** mismo ancho, outline a intensidad plena y hover con relleno (fill) en lugar de solo opacity; disabled claramente muted.
+- **Consola Operadores:** caret del select nativo (Por operador / Por grupo) alineado al ▾ de los multi-select (Grupo / En grupo / Estado).
+- **PTT mapa — Videollamada:** botón del menú flotante con colores fijos de Radio (fondo `#f4f6f2`, texto `#1f2a1c`); deja de fundirse con el menú Obscuro.
+- **Ruta radio — clic fuera = Aceptar:** fuera del panel y cierre exclusivo ms confirman el borrador; Cancelar/Esc siguen descartando.
+- **Ruta select:** Cancelar en rojo suave (`--cc-danger`); Cancelar/Esc descartan borrador; clic fuera y cierre exclusivo confirman como Aceptar. `trackUserIds` no se restaura de localStorage al cargar (cada sesión «— elegir —»).
+- **Dock radio (consola/mapa):** chip solo informativo (sin enlace a Config); texto de Hablar multi-canal (`talkIds`) + Oír X/Y aparte; tooltip con lista completa.
+- **Ruta — Aceptar/Cancelar:** pie del panel (Cancelar izq. / Aceptar der.); Ascendente solo en cabecera.- **Consola Operadores:** se elimina el modo «Todos»; solo **Por operador** | **Por grupo**. Persistido `all` migra a `operator` con Persona re-sembrada (todos marcados ≈ UX anterior).
+- **Consola multi-select (Grupo / En grupo / Sitios / Estado / Ruta):** fila seleccionada y checkbox con tint sutil vía `--cc-accent` / `--cc-panel` (estilo Vehículos PV); elimina el azul saturado `#1e3a8a` en Obscuro.
+- **Operadores / Ruta:** Por operador|Por grupo (+ subfiltro en grupo); Ruta radio 1 operador independiente; historial hasta 30 días (lookback 31).
+- **Sitios (consola):** desplegable de capas homologado al de Ruta (ordenar / marcar / buscar / resize).
+- **Consola KPI:** reordenables por arrastre (orden persistido), igual que pestañas Sitios/Operadores/Ruta/Geocerca.
+- **Ruta — periodo:** sin chips 8/24/48/120 h; calendario/hora propio (popover clicable) en Desde/Hasta.
+- **Radio — arrastre de canales:** pointer DnD en asa grande (umbral 8px, patrón nav/catálogo PV); ya no HTML5 en toda la fila.
+- **Tonos PTT Walkie Talkie:** press/release sustituidos por extractos del MP3 (app + web). Respaldo `ptt_sounds_20260920_145944`.
+- **PTT Mantén / Toque:** el usuario elige modo (sostener vs alternar) en app y web; se guarda la preferencia. Respaldo `ptt_modo_20260920_141721`.
+- **Clusters GPS:** el pastel muestra solo cifras por color (sin total solapado); un color = total al centro.
+- **Contactos APK:** semáforo de presencia + orden en línea → ausente → fuera de línea.
+- **Canales radio APK:** selector inferior solo iconos centrados (sin nombre repetido).
+
+### Fixed
+- **Consola — Persona select «mocho»:** ellipsis + caret siempre visible en multi-selects ops; con 1 seleccionado, Grado+Cargo compacto + tooltip (como Ruta).
+- **Consola — pines Por grupo:** el pin vuelve a mostrar la foto del grupo (fallback a la del usuario); Por operador sigue con foto individual.
+- **Operadores «En grupo»:** Marcar/Desmarcar con ids explícitos (vacío = ninguno en mapa; 1.ª vez todos); sin bolitas de color de ruta en Persona/En grupo (`showColorDots`).
+- **Ruta panel multi-select:** esquina permite resize horizontal y vertical; tooltip del nombre completo si hay ellipsis; en modo radio (1 operador) no se muestra la bolita de color.
+- **Ruta select:** si el nombre no cabe → Grado + Cargo visibles; tooltip con el indicativo completo; sin solape con Desde/Hasta.
+- **Operadores Persona/Grupo:** la selección se guarda por modo (1.ª vez todos los checks; no se pierde al cambiar de modo ni al cerrar el panel).
+- **APK volumen llamadas:** al cambiar a Chats/Llamadas/GPS, minimizar o cerrar → `MODE_NORMAL`; VoIP solo PTT/llamada/video; FGS reafirma media si LiveKit lo pisa.
+- **Ops pestañas:** cursor al reordenar = manita abierta (`grab`); Operadores refuerza altura frente a `.cc-tactical-ms-trigger` base.
+- **Radio APK lag:** el rescate de audio rearmaba LiveKit en FGS/lifecycle y congelaba botones; ahora solo actúa si el modo no es normal + setState coalescido.
+- **APK GPS — iconos de sitios:** marcadores usan el icono de agrupación (`groupIconUrl` + Bearer), no la banderita fija; sin icono → círculo de color.
+- **APK audio segundo plano:** LiveKit manual + reclaim `MODE_NORMAL` al minimizar/FGS; ya no deja «Volumen de llamadas» colgado sin PTT/llamada.
+- **Mapa maximizar → fullscreen real:** `requestFullscreen` en la página del mapa (oculta pestañas Edge + barra de tareas); reparent/`html.map-viewport-max` se mantiene; Restaurar/Esc hace `exitFullscreen` + cleanup; `invalidateSize` escalonado mitiga freeze Leaflet.
+- **Mapa maximizar:** full-bleed real — reparent a `document.body` + `html.map-viewport-max` (el solo-CSS `:has`/overflow no bastaba); oculta chrome ops/rail; Restaurar/Esc recupera.
+- **Login/favicon Obscuro:** círculo azul/plata al mismo tamaño aparente que Verde (escala del glifo en PNGs; cache-bust `v=3` / `v=2`).
+- **APK composer chat:** barra con `+` / `🙂` / `🫨` (zumbido solo DM) como en web; antes sticky_note + vibration poco reconocibles.
+- **Cluster GPS clic:** al tocar el círculo encuadra a todos los miembros (`fitBounds`/`fitCamera`); evita zoom al centroide con mapa vacío.
+- **PTT bip APK/web:** cue fiable (lowLatency, bip antes de voz); remitente y destinatarios oyen press/release.
+
 ### Security
 - **Chat sin APK:** uploads bloquean `.apk`/`.aab`/`.jar`/`.dex` (y MIME Android); distribución solo OTA. Cliente alineado.
 - **Listen + XFF:** con production/PUBLIC_DOMAIN no se acepta `LISTEN_HOST` no-loopback (salvo `TPX_LISTEN_UNSAFE=1`); `X-Forwarded-For` solo si el peer es loopback.

@@ -429,9 +429,11 @@ select {
 
 .login-hero-mark {
   width: min(92vw, 32rem);
+  aspect-ratio: 971 / 390;
   height: auto;
   border-radius: 0;
   object-fit: contain;
+  object-position: left center;
   box-shadow: none;
   background: transparent;
 }
@@ -1682,6 +1684,87 @@ select:focus {
     box-shadow 0.12s ease,
     background 0.2s ease,
     border-color 0.2s ease;
+}
+
+.radio-ptt-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.ptt-mode-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.ptt-mode-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.ptt-mode-seg {
+  display: inline-flex;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+  padding: 2px;
+  gap: 2px;
+}
+
+.ptt-mode-seg.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.ptt-mode-seg-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+/* Activo: acento del tema (light/verde = oliva; obscuro = azul). Nunca verde fijo en obscuro. */
+.ptt-mode-seg-btn.is-on {
+  background: var(--accent);
+  color: #f5f5f0;
+}
+
+[data-theme='verde'] .ptt-mode-seg-btn.is-on {
+  color: #0a0a0a;
+}
+
+[data-theme='obscuro'] .ptt-mode-seg-btn.is-on {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.ptt-mode-seg--dock {
+  align-self: center;
+}
+
+.ptt-mode-seg--dock .ptt-mode-seg-btn {
+  font-size: 0.7rem;
+  padding: 0.32rem 0.65rem;
+}
+
+.ptt-mode-wrap.ptt-mode-seg--dock .ptt-mode-label {
+  font-size: 0.65rem;
 }
 
 .ptt-btn:hover:not(:disabled) {
@@ -3767,7 +3850,7 @@ select:focus {
 }
 
 .wa-inbox-tab:active {
-  cursor: grabbing;
+  cursor: grab;
 }
 
 .wa-inbox-tab.active {
@@ -3866,6 +3949,43 @@ select:focus {
 
 .wa-inbox-row.unread strong {
   font-weight: 800;
+}
+
+.person-avatar-with-presence {
+  position: relative;
+  display: inline-grid;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+/* Semáforo presencia (paridad APK / PRESENCE_CLUSTER_COLORS). */
+.presence-avatar-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  border: 2px solid var(--surface-solid, #1a1f1a);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.presence-avatar-dot.active {
+  background: #1f5a2e;
+}
+
+.presence-avatar-dot.away {
+  background: #a16207;
+}
+
+.presence-avatar-dot.offline {
+  background: #6b7280;
+}
+
+.presence-avatar-dot.stale {
+  background: #991b1b;
 }
 
 .wa-inbox-avatar {
@@ -4985,7 +5105,7 @@ select:focus {
   line-height: 1.2;
 }
 
-.dm-contact span:not(.dm-avatar) {
+.dm-contact-text > span {
   font-size: 0.75rem;
   color: var(--muted);
   max-width: 100%;
@@ -8259,8 +8379,14 @@ html[data-layout='phone'] .incoming-call-banner-btn {
 .channel-dual-row.video {
   font-weight: 700;
 }
+.channel-dual-row.is-dragging {
+  opacity: 0.45;
+}
+.channel-dual-row.is-drag-over,
 .channel-dual-row.drag-over {
   border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -1px;
 }
 .channel-multi-badge.listen {
   background: color-mix(in srgb, #0f766e 78%, transparent);
@@ -8285,19 +8411,47 @@ html[data-layout='phone'] .incoming-call-banner-btn {
 .channel-dual-drag {
   cursor: grab;
   color: var(--muted);
-  font-size: 0.7rem;
-  letter-spacing: -0.12em;
+  font-size: 0.85rem;
+  letter-spacing: -0.08em;
   user-select: none;
-  padding: 0 0.1rem;
-  opacity: 0.75;
-  flex: 0 0 1.1rem;
-  width: 1.1rem;
-  text-align: center;
+  -webkit-user-select: none;
+  touch-action: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 1.75rem;
+  width: 1.75rem;
+  min-width: 1.75rem;
+  min-height: 1.85rem;
+  padding: 0.28rem 0.2rem;
+  margin: 0;
+  border-radius: 5px;
+  opacity: 0.8;
+  box-sizing: border-box;
+}
+.channel-dual-drag:hover {
+  opacity: 1;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.channel-dual-drag:active,
+.channel-dual-row.is-dragging .channel-dual-drag {
+  cursor: grab;
+  opacity: 1;
+  color: var(--accent);
 }
 .channel-dual-drag.is-spacer {
   visibility: hidden;
   cursor: default;
   pointer-events: none;
+}
+/* Pointer DnD activo: manita abierta (grab), no puño (grabbing). */
+html.channel-dual-dragging,
+html.channel-dual-dragging body {
+  cursor: grab !important;
+}
+html.channel-dual-dragging .channel-dual-drag {
+  cursor: grab !important;
 }
 .channel-dual-movers.is-spacer {
   visibility: hidden;

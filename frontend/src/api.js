@@ -565,6 +565,42 @@ export function fetchAdminActivity(token, { limit = 100, offset = 0, action = ''
   return api(`/api/admin/activity?${params}`, { token });
 }
 
+/** Eventos legibles por operador (Configuración → Eventos). */
+export function fetchUserEvents(
+  token,
+  { userId, kind = '', from = '', to = '', limit = 200 } = {}
+) {
+  const params = new URLSearchParams();
+  params.set('userId', String(userId || ''));
+  params.set('limit', String(limit));
+  if (kind) params.set('kind', kind);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  return api(`/api/admin/user-events?${params}`, { token });
+}
+
+/** Chat DM solo lectura (auditoría Eventos). */
+export function fetchAuditDmMessages(token, userId, peerId, { around = '', limit = 120 } = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(limit));
+  if (around) params.set('around', around);
+  return api(
+    `/api/admin/users/${encodeURIComponent(userId)}/dm/${encodeURIComponent(peerId)}/messages?${params}`,
+    { token }
+  );
+}
+
+/** Chat de grupo solo lectura (auditoría Eventos). */
+export function fetchAuditGroupMessages(token, userId, groupId, { around = '', limit = 120 } = {}) {
+  const params = new URLSearchParams();
+  params.set('limit', String(limit));
+  if (around) params.set('around', around);
+  return api(
+    `/api/admin/users/${encodeURIComponent(userId)}/groups/${encodeURIComponent(groupId)}/messages?${params}`,
+    { token }
+  );
+}
+
 export function saveBackupConfig(token, body) {
   return api('/api/backups/config', { token, method: 'PUT', body });
 }
@@ -674,16 +710,33 @@ export function postLocation(token, { latitude, longitude, accuracyM }) {
   });
 }
 
-export function fetchUserTrack(token, userId, hours = 8) {
-  return api(`/api/locations/${userId}/track?hours=${hours}`, { token });
+export function fetchUserTrack(token, userId, hoursOrOpts = 8) {
+  const q = new URLSearchParams();
+  if (hoursOrOpts && typeof hoursOrOpts === 'object') {
+    const { hours, from, to } = hoursOrOpts;
+    if (from && to) {
+      q.set('from', from instanceof Date ? from.toISOString() : String(from));
+      q.set('to', to instanceof Date ? to.toISOString() : String(to));
+    } else if (hours != null) {
+      q.set('hours', String(hours));
+    } else {
+      q.set('hours', '8');
+    }
+  } else {
+    q.set('hours', String(hoursOrOpts ?? 8));
+  }
+  return api(`/api/locations/${userId}/track?${q}`, { token });
 }
 
 /** Ruta probable por calles para un hueco de señal (tramo predictivo del mapa). */
-export function fetchTrackGapRoute(token, { from, to }) {
+export function fetchTrackGapRoute(token, { from, to, headingDeg } = {}) {
   const q = new URLSearchParams({
     from: `${from[0]},${from[1]}`,
     to: `${to[0]},${to[1]}`,
   });
+  if (headingDeg != null && Number.isFinite(Number(headingDeg))) {
+    q.set('heading', String(Number(headingDeg)));
+  }
   return api(`/api/locations/track-gap-route?${q.toString()}`, { token });
 }
 

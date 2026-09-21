@@ -1,3 +1,1107 @@
+## 2026-09-21 — Plan escalonado: borde + keepalive + freeze WIP
+
+- **Tipo:** ops | security | docs
+- **Área:** infra | ops
+- **Qué:**
+  - Fase 1: `START-PUBLIC-EDGE` — IP pública alineada (`189.175.60.174`), UPnP 80/443/LiveKit, DuckDNS/Caddy OK; checks externos HTTP 200.
+  - Fase 2: keepalive edge cada 20 min (`EdgeKeepaliveLoop` + `START-EDGE-KEEPALIVE.cmd`) **sin** matar API/Web; `Register-EdgeKeepalive.ps1` listo si hay admin para schtasks.
+  - Fase 3: commit del WIP de despacho/Eventos/Radio (sin secretos ni basura `_preview`/`.netlify`).
+  - Fase 4: OTA APK 1.8.177 tras health OK (force=false).
+- **Por qué / notas:** Sin desfases: no se reinició el supervisor completo (mata start-api/web).
+- **Archivos / refs:** `infra/EdgeKeepaliveLoop.ps1`, `START-EDGE-KEEPALIVE.cmd`, `Register-EdgeKeepalive.ps1`
+
+## 2026-09-21 — Edge público: UPnP 443 caído (timeout WAN)
+
+- **Tipo:** ops | fix
+- **Área:** infra | ops
+- **Qué:**
+  - Desde fuera (check-host) HTTP/TCP :443 daba `Connection timed out`; DNS A OK → `189.152.246.140`; LAN/hairpin HTTP 200.
+  - Corrió `infra\ENSURE-PUBLIC-EDGE.ps1` → `START-PUBLIC-EDGE` + UPnP 80/443 (y LiveKit); post-fix: check-host HTTP 200 y TCP OK desde varios nodos.
+- **Por qué / notas:** Mapeo UPnP perdido (router/IGD); el PC servidor seguía OK en LAN → otro equipo fuera veía timeout.
+- **Archivos / refs:** `infra/ENSURE-PUBLIC-EDGE.ps1`, `infra/START-PUBLIC-EDGE.ps1`, `infra/EXPOSE-UPNP.ps1`
+
+## 2026-09-21 — FORMATO_CAMBIOS_21_09_2026 (resumen del día)
+
+- **Tipo:** docs
+- **Área:** docs | ops
+- **Qué:**
+  - Word de control de cambios del día (9 filas, lenguaje sencillo); copia Escritorio + soporte.
+  - Sin la ampliación posterior de Eventos (timeline + Ver chat).
+- **Archivos / refs:** `pulsanet_soporte\Documentos\FORMATO_CAMBIOS_21_09_2026.docx` (+ `.md`), `Scripts\fill_formato_cambios_21_09.py`
+
+## 2026-09-21 — APK sideload 1.8.177+187 (Radio canal)
+
+- **Tipo:** release | ux
+- **Área:** mobile
+- **Qué:**
+  - APK **1.8.177+187** sin OTA: chip lateral con nombre de canal/grupo; encabezado canal primero; selector inferior con números.
+  - → `pulsanet_soporte\APK\` (+ latest).
+- **Archivos / refs:** `radio_screen.dart`, `pubspec.yaml`, `TacticalPtx-1.8.177+187.apk`
+
+## 2026-09-21 — Radio APK: nombre de canal + selector numérico
+
+- **Tipo:** ux | fix
+- **Área:** mobile
+- **Qué:**
+  - Encabezado Radio: título = nombre del canal/grupo; subtítulo = operador (antes al revés).
+  - Selector inferior: vuelve el strip con **números** claros (y nombre al seleccionar), como antes de los solo-iconos.
+  - Chip lateral junto al PTT: otra vez icono + **nombre del canal/grupo** (no solo capas).
+- **Archivos / refs:** `mobile/lib/screens/radio_screen.dart`
+
+## 2026-09-21 — Eventos: timeline del operador + Ver chat
+
+- **Tipo:** feature | ux
+- **Área:** web | backend
+- **Qué:**
+  - Timeline unificada (sesión, presencia, geocerca, mensajes, llamadas, PTT, pánico, cuenta).
+  - Mensajes históricos desde BD; botón **Ver** abre hilo DM/grupo en solo lectura.
+  - Login/logout y cambios online/ausente/desconectado se registran en `user_events`.
+- **Archivos / refs:** `userEventsTimeline.js`, `userEvents.js`, `admin.js`, `auth.js`, `presence.js`, `ConfigEvents.jsx`, `api.js`
+
+## 2026-09-21 — Fix pantalla negra /despacho (toast geocerca)
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - `DispatchGeofenceToastHost` llamaba `socketIoOptions(token)` (no es función) → crash JS y pantalla oscura vacía.
+  - Misma init que PanicHost: `{ auth: { token }, ...socketIoOptions }` + `dispatch:join`.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchGeofenceToastHost.jsx`
+
+## 2026-09-21 — Eventos por operador + toast geocerca
+
+- **Tipo:** feature | ux
+- **Área:** web | backend | database
+- **Qué:**
+  - Configuración → **Eventos**: select de operador + tipo + fechas; lista legible (geocerca / cuenta).
+  - Persistencia `user_events` (migración 035); enter/exit geocerca y alta/desact/react cuenta.
+  - Toast flotante + campanita al enter/exit (`DispatchGeofenceToastHost`).
+- **Archivos / refs:** `035_user_events.sql`, `userEvents.js`, `geofences.js`, `admin.js`, `ConfigEvents.jsx`, `DispatchGeofenceToastHost.jsx`, `appNotify.js`
+
+## 2026-09-21 — Script geocerca: no cierra la ventana
+
+- **Tipo:** fix | ops
+- **Área:** infra
+- **Qué:**
+  - `Test-GeofenceEnterExit.ps1` pide usuario/clave si faltan, muestra el error y espera Enter.
+  - `Test-GeofenceEnterExit.cmd` para lanzarlo con doble clic.
+- **Archivos / refs:** `infra/Test-GeofenceEnterExit.ps1`, `infra/Test-GeofenceEnterExit.cmd`
+
+## 2026-09-21 — Script prueba enter/exit geocerca
+
+- **Tipo:** ops | docs
+- **Área:** infra
+- **Qué:**
+  - `infra/Test-GeofenceEnterExit.ps1`: login operador + 3 POST `/api/locations` (fuera → dentro → fuera) para disparar enter/exit sin APK.
+- **Archivos / refs:** `infra/Test-GeofenceEnterExit.ps1`
+
+## 2026-09-21 — Consola ops: altura fija entre pestañas
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - `#map-ops-toolbar`: el cuerpo de paneles (Sitios/Operadores/Ruta/Geocerca) usa altura fija (`--map-ops-panel-body-h` = label + control); ya no cambia al cambiar de pestaña.
+  - Una sola fila (`nowrap`); si no cabe, scroll horizontal en lugar de crecer.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-21 — Color: sin cuadro intermedio
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Geocerca / Sitios: se eliminó el popover con el swatch grande; doble clic en la bolita abre solo la paleta nativa.
+- **Archivos / refs:** `DispatchMap.jsx`, `CatalogTacticalSites.jsx`, `command-center.css`
+
+## 2026-09-21 — Tooltip PTT: sin «Oír es aparte»
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Consola: en el tooltip del dock de radio se quitó la frase «Oír es aparte».
+- **Archivos / refs:** `DispatchLayout.jsx`
+
+## 2026-09-21 — Consola KPI: etiquetas y sin Al aire
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - KPIs del mapa/overview: Canales → Grupos, Con GPS → Operadores, Alertas activas → Alertas.
+  - Se quita el KPI «Al aire ahora».
+- **Archivos / refs:** `DispatchMap.jsx`, `CommandCenter.jsx`
+
+## 2026-09-21 — Color: paleta nativa vuelve a abrir
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Geocerca / Sitios: al doble clic en la bolita se vuelve a abrir la paleta nativa (`showPicker` en el mismo gesto), sin que el clic fuera del portal la cierre al instante.
+  - Clic en el swatch reabre la paleta; doble clic confirma y cierra.
+- **Archivos / refs:** `DispatchMap.jsx`, `CatalogTacticalSites.jsx`
+
+## 2026-09-21 — Geocerca: Guardar/Cancelar misma altura
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Consola → Geocerca (formulario): «Guardar cambios» y «Cancelar» usan la misma altura fija que inputs/selects (`--map-ops-ctrl-min-h`), sin agrandar el panel.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-21 — Color: paleta fija visible (doble clic)
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - La paleta de Geocerca/Sitios ya no se «oculta»: sale en portal fijo bajo la bolita (antes la recortaba el toolbar o se cerraba al abrir).
+  - Doble clic en bolita abre; doble clic en el color de la paleta confirma y cierra.
+- **Archivos / refs:** `DispatchMap.jsx`, `CatalogTacticalSites.jsx`, `command-center.css`
+
+## 2026-09-21 — Color: doble clic en la paleta confirma
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Geocerca y Sitios: doble clic en una bolita abre una paleta propia (no la nativa del SO).
+  - **Doble clic sobre el color de esa paleta** confirma el color y cierra la ventanita.
+  - Clic simple en bolita sigue eligiendo sin abrir paleta. Esc / clic fuera también cierra.
+- **Archivos / refs:** `DispatchMap.jsx`, `CatalogTacticalSites.jsx`, `command-center.css`
+
+## 2026-09-21 — Geocerca: mismo ancho de select que otras pestañas
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Consola → Geocerca: el multi-select «Geocercas» queda a 11rem (como Persona/Grupo/Sitios); el panel desplegable ya no fuerza 260px (`preferMin` 220).
+  - «Nueva geocerca» deja de estirarse con flex grow.
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — APK sideload 1.8.176+186
+
+- **Tipo:** ops
+- **Área:** mobile
+- **Qué:**
+  - APK **1.8.176+186** (zumbido 1.8.175 + fix de audio de llamada tras ringback; árbol que ya compilaba, incluida la selección múltiple que estaba en disco) → `pulsanet_soporte\APK\` (+ latest); sin OTA ni emulador.
+  - `Publish-ApkUpdate.ps1`; `API_BASE=https://pulsanet.duckdns.org`. Tamaño 99.8 MB (104 677 518 bytes).
+- **Archivos / refs:** `mobile/pubspec.yaml`, `C:\pulsanet_soporte\APK\TacticalPtx-1.8.176+186.apk`
+
+## 2026-09-20 — Chat 1:1 APK: selección múltiple
+
+- **Tipo:** feature | ux
+- **Área:** mobile
+- **Qué:**
+  - Mantener pulsado un mensaje del chat directo entra en selección (estilo WhatsApp): toques marcan o desmarcan, la fila lleva check y fondo, y la barra sustituye el encabezado (contador, cerrar, borrar, compartir, copiar).
+  - Borrar usa el delete de DM que ya existía: solo los propios; si hay ajenos, se borran los propios y se avisa. Compartir abre la hoja del sistema con texto y archivos que ya están en el teléfono; el resto se omite. Copiar solo si hay texto (incluye pie de foto y «¡Zumbido!»).
+  - Con un solo mensaje, «Más» conserva responder, reaccionar, reenviar, fijar y descargar. El deslizar para responder sigue fuera del modo. Salir con X, atrás o al quedar 0.
+- **Por qué / notas:** No hay endpoint nuevo. No se descarga al compartir. No se compiló APK. El chat de canal no cambia.
+- **Archivos / refs:** `mobile/lib/screens/direct_pane.dart`, `mobile/lib/chat_multi_select.dart`, `mobile/pubspec.yaml` (`share_plus`)
+
+## 2026-09-20 — Llamada: el audio de voz sigue tras el timbre
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Al contestar, el ringback (`ToneGenerator` en `STREAM_VOICE_CALL`) soltaba el modo de comunicación y la voz WebRTC quedaba en silencio. Ahora se para el timbre y se reafirma sesión de voz y auricular/altavoz.
+  - El timbre entrante se corta antes de abrir la sesión de voz (ya no en paralelo).
+  - La radio (reconexión LiveKit / canales extra) ya no pasa a `MODE_NORMAL` mientras hay llamada o video.
+- **Por qué / notas:** El timbre se mantiene. No se compiló APK.
+- **Archivos / refs:** `mobile/lib/screens/private_call_screen.dart`, `mobile/lib/channel_session.dart`, `mobile/android/.../MainActivity.kt`
+
+## 2026-09-20 — APK sideload 1.8.175+185
+
+- **Tipo:** ops
+- **Área:** mobile
+- **Qué:**
+  - APK **1.8.175+185** (zumbido: mensaje sin `Exception:`, shake del chat, vibración de notificación) → `pulsanet_soporte\APK\` (+ latest); sin OTA ni emulador.
+  - `Publish-ApkUpdate.ps1`; `API_BASE=https://pulsanet.duckdns.org`. Tamaño 99.6 MB.
+- **Archivos / refs:** `mobile/pubspec.yaml`, `C:\pulsanet_soporte\APK\TacticalPtx-1.8.175+185.apk`
+
+## 2026-09-20 — Zumbido APK: mensaje, shake y vibración
+
+- **Tipo:** fix | ux
+- **Área:** mobile
+- **Qué:**
+  - El snackbar del rate-limit (10 s) muestra solo el texto humano («Espera 10s para otro zumbido»), sin prefijo `Exception:`.
+  - El chat 1:1 se sacude de lado (~1.45 s, misma curva que `.dm-nudge-shake` en web) al enviar y al recibir un zumbido. En primer plano, si no es ese hilo, se sacuden la pantalla visible y el globo.
+  - La notificación de sistema no se puede animar en el shade (RemoteViews no aplica translate y no hay permiso de dibujar encima). Canal nuevo `tacticalptx_nudge_v5` con vibración alternada y texto «¡Zumbido!».
+- **Archivos / refs:** `mobile/lib/screens/direct_pane.dart`, `mobile/lib/nudge_shake.dart`, `mobile/lib/screens/radio_shell.dart`, `mobile/lib/push_service.dart`
+
+## 2026-09-20 — APK sideload 1.8.174+184
+
+- **Tipo:** ops
+- **Área:** mobile
+- **Qué:**
+  - APK **1.8.174+184** (código mobile pendiente tras 1.8.173) → `pulsanet_soporte\APK\` (+ latest); sin OTA ni emulador.
+  - `Publish-ApkUpdate.ps1`; `API_BASE=https://pulsanet.duckdns.org`; `SERVER_LAN_IP=192.168.1.77`.
+- **Archivos / refs:** `mobile/pubspec.yaml`, `C:\pulsanet_soporte\APK\TacticalPtx-1.8.174+184.apk`
+
+## 2026-09-20 — Consola Ruta: «Máx. 30 días»
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** La etiquetita del calendario de rango (Desde/Hasta) pasa de «Máx. 30 d» a «Máx. 30 días». El tope de 30 días no cambia.
+- **Archivos / refs:** `frontend/src/dispatch/TrackRangePicker.jsx`
+
+## 2026-09-20 — Consola mapa: leyenda sigue el filtro ESTADO
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - La leyenda flotante del mapa (`PresenceMapLegend`) solo muestra los estados marcados en el select ESTADO.
+  - Si se desmarca p. ej. Fuera de línea, esa pastilla desaparece. Los conteos siguen siendo de los pines visibles.
+- **Archivos / refs:** `frontend/src/dispatch/PresenceMapLegend.jsx`, `frontend/src/dispatch/DispatchMap.jsx`
+
+## 2026-09-20 — Consola: altura de toggles ops
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - «Fijar en mapa» (Geocerca) y «Ruta probable» (Ruta) quedan a la misma altura que select, `.cc-tactical-ms-trigger` y `.cc-btn` del panel ops.
+  - Antes `.map-fix-toggle` solo tenía `min-height` (el contenido + padding 0.35rem lo dejaba más alto). Ahora entra en las reglas de `height` / `max-height` con `--map-ops-ctrl-min-h`. El checkbox interior no hereda el alto ni el padding de los inputs de texto.
+- **Por qué / notas:** La fila de Ruta no cambia (sigue compacta a la izquierda). No toca maximizado ni «Ocultar panel».
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css`
+
+## 2026-09-20 — Consola Ruta: una fila (Ruta · Desde · Hasta · check)
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - El panel Ruta volvía a partir controles: label DESDE arriba y debajo Ruta | Hasta | Ruta probable.
+  - Causa: `flex-wrap` en `.map-ops-panel--ruta` y `.map-track-range` + `flex: 0 1 auto` / `min-width: 0` dejaban encoger y wrappear Desde/Hasta.
+  - Desktop: una fila compacta a la izquierda (`nowrap`, `flex: 0 0 auto`, `min-width: min-content`). El check sigue junto a Hasta.
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css`
+
+## 2026-09-20 — Maximizado: tipo de mapa (capas)
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - En maximizado, Natural / Satélite / Claro vuelven a cambiar (mismo listener nativo del page; React no recibe clics tras reparent a `body`).
+  - `data-map-layer` en `.lt-layers`; `onClick` React intacto fuera de maximizado.
+- **Archivos / refs:** `DispatchMap.jsx`
+
+## 2026-09-20 — Maximizado: pestañas, leyendas y panel abajo
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - En maximizado, las pestañas Operadores/Ruta/Geocerca/Sitios vuelven a cambiar (mismo listener nativo que el panel; React no recibe clics tras reparent a `body`).
+  - Leyenda de estatus y tipo de mapa se ven con la barra abierta (chrome del mapa por encima de Leaflet).
+  - «Ocultar panel» / «Mostrar panel» abajo al centro del mapa (solo maximizado).
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Consola Ruta: «Ruta probable» junto a Hasta
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - El check «Ruta probable» ya no queda pegado al extremo derecho del panel Ruta.
+  - Causa: `.map-track-range` con `flex: 1 1 18rem` estiraba Desde/Hasta y empujaba el toggle.
+  - Ahora `flex: 0 1 auto` — controles compactos: Ruta, Desde, Hasta, Ruta probable.
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css`
+
+## 2026-09-20 — Fix: Ocultar barra ops en maximizado
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Consola mapa maximizado: «Ocultar»/«Mostrar» vuelven a funcionar.
+  - Causa: tras reparent a `body`, los `onClick` de React ya no llegan (delegación en `#root`).
+  - Delegación nativa `data-ops-chrome` en el page; toolbar con `hidden` + CSS más fuerte.
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`, `useMapViewportMaximize.js`
+
+## 2026-09-20 — Consola: pulido barra ops (maximizado)
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Barra ops: indentación/a11y (aria-expanded/controls), «Ocultar»/«Mostrar» solo en maximizado.
+  - `map-page--ops-collapsed` solo si maximizado; al restaurar la barra siempre visible (CSS).
+  - Botón «Mostrar» alineado a chrome del mapa (altura/tema verde·obscuro); `cc-shell` en maximizado documentado (reparent a body).
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Consola: barra ops en maximizado + Ocultar
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - Al maximizar el mapa, vuelven a verse Operadores / Ruta / Geocerca / Sitios.
+  - Solo en maximizado: «Ocultar» / «Mostrar» para mapa a pantalla completa (preferencia en localStorage).
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Pin «Ver ruta»: selecciona Ruta + periodo
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - «Ver ruta» en popup del pin: pone ese operador en el select Ruta (1 solo), abre pestaña Ruta.
+  - Si ya había ruta o Desde/Hasta tocados → se mantienen; si no → hoy 00:00 hasta ahora.
+  - Mismo pin otra vez = Quitar ruta.
+- **Archivos / refs:** `DispatchMap.jsx`
+
+## 2026-09-20 — Ruta: clic en mapa ya no borra la selección
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Consola → Ruta: al elegir un operador, la ruta ya no se limpia al hacer clic/pan en el mapa (ni al siguiente poll GPS/presencia).
+  - Causa: un `useEffect` podaba `trackUserIds` contra `visibleLocations` (pines filtrados por Operadores/estado); Ruta lista `gpsPeople` (universo GPS), así que un id válido salía del set filtrado y se borraba.
+  - Se eliminó esa poda; se mantiene la poda contra `gpsPeople`. «Fijar en mapa» y Aceptar/clic fuera del picker intactos.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchMap.jsx`
+
+## 2026-09-20 — Geocerca: paleta de color como Sitios
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Consola → Geocerca: bolitas con clic = elegir color y doble clic = paleta nativa que muta esa bolita (localStorage `tacticalptx_geofence_palette`), paridad Administración → Sitios.
+  - Se quitó la bolita extra «custom»; anillo `is-active` compartido con Sitios.
+- **Archivos / refs:** `DispatchMap.jsx` (ref. `CatalogTacticalSites.jsx`)
+
+## 2026-09-20 — Ruta: check «Ruta probable»
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - En Consola → Ruta, check para mostrar/ocultar ruta probable (huecos GPS) en mapa.
+  - Si está off: no se pide OSRM/estimado y se oculta esa entrada de la leyenda; se guarda preferencia en localStorage.
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Geocerca: bolita de color activa visible
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Anillo `is-active` de swatches de color más visible en Consola (ops).
+  - Color de paleta nativa fuera del set: se muestra bolita extra marcada; comparación hex normalizada.
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Selects: «— Seleccionar —» (antes elegir)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Placeholders de selects (Ruta, Grupo vacío, etc.): «— elegir —» → «— Seleccionar —»; ayudas Ruta y aria Desde/Hasta alineados.
+- **Archivos / refs:** `RouteTrackPicker.jsx`, `DispatchMap.jsx`, `TrackRangePicker.jsx`
+
+## 2026-09-20 — Desde/Hasta calendario más compacto
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Popover calendario/hora de Consola Ruta (Desde/Hasta): menos padding/gaps, celdas ~32px, tipografía y steppers densos en una fila.
+  - Footer Cancelar/Aplicar más bajo (estilo Ruta); Aplicar sigue primary; panel ~268–292px.
+- **Por qué / notas:** el panel tapaba demasiado el mapa (“demasiado grandote”).
+- **Archivos / refs:** `TrackRangePicker.jsx`, `command-center.css` (`.trp-panel`, `.trp-cal__*`, `.trp-time`, `.trp-stepper`, footer)
+
+## 2026-09-20 — Ruta radio: clic fuera confirma como Aceptar
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - `RouteTrackPicker` singleSelect: clic fuera (`mousedown`/`pointerdown`) y cierre exclusivo ms confirman el borrador (`commitDraft: true`), igual que Aceptar.
+  - Cancelar y Esc siguen descartando el borrador.
+- **Por qué / notas:** no se fuerza commit vacío sobre selección previa (`closePanel` solo hace `onChange` si hay `draftId`, como Aceptar disabled sin draft).
+- **Archivos / refs:** `frontend/src/dispatch/RouteTrackPicker.jsx`
+
+## 2026-09-20 — Ruta radio: sin caja cuadrada alrededor del control
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - `RouteTrackPicker` singleSelect: el radio seleccionado ya no muestra borde/outline cuadrado; queda solo el círculo relleno.
+  - Estilos para `input[type='radio']` en `.cc-tactical-ms-option` (tamaño, `border/outline/box-shadow: none`); focus a11y en la fila vía `:has(:focus-visible)`.
+- **Por qué / notas:** `styles.css` aplica `border`+`padding`+`outline` a todo `input`; los checkbox ya tenían override de tamaño, los radio no.
+- **Archivos / refs:** `command-center.css` (`.cc-tactical-ms-option input[type='radio']`)
+
+## 2026-09-20 — PTT mapa: Videollamada misma altura que Alerta
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Botón **Videollamada** del float PTT: misma altura que **Alerta** (`line-height: 1.25`, icono `1.05rem`, padding vertical compensado −1px por el borde).
+- **Archivos / refs:** `command-center.css` (`.lt-ptt-float-menu-video`, `.lt-ptt-float-menu-panic`)
+
+## 2026-09-20 — Ruta footer: Cancelar/Aceptar igualados
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Pie del panel Ruta: Cancelar/Aceptar con mismo `min-width`, outline a intensidad plena (`--cc-danger` / `--cc-accent`).
+  - Hover/focus-visible rellena el fondo con el color del botón y texto contraste (`--cc-panel`); ya no solo opacity.
+  - Aceptar disabled en muted/borde neutro (no “acento apagado”).
+- **Archivos / refs:** `command-center.css` (`.cc-ms-footer`, `.cc-ms-cancel`, `.cc-ms-accept`)
+
+## 2026-09-20 — Cluster click: zoom menos agresivo
+
+- **Tipo:** fix | ux
+- **Área:** web | mobile
+- **Qué:**
+  - Al picar un cluster con miembros cercanos, `fitBounds` ya no acerca de más (pines fuera de frame).
+  - Web: `CLUSTER_FIT_MAX_ZOOM` 16.5, padding 96, soft +1 si el fit casi no cambia (sin forzar +2/`CLUSTER_BREAK`).
+  - Mobile GPS: mismo espíritu (`maxZ` 16.5, padding 96, soft +1).
+- **Por qué / notas:** maxZoom 18 + padding 56 (y bump +2) sobrepasaba el marco de grupos compactos.
+- **Archivos / refs:** `ClusteredLocationLayer.jsx`, `gps_track_screen.dart`
+
+## 2026-09-20 — Operadores: caret select nativo = multi-select
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Select nativo **Por operador / Por grupo**: caret CSS más pequeño (≈ `.cc-tactical-ms-caret` ▾) y `appearance: none` reforzado.
+  - `background` → `background-color` en selects/inputs del toolbar para no borrar el caret custom.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-20 — PTT mapa: Videollamada blanco fijo (como Radio)
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Botón **Videollamada** del float PTT: deja tokens del menú (`--surface-raised` / `--ink`) que en Obscuro se fundían con el navy; ahora mismos colores fijos que Radio `.radio-video-call-btn` (`#f4f6f2` / `#1f2a1c` / borde `rgba(0,0,0,.18)`).
+  - Solo ese botón; Posición inicial, círculo PTT y resto sin cambio.
+- **Archivos / refs:** `command-center.css` (`.lt-ptt-float-menu-video`)
+
+## 2026-09-20 — Fix Consola: lista/KPI geocercas vacíos
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Causa: tras el split `allLoc`/`pinLoc`, el poll seguía leyendo `loc.presence*` → `ReferenceError` antes de `setGeofences` (lista y KPI en 0 pese a datos en BD).
+  - Poll pasa a `Promise.allSettled`; geocercas solo se actualizan si el GET OK (error de GPS/overview no vacía ni bloquea la lista).
+- **Archivos / refs:** `frontend/src/dispatch/DispatchMap.jsx`
+
+## 2026-09-20 — PTT mapa: Videollamada outline (como Radio)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Botón **Videollamada** del menú flotante PTT (pestaña Video): de fill primary (`--accent` / azul en Obscuro) a outline/secondary blanco-raised, como Radio `.radio-video-call-btn`.
+  - Tokens del menú (`--surface-raised`, `--ink`, `--border`) para claro / verde / obscuro.
+- **Archivos / refs:** `command-center.css` (`.lt-ptt-float-menu-video`)
+
+## 2026-09-20 — Ruta probable: OSRM multi-base + sin cuerdas verdes
+
+- **Tipo:** fix | mejora
+- **Área:** web | backend
+- **Qué:**
+  - Huecos de señal: además de `gapBefore` del servidor, el mapa corta saltos espaciales ≥700 m sin marca (cuerdas verdes post-RDP).
+  - Routing: varias bases OSRM (`ROUTING_OSRM_URL` → fallbacks → demos); si ninguna responde, corredor estimado multi-punto (Bezier + rumbo) en naranja **punteado** — nunca la recta A→B de 2 vértices.
+  - Umbrales: post-simplificar 700 m; salto espacial backend 1000 m.
+- **Por qué / notas:** el operador pedía la mejor ruta probable al perder señal, no líneas rectas sin sentido. Preferir OSRM propio en LAN (`ROUTING_OSRM_URL`).
+- **Archivos / refs:** `routeHint.js`, `trackHistory.js`, `trackHighlighter.js`, `HighlighterTrack.jsx`, `useGapRoutes.js`, `locations.js`, `api.js`, `.env.example`
+
+## 2026-09-20 — Ruta select: Cancelar rojo + descartar + sin persistir operador
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Footer **Cancelar** con estilo danger suave (`--cc-danger`, outline); **Aceptar** sigue accent.
+  - Cancelar / Esc / clic fuera / panel exclusivo: descartan borrador y mantienen la selección comprometida al abrir (vacío → «— elegir —»).
+  - `trackUserIds` (Ruta) ya no se restaura desde `OPS_MAP_FILTERS_KEY` al cargar el mapa; cada visita arranca sin operador.
+- **Archivos / refs:** `RouteTrackPicker.jsx`, `command-center.css`, `DispatchMap.jsx`
+
+## 2026-09-20 — Dock radio: multi-Hablar, sin enlace a Config
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Chip del dock (fuera de Radio): muestra canales de **Hablar** (`talkIds`), no solo el grupo primario; Oír X/Y aparte.
+  - Ya no es enlace a Configuración; solo estado (sin hover de atajo). Tooltip con lista completa + “cámbialos en Radio”.
+- **Archivos / refs:** `DispatchLayout.jsx`, `command-center.css`
+
+## 2026-09-20 — Ruta: Aceptar/Cancelar en footer
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Panel Ruta (`singleSelect`): **Aceptar** sale de la fila Ascendente; pie sticky con **Cancelar** (izquierda, descarta borrador) y **Aceptar** (derecha, confirma).
+  - Clic fuera / panel exclusivo siguen confirmando borrador; Esc = Cancelar.
+  - `fitMsPanelHeight` resta altura del footer para que resize/lista no se rompan.
+- **Archivos / refs:** `RouteTrackPicker.jsx`, `command-center.css` (`.cc-ms-footer`), `fitMsPanelHeight.js`
+
+## 2026-09-20 — Operadores: quitar modo «Todos»
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Consola Operadores: el select solo ofrece **Por operador** y **Por grupo** (se elimina «Todos»).
+  - Persistencia: `operatorFilterMode === 'all'` (o inválido) migra a `operator` y re-siembra Persona = todos (paridad UX con el antiguo Todos).
+  - Pines: no-grupo = foto individual; Por grupo = foto de grupo (sin ramas `all`).
+- **Archivos / refs:** `DispatchMap.jsx`, `useMapAvatarPhotos.js`, `mapAvatarIcon.js`, `command-center.css`
+
+## 2026-09-20 — Ruta: Aceptar compacto en cabecera PV
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Panel Ruta (`singleSelect`): **Aceptar** pasa a la fila de acciones (derecha, junto a Ascendente); estilo quieto borde/texto `--cc-accent` (no bloque azul a ancho completo).
+  - Se elimina la fila gruesa entre búsqueda y lista.
+- **Archivos / refs:** `RouteTrackPicker.jsx`, `command-center.css` (`.cc-ms-accept`)
+
+## 2026-09-20 — Persona select: ellipsis + caret visible (ops)
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Consola Operadores → Persona (y demás `cc-tactical-ms` de la fila ops): el nombre largo ya no tapa/corta el ▾; ellipsis + caret fijo.
+  - Con 1 persona seleccionada: mismo compact Grado+Cargo + tooltip completo que Ruta.
+- **Por qué / notas:** el trigger (grid item) crecía al ancho del texto; el campo de 11rem con `overflow:hidden` recortaba el caret («mocho»).
+- **Archivos / refs:** `command-center.css`, `RouteTrackPicker.jsx`
+
+## 2026-09-20 — Por grupo: foto de grupo en pines del mapa
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Restaurado: con Operadores = **Por grupo**, cada pin muestra la foto del grupo (fallback a la del usuario si el grupo no tiene avatar).
+  - Todos / Por operador siguen con foto individual. Etiquetas cargo/nombre sin cambio; un pin por persona.
+- **Por qué / notas:** `pickMapMarkerPhotoSrc` había dejado de usar `groupPhotoSrc` (regresión frente al acuerdo de producto).
+- **Archivos / refs:** `mapAvatarIcon.js`, `useMapAvatarPhotos.js`
+
+## 2026-09-20 — Multi-select: fila/checkbox estilo PV (sin azul saturado)
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Paneles `cc-ms-panel` / `.cc-tactical-ms-option.is-on`: deja el relleno azul `#1e3a8a` (Obscuro) y hex fijos; selección con `color-mix` de `--cc-accent` sobre `--cc-panel` / `--cc-panel-2` (tint sutil tipo Vehículos PV).
+  - Checkbox `accent-color: var(--cc-accent)`; tokens locales en el panel (portal fuera de `.cc-shell`).
+- **Por qué / notas:** `C:\ParqueVehicular` no está en esta PC; se portó el feel institucional (fondo suave + acento de marca) a Claro/Verde/Obscuro vía tokens.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-20 — En grupo: Marcar/Desmarcar + sin bolitas de color
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - «En grupo»: ids explícitos (1.ª vez todos; vacío = ninguno); Marcar/Desmarcar ya no chocan con emptyMeansAll.
+  - Bolitas `.cc-tactical-dot` solo si `showColorDots` (Persona/En grupo no las muestran).
+- **Archivos / refs:** `RouteTrackPicker.jsx`, `DispatchMap.jsx`
+
+## 2026-09-20 — Ruta panel: resize 2D + tooltip + sin bolita radio
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Paneles PV multi-select (`cc-ms-panel`): `resize: both` (ancho + alto); max-width cerca del viewport.
+  - Nombres truncados en Ruta: `title` con texto completo al hover.
+  - Ruta radio (`singleSelect`): sin bolita de color de ruta junto al nombre.
+- **Archivos / refs:** `RouteTrackPicker.jsx`, `command-center.css`, `fitMsPanelHeight.js`
+
+## 2026-09-20 — Ruta select: Grado+Cargo si no cabe + tooltip completo
+
+- **Tipo:** ux | fix
+- **Área:** web | backend
+- **Qué:**
+  - Trigger Ruta: si el indicativo completo no cabe, muestra Grado + Cargo; hover con tooltip del nombre completo.
+  - Ancho fijo del select Ruta (15rem) sin solapar Desde/Hasta; API locations incluye `grade`.
+- **Archivos / refs:** `RouteTrackPicker.jsx`, `mapLabelUtils.js`, `command-center.css`, `locations.js`, `liveTiming.js`
+
+## 2026-09-20 — Operadores: selección Persona/Grupo persistente (1.ª vez todos)
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Por operador y Por grupo guardan su selección por separado (no se borra al cambiar de modo ni al cerrar el panel).
+  - Primera vez: todos los checks marcados; después se respeta lo que eligió el usuario en ese navegador.
+- **Archivos / refs:** `DispatchMap.jsx`
+
+## 2026-09-20 — Ruta: Aceptar + sin solape con Desde/Hasta
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Select Ruta (radio): botón Aceptar; al clic fuera confirma el borrador si había uno.
+  - Ancho fijo del select Ruta (ellipsis) para no tapar Desde/Hasta (`map-ops-panel--ruta`).
+- **Archivos / refs:** `RouteTrackPicker.jsx`, `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Operadores Por operador/grupo + Ruta 30 días
+
+- **Tipo:** feature | ux
+- **Área:** web | backend
+- **Qué:**
+  - Operadores: Todos | Por operador | Por grupo; tooltip GPS; Por grupo con subfiltro de personas (vacío = todos del grupo).
+  - Ruta independiente (radio 1 operador, solo con GPS); historial span 30 d / lookback 31 d (front + API + trackHistory).
+- **Archivos / refs:** `DispatchMap.jsx`, `RouteTrackPicker.jsx`, `trackRange.js`, `TrackRangePicker.jsx`, `locations.js`, `trackHistory.js`
+
+## 2026-09-20 — Operadores: mismo ancho select que Sitios
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Select Todos/Por grupo (`map-field--ops-primary`) alineado a 11rem como el multi de Sitios.
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Consola: reordenar KPI (Al aire / Canales / GPS / …)
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - KPI de operaciones arrastrables (mismo pointer DnD que pestañas Sitios/Operadores/Ruta/Geocerca).
+  - Orden en `localStorage` (`tacticalptx_ops_kpi_order`); cursor manita abierta al arrastrar.
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — APK 1.8.173: volumen llamadas solo PTT/llamada (+ salir Radio)
+
+- **Tipo:** fix | release
+- **Área:** mobile
+- **Qué:**
+  - Volumen «llamadas» (`MODE_IN_COMMUNICATION`) solo con PTT/llamada/video; al salir de pestaña Radio, minimizar o cerrar → multimedia (`MODE_NORMAL`).
+  - FGS: si LiveKit deja VoIP, reafirma perfil media; APK **1.8.173+183** → `pulsanet_soporte\APK\` (sin OTA/emulador).
+- **Archivos / refs:** `radio_shell.dart`, `audio_session_setup.dart`, `channel_session.dart`, `pubspec.yaml`
+
+## 2026-09-20 — Sitios: despliegue homologado a Ruta
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Desplegable de capas Sitios con misma UI que Ruta/Grupo: Ascendente·Marcar, contador, buscar, lista scroll y resize.
+  - Panel Sitios en fila (`map-ops-panel--row`) como el resto de ops.
+- **Archivos / refs:** `useTacticalSites.jsx`, `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Ops: manita abierta al arrastrar pestañas + refuerzo altura Operadores
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Cursor de reorder (ops / catálogo chips / canales dual / inbox): `grab` (manita abierta), no `grabbing` (puño).
+  - Operadores: regla de altura tras `.cc-tactical-ms-trigger` base para que el select/multi no vuelva a 2.45rem.
+- **Archivos / refs:** `command-center.css`, `styles.css`
+
+## 2026-09-20 — Fix: Operadores altura + arrastre pestañas ops
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Operadores: `height`/`appearance` en select nativo y triggers (min-height solo no encogía el `<select>` vs `.trp-trigger`).
+  - Pestañas Sitios/Operadores/Ruta/Geocerca: se cableó el pointer DnD que ya tenía helpers (`OPS_TAB_ORDER_*`) pero no handlers/`data-ops-tab-id`.
+- **Por qué / notas:** Tras unificar alturas ops, Operadores seguía alto; el reorder de pestañas ops nunca quedó conectado al JSX.
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Ops mapa: misma altura controles que Desde/Hasta
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Tokens --map-ops-ctrl-* tomados de .trp-trigger (pad 0.32/0.45, fs 0.78, lh 1.25 → min-h calc ~1.74rem).
+  - Selects, multi-select triggers, .map-action, inputs/botones del panel ops (Sitios/Operadores/Ruta/Geocerca) alineados a esa altura.
+- **Por qué / notas:** La fila ops quedaba más alta que los calendarios nuevos; no se tocan paneles desplegables.
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css`
+
+## 2026-09-20 — GPS móvil: iconos de sitios tácticos
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Sitios en Seguimiento GPS dejan de pintar siempre la banderita blanca.
+  - Usan `groupIconUrl` del API con descarga Bearer (misma auth que web `iconBlobs`); fallback = círculo del color de agrupación.
+- **Por qué / notas:** El marcador nunca leía el icono de grupo; hacía falta APK nueva para verlo en dispositivo.
+- **Archivos / refs:** `mobile/lib/screens/gps_track_screen.dart`
+
+
+## 2026-09-20 — Radio APK: menos lag al pulsar (rescate audio)
+
+- **Tipo:** fix | performance
+- **Área:** mobile
+- **Qué:**
+  - El rescate `MODE_IN_COMMUNICATION` rearmaba LiveKit en cada FGS (~12 s), lifecycle duplicado y 4 reintentos → UI de Radio casi no respondía.
+  - Ahora: si ya es `normal`, no hace nada; FGS solo `lightEnsureNormal`; debounce 4 s; reintentos solo si sigue en comunicación; coalescing de `setState` del canal por frame.
+- **Archivos / refs:** `audio_session_setup.dart`, `background_radio.dart`, `radio_shell.dart`
+
+## 2026-09-20 — Ruta: calendario propio Desde/Hasta (sin chips h)
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Quitados atajos 8/24/48/120 h y el `datetime-local` nativo.
+  - Disparadores compactos + popover con mes (‹ ›), días a clic y hora/min con −/+ (paso 5 min); Aplicar / Cancelar / Hasta ahora.
+  - Misma ventana: máx. 120 h, sin futuro, lookback 130 h; temas light/verde/obscuro.
+- **Archivos / refs:** `TrackRangePicker.jsx`, `trackRange.js`, `DispatchMap.jsx`, `command-center.css`
+
+## 2026-09-20 — APK: volumen «llamadas» en segundo plano
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - LiveKit pasa a `AudioSessionManagementMode.manual` + perfil media; reintentos `MODE_NORMAL` al minimizar/FGS (~12 s).
+  - Nativo: suelta `MODE_IN_COMMUNICATION` (no toca telefonía `MODE_IN_CALL`).
+  - APK **1.8.172+182** → `pulsanet_soporte\APK\`.
+- **Por qué / notas:** Con app en segundo plano/cerrada sin forzar, Android seguía mostrando volumen de llamadas.
+- **Archivos / refs:** `audio_session_setup.dart`, `radio_shell.dart`, `background_radio.dart`, `MainActivity.kt`
+
+## 2026-09-20 — Ruta: periodo 120 h con calendario Desde/Hasta
+
+- **Tipo:** feature | ux
+- **Área:** web | backend
+- **Qué:**
+  - Consola → Ruta: atajos 8/24/48/120 h + campos **Desde / Hasta** (`datetime-local`).
+  - Ventana máxima **120 h**; no futuro; no más atrás de **130 h**.
+  - API `GET .../track` acepta `from`+`to` (ISO); `hours` sigue válido (tope 130).
+  - N usuarios: mismo multi-select de Ruta; historial por rango acotado.
+- **Por qué / notas:** Sustituye el combo Horas (máx. 48) por búsqueda por periodo operativo (~5 días).
+- **Archivos / refs:** `trackRange.js`, `DispatchMap.jsx`, `command-center.css`, `api.js`, `locations.js`, `trackHistory.js`
+
+## 2026-09-20 — MapPttFloat: Videollamada usa acento del tema
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Botón Videollamada del float PTT deja el azul fijo `#1a4d7c` y usa `var(--accent)` del menú (light / verde / obscuro).
+  - Alarma/pánico sigue en rojo; obscuro conserva azul vía su `--accent`.
+- **Por qué / notas:** En verde/claro el azul chocaba con checkmarks y pestaña Video.
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css` (`.lt-ptt-float-menu-video`)
+
+## 2026-09-20 — Mapa: Maximizar = Fullscreen API (F11)
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Maximizar llama `element.requestFullscreen()` sobre la página del mapa (tras reparent a `body`); oculta chrome del navegador y barra de tareas de Windows.
+  - Restaurar / Esc: `document.exitFullscreen()` + restore del home; `fullscreenchange` sincroniza estado si el usuario sale por Esc del navegador.
+  - Freeze Leaflet mitigado con `invalidateSize` / `resize` escalonado (50–450 ms) en Consola y Seguimiento.
+- **Por qué / notas:** El reparent solo llenaba el viewport del browser (label «Restaurar» OK, pero tabs Edge + taskbar seguían visibles).
+- **Archivos / refs:** `useMapViewportMaximize.js`, `DispatchMap.jsx`, `LiveTrackMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Mapa: maximizar full-bleed vía body reparent
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Maximizar en Consola/Seguimiento reparenta el nodo del mapa a `document.body` (sin remount Leaflet) y marca `html.map-viewport-max`.
+  - CSS full-bleed `100dvw/100dvh` + z-index alto; oculta rail/topbar/strip; Restaurar/Esc restaura el home en el outlet.
+- **Por qué / notas:** El fix solo-CSS (`:has` + overflow:visible) no bastaba: el fixed seguía acotado al outlet (label «Restaurar» sin cubrir pantalla completa). Sin `requestFullscreen` (congela el mapa ~1–2s).
+- **Archivos / refs:** `useMapViewportMaximize.js`, `DispatchMap.jsx`, `LiveTrackMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Geocerca: radio con separador de miles
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Radio de geocerca en lista, popups y catálogo: `40,000 m` (`toLocaleString('es-MX')`).
+  - Input RADIO (m) del formulario muestra miles; al guardar se parsean digitos sin comas.
+- **Archivos / refs:** `DispatchMap.jsx` (`formatRadiusM` / `parseRadiusM`), `GeofenceCatalog.jsx`, `CommandCenter.jsx`
+
+## 2026-09-20 — Mapa: maximizar vuelve a cubrir el viewport
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Maximizar en Consola/Seguimiento ya no queda atrapado en el outlet: se suelta el `overflow:hidden` de los ancestros del shell mientras hay `.map-page--maximized` / `.lt-page--maximized`.
+  - En maximizado se ocultan pestañas ops (Sitios/Operadores/Ruta/Geocerca) y toolbar; el mapa llena el viewport (Restaurar / Esc recupera el chrome).
+- **Por qué / notas:** El estado sí pasaba a maximizado (label «Restaurar») pero `position:fixed` era recortado por el shell; además el CSS no ocultaba el chrome ops.
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css`
+
+## 2026-09-20 — Radio: arrastre de canales más fácil (estilo nav PV)
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Reordenar canales en ESCUCHAR/HABLAR/VIDEO/ALERTA con **pointer DnD solo en el asa** (umbral 8px), como pestañas catálogo / navegación ParqueVehicular.
+  - Asa `⋮⋮` más grande (`touch-action: none`); la fila ya no es `draggable` HTML5 → no pelea con radio/checkbox.
+- **Por qué / notas:** `C:\ParqueVehicular` no está en esta PC; se portó el patrón ya en-repo (`ReorderableCatalogTabs` + asa tipo `cc-mod-drag-handle`).
+- **Archivos / refs:** `ChannelMultiSelect.jsx`, `styles.css` (`.channel-dual-drag`, `html.channel-dual-dragging`)
+
+## 2026-09-20 — Cámara oculta: sin aviso «Cámara de despacho activa»
+
+- **Tipo:** fix | ux | security
+- **Área:** mobile
+- **Qué:**
+  - Con **Ver cámara** headless (`RemoteCameraSession` / cámara oculta) el FGS ya no muestra «Cámara de despacho activa» ni «Transmitiendo cámara…».
+  - Usa el texto genérico «SICOM activo · radio y ubicación» (misma notificación de radio en segundo plano).
+  - Llamada/videollamada con UI (`setPrivateCallActive`) sigue con «Llamada en curso».
+- **Por qué / notas:** Android exige notificación de FGS + tipo `camera` para no cortar el feed; el texto no debe delatar la transmisión. Indicador verde de cámara del SO (si aparece) es del sistema, no de SICOM.
+- **Archivos / refs:** `mobile/lib/background_radio.dart`
+## 2026-09-20 — Fix APK: Pulsación Corta se comportaba como Larga
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - En hold (Corta), `releasePtt` ya cancela si el dedo se soltó antes de `ptt:granted` (antes el mic quedaba al aire = latch).
+  - PTT Corta usa `Listener` (pointer) en lugar de `onTapDown/Up`; el load de prefs no pisa una elección Corta ya hecha.
+- **Por qué / notas:** Race press→tone/acquire→grant vs finger-up; web ya cancelaba pending vía `floorWait`.
+- **Archivos / refs:** `channel_session.dart`, `radio_screen.dart` (_PttPad / _PttZone)
+## 2026-09-20 — Geocerca: diálogo de eliminación más profesional
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Confirmación de borrado de geocerca (mapa y catálogo) con mensaje institucional y nombre de la zona.
+- **Por qué / notas:** Sustituye «¿Eliminar esta geocerca?» por tono alineado a otros AppDialogs de despacho.
+- **Archivos / refs:** `DispatchMap.jsx`, `GeofenceCatalog.jsx`
+
+## 2026-09-20 — Mapa: chip Estados colapsado sin doble capa
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - El control colapsado «Estados ‹» del mapa ya no muestra bisel/offset claro (botón sobre botón).
+  - Al colapsar, el shell externo pierde fondo/borde/sombra; el estilo de chip único queda en el toggle (paridad con Maximizar / leyenda de presencia; temas light/verde/obscuro).
+- **Por qué / notas:** Colapsado heredaba panel + borde + box-shadow del contenedor y un segundo background en `.lt-state-legend__toggle` (radios distintos 6px/5px).
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css` (`.lt-state-legend--collapsed`)
+
+## 2026-09-20 — Geocercas: color seleccionable (como sitios)
+
+- **Tipo:** feature | ux
+- **Área:** backend | web | database
+- **Qué:**
+  - Columna `geofences.color` (hex, default `#243d20` oliva de Consola).
+  - API POST/PATCH/GET aceptan y devuelven `color` (validación hex segura).
+  - Formulario alta/edición en Consola: swatches `.cc-tactical-colors` (misma UX que sitios tácticos; doble clic abre paleta nativa).
+  - Círculos Leaflet usan `geofence.color`; punto de color en multi-select y catálogo.
+- **Por qué / notas:** Paridad con color de agrupaciones de sitios. Migración: `database/migrations/034_geofence_color.sql` (vía `node backend/src/scripts/apply-all-migrations.js`).
+- **Archivos / refs:** `034_geofence_color.sql`, `schema.sql`, `geofences.js`, `DispatchMap.jsx`, `CommandCenter.jsx`, `GeofenceCatalog.jsx`, `command-center.css`
+
+## 2026-09-20 — Geocerca «Fijar en mapa»: cursor pointer + move
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Con el check **Fijar en mapa** (`.map-frame.pick-mode`), el mapa ya no muestra flecha `default`: idle = `pointer` (manita), pan/drag = `move` (4 flechas).
+  - Overrides CSS que ganan a `.tp-map-cursor { cursor: default !important }`; el frame deja de usar `crosshair`.
+- **Por qué / notas:** `MapCursorFix` fuerza flecha en reposo; pick-mode solo ponía crosshair en el frame y perdía frente a `!important` en tiles/panes.
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css`, `frontend/src/dispatch.css`
+
+## 2026-09-20 — PTT float: radios en modo Individual
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Menú PTT flotante (mapa): en **Individual** los canales usan `type="radio"` (mismo `name` por panel); en **Múltiple** siguen checkboxes.
+  - Paridad visual con Radio (`ChannelMultiSelect`), que ya tenía radios en Individual.
+- **Por qué / notas:** En Individual los checks cuadrados sugerían multi-selección aunque la lógica ya era single-select.
+- **Archivos / refs:** `frontend/src/dispatch/MapPttFloat.jsx`
+
+## 2026-09-20 — Geocercas: × eliminar un poco más grande y rojo
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - En el multi-select de geocercas, el botón × (`.cc-geofence-ms-row .cc-cat-rm`) pasa a ~13px, hit-area 1.5rem y color `var(--cc-danger)` (hover un poco más claro).
+- **Por qué / notas:** La × se veía chica y gris frente a ✎; solo se tocó la X, no el lápiz.
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css`
+
+## 2026-09-20 — PTT mapa: icono warning animado en Alerta
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Botón **Enviar alarma** del menú PTT flotante (pestaña Alerta) reutiliza el mismo icono ⚠ + ondas (`.panic-ico` / `panic-wave-out`) que Radio «Enviar alerta».
+  - Tamaño compacto en float; ondas pausadas si el botón está deshabilitado.
+- **Por qué / notas:** Paridad visual con Radio; no inventar animación nueva.
+- **Archivos / refs:** `MapPttFloat.jsx`, `command-center.css` (icono base en `styles.css`)
+
+## 2026-09-20 — PTT float: select Individual/Múltiple por tema
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - El `<select>` Individual/Múltiple del menú PTT flotante ya no se pinta como pastilla negra nativa: sigue light / verde / obscuro.
+  - Tokens del float (`--surface`, `--border`, `--ink`, `--accent`, `color-scheme`) + overrides verde/obscuro; estilo compacto alineado a Radio (`.channel-col-mode`).
+- **Por qué / notas:** El panel estaba hardcodeado claro y, con `color-scheme: dark` global (verde/obscuro), el select nativo salía negro sobre beige.
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css` (`.lt-ptt-float-menu`, `.lt-ptt-float-menu-mode`)
+
+## 2026-09-20 — PTT mapa: Individual/Múltiple en float
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - Menú del PTT flotante (mapa maximizado): selector compacto **Individual | Múltiple** junto al título Escuchar/Hablar/Video/Alerta.
+  - Misma preferencia y stash que Radio (`tacticalptx_*_mode` + stash localStorage vía `DispatchLayout`).
+- **Por qué / notas:** Paridad con Radio sin inflar el popup.
+- **Archivos / refs:** `MapPttFloat.jsx`, `DispatchMap.jsx`, `LiveTrackMap.jsx`, `command-center.css`
+
+## 2026-09-20 — Radio: «Audio activado» usable solo con Escuchar
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - El mute de salida («Audio activado/desactivado») ya no exige canal en **Hablar** (`group`); se habilita si hay selección en Escuchar o Hablar.
+  - Misma corrección en el dock de despacho (Altavoz/MUTE).
+- **Por qué / notas:** Con HABLAR=0 y ESCUCHAR≥1 el botón quedaba `disabled` (gris) pese a OIR activo — bug, no diseño.
+- **Archivos / refs:** `RadioPage.jsx`, `DispatchLayout.jsx`
+
+## 2026-09-20 — Geocercas: editar + estilo ops/temas
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - Edición de geocerca en Consola (mismo formulario que alta; PATCH vía `updateGeofence`).
+  - Acciones compactas ✎/× en el multi-select, alineadas a catálogos y tokens de tema (light/verde/obscuro).
+- **Por qué / notas:** Completa UX pendiente (solo había eliminar).
+- **Archivos / refs:** `DispatchMap.jsx`, `command-center.css`, `api.js` (ya tenía update)
+
+## 2026-09-20 — PTT mapa: botón Videollamada en float
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - En el menú del PTT flotante (mapa maximizado), pestaña **Video**: botón **Videollamada** (mismo patrón que «Enviar alarma» en Alerta).
+  - Usa los canales marcados en Video (`videoIds`) y dispara `tacticalptx:open-group-video` como RadioPage.
+  - Deshabilitado si no hay canales de video seleccionados.
+- **Por qué / notas:** Ctrl+F5 → mapa maximizado → click derecho PTT → Video → marcar canal(es) → Videollamada.
+- **Archivos / refs:** `frontend/src/dispatch/MapPttFloat.jsx`, `command-center.css`
+
+## 2026-09-20 — APK 1.8.171+181 (PTT + composer)
+
+- **Tipo:** release
+- **Área:** mobile
+- **Qué:**
+  - APK **1.8.171+181** con PTT Pulsación Corta/Larga, tonos Walkie Talkie press/release, composer +/🙂/🫨; sin OTA.
+  - `SERVER_LAN_IP=192.168.1.77`; artefactos en `pulsanet_soporte\APK\TacticalPtx-1.8.171+181.apk` (+ latest).
+- **Archivos / refs:** `mobile/pubspec.yaml`, `Publish-ApkUpdate.ps1`
+
+## 2026-09-20 — Obscuro: círculo del logo al mismo tamaño que Verde
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Tras normalizar el banner Obscuro a 971×390, el **círculo** (anillo azul/plata) seguía viéndose más chico que el de Verde por padding interno en el PNG.
+  - Escala del glifo en `tactical_login_obscuro.png` (~+4%) para igualar altura/padding del círculo de `sicom.png`.
+  - Mismo ajuste en `tactical_favicon_obscuro.png` vs `sicom_round.png` (~+8.5% diametro).
+  - Cache-bust login `?v=3`, favicon `?v=2`.
+- **Por qué / notas:** Ctrl+F5 en login (Verde ↔ Obscuro) y revisar favicon/badge redondo. Respaldo pre-escala: `pulsanet_soporte\Respaldos\brand_obscuro_circle_scale_20260920\`.
+- **Archivos / refs:** `public/brand/tactical_login_obscuro.png`, `public/brand/tactical_favicon_obscuro.png`, `App.jsx`, `theme.jsx`, `appNotify.js`
+
+## 2026-09-20 — APK chat: zumbido y emojis visibles como en web
+
+- **Tipo:** fix | ux
+- **Área:** mobile
+- **Qué:**
+  - Composer usaba `sticky_note` + `Icons.vibration` (poco reconocibles vs web `+` / `🙂` / `🫨`); en pantallas estrechas se percibían "ausentes".
+  - Barra alineada a web: **+** (adjuntar), **🫨** zumbido (solo DM), **🙂**/⌨️ emojis, campo Mensaje, cámara; botones compactos sin clip.
+- **Por qué / notas:** Lógica ya existía (`onNudge` en DirectPane, panel `ChatEmojiPanel`). Ver en hilo DM / chat de grupo (sin zumbido en grupo, igual que web).
+- **Archivos / refs:** `mobile/lib/widgets/chat_composer.dart`
+
+## 2026-09-20 — Chat web: punto de presencia en avatares (paridad APK)
+
+- **Tipo:** ux | feature
+- **Área:** web
+- **Qué:**
+  - Lista Contactos/DM y cabecera del chat 1:1 muestran el círculo de presencia (verde/amarillo/gris/rojo) como en la APK.
+  - Datos: `presence` de `/api/dm/contacts` + refuerzo live desde `presence:update` / `onlineByGroup`.
+  - Grupos: sin punto (igual que APK; solo texto «N en línea»).
+- **Por qué / notas:** Verificar con Ctrl+F5 en Chats → Contactos y abriendo un DM.
+- **Archivos / refs:** `PersonAvatar.jsx`, `ChatInbox.jsx`, `DirectChat.jsx`, `presenceStatus.js`, `inboxTabOrder.js`, `styles.css`
+
+## 2026-09-20 — Login: mismo tamaño de marca al cambiar tema
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Obscuro usaba `tactical_login_obscuro.png` (1672×941 con mucho padding) vs Verde/Claro `sicom.png` (971×390 recortado) → el logo se veía un poco más chico al cambiar de tema.
+  - Recorte + normalización del PNG Obscuro a **971×390** (misma caja que `sicom.png`); CSS con `aspect-ratio: 971/390` + `object-fit: contain`.
+  - Cache-bust `?v=2`. Respaldo en `pulsanet_soporte\Respaldos\brand_login_obscuro_crop_20260920\`.
+- **Por qué / notas:** Verificar en login / cambiar clave: Ctrl+F5 y alternar Verde ↔ Obscuro.
+- **Archivos / refs:** `public/brand/tactical_login_obscuro.png`, `App.jsx`, `institutional.css`, `styles.css`
+
+## 2026-09-20 — Tonos PTT Walkie Talkie (producción)
+
+- **Tipo:** ux | mejora
+- **Área:** mobile | web
+- **Qué:**
+  - Sustituidos `ptt_press.wav` / `ptt_release.wav` (mobile assets + frontend public) por extractos Walkie Talkie (FROM_MP3_*).
+  - Respaldo de WAV anteriores en `pulsanet_soporte\Respaldos\ptt_sounds_20260920_145944\` (+ RESTAURAR.txt).
+  - Preview `_ptt_sound_preview` intacto; sin copias en android `res/raw`.
+- **Por qué / notas:** Confirmado por usuario. Web: Ctrl+F5. Teléfono: requiere APK nueva.
+- **Archivos / refs:** mobile/assets/sounds/ptt_*.wav; frontend/public/sounds/ptt_*.wav
+
+## 2026-09-20 — Preview tonos PTT desde Walkie Talkie.mp3
+
+- **Tipo:** otro
+- **Área:** docs | ops
+- **Qué:**
+  - Extracción preview press/release desde Desktop\Walkie Talkie.mp3 (sin tocar assets app).
+  - Comparador HTML en pulsanet_soporte\APK\_ptt_sound_preview\.
+- **Archivos / refs:** infra/_extract_ptt_from_mp3.py; FROM_MP3_*.wav; comparar.html
+
+## 2026-09-20 — PTT: etiqueta Pulsación · Corta/Larga + colores por tema
+
+- **Tipo:** ux
+- **Área:** mobile | web
+- **Qué:**
+  - Etiqueta «Pulsación»; botones «Corta» / «Larga».
+  - Web: activo usa --accent (en obscuro azul, no verde fijo).
+- **Archivos / refs:** 
+adio_screen.dart, PttModeSegment.jsx, styles.css, pttHoldMode.js
+
+## 2026-09-20 — APK 1.8.169+179 (PTT Mantén/Toque)
+
+- **Tipo:** release
+- **Área:** mobile
+- **Qué:**
+  - APK con selector PTT Mantén / Toque; sin OTA.
+  - Artefacto: pulsanet_soporte\APK\TacticalPtx-1.8.169+179.apk (+ latest).
+- **Archivos / refs:** pubspec.yaml 1.8.169+179
+
+## 2026-09-20 — PTT: modos Mantén / Toque (preferencia usuario)
+
+- **Tipo:** feature | ux
+- **Área:** mobile | web
+- **Qué:**
+  - Selector **Mantén** (sostener) / **Toque** (alternar) en radio app y web; ya no solo por rol.
+  - Preferencia persistente (SharedPreferences / localStorage). Al pasar a Mantén con mic abierto, suelta solo.
+- **Por qué / notas:** Respaldo en pulsanet_soporte\Respaldos\ptt_modo_20260920_141721 (+ RESTAURAR.txt).
+- **Archivos / refs:** ptt_interaction_mode.dart, 
+adio_screen.dart, pttHoldMode.js, PttModeSegment.jsx, usePtt.js, RadioPage.jsx, DispatchLayout.jsx
+
+## 2026-09-20 — Fix: clic en cluster encuadra a todos los miembros
+
+- **Tipo:** fix
+- **Área:** web | mobile
+- **Qué:**
+  - Al picar un cluster ya no solo acerca al centroide (mapa vacío entre operadores).
+  - Usa fitBounds / fitCamera de los miembros; si no hay progreso, +2 hacia el centro.
+- **Archivos / refs:** ClusteredLocationLayer.jsx, gps_track_screen.dart
+
+## 2026-09-20 — Cluster pastel: cuñas al centro geométrico
+
+- **Tipo:** ux | fix
+- **Área:** web | mobile
+- **Qué:**
+  - El pastel llena todo el círculo; el borde blanco va encima (no encoge el conic/drawArc).
+  - Evita que la punta de una cuña fina se vea desplazada del centro.
+- **Archivos / refs:** clusterMapPoints.js, command-center.css, gps_cluster_pin.dart
+
+## 2026-09-20 — Clusters: cifras solo por color (sin total solapado)
+
+- **Tipo:** fix | ux
+- **Área:** web | mobile
+- **Qué:**
+  - Con 2+ estados en el pastel: solo el número de cada color (p.ej. verde 1 / rojo 20); ya no se mezcla el total `21` encima.
+  - Cuñas finas también llevan cifra (radio un poco mayor). Un solo color sigue mostrando el total al centro.
+- **Archivos / refs:** `gps_cluster_pin.dart`, `clusterMapPoints.js`, `command-center.css`
+
+## 2026-09-20 — Fix: presencia web en Consola sin canal Hablar
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - `usePtt` ya no exige `group.id` para conectar: con `presenceGroupIds` (despacho) mantiene socket + ping de presencia.
+  - Evita el flash «en línea → fuera de línea» del admin root solo en Operadores/mapa.
+- **Por qué / notas:** La presencia se borraba al no haber canal PTT; el GPS seguía (pin gris/rojo).
+- **Archivos / refs:** `frontend/src/usePtt.js`
+
+## 2026-09-20 — Clusters GPS: cifras por color en el pastel
+
+- **Tipo:** ux | mejora
+- **Área:** mobile | web
+- **Qué:**
+  - El círculo de cluster muestra cuántos hay en cada porción (p.ej. verde 1 / rojo 2) cuando el arco es legible; si no, mantiene el total al centro.
+- **Archivos / refs:** `gps_cluster_pin.dart`, `clusterMapPoints.js`, `command-center.css`
+
+## 2026-09-19 — APK sideload 1.8.168+178 (sin OTA)
+
+- **Tipo:** release | fix | ux
+- **Área:** mobile
+- **Qué:**
+  - APK **1.8.168+178** → `pulsanet_soporte\APK\` (+ latest); sin OTA ni emulador.
+  - Incluye PTT bip remitente/destinatarios, contactos semáforo, canales solo iconos.
+- **Archivos / refs:** `pubspec.yaml`, `C:\pulsanet_soporte\APK\TacticalPtx-1.8.168+178.apk`
+
+## 2026-09-19 — APK: PTT bip fiable + contactos semáforo + canales iconos
+
+- **Tipo:** fix | ux
+- **Área:** mobile | web | backend
+- **Qué:**
+  - PTT: players lowLatency separados press/release; warm al conectar; bip antes de acquireVoice; destinatarios oyen press (`ptt:speaker`) y release (`ptt:released`) — web alineado.
+  - Contactos: punto semáforo (en línea/ausente/fuera) + orden; API `/dm/contacts` expone `presence`/`focus`.
+  - Radio: selector inferior solo iconos centrados (sin nombre duplicado); chip lateral solo icono.
+- **Archivos / refs:** `message_tone.dart`, `channel_session.dart`, `chat_inbox_screen.dart`, `inbox_tab_order.dart`, `radio_screen.dart`, `dm.js`, `usePtt.js`
+
 ## 2026-09-18 — Codemagic: integrations ASC en yaml
 
 - **Tipo:** infra | fix

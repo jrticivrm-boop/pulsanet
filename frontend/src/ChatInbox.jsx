@@ -326,19 +326,46 @@ export default function ChatInbox({
     });
   }, []);
 
+  /** Presencia en vivo desde canales de radio (focus → online/away). */
+  const livePresenceById = useMemo(() => {
+    const map = new Map();
+    const ingest = (list) => {
+      for (const m of list || []) {
+        const id = String(m?.userId || m?.id || '');
+        if (!id) continue;
+        const focus = String(m?.focus || 'foreground');
+        const next = focus === 'background' || focus === 'service' ? 'away' : 'online';
+        const prev = map.get(id);
+        if (!prev || (prev === 'away' && next === 'online')) map.set(id, next);
+      }
+    };
+    ingest(ptt?.online);
+    for (const list of Object.values(ptt?.onlineByGroup || {})) ingest(list);
+    return map;
+  }, [ptt?.online, ptt?.onlineByGroup]);
+
   const contactMetaById = useMemo(() => {
     const map = new Map();
     for (const c of dmMeta.contacts || []) {
       if (!c?.id) continue;
-      map.set(String(c.id), {
-        online: Boolean(c.online) || String(c.id) === String(userId),
+      const id = String(c.id);
+      const isSelf = Boolean(c.isSelf) || id === String(userId);
+      const live = livePresenceById.get(id);
+      let presence = String(
+        c.presence || (c.online || isSelf ? 'online' : 'offline')
+      ).toLowerCase();
+      if (isSelf) presence = 'online';
+      else if (live) presence = live;
+      map.set(id, {
+        online: presence !== 'offline' || isSelf,
+        presence,
         gradeSortOrder: Number(c.gradeSortOrder) || 999999,
         grade: c.grade || null,
-        isSelf: Boolean(c.isSelf) || String(c.id) === String(userId),
+        isSelf,
       });
     }
     return map;
-  }, [dmMeta.contacts, userId]);
+  }, [dmMeta.contacts, userId, livePresenceById]);
 
   const rows = useMemo(() => {
     const items = [];
@@ -374,10 +401,13 @@ export default function ChatInbox({
     for (const c of dmMeta.conversations) {
       const pid = String(c.peerId);
       convPeerIds.add(pid);
+      const isSelf = pid === String(userId);
+      const live = livePresenceById.get(pid);
       const meta = contactMetaById.get(pid) || {
-        online: pid === String(userId),
+        online: isSelf || Boolean(live),
+        presence: isSelf ? 'online' : live || 'offline',
         gradeSortOrder: 999999,
-        isSelf: pid === String(userId),
+        isSelf,
       };
       items.push({
         key: `dm:${c.peerId}`,
@@ -391,6 +421,7 @@ export default function ChatInbox({
         favorite: favorites.dm.includes(c.peerId),
         contactOnly: false,
         online: meta.online,
+        presence: meta.presence,
         gradeSortOrder: meta.gradeSortOrder,
         isSelf: meta.isSelf,
       });
@@ -398,6 +429,12 @@ export default function ChatInbox({
 
     for (const c of dmMeta.contacts) {
       if (!c?.id || convPeerIds.has(String(c.id))) continue;
+      const meta = contactMetaById.get(String(c.id)) || {
+        online: Boolean(c.online) || String(c.id) === String(userId),
+        presence: String(c.presence || (c.online ? 'online' : 'offline')).toLowerCase(),
+        gradeSortOrder: Number(c.gradeSortOrder) || 999999,
+        isSelf: Boolean(c.isSelf) || String(c.id) === String(userId),
+      };
       items.push({
         key: `dm:${c.id}`,
         kind: 'dm',
@@ -409,9 +446,10 @@ export default function ChatInbox({
         unread: unread[`dm:${c.id}`] || 0,
         favorite: favorites.dm.includes(c.id),
         contactOnly: true,
-        online: Boolean(c.online) || String(c.id) === String(userId),
-        gradeSortOrder: Number(c.gradeSortOrder) || 999999,
-        isSelf: Boolean(c.isSelf) || String(c.id) === String(userId),
+        online: meta.online,
+        presence: meta.presence,
+        gradeSortOrder: meta.gradeSortOrder,
+        isSelf: meta.isSelf,
       });
     }
 
@@ -427,6 +465,7 @@ export default function ChatInbox({
     unread,
     favorites,
     contactMetaById,
+    livePresenceById,
     userId,
   ]);
 
@@ -639,6 +678,9 @@ export default function ChatInbox({
                   name={row.name}
                   token={session.token}
                   group={row.kind === 'group'}
+                  showPresence={row.kind === 'dm'}
+                  presence={row.presence}
+                  online={row.online}
                 />
                 <span className="wa-inbox-main">
                   <span className="wa-inbox-top">

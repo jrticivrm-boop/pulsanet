@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui' show Color;
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -77,15 +78,76 @@ int compareContactRows({
   required int bGrade,
   String? aAt,
   String? bAt,
+  String? aPresence,
+  String? bPresence,
 }) {
-  final ao = aOnline ? 1 : 0;
-  final bo = bOnline ? 1 : 0;
-  if (bo != ao) return bo.compareTo(ao);
+  final ar = presenceSortRank(aPresence, aOnline);
+  final br = presenceSortRank(bPresence, bOnline);
+  if (ar != br) return ar.compareTo(br);
   if (aGrade != bGrade) return aGrade.compareTo(bGrade);
   final ta = aAt != null ? DateTime.tryParse(aAt)?.millisecondsSinceEpoch ?? 0 : 0;
   final tb = bAt != null ? DateTime.tryParse(bAt)?.millisecondsSinceEpoch ?? 0 : 0;
   return tb.compareTo(ta);
 }
+
+/// 0 en línea → 1 ausente → 2 desconectado → 3 fuera de línea.
+int presenceSortRank(String? presence, bool online) {
+  switch (normalizePresenceKey(presence, online)) {
+    case 'online':
+      return 0;
+    case 'away':
+      return 1;
+    case 'stale':
+      return 2;
+    case 'offline':
+    default:
+      return 3;
+  }
+}
+
+String normalizePresenceKey(String? presence, bool online) {
+  final p = (presence ?? '').toLowerCase().trim();
+  if (p == 'away' || p == 'background' || p == 'service') return 'away';
+  if (p == 'online' ||
+      p == 'radio' ||
+      p == 'active' ||
+      p == 'foreground') {
+    return 'online';
+  }
+  if (p == 'stale') return 'stale';
+  if (p == 'offline') return 'offline';
+  return online ? 'online' : 'offline';
+}
+
+/// Colores semáforo (paridad GPS / mapa).
+Color presenceSemaphoreColor(String? presence, {bool online = false}) {
+  switch (normalizePresenceKey(presence, online)) {
+    case 'online':
+      return const Color(0xFF1F5A2E);
+    case 'away':
+      return const Color(0xFFA16207);
+    case 'stale':
+      return const Color(0xFF991B1B);
+    case 'offline':
+    default:
+      return const Color(0xFF6B7280);
+  }
+}
+
+String presenceSemaphoreLabel(String? presence, {bool online = false}) {
+  switch (normalizePresenceKey(presence, online)) {
+    case 'online':
+      return 'En línea';
+    case 'away':
+      return 'Ausente';
+    case 'stale':
+      return 'Desconectado';
+    case 'offline':
+    default:
+      return 'Fuera de línea';
+  }
+}
+
 
 int compareByLastMessage(String? aAt, String? bAt) {
   final ta = aAt != null ? DateTime.tryParse(aAt)?.millisecondsSinceEpoch ?? 0 : 0;

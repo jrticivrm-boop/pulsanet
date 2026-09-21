@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import iconVideollamada from '../assets/icons/videollamada.png';
+import { pickTopSelected } from '../ChannelMultiSelect.jsx';
 import { resolveDropdownPortalHost } from './dropdownPortalHost.js';
 
 const POS_KEY = 'tacticalptx_map_ptt_float_pos';
@@ -9,6 +11,91 @@ const PANEL_KEY = 'tacticalptx_map_ptt_menu_panel';
 const DRAG_THRESHOLD_PX = 8;
 const BTN_SIZE = 92;
 const EDGE_PAD = 12;
+const NONE = '';
+
+/** Mismas claves de stash que ChannelMultiSelect / Radio (Individual ↔ Múltiple). */
+const MODE_STASH = {
+  listen: {
+    multi: 'tacticalptx_listen_stash_multiple',
+    indiv: 'tacticalptx_listen_stash_individual',
+  },
+  talk: {
+    multi: 'tacticalptx_talk_stash_multiple',
+    indiv: 'tacticalptx_talk_stash_individual',
+  },
+  video: {
+    multi: 'tacticalptx_video_stash_multiple',
+    indiv: 'tacticalptx_video_stash_individual',
+  },
+  alert: {
+    multi: 'tacticalptx_alert_stash_multiple',
+    indiv: 'tacticalptx_alert_stash_individual',
+  },
+};
+
+function readStashArray(key) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || 'null');
+    return Array.isArray(raw) ? raw.map(String) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStashArray(key, ids) {
+  try {
+    localStorage.setItem(key, JSON.stringify(ids || []));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readStashId(key) {
+  try {
+    const v = localStorage.getItem(key);
+    if (v == null) return null;
+    return v;
+  } catch {
+    return null;
+  }
+}
+
+function writeStashId(key, id) {
+  try {
+    localStorage.setItem(key, id == null ? '' : String(id));
+  } catch {
+    /* ignore */
+  }
+}
+
+function filterValidIds(ids, validSet) {
+  return (ids || []).filter((id) => validSet.has(String(id)));
+}
+
+function resolveModeSwitch(mode, currentIds, orderedIds, stash) {
+  const validIdSet = new Set((orderedIds || []).map(String));
+  if (mode === 'individual') {
+    writeStashArray(stash.multi, currentIds);
+    const saved = readStashId(stash.indiv);
+    let one = NONE;
+    if (saved === NONE || saved === '') {
+      one = NONE;
+    } else if (saved && validIdSet.has(String(saved))) {
+      one = saved;
+    } else {
+      one = pickTopSelected(currentIds, orderedIds);
+    }
+    writeStashId(stash.indiv, one);
+    return one ? [one] : [];
+  }
+  writeStashId(stash.indiv, currentIds[0] || NONE);
+  const saved = filterValidIds(readStashArray(stash.multi), validIdSet);
+  const next = saved?.length
+    ? (orderedIds || []).filter((id) => saved.map(String).includes(String(id)))
+    : [];
+  writeStashArray(stash.multi, next);
+  return next;
+}
 
 const PANELS = [
   { id: 'listen', label: 'Escuchar' },
@@ -110,6 +197,10 @@ export default function MapPttFloat({
   onListenChange,
   onVideoIdsChange,
   onAlertIdsChange,
+  onListenModeChange,
+  onTalkModeChange,
+  onVideoModeChange,
+  onAlertModeChange,
   portalHost,
 }) {
   const rootRef = useRef(null);
@@ -224,6 +315,57 @@ export default function MapPttFloat({
     onAlertIdsChange(applyToggle(alertIds, id, alertMode));
   }
 
+  function ensureListenIncludes(talkNext) {
+    const need = (talkNext || []).filter(Boolean);
+    if (!need.length) return listenIds;
+    const set = new Set((listenIds || []).map(String));
+    let changed = false;
+    for (const id of need) {
+      if (!set.has(String(id))) {
+        set.add(String(id));
+        changed = true;
+      }
+    }
+    if (!changed) return listenIds;
+    const byStr = new Map((orderedGroups || []).map((g) => [String(g.id), g.id]));
+    return [...set].map((s) => byStr.get(s) ?? s);
+  }
+
+  function changePanelMode(mode) {
+    if (mode !== 'individual' && mode !== 'multiple') return;
+    const orderedIds = orderedGroups.map((g) => g.id);
+
+    if (activePanel === 'listen') {
+      if (mode === listenMode || !onListenModeChange) return;
+      const next = resolveModeSwitch(mode, listenIds, orderedIds, MODE_STASH.listen);
+      onListenChange?.(next);
+      onListenModeChange(mode);
+      return;
+    }
+    if (activePanel === 'talk') {
+      if (mode === talkMode || !onTalkModeChange) return;
+      const next = resolveModeSwitch(mode, talkIds, orderedIds, MODE_STASH.talk);
+      onTalkIdsChange?.(next);
+      const listen = ensureListenIncludes(next);
+      if (listen !== listenIds) onListenChange?.(listen);
+      onTalkModeChange(mode);
+      return;
+    }
+    if (activePanel === 'video') {
+      if (mode === videoMode || !onVideoModeChange) return;
+      const next = resolveModeSwitch(mode, videoIds, orderedIds, MODE_STASH.video);
+      onVideoIdsChange?.(next);
+      onVideoModeChange(mode);
+      return;
+    }
+    if (activePanel === 'alert') {
+      if (mode === alertMode || !onAlertModeChange) return;
+      const next = resolveModeSwitch(mode, alertIds, orderedIds, MODE_STASH.alert);
+      onAlertIdsChange?.(next);
+      onAlertModeChange(mode);
+    }
+  }
+
   async function onSendPanic() {
     if (!ptt?.sendPanic || busyPanic) return;
     const ids = alertIds.length
@@ -249,6 +391,30 @@ export default function MapPttFloat({
     } finally {
       setBusyPanic(false);
     }
+  }
+
+  function onOpenGroupVideo() {
+    const selected = new Set((videoIds || []).map(String));
+    if (!selected.size) return;
+    const ordered = orderedGroups
+      .filter((g) => selected.has(String(g.id)))
+      .map((g) => g.id);
+    const ids = ordered.length ? ordered : videoIds;
+    const primary = ids[0];
+    if (!primary) return;
+    const names = ids
+      .map((id) => orderedGroups.find((g) => String(g.id) === String(id))?.name)
+      .filter(Boolean);
+    setMenu(null);
+    window.dispatchEvent(
+      new CustomEvent('tacticalptx:open-group-video', {
+        detail: {
+          groupId: primary,
+          groupIds: ids,
+          groupName: names.length > 1 ? names.join(' + ') : names[0] || 'Grupo',
+        },
+      })
+    );
   }
 
   function fireTogglePtt() {
@@ -406,6 +572,22 @@ export default function MapPttFloat({
         : activePanel === 'alert'
           ? alertSet
           : talkSet;
+  const activeMode =
+    activePanel === 'listen'
+      ? listenMode
+      : activePanel === 'video'
+        ? videoMode
+        : activePanel === 'alert'
+          ? alertMode
+          : talkMode;
+  const canChangeMode =
+    activePanel === 'listen'
+      ? Boolean(onListenModeChange)
+      : activePanel === 'video'
+        ? Boolean(onVideoModeChange)
+        : activePanel === 'alert'
+          ? Boolean(onAlertModeChange)
+          : Boolean(onTalkModeChange);
   const onToggleRow =
     activePanel === 'listen'
       ? toggleListen
@@ -494,7 +676,20 @@ export default function MapPttFloat({
               </div>
             )}
 
-            <div className="lt-ptt-float-menu-title">{panelMeta.label}</div>
+            <div className="lt-ptt-float-menu-title-row">
+              <div className="lt-ptt-float-menu-title">{panelMeta.label}</div>
+              {canChangeMode ? (
+                <select
+                  className="lt-ptt-float-menu-mode"
+                  value={activeMode === 'individual' ? 'individual' : 'multiple'}
+                  aria-label={`Modo ${panelMeta.label}: Individual o Múltiple`}
+                  onChange={(e) => changePanelMode(e.target.value)}
+                >
+                  <option value="individual">Individual</option>
+                  <option value="multiple">Múltiple</option>
+                </select>
+              ) : null}
+            </div>
             <div className="lt-ptt-float-menu-list" role="tabpanel">
               {orderedGroups.length === 0 ? (
                 <p className="lt-ptt-float-menu-empty">Sin canales</p>
@@ -502,15 +697,17 @@ export default function MapPttFloat({
                 orderedGroups.map((g) => {
                   const id = g.id;
                   const on = activeIds.has(String(id));
+                  const individual = activeMode === 'individual';
                   return (
                     <label
                       key={id}
                       className="lt-ptt-float-menu-row"
-                      role="menuitemcheckbox"
+                      role={individual ? 'menuitemradio' : 'menuitemcheckbox'}
                       aria-checked={on}
                     >
                       <input
-                        type="checkbox"
+                        type={individual ? 'radio' : 'checkbox'}
+                        name={individual ? `map-ptt-float-${activePanel}` : undefined}
                         checked={on}
                         onChange={() => onToggleRow(id)}
                       />
@@ -521,6 +718,31 @@ export default function MapPttFloat({
               )}
             </div>
             <div className="lt-ptt-float-menu-actions">
+              {activePanel === 'video' ? (
+                <button
+                  type="button"
+                  className="lt-ptt-float-menu-video"
+                  disabled={!videoIds.length}
+                  title={
+                    videoIds.length > 1
+                      ? `Videollamada unificada de ${videoIds.length} canales`
+                      : videoIds.length === 1
+                        ? 'Videollamada del canal seleccionado (no interrumpe el PTT)'
+                        : 'Selecciona al menos un canal en Video'
+                  }
+                  onClick={onOpenGroupVideo}
+                >
+                  <img
+                    src={iconVideollamada}
+                    alt=""
+                    width={16}
+                    height={16}
+                    draggable={false}
+                    aria-hidden="true"
+                  />
+                  <span>Videollamada</span>
+                </button>
+              ) : null}
               {activePanel === 'alert' ? (
                 <button
                   type="button"
@@ -532,7 +754,15 @@ export default function MapPttFloat({
                   }
                   onClick={onSendPanic}
                 >
-                  {busyPanic || ptt.panicSending ? 'Enviando…' : 'Enviar alarma'}
+                  <span className="panic-ico" aria-hidden="true">
+                    <span className="panic-wave" />
+                    <span className="panic-wave" />
+                    <span className="panic-wave" />
+                    <span className="panic-ico-glyph">⚠</span>
+                  </span>
+                  <span>
+                    {busyPanic || ptt.panicSending ? 'Enviando…' : 'Enviar alarma'}
+                  </span>
                 </button>
               ) : null}
               <button

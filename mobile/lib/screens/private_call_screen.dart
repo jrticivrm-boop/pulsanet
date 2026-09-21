@@ -111,6 +111,8 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
   Duration _elapsed = Duration.zero;
   int _connectAttempts = 0;
   static const _maxConnectAttempts = 5;
+  /// Evita dos handoffs a la vez (call:accepted y track remoto).
+  Future<void>? _voiceHandoff;
   void Function(ChatMessageBannerPayload)? _bannerTapPrev;
 
   bool get _isRadio => widget.mode == 'radio';
@@ -148,10 +150,6 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
         video: _isVideo,
       ),
     );
-    unawaited(CallRingtone.stop());
-    if (widget.role == 'caller') {
-      unawaited(CallRingtone.startOutgoing());
-    }
     _listenRemoteHangup();
     _connectAttempts = 0;
     _connect();
@@ -279,7 +277,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     if (_connectedAt != null) return;
     _connectedAt = DateTime.now();
     _connected = true;
-    unawaited(CallRingtone.stopOutgoing());
+    unawaited(_handoffRingToCallAudio());
     _tick?.cancel();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || _connectedAt == null) return;
@@ -319,6 +317,36 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     if (mounted) {
       await Future<void>.delayed(const Duration(milliseconds: 350));
       if (mounted) Navigator.of(context).pop();
+    }
+  }
+
+  /// El ringback nativo usa `STREAM_VOICE_CALL`. Al soltarlo (contestar / fin de
+  /// timbre) Android deja `MODE_NORMAL` y el audio remoto de WebRTC se queda
+  /// mudo. Parar el timbre y volver a sesión de voz + la ruta ya elegida.
+  Future<void> _handoffRingToCallAudio() {
+    final existing = _voiceHandoff;
+    if (existing != null) return existing;
+    final run = _handoffRingToCallAudioBody();
+    _voiceHandoff = run;
+    return run;
+  }
+
+  Future<void> _handoffRingToCallAudioBody() async {
+    await CallRingtone.stopOutgoing();
+    if (!mounted || _closing) return;
+    await _reassertCallVoice();
+    // El release del ToneGenerator a veces pisa el modo un instante después.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    if (!mounted || _closing) return;
+    await _reassertCallVoice();
+  }
+
+  Future<void> _reassertCallVoice() async {
+    try {
+      await AudioSessionSetup.acquireVoice();
+      await _applySpeaker(_speakerOn);
+    } catch (e) {
+      debugPrint('PrivateCallScreen voz: $e');
     }
   }
 
@@ -525,6 +553,15 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     Room? room;
     LocalAudioTrack? mic;
     try {
+      // Parar el timbre entrante ANTES de la sesión de voz. Si se suelta en
+      // paralelo, el Ringtone restaura MODE_NORMAL y deja la llamada muda.
+      if (widget.role == 'caller') {
+        if (_connectedAt == null && !CallRingtone.isOutgoingActive) {
+          await CallRingtone.startOutgoing();
+        }
+      } else {
+        await CallRingtone.stop();
+      }
       await ChannelSession.current?.pauseForPersonalRadio();
       final e2ee = await buildVoiceE2eeOptions(
         widget.e2eeKey,
@@ -534,8 +571,9 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       final listener = room.createListener();
       Timer? remoteClearTimer;
       listener.on<TrackSubscribedEvent>((e) {
-        if (_listenMuted && e.track is AudioTrack) {
-          _applyListenMute();
+        if (e.track is AudioTrack) {
+          unawaited(_handoffRingToCallAudio());
+          if (_listenMuted) _applyListenMute();
         }
         if (e.track is VideoTrack) {
           remoteClearTimer?.cancel();

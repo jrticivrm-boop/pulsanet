@@ -11,10 +11,13 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../api_client.dart';
 import '../chat_image_gallery.dart';
 import '../chat_message_actions.dart';
+import '../chat_multi_select.dart';
 import '../config.dart';
 import '../linkified_text.dart';
+import '../es_msg.dart';
 import '../media_kind.dart';
 import '../message_tone.dart';
+import '../nudge_shake.dart';
 import '../panic_vibration.dart';
 import '../push_service.dart';
 import '../chat_bubble_style.dart';
@@ -62,6 +65,8 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
   bool _nudgeBusy = false;
   Map<String, dynamic>? _replyTo;
   Map<String, String>? _pinned;
+  final _selectedIds = <String>{};
+  bool _shareBusy = false;
   String? get _pinScope {
     final id = _peer?['id']?.toString();
     return id == null ? null : 'dm:$id';
@@ -149,6 +154,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
       _loading = false;
       _messages = [];
       _error = null;
+      _selectedIds.clear();
     });
     PushService.instance.clearConversationNotifications(peerId: peerId);
     unawaited(_openPeer(stub));
@@ -251,8 +257,16 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
           );
           if (idx >= 0) {
             final next = [..._messages];
+            final oldId = next[idx]['id']?.toString();
             next[idx] = msg;
             _messages = next;
+            final newId = msg['id']?.toString();
+            if (oldId != null &&
+                newId != null &&
+                oldId != newId &&
+                _selectedIds.remove(oldId)) {
+              _selectedIds.add(newId);
+            }
             return;
           }
         }
@@ -267,6 +281,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
           'messageIds': [mid],
         });
         if (msg['type']?.toString() == 'nudge') {
+          NudgeShake.play();
           // ignore: unawaited_futures
           applyReceivedNudgeFeedback(peerId: peerId);
         } else {
@@ -277,6 +292,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     });
     socket.on('dm:nudge', (_) {
       final peerId = _peer?['id']?.toString();
+      NudgeShake.play();
       // ignore: unawaited_futures
       applyReceivedNudgeFeedback(peerId: peerId);
     });
@@ -320,6 +336,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
           if (m['id']?.toString() != mid) return m;
           return {...m, ...msg, 'isDeleted': true, 'body': null};
         }).toList();
+        _selectedIds.remove(mid);
       });
     });
     socket.on('dm:reaction', (data) {
@@ -346,7 +363,10 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
       final me = widget.api.user?['id']?.toString();
       final threadPeer = by == me ? eventPeer : by;
       if (threadPeer != peerId) return;
-      setState(() => _messages = []);
+      setState(() {
+        _messages = [];
+        _selectedIds.clear();
+      });
     });
     // Llamadas entrantes: las maneja RadioShell (pantalla fullscreen).
     _socket = socket;
@@ -372,7 +392,10 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     try {
       await widget.api.clearDmThread(peerId);
       if (!mounted) return;
-      setState(() => _messages = []);
+      setState(() {
+        _messages = [];
+        _selectedIds.clear();
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Chat vaciado')),
       );
@@ -401,6 +424,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
       _messages = [];
       _error = null;
       _replyTo = null;
+      _selectedIds.clear();
     });
     // Pin y mensajes en paralelo (antes se esperaba el pin y bloqueaba el hilo).
     final pinFut = _loadPinned();
@@ -505,6 +529,10 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
   }
 
   void _goBack() {
+    if (_selectedIds.isNotEmpty) {
+      setState(_selectedIds.clear);
+      return;
+    }
     if (widget.threadOnly) {
       widget.onBack();
       return;
@@ -517,10 +545,243 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
         _messages = [];
         _replyTo = null;
         _error = null;
+        _selectedIds.clear();
       });
       return;
     }
     widget.onBack();
+  }
+
+  List<Map<String, dynamic>> _selectedInOrder() {
+    return [
+      for (final m in _messages)
+        if (_selectedIds.contains(m['id']?.toString()) && m['isDeleted'] != true) m,
+    ];
+  }
+
+  void _selectMessage(String id, {required bool longPress}) {
+    if (id.isEmpty) return;
+    setState(() {
+      if (longPress) {
+        _selectedIds.add(id);
+        return;
+      }
+      if (!_selectedIds.remove(id)) _selectedIds.add(id);
+    });
+  }
+
+  Widget _selectionHeader() {
+    final selected = _selectedInOrder();
+    final n = selected.length;
+    final canCopy = selected.any((m) => dmMessageCopyText(m) != null);
+    return Row(
+      children: [
+        IconButton(
+          tooltip: 'Cancelar selección',
+          onPressed: () => setState(_selectedIds.clear),
+          icon: const Icon(Icons.close),
+        ),
+        Expanded(
+          child: Text(
+            n == 1 ? '1 seleccionado' : '$n seleccionados',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 18,
+              color: kTacOnSurface,
+            ),
+          ),
+        ),
+        if (canCopy)
+          IconButton(
+            tooltip: 'Copiar',
+            visualDensity: VisualDensity.compact,
+            onPressed: _copySelected,
+            icon: const Icon(Icons.copy_outlined, color: kTacOnSurface),
+          ),
+        IconButton(
+          tooltip: 'Compartir',
+          visualDensity: VisualDensity.compact,
+          onPressed: _shareSelected,
+          icon: const Icon(Icons.share_outlined, color: kTacOnSurface),
+        ),
+        IconButton(
+          tooltip: 'Borrar',
+          visualDensity: VisualDensity.compact,
+          onPressed: _deleteSelected,
+          icon: const Icon(Icons.delete_outline, color: kTacOnSurface),
+        ),
+        if (n == 1)
+          IconButton(
+            tooltip: 'Más',
+            visualDensity: VisualDensity.compact,
+            onPressed: _openSelectionExtras,
+            icon: const Icon(Icons.more_vert, color: kTacOnSurface),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _copySelected() async {
+    final parts = <String>[
+      for (final m in _selectedInOrder())
+        if (dmMessageCopyText(m) case final text?) text,
+    ];
+    if (parts.isEmpty) return;
+    await copyChatText(parts.join('\n'));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Texto copiado'), duration: Duration(seconds: 1)),
+    );
+  }
+
+  Future<void> _shareSelected() async {
+    if (_shareBusy) return;
+    _shareBusy = true;
+    try {
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      final result = await shareDmMessages(
+        api: widget.api,
+        messages: _selectedInOrder(),
+        sharePositionOrigin: origin,
+      );
+      if (!mounted) return;
+      if (!result.shared) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Nada para compartir: el archivo no está en el teléfono'),
+          ),
+        );
+        return;
+      }
+      if (result.omittedFiles > 0) {
+        final n = result.omittedFiles;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              n == 1
+                  ? '1 archivo no está descargado y se omitió'
+                  : '$n archivos no están descargados y se omitieron',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(esMsg(e, 'No se pudo compartir'))),
+      );
+    } finally {
+      _shareBusy = false;
+    }
+  }
+
+  Future<void> _deleteSelected() async {
+    final peerId = _peer?['id']?.toString();
+    if (peerId == null) return;
+    final me = widget.api.user?['id']?.toString();
+    final selected = _selectedInOrder();
+    final own = <Map<String, dynamic>>[];
+    var foreign = 0;
+    for (final m in selected) {
+      if (m['senderId']?.toString() == me) {
+        own.add(m);
+      } else {
+        foreign++;
+      }
+    }
+    if (own.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Solo puedes borrar tus mensajes')),
+      );
+      return;
+    }
+    final foreignNote = foreign == 0
+        ? ''
+        : (foreign == 1
+            ? '\n1 mensaje de la otra persona no se puede borrar.'
+            : '\n$foreign mensajes de la otra persona no se pueden borrar.');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(own.length == 1 ? 'Borrar mensaje' : 'Borrar mensajes'),
+        content: Text(
+          own.length == 1
+              ? 'Se borrará 1 mensaje.$foreignNote'
+              : 'Se borrarán ${own.length} mensajes.$foreignNote',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Borrar')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    final updates = <String, Map<String, dynamic>>{};
+    final dropLocal = <String>{};
+    var failed = 0;
+    String? lastErr;
+    for (final m in own) {
+      final mid = m['id']?.toString();
+      if (mid == null || mid.isEmpty) continue;
+      if (m['_local'] == true) {
+        dropLocal.add(mid);
+        continue;
+      }
+      try {
+        final data = await widget.api.deleteDmMessage(peerId, mid);
+        updates[mid] = Map<String, dynamic>.from(data);
+      } catch (e) {
+        failed++;
+        lastErr = esMsg(e, 'No se pudo borrar');
+      }
+    }
+    if (!mounted) return;
+    final pinId = _pinned?['id'];
+    setState(() {
+      _messages = _messages
+          .where((x) => !dropLocal.contains(x['id']?.toString()))
+          .map((x) {
+            final id = x['id']?.toString();
+            final upd = id == null ? null : updates[id];
+            if (upd == null) return x;
+            return {...x, ...upd, 'isDeleted': true, 'body': null};
+          })
+          .toList();
+      _selectedIds.removeAll(dropLocal);
+      _selectedIds.removeAll(updates.keys);
+    });
+    if (pinId != null && (updates.containsKey(pinId) || dropLocal.contains(pinId))) {
+      final scope = _pinScope;
+      if (scope != null) {
+        await ChatPinStore.clear(scope);
+        await _loadPinned();
+      }
+    }
+    if (!mounted) return;
+    final notes = <String>[];
+    if (foreign > 0) {
+      notes.add(
+        foreign == 1
+            ? '1 mensaje ajeno no se puede borrar'
+            : '$foreign mensajes ajenos no se pueden borrar',
+      );
+    }
+    if (failed > 0) notes.add(lastErr ?? 'No se pudieron borrar algunos');
+    if (notes.isEmpty) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(notes.join('. '))));
+  }
+
+  Future<void> _openSelectionExtras() async {
+    final selected = _selectedInOrder();
+    if (selected.length != 1) return;
+    final m = selected.first;
+    final me = widget.api.user?['id']?.toString();
+    await _messageActions(m, m['senderId']?.toString() == me, extrasOnly: true);
   }
 
   String _fmtTime(dynamic iso) {
@@ -573,11 +834,14 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
           }
         });
       }
+      NudgeShake.play();
       await PanicVibration.nudge();
       await playNudgeTone();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(esMsg(e))),
+      );
     } finally {
       if (mounted) setState(() => _nudgeBusy = false);
     }
@@ -727,7 +991,11 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _messageActions(Map<String, dynamic> m, bool mine) async {
+  Future<void> _messageActions(
+    Map<String, dynamic> m,
+    bool mine, {
+    bool extrasOnly = false,
+  }) async {
     final peer = _peer;
     if (peer == null) return;
     final deleted = m['isDeleted'] == true;
@@ -743,11 +1011,11 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
       hasMedia: hasMedia,
       canReply: !deleted,
       canReact: !deleted,
-      canCopy: hasText,
+      canCopy: hasText && !extrasOnly,
       canForward: !deleted,
       canPin: !deleted,
       isPinned: pinnedId == m['id']?.toString(),
-      canDelete: mine && !deleted,
+      canDelete: mine && !deleted && !extrasOnly,
       canDownload: hasMedia,
     );
     if (!mounted || choice == null) return;
@@ -757,7 +1025,10 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
 
     switch (choice.id) {
       case 'reply':
-        setState(() => _replyTo = m);
+        setState(() {
+          _replyTo = m;
+          _selectedIds.clear();
+        });
         _composerFocus.requestFocus();
         break;
       case 'react':
@@ -984,6 +1255,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
         if (didPop) return;
         _goBack();
       },
+      child: NudgeShakeHost(
       child: Scaffold(
       resizeToAvoidBottomInset: true,
       backgroundColor: kTacBg,
@@ -998,7 +1270,8 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
               shadowColor: Colors.black54,
               child: SizedBox(
                 height: 56,
-                child: Row(
+                child: _selectedIds.isEmpty
+                    ? Row(
                   children: [
                     IconButton(
                       onPressed: _goBack,
@@ -1089,7 +1362,8 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                         ),
                       ),
                   ],
-                ),
+                )
+                    : _selectionHeader(),
               ),
             ),
             if (_error != null)
@@ -1211,6 +1485,8 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                                     : int.tryParse('${m['readCount'] ?? 0}') ?? 0;
                                 final tickRead = readFully || readCount > 0;
                                 final mid = m['id']?.toString() ?? 'm-$i';
+                                final selecting = _selectedIds.isNotEmpty;
+                                final selected = _selectedIds.contains(mid);
                                 final idx = _messages.length - 1 - i;
                                 final prev = idx > 0 ? _messages[idx - 1] : null;
                                 final next = idx < _messages.length - 1 ? _messages[idx + 1] : null;
@@ -1241,12 +1517,16 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                                         ),
                                       ),
                                       child: IntrinsicWidth(
-                                        child: GestureDetector(
-                                          onLongPress: () => _messageActions(m, mine),
-                                          child: Container(
+                                        child: Container(
                                             decoration: BoxDecoration(
                                               color: mine ? bubbleMine : bubbleOther,
                                               borderRadius: radius,
+                                              border: selected
+                                                  ? Border.all(
+                                                      color: kInstOlive.withValues(alpha: 0.9),
+                                                      width: 1.6,
+                                                    )
+                                                  : null,
                                               boxShadow: const [
                                                 BoxShadow(
                                                   color: Color(0x1A000000),
@@ -1380,47 +1660,82 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                                                         ),
                                                   ),
                                           ),
-                                        ),
                                       ),
                                     ),
                                   );
-                                return Padding(
-                                  padding: chatBubbleOuterPadding(
-                                    mine: mine,
-                                    clusteredAbove: clusteredAbove,
-                                    clusteredBelow: clusteredBelow,
-                                  ),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    mainAxisAlignment:
-                                        mine ? MainAxisAlignment.end : MainAxisAlignment.start,
-                                    children: [
-                                      if (!mine && !clusteredAbove) ...[
-                                        UserAvatar(
-                                          name: m['displayName']?.toString() ?? '?',
-                                          userId: m['senderId']?.toString(),
-                                          avatarUrl: widget.api.peerAvatarNetworkUrl(
-                                            m['senderId']?.toString(),
-                                          ),
-                                          headers: widget.api.avatarAuthHeaders(),
-                                          radius: 14,
-                                        ),
-                                        const SizedBox(width: 6),
-                                      ] else if (!mine)
-                                        const SizedBox(width: 34),
-                                      Flexible(
-                                        child: deleted
-                                            ? bubble
-                                            : wrapChatSwipeReply(
-                                                key: ValueKey('dm-swipe-$mid'),
-                                                onReply: () {
-                                                  setState(() => _replyTo = m);
-                                                  _composerFocus.requestFocus();
-                                                },
-                                                child: bubble,
-                                              ),
+                                return GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onLongPress: deleted
+                                      ? null
+                                      : () => _selectMessage(mid, longPress: true),
+                                  onTap: (!deleted && selecting)
+                                      ? () => _selectMessage(mid, longPress: false)
+                                      : null,
+                                  child: ColoredBox(
+                                    color: selected
+                                        ? kInstOlive.withValues(alpha: 0.16)
+                                        : Colors.transparent,
+                                    child: Padding(
+                                      padding: chatBubbleOuterPadding(
+                                        mine: mine,
+                                        clusteredAbove: clusteredAbove,
+                                        clusteredBelow: clusteredBelow,
                                       ),
-                                    ],
+                                      child: AbsorbPointer(
+                                        absorbing: selecting,
+                                        child: Row(
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          children: [
+                                            if (selecting)
+                                              Padding(
+                                                padding: const EdgeInsets.only(left: 2, right: 4),
+                                                child: Icon(
+                                                  selected
+                                                      ? Icons.check_circle
+                                                      : Icons.circle_outlined,
+                                                  size: 22,
+                                                  color: selected ? kInstOlive : kChatMeta,
+                                                ),
+                                              ),
+                                            Expanded(
+                                              child: Row(
+                                                crossAxisAlignment: CrossAxisAlignment.end,
+                                                mainAxisAlignment: mine
+                                                    ? MainAxisAlignment.end
+                                                    : MainAxisAlignment.start,
+                                                children: [
+                                                  if (!mine && !clusteredAbove) ...[
+                                                    UserAvatar(
+                                                      name: m['displayName']?.toString() ?? '?',
+                                                      userId: m['senderId']?.toString(),
+                                                      avatarUrl: widget.api.peerAvatarNetworkUrl(
+                                                        m['senderId']?.toString(),
+                                                      ),
+                                                      headers: widget.api.avatarAuthHeaders(),
+                                                      radius: 14,
+                                                    ),
+                                                    const SizedBox(width: 6),
+                                                  ] else if (!mine)
+                                                    const SizedBox(width: 34),
+                                                  Flexible(
+                                                    child: (deleted || selecting)
+                                                        ? bubble
+                                                        : wrapChatSwipeReply(
+                                                            key: ValueKey('dm-swipe-$mid'),
+                                                            onReply: () {
+                                                              setState(() => _replyTo = m);
+                                                              _composerFocus.requestFocus();
+                                                            },
+                                                            child: bubble,
+                                                          ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 );
                               },
@@ -1499,6 +1814,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
       ),
       ),
     ),
+      ),
     );
   }
 }

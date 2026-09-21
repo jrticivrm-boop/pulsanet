@@ -9,6 +9,7 @@ import {
 } from './exclusiveMsPanel.js';
 import { applyMsPanelListLayout, fitMsPanelHeight } from './fitMsPanelHeight.js';
 import { useOutletContext } from 'react-router-dom';
+import { useIsPhone, useIsCoarsePointer } from '../useMediaQuery.js';
 import MapPttFloat from './MapPttFloat.jsx';
 import {
   MapContainer,
@@ -31,6 +32,7 @@ import {
   fetchUserTrack,
   fetchGeofences,
   createGeofence,
+  updateGeofence,
   deleteGeofence,
   fetchPanicEvents,
 } from '../api';
@@ -39,14 +41,21 @@ import { socketIoOptions, socketUrl } from '../socketConfig';
 import { socketAuth } from '../deviceId';
 import {
   LOCATION_POLL_MS,
-  TRACK_POLL_MS,
   mergeLocations,
   upsertLocation,
 } from './liveTiming.js';
+import {
+  clampTrackRange,
+  rangeEndingNow,
+  startOfDay,
+  trackPollMsForSpan,
+} from './trackRange.js';
+import TrackRangePicker from './TrackRangePicker.jsx';
 import AppDialog from '../AppDialog';
 import { mapAvatarIcon } from './mapAvatarIcon.js';
 import PresenceMapLegend, { countPresenceLegend } from './PresenceMapLegend.jsx';
 import { MapMaximizeNearZoom } from './MapMaximizeButton.jsx';
+import { useMapViewportMaximize } from './useMapViewportMaximize.js';
 import { PRESENCE_LABELS, resolvePresenceStatus, visiblePresenceStatusIds } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import {
@@ -69,7 +78,7 @@ import {
   storeMapLayer,
   tileLayerProps,
 } from './mapTiles.js';
-import { TacticalSitesLayer } from './TacticalSitesLayer.jsx';
+import { TacticalSitesLayer, TACTICAL_SITE_COLORS } from './TacticalSitesLayer.jsx';
 import { useTacticalSites } from './useTacticalSites.jsx';
 import IvRmStatesLayer from './IvRmStatesLayer.jsx';
 import IvRmStatesLegend from './IvRmStatesLegend.jsx';
@@ -96,25 +105,105 @@ const GDL = [20.6736, -103.344];
 const MAP_VIEW_KEY = 'tacticalptx_map_view_ops';
 /** Preferencias de la barra Consola: operadores / ruta (este navegador). */
 const OPS_MAP_FILTERS_KEY = 'tacticalptx_ops_map_filters_v1';
+/** Preferencia: mostrar ruta probable (huecos GPS) en Consola Ruta. */
+const SHOW_PROBABLE_ROUTE_KEY = 'tacticalptx_show_probable_route';
+/** Preferencia: barra Operadores/Ruta/Geocerca/Sitios visible (también en maximizado). */
+const OPS_CHROME_OPEN_KEY = 'tacticalptx_ops_chrome_open';
+
+function loadOpsChromeOpen() {
+  try {
+    const v = localStorage.getItem(OPS_CHROME_OPEN_KEY);
+    if (v === '0') return false;
+    if (v === '1') return true;
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
+
+function writeOpsChromeOpen(open) {
+  try {
+    localStorage.setItem(OPS_CHROME_OPEN_KEY, open ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+/** Oliva histórico de círculos en Consola; mismo default en BD. */
+const DEFAULT_GEOFENCE_COLOR = '#243d20';
+/** Defaults de bolitas (como Sitios); la paleta mutable vive en localStorage. */
+const GEOFENCE_COLOR_DEFAULTS = [
+  DEFAULT_GEOFENCE_COLOR,
+  ...TACTICAL_SITE_COLORS.filter((c) => c.toLowerCase() !== DEFAULT_GEOFENCE_COLOR),
+];
+const GEOFENCE_PALETTE_KEY = 'tacticalptx_geofence_palette';
+
+function normalizeFenceHex(c) {
+  const s = String(c || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+    return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`.toLowerCase();
+  }
+  return null;
+}
+
+function loadFencePalette() {
+  try {
+    const raw = localStorage.getItem(GEOFENCE_PALETTE_KEY);
+    if (!raw) return [...GEOFENCE_COLOR_DEFAULTS];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [...GEOFENCE_COLOR_DEFAULTS];
+    return GEOFENCE_COLOR_DEFAULTS.map((def, i) => normalizeFenceHex(arr[i]) || def);
+  } catch {
+    return [...GEOFENCE_COLOR_DEFAULTS];
+  }
+}
+
+function saveFencePalette(colors) {
+  try {
+    localStorage.setItem(GEOFENCE_PALETTE_KEY, JSON.stringify(colors));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadShowProbableRoute() {
+  try {
+    const v = localStorage.getItem(SHOW_PROBABLE_ROUTE_KEY);
+    if (v === '0' || v === 'false') return false;
+    if (v === '1' || v === 'true') return true;
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
+
+function storeShowProbableRoute(on) {
+  try {
+    localStorage.setItem(SHOW_PROBABLE_ROUTE_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function fenceColorOrDefault(c) {
+  return normalizeFenceHex(c) || DEFAULT_GEOFENCE_COLOR;
+}
+
+function emptyFenceDraft() {
+  return {
+    name: '',
+    centerLat: '',
+    centerLng: '',
+    radiusM: formatRadiusM(200),
+    color: loadFencePalette()[0] || DEFAULT_GEOFENCE_COLOR,
+  };
+}
 /** Claves legacy (migración de lectura). */
 const OP_FILTER_MODE_KEY = 'tacticalptx_ops_operator_filter_mode';
 const OP_FILTER_GROUP_KEY = 'tacticalptx_ops_operator_group_id';
-const ALLOWED_TRACK_HOURS = new Set([2, 8, 24, 48]);
 const SOCKET_URL = socketUrl();
 
 const MAP_LAYERS = MAP_TILE_LAYERS;
-
-/**
- * Cadencia de refresco del historial según la ventana elegida.
- * La posición en vivo sigue a 5 s (poll de ubicaciones); esto solo espacia la
- * recarga de la cola histórica, que con 24–48 h no necesita ir a 5 s.
- */
-function trackPollMs(hours) {
-  if (hours <= 2) return TRACK_POLL_MS;
-  if (hours <= 8) return TRACK_POLL_MS * 2;
-  if (hours <= 24) return TRACK_POLL_MS * 4;
-  return TRACK_POLL_MS * 6;
-}
 
 function loadStored(key, fallback = '') {
   try {
@@ -136,15 +225,11 @@ function normalizeOperatorGroupIds(raw) {
   return [];
 }
 
-/**
- * ¿El modo de operadores tiene ya una selección concreta?
- * Encadena la barra: modo → selección → Ruta (picker + horas). Sin selección
- * no hay universo de gente que enrutar, así que «Ruta» queda deshabilitada.
- * Modos: all | group (el antiguo «one» se migró; persona suelta se elige en Ruta).
- */
-function hasOperatorSelection(mode, groupIds) {
-  if (mode === 'group') return (groupIds || []).length >= 1;
-  return true;
+function normalizeOperatorUserIds(raw) {
+  if (Array.isArray(raw?.operatorUserIds)) {
+    return [...new Set(raw.operatorUserIds.map(String).filter(Boolean))];
+  }
+  return [];
 }
 
 const OPS_TAB_KEY = 'tacticalptx_map_ops_tab';
@@ -182,12 +267,61 @@ function opsTabIdFromPoint(clientX, clientY, listEl) {
   return btn.getAttribute('data-ops-tab-id');
 }
 
+const OPS_KPI_ORDER_KEY = 'tacticalptx_ops_kpi_order';
+const OPS_KPI_DEFAULT_ORDER = ['channels', 'gps', 'geofences', 'alerts'];
+const OPS_KPI_IDS = new Set(OPS_KPI_DEFAULT_ORDER);
+const OPS_KPI_DRAG_THRESHOLD_PX = 8;
+
+function readOpsKpiOrder() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(OPS_KPI_ORDER_KEY) || 'null');
+    if (!Array.isArray(raw) || !raw.length) return [...OPS_KPI_DEFAULT_ORDER];
+    const next = raw.filter((id) => OPS_KPI_IDS.has(id));
+    for (const id of OPS_KPI_DEFAULT_ORDER) {
+      if (!next.includes(id)) next.push(id);
+    }
+    return next;
+  } catch {
+    return [...OPS_KPI_DEFAULT_ORDER];
+  }
+}
+
+function writeOpsKpiOrder(order) {
+  try {
+    localStorage.setItem(OPS_KPI_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    /* ignore */
+  }
+}
+
+function opsKpiIdFromPoint(clientX, clientY, listEl) {
+  const el = document.elementFromPoint(clientX, clientY);
+  const item = el?.closest?.('[data-ops-kpi-id]');
+  if (!item || !listEl?.contains(item)) return null;
+  return item.getAttribute('data-ops-kpi-id');
+}
+
 /** Formatea un número de coordenada para los inputs Latitud / Longitud. */
 function formatFenceCoord(n) {
   if (n == null || n === '') return '';
   const v = Number(n);
   if (!Number.isFinite(v)) return '';
   return v.toFixed(5);
+}
+
+/** Radio en metros con separador de miles (es-MX → 40,000). */
+function formatRadiusM(n) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return '';
+  return v.toLocaleString('es-MX');
+}
+
+/** Parsea radio del input (quita comas/espacios); NaN si vacío o inválido. */
+function parseRadiusM(raw) {
+  const cleaned = String(raw ?? '').replace(/[^\d]/g, '');
+  if (!cleaned) return NaN;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : NaN;
 }
 
 /**
@@ -499,22 +633,70 @@ function PresenceStatusMultiSelect({
 }
 
 function normalizeOpsMapFilters(raw) {
-  // Migración: modo «one» (select Persona) eliminado — redundante con checks de Ruta.
-  const mode = raw?.operatorFilterMode === 'group' ? 'group' : 'all';
-  const hours = Number(raw?.trackHours);
+  const modeRaw = String(raw?.operatorFilterMode || 'operator');
+  // Solo operator|group. Legacy «all» (o valor inválido) → Por operador.
+  const migratedFromAll = modeRaw === 'all' || (modeRaw !== 'group' && modeRaw !== 'operator');
+  const mode = modeRaw === 'group' ? 'group' : 'operator';
   const operatorGroupIds = normalizeOperatorGroupIds(raw);
-  const trackUserIds = Array.isArray(raw?.trackUserIds)
+  const legacyUserIds = normalizeOperatorUserIds(raw);
+  // Persona y «En grupo» van por separado para no perder la selección al cambiar de modo.
+  let operatorPersonIds = Array.isArray(raw?.operatorPersonIds)
+    ? [...new Set(raw.operatorPersonIds.map(String).filter(Boolean))]
+    : mode === 'operator'
+      ? legacyUserIds
+      : [];
+  const groupMemberUserIds = Array.isArray(raw?.groupMemberUserIds)
+    ? [...new Set(raw.groupMemberUserIds.map(String).filter(Boolean))]
+    : mode === 'group'
+      ? legacyUserIds
+      : [];
+  // «Todos» mostraba todos los pines: al migrar, re-sembrar Persona = todos.
+  if (migratedFromAll) operatorPersonIds = [];
+  // Primera vez (sin seed): al hidratar datos se marcan todos. Luego persiste lo del usuario.
+  const operatorPersonSeeded = migratedFromAll
+    ? false
+    : raw?.operatorPersonSeeded === true || operatorPersonIds.length > 0;
+  // Ids explícitos: vacío = ninguno. Flag aparte para no re-sembrar tras «Desmarcar».
+  const groupMemberSeeded =
+    raw?.groupMemberSeeded === true || groupMemberUserIds.length > 0;
+  const operatorGroupSeeded =
+    raw?.operatorGroupSeeded === true || operatorGroupIds.length > 0;
+  let trackUserIds = Array.isArray(raw?.trackUserIds)
     ? [...new Set(raw.trackUserIds.map(String).filter(Boolean))]
     : [];
+  // Ruta: un solo operador (radio).
+  if (trackUserIds.length > 1) trackUserIds = trackUserIds.slice(0, 1);
   const presenceStatusIds = normalizePresenceStatusIds(raw);
+
+  let range;
+  if (raw?.trackFrom && raw?.trackTo) {
+    const from = new Date(raw.trackFrom);
+    const to = new Date(raw.trackTo);
+    if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
+      range = clampTrackRange(from, to);
+    }
+  }
+  if (!range) {
+    const hours = Number(raw?.trackHours);
+    const presetH = [2, 8, 24, 48, 120, 168, 720].includes(hours) ? hours : 8;
+    range = rangeEndingNow(presetH);
+  }
+
   return {
     operatorFilterMode: mode,
     operatorGroupIds,
+    operatorPersonIds,
+    groupMemberUserIds,
+    operatorPersonSeeded,
+    groupMemberSeeded,
+    operatorGroupSeeded,
+    /** @deprecated compat lectura; se guarda vacío */
+    operatorUserIds: [],
     presenceStatusIds,
-    // Sin selección de operadores el picker de Ruta no se muestra: no restaurar
-    // rutas huérfanas que quedarían pintadas sin control visible.
-    trackUserIds: hasOperatorSelection(mode, operatorGroupIds) ? trackUserIds : [],
-    trackHours: ALLOWED_TRACK_HOURS.has(hours) ? hours : 8,
+    trackUserIds,
+    trackFrom: range.from.toISOString(),
+    trackTo: range.to.toISOString(),
+    trackHours: range.spanHours,
   };
 }
 
@@ -525,31 +707,42 @@ function loadOpsMapFilters() {
   } catch {
     /* ignore */
   }
+  /** Ruta: nunca restaurar operador desde localStorage (cada visita/sesión = «— Seleccionar —»). */
+  const withoutPersistedTrack = (filters) => ({ ...filters, trackUserIds: [] });
   try {
     const raw = localStorage.getItem(OPS_MAP_FILTERS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') return normalizeOpsMapFilters(parsed);
+      if (parsed && typeof parsed === 'object') {
+        return withoutPersistedTrack(normalizeOpsMapFilters(parsed));
+      }
     }
   } catch {
     /* ignore */
   }
   // Migración desde claves sueltas de operadores (antes de v1 unificada).
-  const legacyMode = loadStored(OP_FILTER_MODE_KEY, 'all');
+  const legacyMode = loadStored(OP_FILTER_MODE_KEY, 'operator');
   const legacyGroup = loadStored(OP_FILTER_GROUP_KEY, '');
-  const legacyNormalized = legacyMode === 'group' ? 'group' : 'all';
-  return normalizeOpsMapFilters({
-    operatorFilterMode: legacyNormalized,
-    operatorGroupIds: legacyGroup ? [legacyGroup] : [],
-    trackUserIds: [],
-    trackHours: 8,
-  });
+  const legacyNormalized = legacyMode === 'group' ? 'group' : 'operator';
+  return withoutPersistedTrack(
+    normalizeOpsMapFilters({
+      operatorFilterMode: legacyNormalized,
+      operatorGroupIds: legacyGroup ? [legacyGroup] : [],
+      operatorPersonIds: [],
+      groupMemberUserIds: [],
+      operatorPersonSeeded: false,
+      groupMemberSeeded: false,
+      operatorGroupSeeded: Boolean(legacyGroup),
+      trackUserIds: [],
+      trackHours: 8,
+    })
+  );
 }
 
 function operatorGroupSummaryLabel(groups, selectedIds) {
   const selected = (groups || []).filter((g) => selectedIds.includes(String(g.id)));
   const n = groups?.length || 0;
-  if (selected.length === 0) return '— elegir —';
+  if (selected.length === 0) return '— Seleccionar —';
   if (n > 0 && selected.length === n) return n === 1 ? selected[0].name : `Todas (${n})`;
   if (selected.length === 1) return selected[0].name;
   if (selected.length <= 2) return selected.map((g) => g.name).join(', ');
@@ -819,6 +1012,7 @@ function GeofenceMultiSelect({
   fences = [],
   selectedIds = [],
   onChange,
+  onEdit,
   onDelete,
   busy = false,
 }) {
@@ -853,7 +1047,7 @@ function GeofenceMultiSelect({
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const width = msPanelWidthFromTrigger(el, { minWidth: 200, preferMin: 260 });
+    const width = msPanelWidthFromTrigger(el, { minWidth: 180, preferMin: 220 });
     let left = r.left;
     const maxLeft = window.innerWidth - width - 8;
     if (left > maxLeft) left = Math.max(8, maxLeft);
@@ -1037,23 +1231,47 @@ function GeofenceMultiSelect({
                         />
                         <span className="cc-tactical-ms-name">
                           {g.name}
-                          <span className="muted"> · {Math.round(g.radiusM)} m</span>
+                          <span className="muted"> · {formatRadiusM(g.radiusM)} m</span>
                         </span>
+                        <span
+                          className="cc-tactical-dot"
+                          style={{ background: fenceColorOrDefault(g.color) }}
+                          aria-hidden
+                        />
                       </label>
-                      {typeof onDelete === 'function' ? (
-                        <button
-                          type="button"
-                          className="cc-btn ghost danger cc-btn-sm"
-                          disabled={busy}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onDelete(id);
-                          }}
-                        >
-                          Eliminar
-                        </button>
-                      ) : null}
+                      <div className="cc-geofence-ms-actions">
+                        {typeof onEdit === 'function' ? (
+                          <button
+                            type="button"
+                            className="cc-cat-edit"
+                            title="Editar"
+                            disabled={busy}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onEdit(g);
+                              setOpen(false);
+                            }}
+                          >
+                            ✎
+                          </button>
+                        ) : null}
+                        {typeof onDelete === 'function' ? (
+                          <button
+                            type="button"
+                            className="cc-cat-rm"
+                            title="Eliminar"
+                            disabled={busy}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onDelete(id);
+                            }}
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   );
                 })
@@ -1126,11 +1344,27 @@ function InvalidateOnLayout({ tick }) {
     return () => clearTimeout(id);
   }, [map, tick]);
   useEffect(() => {
-    const onFs = () => map.invalidateSize({ animate: false });
+    const timers = [];
+    const run = () => {
+      try {
+        map.invalidateSize({ animate: false });
+      } catch {
+        /* ignore */
+      }
+    };
+    const onFs = () => {
+      timers.splice(0).forEach((id) => clearTimeout(id));
+      run();
+      // Stagger after Fullscreen API chrome hide/show (mitiga freeze Leaflet ~1–2s).
+      [50, 120, 250, 450].forEach((ms) => timers.push(window.setTimeout(run, ms)));
+    };
     document.addEventListener('fullscreenchange', onFs);
+    document.addEventListener('webkitfullscreenchange', onFs);
     window.addEventListener('resize', onFs);
     return () => {
+      timers.forEach((id) => clearTimeout(id));
       document.removeEventListener('fullscreenchange', onFs);
+      document.removeEventListener('webkitfullscreenchange', onFs);
       window.removeEventListener('resize', onFs);
     };
   }, [map]);
@@ -1167,6 +1401,21 @@ export default function DispatchMap({ session }) {
   const [operatorGroupIds, setOperatorGroupIds] = useState(
     () => initialFilters.operatorGroupIds
   );
+  const [operatorPersonIds, setOperatorPersonIds] = useState(
+    () => initialFilters.operatorPersonIds || []
+  );
+  const [groupMemberUserIds, setGroupMemberUserIds] = useState(
+    () => initialFilters.groupMemberUserIds || []
+  );
+  const [operatorPersonSeeded, setOperatorPersonSeeded] = useState(
+    () => Boolean(initialFilters.operatorPersonSeeded)
+  );
+  const [groupMemberSeeded, setGroupMemberSeeded] = useState(
+    () => Boolean(initialFilters.groupMemberSeeded)
+  );
+  const [operatorGroupSeeded, setOperatorGroupSeeded] = useState(
+    () => Boolean(initialFilters.operatorGroupSeeded)
+  );
   const [presenceStatusIds, setPresenceStatusIds] = useState(
     () => initialFilters.presenceStatusIds || [...ALL_PRESENCE_STATUS_IDS]
   );
@@ -1176,8 +1425,14 @@ export default function DispatchMap({ session }) {
     groups: radioGroups,
   });
   const [trackUserIds, setTrackUserIds] = useState(() => initialFilters.trackUserIds);
-  const [trackHours, setTrackHours] = useState(() => initialFilters.trackHours);
+  /** Universo GPS completo (alcance), independiente del filtro de pines. */
+  const [gpsPeople, setGpsPeople] = useState([]);
+  const [trackFrom, setTrackFrom] = useState(() => initialFilters.trackFrom);
+  const [trackTo, setTrackTo] = useState(() => initialFilters.trackTo);
   const [tracksByUser, setTracksByUser] = useState({});
+  const [showProbableRoute, setShowProbableRoute] = useState(loadShowProbableRoute);
+  /** true si el usuario tocó Desde/Hasta o ya había una ruta activa al usar «Ver ruta». */
+  const trackRangeTouchedRef = useRef(false);
   /** Evita borrar rutas restauradas antes del primer fetch de ubicaciones. */
   const [locationsHydrated, setLocationsHydrated] = useState(false);
   const [geofences, setGeofences] = useState([]);
@@ -1187,17 +1442,273 @@ export default function DispatchMap({ session }) {
   const geofenceVisInitRef = useRef(false);
   /** Formulario de nueva geocerca visible. */
   const [fenceFormOpen, setFenceFormOpen] = useState(false);
+  const [editingFenceId, setEditingFenceId] = useState('');
   /** Toggle opcional: clic en mapa rellena lat/lng. */
   const [fixOnMap, setFixOnMap] = useState(false);
-  const [draft, setDraft] = useState({ name: '', centerLat: '', centerLng: '', radiusM: 200 });
+  const [draft, setDraft] = useState(emptyFenceDraft);
+  const [fencePalette, setFencePalette] = useState(loadFencePalette);
+  const fenceColorInputRef = useRef(null);
+  const fenceColorEditIndexRef = useRef(0);
   const [alerts, setAlerts] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState('');
   const [maximized, setMaximized] = useState(false);
+  const [opsChromeOpen, setOpsChromeOpen] = useState(loadOpsChromeOpen);
   const [opsKpiHost, setOpsKpiHost] = useState(null);
   const [mapLayer, setMapLayer] = useState(() => loadStoredMapLayer());
   const [opsTab, setOpsTab] = useState(() => readOpsTab());
+  const [opsTabOrder, setOpsTabOrder] = useState(() => readOpsTabOrder());
+  const [opsDragId, setOpsDragId] = useState(null);
+  const [opsOverId, setOpsOverId] = useState(null);
+  const opsTabsRef = useRef(null);
+  const opsDragSessionRef = useRef(null);
+  const opsDragIdRef = useRef(null);
+  const opsOverIdRef = useRef(null);
+  const opsSuppressClickRef = useRef(false);
+  const [opsKpiOrder, setOpsKpiOrder] = useState(() => readOpsKpiOrder());
+  const [kpiDragId, setKpiDragId] = useState(null);
+  const [kpiOverId, setKpiOverId] = useState(null);
+  const opsKpiRef = useRef(null);
+  const kpiDragSessionRef = useRef(null);
+  const kpiDragIdRef = useRef(null);
+  const kpiOverIdRef = useRef(null);
+  const isCoarsePointer = useIsCoarsePointer();
+  const isPhoneLayout = useIsPhone();
+  const allowOpsTabDrag = !isCoarsePointer && !isPhoneLayout;
+  const allowOpsKpiDrag = allowOpsTabDrag;
+
+  function setOpsDraggingClass(on) {
+    const root = document.documentElement;
+    if (on) root.classList.add('map-ops-tabs-dragging');
+    else root.classList.remove('map-ops-tabs-dragging');
+  }
+
+  function setOpsDragState(nextDrag, nextOver) {
+    if (opsDragIdRef.current !== nextDrag) {
+      opsDragIdRef.current = nextDrag;
+      setOpsDragId(nextDrag);
+      setOpsDraggingClass(!!nextDrag);
+    }
+    if (opsOverIdRef.current !== nextOver) {
+      opsOverIdRef.current = nextOver;
+      setOpsOverId(nextOver);
+    }
+  }
+
+  function clearOpsTabDrag() {
+    const sess = opsDragSessionRef.current;
+    if (sess) {
+      if (sess.onMove || sess.onUp) {
+        window.removeEventListener('pointermove', sess.onMove, true);
+        window.removeEventListener('pointerup', sess.onUp, true);
+        window.removeEventListener('pointercancel', sess.onUp, true);
+      }
+      if (sess.target) {
+        try {
+          if (sess.target.hasPointerCapture?.(sess.pointerId)) {
+            sess.target.releasePointerCapture(sess.pointerId);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    opsDragSessionRef.current = null;
+    setOpsDragState(null, null);
+    setOpsDraggingClass(false);
+  }
+
+  function reorderOpsTabs(fromId, toId) {
+    if (!fromId || !toId || fromId === toId) return;
+    setOpsTabOrder((prev) => {
+      const next = [...prev];
+      const fromIdx = next.indexOf(fromId);
+      const toIdx = next.indexOf(toId);
+      if (fromIdx < 0 || toIdx < 0) return prev;
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, fromId);
+      writeOpsTabOrder(next);
+      return next;
+    });
+  }
+
+  function onOpsTabPointerDown(e, tabId) {
+    if (!allowOpsTabDrag || e.button !== 0) return;
+    if (opsDragSessionRef.current) return;
+
+    const target = e.currentTarget;
+    const pointerId = e.pointerId;
+    const session = {
+      id: tabId,
+      x: e.clientX,
+      y: e.clientY,
+      moved: false,
+      pointerId,
+      target,
+      onMove: null,
+      onUp: null,
+    };
+    opsDragSessionRef.current = session;
+
+    try {
+      target.setPointerCapture?.(pointerId);
+    } catch {
+      /* ignore */
+    }
+
+    const onMove = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      const start = opsDragSessionRef.current;
+      if (!start || start.id !== tabId) return;
+      if (!start.moved) {
+        if (
+          Math.abs(ev.clientX - start.x) < OPS_TAB_DRAG_THRESHOLD_PX &&
+          Math.abs(ev.clientY - start.y) < OPS_TAB_DRAG_THRESHOLD_PX
+        ) {
+          return;
+        }
+        start.moved = true;
+        setOpsDragState(tabId, opsTabIdFromPoint(ev.clientX, ev.clientY, opsTabsRef.current));
+        return;
+      }
+      const hit = opsTabIdFromPoint(ev.clientX, ev.clientY, opsTabsRef.current);
+      setOpsDragState(tabId, hit);
+    };
+
+    const onUp = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      const start = opsDragSessionRef.current;
+      if (start && start.id === tabId && start.moved) {
+        opsSuppressClickRef.current = true;
+        const hit = opsTabIdFromPoint(ev.clientX, ev.clientY, opsTabsRef.current);
+        if (hit) reorderOpsTabs(tabId, hit);
+      }
+      clearOpsTabDrag();
+    };
+
+    session.onMove = onMove;
+    session.onUp = onUp;
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onUp, true);
+  }
+
+  function setKpiDraggingClass(on) {
+    const root = document.documentElement;
+    if (on) root.classList.add('cc-ops-kpi-dragging');
+    else root.classList.remove('cc-ops-kpi-dragging');
+  }
+
+  function setKpiDragState(nextDrag, nextOver) {
+    if (kpiDragIdRef.current !== nextDrag) {
+      kpiDragIdRef.current = nextDrag;
+      setKpiDragId(nextDrag);
+      setKpiDraggingClass(!!nextDrag);
+    }
+    if (kpiOverIdRef.current !== nextOver) {
+      kpiOverIdRef.current = nextOver;
+      setKpiOverId(nextOver);
+    }
+  }
+
+  function clearOpsKpiDrag() {
+    const sess = kpiDragSessionRef.current;
+    if (sess) {
+      if (sess.onMove || sess.onUp) {
+        window.removeEventListener('pointermove', sess.onMove, true);
+        window.removeEventListener('pointerup', sess.onUp, true);
+        window.removeEventListener('pointercancel', sess.onUp, true);
+      }
+      if (sess.target) {
+        try {
+          if (sess.target.hasPointerCapture?.(sess.pointerId)) {
+            sess.target.releasePointerCapture(sess.pointerId);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    kpiDragSessionRef.current = null;
+    setKpiDragState(null, null);
+    setKpiDraggingClass(false);
+  }
+
+  function reorderOpsKpis(fromId, toId) {
+    if (!fromId || !toId || fromId === toId) return;
+    setOpsKpiOrder((prev) => {
+      const next = [...prev];
+      const fromIdx = next.indexOf(fromId);
+      const toIdx = next.indexOf(toId);
+      if (fromIdx < 0 || toIdx < 0) return prev;
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, fromId);
+      writeOpsKpiOrder(next);
+      return next;
+    });
+  }
+
+  function onOpsKpiPointerDown(e, kpiId) {
+    if (!allowOpsKpiDrag || e.button !== 0) return;
+    if (kpiDragSessionRef.current) return;
+
+    const target = e.currentTarget;
+    const pointerId = e.pointerId;
+    const session = {
+      id: kpiId,
+      x: e.clientX,
+      y: e.clientY,
+      moved: false,
+      pointerId,
+      target,
+      onMove: null,
+      onUp: null,
+    };
+    kpiDragSessionRef.current = session;
+
+    try {
+      target.setPointerCapture?.(pointerId);
+    } catch {
+      /* ignore */
+    }
+
+    const onMove = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      const start = kpiDragSessionRef.current;
+      if (!start || start.id !== kpiId) return;
+      if (!start.moved) {
+        if (
+          Math.abs(ev.clientX - start.x) < OPS_KPI_DRAG_THRESHOLD_PX &&
+          Math.abs(ev.clientY - start.y) < OPS_KPI_DRAG_THRESHOLD_PX
+        ) {
+          return;
+        }
+        start.moved = true;
+        setKpiDragState(kpiId, opsKpiIdFromPoint(ev.clientX, ev.clientY, opsKpiRef.current));
+        return;
+      }
+      const hit = opsKpiIdFromPoint(ev.clientX, ev.clientY, opsKpiRef.current);
+      setKpiDragState(kpiId, hit);
+    };
+
+    const onUp = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      const start = kpiDragSessionRef.current;
+      if (start && start.id === kpiId && start.moved) {
+        const hit = opsKpiIdFromPoint(ev.clientX, ev.clientY, opsKpiRef.current);
+        if (hit) reorderOpsKpis(kpiId, hit);
+      }
+      clearOpsKpiDrag();
+    };
+
+    session.onMove = onMove;
+    session.onUp = onUp;
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onUp, true);
+  }
+
   useLayoutEffect(() => {
     setOpsKpiHost(document.getElementById('cc-ops-kpi-host'));
     return () => setOpsKpiHost(null);
@@ -1208,6 +1719,38 @@ export default function DispatchMap({ session }) {
   useEffect(() => {
     writeOpsTab(opsTab);
   }, [opsTab]);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (opsDragSessionRef.current || opsDragIdRef.current) {
+        opsSuppressClickRef.current = true;
+        clearOpsTabDrag();
+      }
+      if (kpiDragSessionRef.current || kpiDragIdRef.current) {
+        clearOpsKpiDrag();
+      }
+    };
+    const onVis = () => {
+      if (document.visibilityState !== 'hidden') return;
+      if (opsDragSessionRef.current || opsDragIdRef.current) {
+        opsSuppressClickRef.current = true;
+        clearOpsTabDrag();
+      }
+      if (kpiDragSessionRef.current || kpiDragIdRef.current) {
+        clearOpsKpiDrag();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('visibilitychange', onVis);
+      clearOpsTabDrag();
+      clearOpsKpiDrag();
+    };
+    // Intencional: montaje/desmontaje; clear* usa refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const tile = MAP_LAYERS[mapLayer] || MAP_LAYERS.natural;
   const { sites: tacticalSites, visibleGroupIds, iconBlobs, layerBar: tacticalLayerBar } = useTacticalSites(
     session.token
@@ -1226,11 +1769,20 @@ export default function DispatchMap({ session }) {
   const visibleLocations = useMemo(() => {
     let list = locations;
     if (operatorFilterMode === 'group' && !operatorGroupIds.length) return [];
+    if (operatorFilterMode === 'operator') {
+      if (!operatorPersonIds.length) return [];
+      const allow = new Set(operatorPersonIds.map(String));
+      list = list.filter((loc) => allow.has(String(loc.userId)));
+    } else if (operatorFilterMode === 'group') {
+      // Ids explícitos (como Persona): vacío = ninguno en mapa.
+      if (!groupMemberUserIds.length) return [];
+      const allow = new Set(groupMemberUserIds.map(String));
+      list = list.filter((loc) => allow.has(String(loc.userId)));
+    }
     const allowed = visiblePresenceStatusIds({ showAway, showOffline });
     const statusSet = new Set(
       (presenceStatusIds || []).map(String).filter((id) => allowed.includes(id))
     );
-    // Sin checks = nadie; todos los permitidos = sin filtrar por estado.
     if (statusSet.size === 0) return [];
     if (statusSet.size < allowed.length) {
       const now = Date.now();
@@ -1256,6 +1808,8 @@ export default function DispatchMap({ session }) {
     locations,
     operatorFilterMode,
     operatorGroupIds,
+    operatorPersonIds,
+    groupMemberUserIds,
     presenceStatusIds,
     presenceByUser,
     offlineRedMinutes,
@@ -1271,17 +1825,6 @@ export default function DispatchMap({ session }) {
     mode: operatorFilterMode,
     groupIds: operatorGroupIds,
   };
-
-  const speakingNow = useMemo(() => {
-    return (overview?.channels || [])
-      .filter((c) => c.speaker)
-      .map((c) => ({
-        channelId: c.id,
-        channel: c.name,
-        userId: c.speaker.userId,
-        name: c.speaker.displayName,
-      }));
-  }, [overview]);
 
   const presenceLegendCounts = useMemo(() => {
     const enriched = visibleLocations.map((loc) => {
@@ -1316,11 +1859,29 @@ export default function DispatchMap({ session }) {
     storeOpsMapFilters({
       operatorFilterMode,
       operatorGroupIds,
+      operatorPersonIds,
+      groupMemberUserIds,
+      operatorPersonSeeded,
+      groupMemberSeeded,
+      operatorGroupSeeded,
       presenceStatusIds,
       trackUserIds,
-      trackHours,
+      trackFrom,
+      trackTo,
     });
-  }, [operatorFilterMode, operatorGroupIds, presenceStatusIds, trackUserIds, trackHours]);
+  }, [
+    operatorFilterMode,
+    operatorGroupIds,
+    operatorPersonIds,
+    groupMemberUserIds,
+    operatorPersonSeeded,
+    groupMemberSeeded,
+    operatorGroupSeeded,
+    presenceStatusIds,
+    trackUserIds,
+    trackFrom,
+    trackTo,
+  ]);
 
   // Si la org apaga amarillo/gris, quitar esos ids del filtro guardado.
   useEffect(() => {
@@ -1332,44 +1893,142 @@ export default function DispatchMap({ session }) {
     });
   }, [showAway, showOffline]);
 
-  // Validar grupos restaurados contra datos vivos (sin romper si aún no cargan).
+  // Validar grupos restaurados; 1.ª vez → todos marcados.
   useEffect(() => {
     if (!radioGroups.length) return;
+    const allIds = radioGroups.map((g) => String(g.id));
+    const valid = new Set(allIds);
+    if (!operatorGroupSeeded) {
+      setOperatorGroupIds(allIds);
+      setOperatorGroupSeeded(true);
+      return;
+    }
     setOperatorGroupIds((prev) => {
-      if (!prev.length) return prev;
-      const valid = new Set(radioGroups.map((g) => String(g.id)));
-      const next = prev.filter((id) => valid.has(String(id)));
+      const next = prev.map(String).filter((id) => valid.has(id));
+      return next.length === prev.length && next.every((id, i) => id === String(prev[i]))
+        ? prev
+        : next;
+    });
+  }, [radioGroups, operatorGroupSeeded]);
+
+  const routePeople = useMemo(() => sortLocationsByName(gpsPeople), [gpsPeople]);
+  /** Personas del grupo actual (GPS) para subfiltro en Por grupo. */
+  const groupPeople = useMemo(() => sortLocationsByName(locations), [locations]);
+  const showTrackHours = trackUserIds.length >= 1;
+
+  const orderedOpsTabs = useMemo(() => {
+    const defs = [
+      { id: 'sitios', label: 'Sitios' },
+      { id: 'operadores', label: 'Operadores' },
+      { id: 'ruta', label: 'Ruta' },
+      { id: 'geocerca', label: 'Geocerca' },
+    ];
+    const byId = new Map(defs.map((t) => [t.id, t]));
+    const next = [];
+    for (const id of opsTabOrder) {
+      const tab = byId.get(id);
+      if (tab) {
+        next.push(tab);
+        byId.delete(id);
+      }
+    }
+    for (const tab of defs) {
+      if (byId.has(tab.id)) next.push(tab);
+    }
+    return next;
+  }, [opsTabOrder]);
+
+  // Ruta: un solo id y solo si sigue en el universo GPS.
+  useEffect(() => {
+    if (!locationsHydrated) return;
+    const allowed = new Set(gpsPeople.map((l) => String(l.userId)));
+    setTrackUserIds((prev) => {
+      const next = prev.map(String).filter((id) => allowed.has(id)).slice(0, 1);
+      if (next.length === prev.length && next[0] === prev[0]) return prev;
+      return next;
+    });
+  }, [locationsHydrated, gpsPeople]);
+
+  // Por operador: 1.ª vez todos; luego solo podar ids inválidos (no borrar la elección).
+  useEffect(() => {
+    if (!locationsHydrated || !gpsPeople.length) return;
+    const allIds = gpsPeople.map((l) => String(l.userId));
+    const allowed = new Set(allIds);
+    if (!operatorPersonSeeded) {
+      setOperatorPersonIds(allIds);
+      setOperatorPersonSeeded(true);
+      return;
+    }
+    setOperatorPersonIds((prev) => {
+      const next = prev.filter((id) => allowed.has(String(id)));
       return next.length === prev.length ? prev : next;
     });
-  }, [radioGroups]);
+  }, [locationsHydrated, gpsPeople, operatorPersonSeeded]);
 
-  const routePeople = useMemo(
-    () => sortLocationsByName(visibleLocations),
-    [visibleLocations]
-  );
-
-  /** «Ruta» solo cuando el modo ya tiene grupo(s) elegidos (o Todos). */
-  const canPickRoutes = hasOperatorSelection(operatorFilterMode, operatorGroupIds);
-  const showTrackHours = canPickRoutes && trackUserIds.length >= 1;
-
-  // Al ocultar «Ruta» (cambio de modo o selección vacía) soltar las rutas para
-  // que no queden trazos fantasma sin control visible en la barra.
+  // Por grupo «En grupo»: 1.ª vez todos; vacío = ninguno; Marcar/Desmarcar con ids explícitos.
+  const groupPeopleUniverseRef = useRef([]);
   useEffect(() => {
-    if (canPickRoutes) return;
-    setTrackUserIds((prev) => (prev.length ? [] : prev));
-  }, [canPickRoutes]);
+    if (!locationsHydrated || operatorFilterMode !== 'group') return;
+    if (!operatorGroupIds.length || !groupPeople.length) return;
+    const allIds = groupPeople.map((l) => String(l.userId));
+    const allowed = new Set(allIds);
+    const prevUniverse = groupPeopleUniverseRef.current;
+    groupPeopleUniverseRef.current = allIds;
 
-  // Si la pestaña Ruta queda bloqueada (sin operadores), volver a Operadores.
-  useEffect(() => {
-    if (opsTab === 'ruta' && !canPickRoutes) setOpsTab('operadores');
-  }, [opsTab, canPickRoutes]);
+    if (!groupMemberSeeded) {
+      setGroupMemberUserIds(allIds);
+      setGroupMemberSeeded(true);
+      return;
+    }
+
+    setGroupMemberUserIds((prev) => {
+      const prevStr = prev.map(String);
+      const wasAll =
+        prevUniverse.length > 0 &&
+        prevStr.length === prevUniverse.length &&
+        prevUniverse.every((id) => prevStr.includes(String(id)));
+      if (wasAll) {
+        const same =
+          allIds.length === prevStr.length && allIds.every((id) => prevStr.includes(id));
+        return same ? prev : allIds;
+      }
+      const next = prevStr.filter((id) => allowed.has(id));
+      if (next.length === prevStr.length && next.every((id, i) => id === prevStr[i])) {
+        return prev;
+      }
+      return next;
+    });
+  }, [
+    locationsHydrated,
+    groupPeople,
+    operatorFilterMode,
+    operatorGroupIds,
+    groupMemberSeeded,
+  ]);
 
   useEffect(() => {
     if (fenceFormOpen) setOpsTab('geocerca');
   }, [fenceFormOpen]);
 
   function openFenceForm() {
-    setDraft({ name: '', centerLat: '', centerLng: '', radiusM: 200 });
+    setEditingFenceId('');
+    setDraft(emptyFenceDraft());
+    setFixOnMap(false);
+    setError('');
+    setFenceFormOpen(true);
+    setOpsTab('geocerca');
+  }
+
+  function openFenceEdit(g) {
+    if (!g) return;
+    setEditingFenceId(String(g.id));
+    setDraft({
+      name: String(g.name || ''),
+      centerLat: formatFenceCoord(g.centerLat),
+      centerLng: formatFenceCoord(g.centerLng),
+      radiusM: formatRadiusM(g.radiusM != null ? g.radiusM : 200) || '200',
+      color: fenceColorOrDefault(g.color),
+    });
     setFixOnMap(false);
     setError('');
     setFenceFormOpen(true);
@@ -1379,43 +2038,63 @@ export default function DispatchMap({ session }) {
   function closeFenceForm() {
     setFenceFormOpen(false);
     setFixOnMap(false);
-    setDraft({ name: '', centerLat: '', centerLng: '', radiusM: 200 });
+    setEditingFenceId('');
+    setDraft(emptyFenceDraft());
   }
 
-  useEffect(() => {
-    if (!locationsHydrated) return;
-    setTrackUserIds((prev) => {
-      if (!prev.length) return prev;
-      const allowed = new Set(visibleLocations.map((l) => l.userId));
-      const next = prev.filter((id) => allowed.has(id));
-      return next.length === prev.length ? prev : next;
+  /** Paridad Sitios: muta la bolita (índice) + selecciona ese color en el draft. */
+  function paintFenceLiveColor(hex) {
+    const color = normalizeFenceHex(hex);
+    if (!color) return null;
+    const idx = fenceColorEditIndexRef.current;
+    setDraft((d) => ({ ...d, color }));
+    setFencePalette((prev) => {
+      const next = [...prev];
+      next[idx] = color;
+      saveFencePalette(next);
+      return next;
     });
-  }, [locationsHydrated, visibleLocations]);
+    return color;
+  }
 
-  const exitMaximize = useCallback(() => {
-    setMaximized(false);
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
+  /** Doble clic en bolita → paleta nativa (sin cuadro intermedio). */
+  function openFenceColorPalette(index, hex) {
+    fenceColorEditIndexRef.current = index;
+    setDraft((d) => ({ ...d, color: hex }));
+    const input = fenceColorInputRef.current;
+    if (!input) return;
+    input.value = fenceColorOrDefault(hex);
+    try {
+      input.focus({ preventScroll: true });
+    } catch {
+      /* ignore */
     }
-  }, []);
+    try {
+      if (typeof input.showPicker === 'function') {
+        input.showPicker();
+        return;
+      }
+    } catch {
+      /* fallback click */
+    }
+    try {
+      input.click();
+    } catch {
+      /* ignore */
+    }
+  }
 
-  const enterMaximize = useCallback(() => {
-    // Solo CSS fixed (.map-page--maximized): requestFullscreen congela el mapa ~1–2s.
-    setMaximized(true);
-  }, []);
+  function onFencePaletteColorInput(e) {
+    paintFenceLiveColor(e.target.value);
+  }
 
-  const toggleMaximize = useCallback(() => {
-    if (maximized) exitMaximize();
-    else enterMaximize();
-  }, [maximized, enterMaximize, exitMaximize]);
+  // Ruta = gpsPeople; no podar trackUserIds contra visibleLocations (filtro de pines).
 
-  useEffect(() => {
-    const onFs = () => {
-      if (!document.fullscreenElement) setMaximized(false);
-    };
-    document.addEventListener('fullscreenchange', onFs);
-    return () => document.removeEventListener('fullscreenchange', onFs);
-  }, []);
+  const { enterMaximize, exitMaximize, toggleMaximize } = useMapViewportMaximize(
+    pageRef,
+    maximized,
+    setMaximized
+  );
 
   useEffect(() => {
     const el = pageRef.current;
@@ -1473,93 +2152,129 @@ export default function DispatchMap({ session }) {
         const filter = operatorFilterRef.current;
         const needsGroup = filter.mode === 'group';
         const groupReady = needsGroup && Array.isArray(filter.groupIds) && filter.groupIds.length > 0;
-        const locOpts = groupReady ? { groupIds: filter.groupIds } : {};
-        const [loc, ov, gf, panic] = await Promise.all([
-          groupReady || !needsGroup
-            ? fetchLocations(session.token, locOpts)
-            : Promise.resolve({ locations: [] }),
+        // allSettled: un fallo de GPS/overview no descarta geocercas (ni al revés).
+        const [allLocR, pinLocR, ovR, gfR, panicR] = await Promise.allSettled([
+          fetchLocations(session.token),
+          needsGroup
+            ? groupReady
+              ? fetchLocations(session.token, { groupIds: filter.groupIds })
+              : Promise.resolve({ locations: [] })
+            : Promise.resolve(null),
           fetchOverview(session.token),
           fetchGeofences(session.token),
-          fetchPanicEvents(session.token, { status: 'active' }).catch(() => ({ events: [] })),
+          fetchPanicEvents(session.token, { status: 'active' }),
         ]);
         if (cancelled) return;
-        failStreak = 0;
-        const incoming = loc.locations || [];
-        setLocations((prev) => {
-          if (needsGroup && !groupReady) return [];
-          const merged = mergeLocations(prev, incoming);
-          if (groupReady) {
-            const allowed = new Set(incoming.map((l) => l.userId));
-            return merged.filter((l) => allowed.has(l.userId));
-          }
-          return merged;
-        });
-        setLocationsHydrated(true);
-        setOverview(ov.overview || null);
-        const ids = new Set();
-        const byUser = { ...(ov.overview?.presence || {}) };
-        (ov.overview?.channels || []).forEach((c) => {
-          (c.online || []).forEach((m) => {
-            ids.add(m.userId);
-            if (!byUser[m.userId]) {
-              byUser[m.userId] = {
-                userId: m.userId,
-                focus: m.focus,
-                status: resolvePresenceStatus({ focus: m.focus }),
+
+        const settledOk = [allLocR, ovR, gfR].some((r) => r.status === 'fulfilled');
+        if (settledOk) failStreak = 0;
+        else {
+          failStreak += 1;
+          const reason =
+            allLocR.status === 'rejected'
+              ? allLocR.reason
+              : ovR.status === 'rejected'
+                ? ovR.reason
+                : gfR.status === 'rejected'
+                  ? gfR.reason
+                  : null;
+          if (failStreak >= 3 && reason) setError(reason.message || String(reason));
+          return;
+        }
+
+        // Geocercas: solo aplicar si el GET OK; error transitorio no vacía la lista.
+        if (gfR.status === 'fulfilled') {
+          setGeofences((gfR.value?.geofences || []).filter((g) => g.isActive !== false));
+        }
+
+        const allLoc = allLocR.status === 'fulfilled' ? allLocR.value : null;
+        const pinLoc = pinLocR.status === 'fulfilled' ? pinLocR.value : null;
+        const ov = ovR.status === 'fulfilled' ? ovR.value : null;
+        if (allLoc) {
+          const universe = allLoc.locations || [];
+          setGpsPeople((prev) => mergeLocations(prev, universe));
+          const incoming = needsGroup ? pinLoc?.locations || [] : universe;
+          setLocations((prev) => {
+            if (needsGroup && !groupReady) return [];
+            const merged = mergeLocations(prev, incoming);
+            if (groupReady) {
+              const allowed = new Set(incoming.map((l) => l.userId));
+              return merged.filter((l) => allowed.has(l.userId));
+            }
+            return merged;
+          });
+          setLocationsHydrated(true);
+          if (ov) setOverview(ov.overview || null);
+          const ids = new Set();
+          const byUser = { ...(ov?.overview?.presence || {}) };
+          (ov?.overview?.channels || []).forEach((c) => {
+            (c.online || []).forEach((m) => {
+              ids.add(m.userId);
+              if (!byUser[m.userId]) {
+                byUser[m.userId] = {
+                  userId: m.userId,
+                  focus: m.focus,
+                  status: resolvePresenceStatus({ focus: m.focus }),
+                };
+              }
+            });
+          });
+          incoming.forEach((row) => {
+            if (row.presence || row.focus) {
+              byUser[row.userId] = {
+                ...(byUser[row.userId] || {}),
+                userId: row.userId,
+                focus: row.focus || byUser[row.userId]?.focus,
+                awaySince: row.awaySince ?? byUser[row.userId]?.awaySince ?? null,
+                status:
+                  row.presence ||
+                  resolvePresenceStatus({
+                    focus: row.focus,
+                    awaySince: row.awaySince,
+                    lastSeenAt: row.lastSeenAt,
+                    recordedAt: row.recordedAt,
+                    offlineRedMinutes:
+                      allLoc.presenceOfflineRedMinutes ??
+                      ov?.overview?.presenceOfflineRedMinutes ??
+                      15,
+                    absenceMinutes:
+                      allLoc.presenceAbsenceMinutes ??
+                      ov?.overview?.presenceAbsenceMinutes ??
+                      15,
+                    showAway:
+                      allLoc.presenceShowAway ?? ov?.overview?.presenceShowAway ?? true,
+                    showOffline:
+                      allLoc.presenceShowOffline ?? ov?.overview?.presenceShowOffline ?? true,
+                  }),
+                lastSeenAt: row.lastSeenAt,
               };
             }
           });
-        });
-        incoming.forEach((row) => {
-          if (row.presence || row.focus) {
-            byUser[row.userId] = {
-              ...(byUser[row.userId] || {}),
-              userId: row.userId,
-              focus: row.focus || byUser[row.userId]?.focus,
-              awaySince: row.awaySince ?? byUser[row.userId]?.awaySince ?? null,
-              status:
-                row.presence ||
-                resolvePresenceStatus({
-                  focus: row.focus,
-                  awaySince: row.awaySince,
-                  lastSeenAt: row.lastSeenAt,
-                  recordedAt: row.recordedAt,
-                  offlineRedMinutes:
-                    loc.presenceOfflineRedMinutes ??
-                    ov.overview?.presenceOfflineRedMinutes ??
-                    15,
-                  absenceMinutes:
-                    loc.presenceAbsenceMinutes ??
-                    ov.overview?.presenceAbsenceMinutes ??
-                    15,
-                  showAway:
-                    loc.presenceShowAway ?? ov.overview?.presenceShowAway ?? true,
-                  showOffline:
-                    loc.presenceShowOffline ?? ov.overview?.presenceShowOffline ?? true,
-                }),
-              lastSeenAt: row.lastSeenAt,
-            };
-          }
-        });
-        setOnlineIds(ids);
-        setPresenceByUser(byUser);
-        setOfflineRedMinutes(
-          loc.presenceOfflineRedMinutes ?? ov.overview?.presenceOfflineRedMinutes ?? 15
-        );
-        if (loc.presenceAbsenceMinutes != null || ov.overview?.presenceAbsenceMinutes != null) {
-          setAbsenceMinutes(
-            Number(loc.presenceAbsenceMinutes ?? ov.overview?.presenceAbsenceMinutes) || 0
+          setOnlineIds(ids);
+          setPresenceByUser(byUser);
+          setOfflineRedMinutes(
+            allLoc.presenceOfflineRedMinutes ?? ov?.overview?.presenceOfflineRedMinutes ?? 15
           );
+          if (
+            allLoc.presenceAbsenceMinutes != null ||
+            ov?.overview?.presenceAbsenceMinutes != null
+          ) {
+            setAbsenceMinutes(
+              Number(allLoc.presenceAbsenceMinutes ?? ov?.overview?.presenceAbsenceMinutes) || 0
+            );
+          }
+          const nextShowAway = allLoc.presenceShowAway ?? ov?.overview?.presenceShowAway;
+          const nextShowOffline = allLoc.presenceShowOffline ?? ov?.overview?.presenceShowOffline;
+          if (nextShowAway != null) setShowAway(nextShowAway !== false);
+          if (nextShowOffline != null) setShowOffline(nextShowOffline !== false);
+        } else if (ov) {
+          setOverview(ov.overview || null);
         }
-        const nextShowAway = loc.presenceShowAway ?? ov.overview?.presenceShowAway;
-        const nextShowOffline = loc.presenceShowOffline ?? ov.overview?.presenceShowOffline;
-        if (nextShowAway != null) setShowAway(nextShowAway !== false);
-        if (nextShowOffline != null) setShowOffline(nextShowOffline !== false);
-        setGeofences((gf.geofences || []).filter((g) => g.isActive !== false));
-        {
+
+        if (panicR.status === 'fulfilled') {
           const next = new Set();
           const idMap = new Map();
-          (panic.events || []).forEach((e) => {
+          (panicR.value?.events || []).forEach((e) => {
             if (e.userId) {
               next.add(e.userId);
               if (e.id) idMap.set(e.id, e.userId);
@@ -1705,6 +2420,40 @@ export default function DispatchMap({ session }) {
   }, [session.token]);
 
   const trackIdsKey = trackUserIds.join(',');
+  const trackRange = useMemo(() => {
+    const from = new Date(trackFrom);
+    const to = new Date(trackTo);
+    return clampTrackRange(
+      Number.isNaN(from.getTime()) ? new Date(Date.now() - 8 * 3600 * 1000) : from,
+      Number.isNaN(to.getTime()) ? new Date() : to
+    );
+  }, [trackFrom, trackTo]);
+
+  function applyTrackRange(next) {
+    const clamped =
+      next?.from && next?.to
+        ? clampTrackRange(next.from, next.to)
+        : clampTrackRange(next, trackRange.to);
+    trackRangeTouchedRef.current = true;
+    setTrackFrom(clamped.from.toISOString());
+    setTrackTo(clamped.to.toISOString());
+  }
+
+  /** Pin «Ver ruta»: selecciona 1 operador en Ruta; conserva periodo o usa hoy 00:00→ahora. */
+  function selectRouteFromPin(userId) {
+    const id = String(userId);
+    setOpsTab('ruta');
+    setTrackUserIds((prev) => {
+      if (prev.length === 1 && prev[0] === id) return [];
+      if (!prev.length && !trackRangeTouchedRef.current) {
+        const now = new Date();
+        const day = clampTrackRange(startOfDay(now), now);
+        setTrackFrom(day.from.toISOString());
+        setTrackTo(day.to.toISOString());
+      }
+      return [id];
+    });
+  }
 
   useEffect(() => {
     if (!trackUserIds.length) {
@@ -1713,12 +2462,16 @@ export default function DispatchMap({ session }) {
     }
     let cancelled = false;
     const ids = [...trackUserIds];
+    const clamped = clampTrackRange(new Date(trackFrom), new Date(trackTo));
+    const fromIso = clamped.from.toISOString();
+    const toIso = clamped.to.toISOString();
+    const spanH = clamped.spanHours;
     const loadTracks = () => {
       if (cancelled || document.hidden) return;
       Promise.all(
         ids.map(async (uid) => {
           try {
-            const data = await fetchUserTrack(session.token, uid, trackHours);
+            const data = await fetchUserTrack(session.token, uid, { from: fromIso, to: toIso });
             return [uid, data.points || []];
           } catch {
             return [uid, []];
@@ -1729,7 +2482,7 @@ export default function DispatchMap({ session }) {
       });
     };
     loadTracks();
-    const t = setInterval(loadTracks, trackPollMs(trackHours));
+    const t = setInterval(loadTracks, trackPollMsForSpan(spanH));
     const onVis = () => {
       if (!document.hidden) loadTracks();
     };
@@ -1739,7 +2492,7 @@ export default function DispatchMap({ session }) {
       clearInterval(t);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [session.token, trackIdsKey, trackHours]);
+  }, [session.token, trackIdsKey, trackFrom, trackTo]);
 
   const trackPolylines = useMemo(() => {
     return trackUserIds
@@ -1777,15 +2530,7 @@ export default function DispatchMap({ session }) {
 
   const draftCenter = draftFenceCenter(draft);
 
-  function toggleTrackUser(userId) {
-    const id = String(userId);
-    setTrackUserIds((prev) => {
-      if (prev.includes(id)) return prev.filter((x) => x !== id);
-      return [...prev, id];
-    });
-  }
-
-  async function handleCreateFence(e) {
+  async function handleSaveFence(e) {
     e.preventDefault();
     const parsed = parseFenceLatLng(draft.centerLat, draft.centerLng);
     if (!parsed.ok) {
@@ -1798,14 +2543,20 @@ export default function DispatchMap({ session }) {
       }
       return;
     }
+    const body = {
+      name: draft.name.trim() || 'Zona',
+      centerLat: parsed.lat,
+      centerLng: parsed.lng,
+      radiusM: parseRadiusM(draft.radiusM) || 200,
+      color: fenceColorOrDefault(draft.color),
+    };
     setBusy(true);
     try {
-      await createGeofence(session.token, {
-        name: draft.name.trim() || 'Zona',
-        centerLat: parsed.lat,
-        centerLng: parsed.lng,
-        radiusM: Number(draft.radiusM) || 200,
-      });
+      if (editingFenceId) {
+        await updateGeofence(session.token, editingFenceId, body);
+      } else {
+        await createGeofence(session.token, body);
+      }
       closeFenceForm();
       await reloadFences();
       setError('');
@@ -1836,73 +2587,203 @@ export default function DispatchMap({ session }) {
     }
   }
 
+  const kpiById = {
+    channels: {
+      value: overview?.groupsCount ?? '—',
+      label: 'Grupos',
+      className: '',
+    },
+    gps: {
+      value: visibleLocations.length,
+      label: 'Operadores',
+      className: '',
+    },
+    geofences: {
+      value: geofences.length,
+      label: 'Geocercas',
+      className: '',
+    },
+    alerts: {
+      value: panicUserIds.size,
+      label: 'Alertas',
+      className: panicUserIds.size ? ' hot panic' : '',
+    },
+  };
+
   const opsKpi = (
-    <div className="cc-kpi ops-console-kpi" aria-label="Indicadores de operaciones">
-      <div className={`cc-kpi-item${speakingNow.length ? ' hot' : ''}`}>
-        <strong>{speakingNow.length}</strong>
-        <span>Al aire ahora</span>
-      </div>
-      <div className="cc-kpi-item">
-        <strong>{overview?.groupsCount ?? '—'}</strong>
-        <span>Canales</span>
-      </div>
-      <div className="cc-kpi-item">
-        <strong>{visibleLocations.length}</strong>
-        <span>Con GPS</span>
-      </div>
-      <div className="cc-kpi-item">
-        <strong>{geofences.length}</strong>
-        <span>Geocercas</span>
-      </div>
-      <div className={`cc-kpi-item${panicUserIds.size ? ' hot panic' : ''}`}>
-        <strong>{panicUserIds.size}</strong>
-        <span>Alertas activas</span>
-      </div>
+    <div
+      ref={opsKpiRef}
+      className="cc-kpi ops-console-kpi"
+      aria-label="Indicadores de operaciones"
+    >
+      {opsKpiOrder.map((id) => {
+        const item = kpiById[id];
+        if (!item) return null;
+        const dragging = kpiDragId === id;
+        const over = kpiOverId === id && kpiDragId && kpiOverId !== kpiDragId;
+        return (
+          <div
+            key={id}
+            data-ops-kpi-id={id}
+            title={allowOpsKpiDrag ? `${item.label} · Arrastrar para reordenar` : item.label}
+            className={[
+              'cc-kpi-item',
+              item.className.trim(),
+              allowOpsKpiDrag ? 'is-draggable' : '',
+              dragging ? 'is-dragging' : '',
+              over ? 'is-drag-over' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            onPointerDown={(e) => onOpsKpiPointerDown(e, id)}
+          >
+            <strong>{item.value}</strong>
+            <span>{item.label}</span>
+          </div>
+        );
+      })}
     </div>
   );
+
+  function setOpsChrome(open) {
+    const next = Boolean(open);
+    setOpsChromeOpen(next);
+    writeOpsChromeOpen(next);
+  }
+
+  /*
+   * Tras reparent a body (useMapViewportMaximize), los onClick de React 17+
+   * dejan de llegar: la delegación vive en #root y el page ya no es descendiente.
+   * Delegación nativa en el propio page (Ocultar/Mostrar panel + pestañas ops
+   * + estilo de mapa .lt-layers).
+   */
+  useEffect(() => {
+    const el = pageRef.current;
+    if (!el || !maximized) return undefined;
+    const onNativeOpsClick = (e) => {
+      const chromeBtn = e.target?.closest?.('[data-ops-chrome]');
+      if (chromeBtn && el.contains(chromeBtn)) {
+        const raw = chromeBtn.getAttribute('data-ops-chrome');
+        if (raw === '0' || raw === '1') {
+          e.preventDefault();
+          setOpsChrome(raw === '1');
+          return;
+        }
+      }
+      const layerBtn = e.target?.closest?.('[data-map-layer]');
+      if (layerBtn && el.contains(layerBtn)) {
+        const layerKey = layerBtn.getAttribute('data-map-layer');
+        if (layerKey && MAP_LAYERS[layerKey]) {
+          e.preventDefault();
+          setMapLayer(layerKey);
+          return;
+        }
+      }
+      const tabBtn = e.target?.closest?.('[data-ops-tab-id]');
+      if (!tabBtn || !el.contains(tabBtn) || tabBtn.disabled) return;
+      if (opsSuppressClickRef.current) {
+        opsSuppressClickRef.current = false;
+        return;
+      }
+      const tabId = tabBtn.getAttribute('data-ops-tab-id');
+      if (!OPS_TAB_IDS.has(tabId)) return;
+      e.preventDefault();
+      setOpsTab(tabId);
+    };
+    el.addEventListener('click', onNativeOpsClick);
+    return () => el.removeEventListener('click', onNativeOpsClick);
+  }, [maximized]);
 
   return (
     <div
       ref={pageRef}
-      className={`dispatch-page map-page map-page--fill ops-console${maximized ? ' map-page--maximized' : ''}`}
+      className={[
+        'dispatch-page',
+        'map-page',
+        'map-page--fill',
+        'ops-console',
+        maximized ? 'map-page--maximized' : '',
+        /*
+         * Al maximizar, useMapViewportMaximize reparenta este nodo a body.
+         * Las reglas `.cc-shell .map-*` dejan de aplicar sin ancestro shell;
+         * marcamos el page como `.cc-shell` solo en maximizado (mismo patrón
+         * que documenta command-center.css para body > .map-page--maximized).
+         */
+        maximized ? 'cc-shell' : '',
+        /* Colapso visual solo con CSS .map-page--maximized.map-page--ops-collapsed */
+        maximized && !opsChromeOpen ? 'map-page--ops-collapsed' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       data-esc-close={maximized ? '' : undefined}
     >
       {opsKpiHost ? createPortal(opsKpi, opsKpiHost) : null}
 
-      <div className="map-toolbar map-toolbar--spread map-toolbar--ops map-toolbar--ops-tabs">
-        <div className="map-ops-tabs" role="tablist" aria-label="Controles del mapa">
-          {[
-            { id: 'sitios', label: 'Sitios' },
-            { id: 'operadores', label: 'Operadores' },
-            { id: 'ruta', label: 'Ruta', disabled: !canPickRoutes },
-            { id: 'geocerca', label: 'Geocerca' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              id={`map-ops-tab-${tab.id}`}
-              aria-selected={opsTab === tab.id}
-              aria-controls={`map-ops-panel-${tab.id}`}
-              disabled={Boolean(tab.disabled)}
-              title={
-                tab.id === 'ruta' && !canPickRoutes
-                  ? 'Elige operadores primero'
-                  : tab.label
-              }
-              className={`map-ops-tab${opsTab === tab.id ? ' is-active' : ''}`}
-              onClick={() => setOpsTab(tab.id)}
-            >
-              <OpsTabIcon name={tab.id} />
-              <span>{tab.label}</span>
-            </button>
-          ))}
+      <div
+        id="map-ops-toolbar"
+        className="map-toolbar map-toolbar--spread map-toolbar--ops map-toolbar--ops-tabs"
+        hidden={maximized && !opsChromeOpen}
+        aria-hidden={maximized && !opsChromeOpen ? true : undefined}
+        style={maximized && !opsChromeOpen ? { display: 'none' } : undefined}
+      >
+        <div className="map-ops-tabs-row">
+          <div
+            ref={opsTabsRef}
+            className="map-ops-tabs"
+            role="tablist"
+            aria-label="Controles del mapa"
+          >
+            {orderedOpsTabs.map((tab) => {
+              const dragging = opsDragId === tab.id;
+              const over = opsOverId === tab.id && opsDragId && opsOverId !== opsDragId;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  id={`map-ops-tab-${tab.id}`}
+                  data-ops-tab-id={tab.id}
+                  aria-selected={opsTab === tab.id}
+                  aria-controls={`map-ops-panel-${tab.id}`}
+                  disabled={Boolean(tab.disabled)}
+                  title={
+                    allowOpsTabDrag
+                      ? `${tab.label} · Arrastrar para reordenar`
+                      : tab.label
+                  }
+                  className={[
+                    'map-ops-tab',
+                    opsTab === tab.id ? 'is-active' : '',
+                    allowOpsTabDrag && !tab.disabled ? 'is-draggable' : '',
+                    dragging ? 'is-dragging' : '',
+                    over ? 'is-drag-over' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  onClick={() => {
+                    if (opsSuppressClickRef.current) {
+                      opsSuppressClickRef.current = false;
+                      return;
+                    }
+                    setOpsTab(tab.id);
+                  }}
+                  onPointerDown={(e) => {
+                    if (tab.disabled) return;
+                    onOpsTabPointerDown(e, tab.id);
+                  }}
+                >
+                  <OpsTabIcon name={tab.id} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="map-ops-panels">
           {opsTab === 'sitios' ? (
             <div
-              className="map-ops-panel"
+              className="map-ops-panel map-ops-panel--row"
               role="tabpanel"
               id="map-ops-panel-sitios"
               aria-labelledby="map-ops-tab-sitios"
@@ -1918,26 +2799,69 @@ export default function DispatchMap({ session }) {
               id="map-ops-panel-operadores"
               aria-labelledby="map-ops-tab-operadores"
             >
-              <label className="map-field">
-                <span>Operadores</span>
+              <label className="map-field map-field--ops-primary">
+                <span className="map-field-label-row">
+                  Operadores
+                  <span
+                    className="cc-ms-hint map-ops-field-hint"
+                    title="Solo operadores que ya compartieron ubicación (GPS) al menos una vez. Quien nunca apareció en el mapa no sale en estos listados."
+                  >
+                    ?
+                  </span>
+                </span>
                 <select
-                  value={operatorFilterMode}
+                  value={operatorFilterMode === 'group' ? 'group' : 'operator'}
                   onFocus={() => claimMsPanel('native-op-mode')}
                   onChange={(e) => {
                     const next = e.target.value;
-                    setOperatorFilterMode(next === 'group' ? 'group' : 'all');
+                    const mode = next === 'group' ? 'group' : 'operator';
+                    // No borrar Persona/Grupo: cada modo conserva su selección.
+                    setOperatorFilterMode(mode);
                   }}
                 >
-                  <option value="all">Todos</option>
+                  <option value="operator">Por operador</option>
                   <option value="group">Por grupo</option>
                 </select>
               </label>
-              {operatorFilterMode === 'group' ? (
-                <OperatorGroupMultiSelect
-                  groups={radioGroups}
-                  selectedIds={operatorGroupIds}
-                  onChange={setOperatorGroupIds}
+              {operatorFilterMode === 'operator' ? (
+                <RouteTrackPicker
+                  fieldLabel="Persona"
+                  people={routePeople}
+                  selectedIds={operatorPersonIds}
+                  onChange={(ids) => {
+                    setOperatorPersonIds(ids);
+                    setOperatorPersonSeeded(true);
+                  }}
+                  emptyMeansAll={false}
+                  emptyMessage="Aún no hay operadores con GPS en el mapa"
+                  hintTitle="Marca quién ver en el mapa. Solo quienes ya compartieron GPS. Ascendente/Descendente ordena. La selección se guarda en este navegador."
                 />
+              ) : null}
+              {operatorFilterMode === 'group' ? (
+                <>
+                  <OperatorGroupMultiSelect
+                    groups={radioGroups}
+                    selectedIds={operatorGroupIds}
+                    onChange={(ids) => {
+                      setOperatorGroupIds(ids);
+                      setOperatorGroupSeeded(true);
+                    }}
+                  />
+                  {operatorGroupIds.length ? (
+                    <RouteTrackPicker
+                      fieldLabel="En grupo"
+                      people={groupPeople}
+                      selectedIds={groupMemberUserIds}
+                      onChange={(ids) => {
+                        setGroupMemberUserIds(ids);
+                        setGroupMemberSeeded(true);
+                      }}
+                      emptyMeansAll={false}
+                      emptyMessage="Sin GPS en los grupos elegidos"
+                      hintTitle="Marca quién ver del grupo. Solo quienes ya compartieron GPS. Ascendente/Descendente ordena. La selección se guarda en este navegador."
+                    />
+                  ) : null}
+                </>
               ) : null}
               <PresenceStatusMultiSelect
                 selectedIds={presenceStatusIds}
@@ -1950,36 +2874,47 @@ export default function DispatchMap({ session }) {
 
           {opsTab === 'ruta' ? (
             <div
-              className="map-ops-panel map-ops-panel--row"
+              className="map-ops-panel map-ops-panel--row map-ops-panel--ruta"
               role="tabpanel"
               id="map-ops-panel-ruta"
               aria-labelledby="map-ops-tab-ruta"
             >
-              {canPickRoutes ? (
+              <RouteTrackPicker
+                fieldLabel="Ruta"
+                people={routePeople}
+                selectedIds={trackUserIds}
+                onChange={(ids) => {
+                  const next = ids.slice(0, 1);
+                  if (next.length) trackRangeTouchedRef.current = true;
+                  setTrackUserIds(next);
+                }}
+                singleSelect
+                emptyMessage="Sin operadores con GPS registrado"
+                hintTitle="Selecciona un operador y pulsa Aceptar (o cierra el panel: se conserva lo marcado). Solo quien ya compartió GPS. Historial hasta 30 días."
+              />
+              {showTrackHours ? (
                 <>
-                  <RouteTrackPicker
-                    people={routePeople}
-                    selectedIds={trackUserIds}
-                    onChange={setTrackUserIds}
-                  />
-                  {showTrackHours ? (
-                    <label className="map-field">
-                      <span>Horas</span>
-                      <select
-                        value={trackHours}
-                        onFocus={() => claimMsPanel('native-track-hours')}
-                        onChange={(e) => setTrackHours(parseInt(e.target.value, 10))}
-                      >
-                        <option value={2}>2</option>
-                        <option value={8}>8</option>
-                        <option value={24}>24</option>
-                        <option value={48}>48</option>
-                      </select>
-                    </label>
-                  ) : null}
+                  <TrackRangePicker from={trackRange.from} to={trackRange.to} onChange={applyTrackRange} />
+                  <label
+                    className={`map-fix-toggle map-fix-toggle--probable${
+                      showProbableRoute ? ' is-on' : ''
+                    }`}
+                    title="Rellena huecos sin GPS con ruta probable (calles o estimado). Si se desactiva, solo se ve la ruta recorrida."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={showProbableRoute}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setShowProbableRoute(on);
+                        storeShowProbableRoute(on);
+                      }}
+                    />
+                    <span>Ruta probable</span>
+                  </label>
                 </>
               ) : (
-                <p className="map-ops-hint muted">Elige operadores primero.</p>
+                <p className="map-ops-hint muted">Selecciona un operador para ver su historial.</p>
               )}
             </div>
           ) : null}
@@ -2000,6 +2935,7 @@ export default function DispatchMap({ session }) {
                       fences={geofences}
                       selectedIds={visibleGeofenceIds}
                       onChange={setVisibleGeofenceIds}
+                      onEdit={openFenceEdit}
                       onDelete={handleDeleteFence}
                       busy={busy}
                     />
@@ -2009,7 +2945,7 @@ export default function DispatchMap({ session }) {
                   </button>
                 </>
               ) : (
-                <form className="geofence-form geofence-form--in-panel" onSubmit={handleCreateFence}>
+                <form className="geofence-form geofence-form--in-panel" onSubmit={handleSaveFence}>
                   <label className="map-field">
                     <span>Nombre</span>
                     <input
@@ -2047,13 +2983,57 @@ export default function DispatchMap({ session }) {
                   <label className="map-field map-field--radius">
                     <span>Radio (m)</span>
                     <input
-                      type="number"
-                      min={10}
-                      max={50000}
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      spellCheck={false}
                       value={draft.radiusM}
-                      onChange={(e) => setDraft((d) => ({ ...d, radiusM: e.target.value }))}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/[^\d]/g, '');
+                        setDraft((d) => ({
+                          ...d,
+                          radiusM: digits ? Number(digits).toLocaleString('es-MX') : '',
+                        }));
+                      }}
+                      aria-label="Radio en metros"
                     />
                   </label>
+                  <div className="map-field map-field--color">
+                    <span>Color</span>
+                    <div className="cc-tactical-colors" role="group" aria-label="Color en mapa">
+                      {fencePalette.map((c, i) => {
+                        const hex = fenceColorOrDefault(c);
+                        const selected = fenceColorOrDefault(draft.color);
+                        const active = selected === hex;
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            className={`cc-tactical-color${active ? ' is-active' : ''}`}
+                            style={{ background: hex }}
+                            title={`${hex} — clic elige · doble clic abre paleta`}
+                            aria-pressed={active}
+                            onClick={() => setDraft((d) => ({ ...d, color: hex }))}
+                            onDoubleClick={(ev) => {
+                              ev.preventDefault();
+                              ev.stopPropagation();
+                              openFenceColorPalette(i, hex);
+                            }}
+                          />
+                        );
+                      })}
+                      <input
+                        ref={fenceColorInputRef}
+                        type="color"
+                        className="cc-tactical-color-native"
+                        aria-hidden="true"
+                        tabIndex={-1}
+                        defaultValue={fenceColorOrDefault(draft.color)}
+                        onInput={onFencePaletteColorInput}
+                        onChange={onFencePaletteColorInput}
+                      />
+                    </div>
+                  </div>
                   <label
                     className={`map-fix-toggle${fixOnMap ? ' is-on' : ''}`}
                     title="Opcional: al activar, un clic en el mapa rellena latitud y longitud"
@@ -2067,7 +3047,7 @@ export default function DispatchMap({ session }) {
                   </label>
                   <div className="map-form-actions">
                     <button type="submit" className="cc-btn primary" disabled={busy}>
-                      Guardar
+                      {editingFenceId ? 'Guardar cambios' : 'Guardar'}
                     </button>
                     <button type="button" className="cc-btn ghost" onClick={closeFenceForm}>
                       Cancelar
@@ -2097,6 +3077,19 @@ export default function DispatchMap({ session }) {
 
       {error && <p className="error">{error}</p>}
       <div className={`map-frame${fixOnMap ? ' pick-mode' : ''}`}>
+        {maximized ? (
+          <button
+            type="button"
+            className="map-ops-chrome-btn map-ops-chrome-btn--dock"
+            title={opsChromeOpen ? 'Ocultar panel' : 'Mostrar panel'}
+            aria-label={opsChromeOpen ? 'Ocultar panel' : 'Mostrar panel'}
+            aria-expanded={opsChromeOpen}
+            aria-controls="map-ops-toolbar"
+            data-ops-chrome={opsChromeOpen ? '0' : '1'}
+          >
+            {opsChromeOpen ? 'Ocultar panel' : 'Mostrar panel'}
+          </button>
+        ) : null}
         <div
           className={`map-frame-chrome${showIvRmEstados ? ' map-frame-chrome--has-estados' : ''}`}
         >
@@ -2105,6 +3098,7 @@ export default function DispatchMap({ session }) {
             counts={presenceLegendCounts}
             showAway={showAway}
             showOffline={showOffline}
+            selectedStatusIds={presenceStatusIds}
           />
           <div className="lt-layers" role="group" aria-label="Estilo de mapa">
             {Object.entries(MAP_LAYERS).map(([key, meta]) => (
@@ -2112,6 +3106,7 @@ export default function DispatchMap({ session }) {
                 key={key}
                 type="button"
                 className={mapLayer === key ? 'active' : undefined}
+                data-map-layer={key}
                 onClick={() => setMapLayer(key)}
               >
                 {meta.label}
@@ -2129,20 +3124,22 @@ export default function DispatchMap({ session }) {
               />
               Ruta recorrida
             </span>
-            <span className="track-route-legend__item">
-              <i
-                className="track-route-legend__bar"
-                style={{ background: PREDICTED_COLOR, opacity: 0.65 }}
-              />
-              Sin señal
-              <span className="track-route-legend__dot" aria-hidden="true">
-                ·
+            {showProbableRoute ? (
+              <span className="track-route-legend__item">
+                <i
+                  className="track-route-legend__bar"
+                  style={{ background: PREDICTED_COLOR, opacity: 0.65 }}
+                />
+                Sin señal
+                <span className="track-route-legend__dot" aria-hidden="true">
+                  ·
+                </span>
+                ruta probable
               </span>
-              ruta probable
-            </span>
+            ) : null}
             {trackEmpty ? (
               <span className="track-route-legend__empty">
-                Sin GPS en {trackHours} h
+                Sin GPS en el periodo
               </span>
             ) : null}
           </div>
@@ -2166,7 +3163,9 @@ export default function DispatchMap({ session }) {
           <MapSizeFix />
           <MapWorldFillMinZoom />
           <PersistMapView storageKey={MAP_VIEW_KEY} />
-          <InvalidateOnLayout tick={maximized ? 1 : 0} />
+          <InvalidateOnLayout
+            tick={(maximized ? 1 : 0) + (maximized && !opsChromeOpen ? 2 : 0)}
+          />
           <MapClickPicker
             enabled={fenceFormOpen && fixOnMap}
             onPick={(lat, lng) => {
@@ -2177,17 +3176,19 @@ export default function DispatchMap({ session }) {
               }));
             }}
           />
-          {mapGeofences.map((g) => (
+          {mapGeofences.map((g) => {
+            const stroke = fenceColorOrDefault(g.color);
+            return (
             <Circle
               key={g.id}
               center={[g.centerLat, g.centerLng]}
               radius={g.radiusM}
-              pathOptions={{ color: '#243d20', fillColor: '#243d20', fillOpacity: 0.12, weight: 2 }}
+              pathOptions={{ color: stroke, fillColor: stroke, fillOpacity: 0.12, weight: 2 }}
             >
               <Popup>
                 <strong>{g.name}</strong>
                 <br />
-                Radio {Math.round(g.radiusM)} m
+                Radio {formatRadiusM(g.radiusM)} m
                 <br />
                 <button
                   type="button"
@@ -2200,7 +3201,8 @@ export default function DispatchMap({ session }) {
                 </button>
               </Popup>
             </Circle>
-          ))}
+            );
+          })}
           <TacticalSitesLayer
             sites={tacticalSites}
             visibleGroupIds={visibleGroupIds}
@@ -2209,10 +3211,10 @@ export default function DispatchMap({ session }) {
           {fenceFormOpen && draftCenter ? (
             <Circle
               center={[draftCenter.lat, draftCenter.lng]}
-              radius={Number(draft.radiusM) || 200}
+              radius={parseRadiusM(draft.radiusM) || 200}
               pathOptions={{
-                color: '#9a7b2f',
-                fillColor: '#9a7b2f',
+                color: fenceColorOrDefault(draft.color),
+                fillColor: fenceColorOrDefault(draft.color),
                 fillOpacity: 0.15,
                 weight: 2,
                 dashArray: '6 4',
@@ -2295,7 +3297,7 @@ export default function DispatchMap({ session }) {
                         <br />
                         <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
                         <br />
-                        <button type="button" onClick={() => toggleTrackUser(loc.userId)}>
+                        <button type="button" onClick={() => selectRouteFromPin(loc.userId)}>
                           {trackUserIds.includes(String(loc.userId))
                             ? 'Quitar ruta'
                             : 'Ver ruta'}
@@ -2314,13 +3316,13 @@ export default function DispatchMap({ session }) {
               color={tr.color}
               token={session.token}
               displayName={trackNameById.get(tr.userId) || ''}
-              predictGaps
+              predictGaps={showProbableRoute}
             />
           ))}
           {allTrackPositions.length > 0 ? (
             <FitBounds
               positions={allTrackPositions}
-              fitToken={`${trackIdsKey}|${trackHours}|${allTrackPositions.length > 1}`}
+              fitToken={`${trackIdsKey}|${trackFrom}|${trackTo}|${allTrackPositions.length > 1}`}
             />
           ) : null}
         </MapContainer>
@@ -2329,7 +3331,13 @@ export default function DispatchMap({ session }) {
       <AppDialog
         open={Boolean(pendingDeleteId)}
         title="Eliminar geocerca"
-        message="¿Eliminar esta geocerca?"
+        message={(() => {
+          const fence = geofences.find((g) => String(g.id) === String(pendingDeleteId));
+          const name = String(fence?.name || '').trim();
+          return name
+            ? `Se eliminará la geocerca «${name}». Esta acción no se puede deshacer.`
+            : 'Se eliminará esta geocerca. Esta acción no se puede deshacer.';
+        })()}
         confirmLabel="Eliminar"
         danger
         busy={busy}
@@ -2356,6 +3364,10 @@ export default function DispatchMap({ session }) {
           onListenChange={dispatchCtx.onListenChange}
           onVideoIdsChange={dispatchCtx.onVideoIdsChange}
           onAlertIdsChange={dispatchCtx.onAlertIdsChange}
+          onListenModeChange={dispatchCtx.onListenModeChange}
+          onTalkModeChange={dispatchCtx.onTalkModeChange}
+          onVideoModeChange={dispatchCtx.onVideoModeChange}
+          onAlertModeChange={dispatchCtx.onAlertModeChange}
           portalHost={pageRef.current || document.fullscreenElement || document.body}
         />
       ) : null}

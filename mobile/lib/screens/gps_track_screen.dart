@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import '../api_client.dart';
+import '../config.dart';
 import '../gps_location_cluster.dart';
 import '../theme.dart';
 import '../widgets/gps_cluster_pin.dart';
@@ -183,6 +186,7 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
         for (final e in raw) {
           if (e is! Map) continue;
           final m = Map<String, dynamic>.from(e);
+          if (m['isActive'] == false) continue;
           final lat = (m['latitude'] as num?)?.toDouble() ??
               (m['lat'] as num?)?.toDouble();
           final lng = (m['longitude'] as num?)?.toDouble() ??
@@ -194,15 +198,28 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
               name: m['name']?.toString() ?? 'Sitio',
               lat: lat,
               lng: lng,
-              color: _parseColor(m['color']?.toString()) ?? kInstGold,
+              color: _parseColor(
+                    m['groupColor']?.toString() ?? m['color']?.toString(),
+                  ) ??
+                  kInstGold,
               groupName: m['groupName']?.toString() ??
                   m['group']?['name']?.toString(),
+              iconUrl: _absoluteApiUrl(
+                m['groupIconUrl']?.toString() ?? m['iconUrl']?.toString(),
+              ),
             ),
           );
         }
       }
       if (mounted) setState(() => _sites = list);
     } catch (_) {}
+  }
+
+  /// Rutas relativas del API (`/api/tactical-sites/groups/.../icon`) → URL absoluta.
+  String? _absoluteApiUrl(String? path) {
+    if (path == null || path.isEmpty || path == 'null') return null;
+    if (path.startsWith('http')) return path.split('?').first;
+    return '${AppConfig.apiBaseUrl}$path';
   }
 
   Color? _parseColor(String? hex) {
@@ -541,11 +558,67 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
   }
 
   void _onClusterTap(GpsMapClusterItem<_GpsPeer> cluster) {
-    final c = cluster.center;
-    if (c == null) return;
-    final next = (_mapZoom + 2).clamp(12.0, 18.0);
-    _map.move(c, next);
-    setState(() => _mapZoom = next);
+    final members = cluster.members;
+    if (members.isEmpty) return;
+
+    // Tope conservador (no 18): miembros cercanos no deben salir de frame.
+    const maxZ = 16.5;
+    const breakZ = 16.5;
+    const fitPad = 96.0;
+    final zoomNow = _mapZoom;
+
+    if (members.length == 1) {
+      final p = members.first;
+      final next = (zoomNow + 2).clamp(breakZ, maxZ);
+      _map.move(LatLng(p.lat, p.lng), next);
+      setState(() => _mapZoom = next);
+      return;
+    }
+
+    var minLat = members.first.lat;
+    var maxLat = members.first.lat;
+    var minLng = members.first.lng;
+    var maxLng = members.first.lng;
+    for (final m in members.skip(1)) {
+      if (m.lat < minLat) minLat = m.lat;
+      if (m.lat > maxLat) maxLat = m.lat;
+      if (m.lng < minLng) minLng = m.lng;
+      if (m.lng > maxLng) maxLng = m.lng;
+    }
+
+    final latSpan = (maxLat - minLat).abs();
+    final lngSpan = (maxLng - minLng).abs();
+    final center = LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
+
+    // Mismo punto (o casi): acercar al centro para desagrupar.
+    if (latSpan < 1e-6 && lngSpan < 1e-6) {
+      final next = (zoomNow + 2).clamp(breakZ, maxZ);
+      _map.move(center, next);
+      setState(() => _mapZoom = next);
+      return;
+    }
+
+    final bounds = LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
+    _map.fitCamera(
+      CameraFit.bounds(
+        bounds: bounds,
+        padding: EdgeInsets.all(fitPad),
+        maxZoom: maxZ,
+      ),
+    );
+    final fitted = _map.camera.zoom;
+    // Soft +1 si no hubo progreso (evita over-zoom +2 / breakZ agresivo).
+    if (fitted <= zoomNow + 0.25) {
+      final soft = (zoomNow + 1).clamp(zoomNow, maxZ);
+      if (soft > zoomNow + 0.1) {
+        _map.move(center, soft);
+        setState(() => _mapZoom = soft);
+      } else {
+        setState(() => _mapZoom = fitted);
+      }
+      return;
+    }
+    setState(() => _mapZoom = fitted);
   }
 
   int get _liveCount => _peers.where((p) => _isLive(p.presence)).length;
@@ -772,30 +845,14 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
                                     .map(
                                       (s) => Marker(
                                         point: LatLng(s.lat, s.lng),
-                                        width: 28,
-                                        height: 28,
+                                        width: 36,
+                                        height: 36,
                                         child: Tooltip(
                                           message: s.name,
-                                          child: Container(
-                                            decoration: BoxDecoration(
-                                              color: s.color,
-                                              shape: BoxShape.circle,
-                                              border: Border.all(
-                                                color: Colors.white,
-                                                width: 2,
-                                              ),
-                                              boxShadow: const [
-                                                BoxShadow(
-                                                  color: Colors.black38,
-                                                  blurRadius: 3,
-                                                ),
-                                              ],
-                                            ),
-                                            child: const Icon(
-                                              Icons.flag_rounded,
-                                              size: 14,
-                                              color: Colors.white,
-                                            ),
+                                          child: _TacticalSitePin(
+                                            color: s.color,
+                                            iconUrl: s.iconUrl,
+                                            headers: headers,
                                           ),
                                         ),
                                       ),
@@ -1618,6 +1675,7 @@ class _TacticalSite {
     required this.lng,
     required this.color,
     this.groupName,
+    this.iconUrl,
   });
 
   final String id;
@@ -1626,4 +1684,110 @@ class _TacticalSite {
   final double lng;
   final Color color;
   final String? groupName;
+  /// URL absoluta del icono de agrupación (auth Bearer), o null.
+  final String? iconUrl;
+}
+
+/// Pin de sitio táctico: icono de grupo con Bearer (como web `iconBlobs`).
+/// Sin icono o si falla la descarga → círculo de color del grupo (sin banderita).
+class _TacticalSitePin extends StatefulWidget {
+  const _TacticalSitePin({
+    required this.color,
+    this.iconUrl,
+    this.headers,
+  });
+
+  final Color color;
+  final String? iconUrl;
+  final Map<String, String>? headers;
+
+  @override
+  State<_TacticalSitePin> createState() => _TacticalSitePinState();
+}
+
+class _TacticalSitePinState extends State<_TacticalSitePin> {
+  Uint8List? _bytes;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadIcon());
+  }
+
+  @override
+  void didUpdateWidget(covariant _TacticalSitePin oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.iconUrl != widget.iconUrl) {
+      _bytes = null;
+      _failed = false;
+      unawaited(_loadIcon());
+    }
+  }
+
+  Future<void> _loadIcon() async {
+    final url = widget.iconUrl;
+    if (url == null || url.isEmpty) {
+      if (mounted) setState(() {
+        _bytes = null;
+        _failed = false;
+      });
+      return;
+    }
+    final cached = AvatarBytesCache.get(url);
+    if (cached != null) {
+      if (mounted) setState(() {
+        _bytes = cached;
+        _failed = false;
+      });
+      return;
+    }
+    try {
+      final res = await http.get(
+        Uri.parse(url),
+        headers: widget.headers ?? const {},
+      );
+      if (!mounted || widget.iconUrl != url) return;
+      if (res.statusCode >= 200 && res.statusCode < 300 && res.bodyBytes.isNotEmpty) {
+        AvatarBytesCache.put(url, res.bodyBytes);
+        setState(() {
+          _bytes = res.bodyBytes;
+          _failed = false;
+        });
+      } else if (mounted) {
+        setState(() => _failed = true);
+      }
+    } catch (_) {
+      if (mounted && widget.iconUrl == url) {
+        setState(() => _failed = true);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasIcon = _bytes != null && !_failed;
+    return Container(
+      decoration: BoxDecoration(
+        color: hasIcon ? Colors.white : widget.color,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: const [
+          BoxShadow(color: Colors.black38, blurRadius: 3),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: hasIcon
+          ? Padding(
+              padding: const EdgeInsets.all(3),
+              child: Image.memory(
+                _bytes!,
+                fit: BoxFit.contain,
+                gaplessPlayback: true,
+                errorBuilder: (_, __, ___) => ColoredBox(color: widget.color),
+              ),
+            )
+          : null,
+    );
+  }
 }

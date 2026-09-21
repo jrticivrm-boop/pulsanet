@@ -163,6 +163,8 @@ export function buildClusterPieStyle(slices) {
       gradient: fallback,
       ringColor: fallback,
       dominant: fallback,
+      ordered: [],
+      total: 0,
     };
   }
 
@@ -185,25 +187,42 @@ export function buildClusterPieStyle(slices) {
     gradient: `conic-gradient(${parts.join(', ')})`,
     ringColor: dominant,
     dominant,
+    ordered,
+    total,
   };
 }
 
 /**
- * Icono de cluster: pastel por presencia/pánico + número + anillos de pulso.
+ * Icono de cluster: pastel por presencia/pánico + cifras por color + anillos.
+ * Con 2+ colores: solo cifras en cada porción (nunca total + porción a la vez).
  * @param {number} count
  * @param {{ slices?: Record<string, number>|Map<string,number> }} [opts]
  */
 export function mapClusterIcon(count, opts = {}) {
   const n = Number(count) || 0;
-  const label = n > 99 ? '99+' : String(n);
   const size = n >= 100 ? 52 : n >= 10 ? 48 : 44;
-  const { gradient, ringColor } = buildClusterPieStyle(opts.slices);
+  const pie = buildClusterPieStyle(opts.slices);
+  const { gradient, ringColor, ordered = [], total = n } = pie;
+  const multi = ordered.length >= 2;
+  const sliceLabels = multi ? buildClusterSliceLabelHtml(ordered, total) : { html: '' };
+  // Solo ocultar el total si hay cifras por porción (evita círculo vacío).
+  const slicesOnly = multi && !!sliceLabels.html;
+  const totalLabel = n > 99 ? '99+' : String(n);
+  const aria = slicesOnly
+    ? ordered.map((s) => `${s.count} ${sliceAriaLabel(s.key)}`).join(', ')
+    : `${totalLabel} en mapa`;
+  const ariaEsc = String(aria).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   const html = `
     <div class="lt-cluster" style="--lt-cluster-size:${size}px;--lt-cluster-pie:${gradient};--lt-cluster-ring:${ringColor}">
       <span class="lt-cluster-ring lt-cluster-ring--a" aria-hidden="true"></span>
       <span class="lt-cluster-ring lt-cluster-ring--b" aria-hidden="true"></span>
       <span class="lt-cluster-ring lt-cluster-ring--c" aria-hidden="true"></span>
-      <span class="lt-cluster-face">${label}</span>
+      <span class="lt-cluster-face" aria-label="${ariaEsc}">
+        <span class="lt-cluster-pie" aria-hidden="true"></span>
+        <span class="lt-cluster-rim" aria-hidden="true"></span>
+        ${sliceLabels.html}
+        ${slicesOnly ? '' : `<span class="lt-cluster-total">${totalLabel}</span>`}
+      </span>
     </div>
   `;
   return L.divIcon({
@@ -212,4 +231,49 @@ export function mapClusterIcon(count, opts = {}) {
     iconSize: [size + 36, size + 36],
     iconAnchor: [(size + 36) / 2, (size + 36) / 2],
   });
+}
+
+function sliceAriaLabel(key) {
+  switch (key) {
+    case 'online':
+      return 'en línea';
+    case 'away':
+      return 'ausente';
+    case 'offline':
+      return 'desconectado';
+    case 'stale':
+      return 'fuera de línea';
+    case 'panic':
+      return 'pánico';
+    default:
+      return key || '';
+  }
+}
+
+/**
+ * Cifra en cada porción (también cuñas finas).
+ * @param {Array<{key:string,color:string,count:number}>} ordered
+ * @param {number} total
+ */
+function buildClusterSliceLabelHtml(ordered, total) {
+  if (!ordered?.length || !total) return { html: '' };
+  let acc = 0;
+  const labels = [];
+  const many = ordered.length >= 4;
+  for (const sl of ordered) {
+    const start = (acc / total) * 360;
+    acc += sl.count;
+    const end = (acc / total) * 360;
+    const sweep = end - start;
+    if (sl.count <= 0) continue;
+    const mid = start + sweep / 2;
+    const text = sl.count > 99 ? '99+' : String(sl.count);
+    // Cuña fina → número más hacia el borde.
+    const radius = sweep < 45 ? 0.38 : 0.28;
+    const cls = many ? 'lt-cluster-slice-n lt-cluster-slice-n--sm' : 'lt-cluster-slice-n';
+    labels.push(
+      `<span class="${cls}" style="--slice-mid:${mid.toFixed(1)}deg;--slice-r:${radius}" aria-hidden="true">${text}</span>`
+    );
+  }
+  return { html: labels.join('') };
 }

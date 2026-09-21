@@ -37,6 +37,7 @@ import DispatchDependencias from './dispatch/DispatchDependencias.jsx';
 import ConfigLayout from './dispatch/ConfigLayout.jsx';
 import ConfigBackups from './dispatch/ConfigBackups.jsx';
 import ConfigAudit from './dispatch/ConfigAudit.jsx';
+import ConfigEvents from './dispatch/ConfigEvents.jsx';
 import ConfigChannels from './dispatch/ConfigChannels.jsx';
 import ConfigRecordings from './dispatch/ConfigRecordings.jsx';
 import ConfigPresence from './dispatch/ConfigPresence.jsx';
@@ -315,6 +316,16 @@ export default function App() {
             }
           />
           <Route
+            path="eventos"
+            element={
+              isAdminUser(session?.user) ? (
+                <ConfigEvents session={session} />
+              ) : (
+                <Navigate to="/despacho/configuracion/canales" replace />
+              )
+            }
+          />
+          <Route
             path="auditoria"
             element={
               isAdminUser(session?.user) ? (
@@ -363,7 +374,7 @@ function LoginPage({ onLogin }) {
   const { theme } = useTheme();
   const loginMark =
     theme === 'obscuro'
-      ? '/brand/tactical_login_obscuro.png?v=1'
+      ? '/brand/tactical_login_obscuro.png?v=3'
       : '/brand/sicom.png?v=4';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -476,7 +487,7 @@ function ChangePasswordPage({ session, onDone, onLogout }) {
   const { theme } = useTheme();
   const loginMark =
     theme === 'obscuro'
-      ? '/brand/tactical_login_obscuro.png?v=1'
+      ? '/brand/tactical_login_obscuro.png?v=3'
       : '/brand/sicom.png?v=4';
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');

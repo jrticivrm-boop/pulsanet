@@ -23,14 +23,15 @@ const DEDUPE_DECIMALS = 4;
 const GAP_SECONDS = 90;
 /**
  * Tras Douglas–Peucker, tramos consecutivos más largos que esto se remarcan
- * como hueco para pedir ruta por calles (evita cuerdas verdes de varios km
- * sobre campo). 1200 m: por debajo suele ser trazo GPS denso legítimo.
+ * como hueco para pedir ruta por calles (evita cuerdas verdes sobre campo).
+ * 700 m: en ciudad un salto mayor ya se lee como atajo absurdo; en carretera
+ * OSRM suele devolver la misma vialidad que la cuerda.
  */
-const POST_SIMPLIFY_JUMP_M = parseInt(process.env.TRACK_POST_SIMPLIFY_JUMP_M || '1200', 10);
-/** Tope duro de filas leídas de la BD (a 5 s/punto, 72 h ≈ 52 000). */
-const DB_ROW_CAP = 60_000;
+const POST_SIMPLIFY_JUMP_M = parseInt(process.env.TRACK_POST_SIMPLIFY_JUMP_M || '700', 10);
+/** Tope duro de filas leídas de la BD (30 d densos; luego se simplifica). */
+const DB_ROW_CAP = 200_000;
 /** Objetivo de puntos entregados al mapa tras simplificar. */
-const DEFAULT_MAX_POINTS = 4_000;
+const DEFAULT_MAX_POINTS = 6_000;
 /** Tolerancia inicial de Douglas–Peucker (m). Por debajo del ruido típico de GPS. */
 const DEFAULT_EPSILON_M = 6;
 
@@ -51,7 +52,7 @@ export const TRACK_GAP_DEFAULTS = {
   /** Por debajo es deriva de GPS o una parada: interpolar no aporta nada. */
   minMeters: parseInt(process.env.TRACK_GAP_MIN_METERS || '300', 10),
   /** Un salto así es hueco aunque los timestamps queden cerca. */
-  jumpMeters: parseInt(process.env.TRACK_GAP_JUMP_METERS || '1500', 10),
+  jumpMeters: parseInt(process.env.TRACK_GAP_JUMP_METERS || '1000', 10),
 };
 
 function haversineM(aLat, aLng, bLat, bLng) {
@@ -200,9 +201,55 @@ export function simplifyTrack(points, { maxPoints = DEFAULT_MAX_POINTS, epsilonM
  * Lee el historial completo de la ventana y lo entrega reducido pero íntegro
  * (primer y último punto reales, extremos de cada hueco preservados).
  *
- * @param {{ userId: string, hours: number, maxPoints?: number }} opts
+ * @param {{
+ *   userId: string,
+ *   hours?: number,
+ *   from?: Date|string,
+ *   to?: Date|string,
+ *   maxPoints?: number,
+ * }} opts
+ * Preferir `from`+`to` (ISO/Date). Si faltan, usa `hours` hacia atrás desde ahora (máx. 31×24).
  */
-export async function loadUserTrack({ userId, hours, maxPoints = DEFAULT_MAX_POINTS }) {
+export async function loadUserTrack({
+  userId,
+  hours,
+  from,
+  to,
+  maxPoints = DEFAULT_MAX_POINTS,
+}) {
+  let fromDate;
+  let toDate;
+  if (from != null && to != null) {
+    fromDate = from instanceof Date ? from : new Date(from);
+    toDate = to instanceof Date ? to : new Date(to);
+  } else {
+    const h = Math.min(Math.max(Number(hours) || 8, 1), 31 * 24);
+    toDate = new Date();
+    fromDate = new Date(toDate.getTime() - h * 3600 * 1000);
+  }
+  if (
+    !(fromDate instanceof Date) ||
+    !(toDate instanceof Date) ||
+    Number.isNaN(fromDate.getTime()) ||
+    Number.isNaN(toDate.getTime()) ||
+    fromDate >= toDate
+  ) {
+    return {
+      points: [],
+      meta: {
+        pointsRaw: 0,
+        pointsDedupped: 0,
+        pointsReturned: 0,
+        simplifiedEpsilonM: 0,
+        gaps: 0,
+        gapsBeforeSimplify: 0,
+        windowComplete: true,
+        from: null,
+        to: null,
+      },
+    };
+  }
+
   const { rows } = await query(
     `WITH raw AS (
        SELECT latitude, longitude, accuracy_m, recorded_at,
@@ -210,16 +257,17 @@ export async function loadUserTrack({ userId, hours, maxPoints = DEFAULT_MAX_POI
               count(*) OVER () AS total
          FROM locations
         WHERE user_id = $1
-          AND recorded_at > NOW() - make_interval(hours => $2)
+          AND recorded_at > $2
+          AND recorded_at <= $3
      ),
      marked AS (
        SELECT raw.*,
-              round(latitude::numeric, $3) AS lat_k,
-              round(longitude::numeric, $3) AS lng_k,
-              lag(round(latitude::numeric, $3)) OVER w AS prev_lat_k,
-              lag(round(longitude::numeric, $3)) OVER w AS prev_lng_k,
-              lead(round(latitude::numeric, $3)) OVER w AS next_lat_k,
-              lead(round(longitude::numeric, $3)) OVER w AS next_lng_k,
+              round(latitude::numeric, $4) AS lat_k,
+              round(longitude::numeric, $4) AS lng_k,
+              lag(round(latitude::numeric, $4)) OVER w AS prev_lat_k,
+              lag(round(longitude::numeric, $4)) OVER w AS prev_lng_k,
+              lead(round(latitude::numeric, $4)) OVER w AS next_lat_k,
+              lead(round(longitude::numeric, $4)) OVER w AS next_lng_k,
               lag(recorded_at) OVER w AS prev_at,
               lead(recorded_at) OVER w AS next_at
          FROM raw
@@ -236,11 +284,11 @@ export async function loadUserTrack({ userId, hours, maxPoints = DEFAULT_MAX_POI
          -- (una parada de 1 h se vería como 1 h «sin reportar»).
          OR lat_k IS DISTINCT FROM next_lat_k
          OR lng_k IS DISTINCT FROM next_lng_k
-         OR recorded_at - prev_at > make_interval(secs => $4)  -- primer fix al reconectar
-         OR next_at - recorded_at > make_interval(secs => $4)  -- último fix antes del hueco
+         OR recorded_at - prev_at > make_interval(secs => $5)  -- primer fix al reconectar
+         OR next_at - recorded_at > make_interval(secs => $5)  -- último fix antes del hueco
       ORDER BY recorded_at ASC
-      LIMIT $5`,
-    [userId, hours, DEDUPE_DECIMALS, GAP_SECONDS, DB_ROW_CAP]
+      LIMIT $6`,
+    [userId, fromDate, toDate, DEDUPE_DECIMALS, GAP_SECONDS, DB_ROW_CAP]
   );
 
   const rawTotal = rows.length ? Number(rows[0].total) || rows.length : 0;
@@ -278,6 +326,8 @@ export async function loadUserTrack({ userId, hours, maxPoints = DEFAULT_MAX_POI
       gapsBeforeSimplify: gapCountRaw,
       /** La ventana se leyó completa: sin truncado por LIMIT. */
       windowComplete: rawTotal < DB_ROW_CAP,
+      from: fromDate.toISOString(),
+      to: toDate.toISOString(),
     },
   };
 }

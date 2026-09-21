@@ -6,6 +6,7 @@ import { query } from '../db.js';
 import { config } from '../config.js';
 import { authMiddleware, signAccessToken } from '../middleware/auth.js';
 import { logActivity } from '../services/activity.js';
+import { logUserEvent, logPresenceTransition, clearPresenceEventState } from '../services/userEvents.js';
 import { normalizeUsername } from '../services/rfcUsername.js';
 import { validateNewPassword } from '../services/tempPassword.js';
 import { isWireEncryptionEnabled } from '../services/wireCrypto.js';
@@ -220,6 +221,20 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
       sourceIp: clientIpFromReq(req),
     },
   });
+  void logUserEvent({
+    organizationId: user.organization_id,
+    subjectUserId: user.id,
+    kind: 'session',
+    summary: 'Inició sesión',
+    meta: { deviceId: deviceId || null },
+  });
+  void logPresenceTransition({
+    organizationId: user.organization_id,
+    subjectUserId: user.id,
+    status: 'online',
+    summary: 'En línea',
+    meta: { reason: 'login' },
+  });
 
   const token = signAccessToken(user);
   const refreshToken = await issueRefreshToken(user.id, deviceId);
@@ -318,6 +333,20 @@ authRouter.post('/logout', authMiddleware, async (req, res) => {
   } else {
     await query('DELETE FROM refresh_tokens WHERE user_id = $1', [req.user.sub]);
   }
+  void logUserEvent({
+    organizationId: req.user.orgId,
+    subjectUserId: req.user.sub,
+    kind: 'session',
+    summary: 'Cerró sesión',
+  });
+  void logPresenceTransition({
+    organizationId: req.user.orgId,
+    subjectUserId: req.user.sub,
+    status: 'offline',
+    summary: 'Desconectado',
+    meta: { reason: 'logout' },
+  });
+  void clearPresenceEventState(req.user.sub).catch(() => {});
   res.json({ ok: true });
 });
 
