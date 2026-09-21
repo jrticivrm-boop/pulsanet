@@ -1,3 +1,21 @@
+## 2026-09-21 — Edge schtask + push rama WIP
+
+- **Tipo:** ops
+- **Área:** infra | ops
+- **Qué:**
+  - Registrada tarea `TacticalPtx-EdgeKeepalive` (cada 20 min → ENSURE-PUBLIC-EDGE); se detuvo el loop minimizado duplicado.
+  - `git push` de `wip/despacho-panel-2026-09-12` (`10fd04a..51fa58e`).
+- **Archivos / refs:** `Register-EdgeKeepalive.ps1`; remoto `origin/wip/despacho-panel-2026-09-12`
+
+## 2026-09-21 — OTA retirada (solo sideload)
+
+- **Tipo:** ops
+- **Área:** mobile | ops
+- **Qué:**
+  - Se quitó el APK de `backend/app-updates/files/` y el manifiesto quedó inerte (`versionCode: 0`) → no ofrece OTA.
+  - Sideload intacto: `pulsanet_soporte\APK\TacticalPtx-1.8.177+187.apk` (+ latest).
+- **Archivos / refs:** `backend/app-updates/android.json`
+
 ## 2026-09-21 — Plan escalonado: borde + keepalive + freeze WIP
 
 - **Tipo:** ops | security | docs
