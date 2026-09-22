@@ -4,6 +4,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { emitDispatchTrack } from '../socket/dispatch.js';
 import { evaluateGeofences } from '../services/geofences.js';
 import { isDispatch } from '../services/roles.js';
+import { canSeePerson } from '../services/visibility.js';
 import { routeBetween } from '../services/routeHint.js';
 import { loadUserTrack } from '../services/trackHistory.js';
 import {
@@ -74,11 +75,8 @@ export function createLocationsRouter(io) {
   const router = Router();
   router.use(authMiddleware);
 
-  /** Última ubicación: solo usuarios en el alcance (Región / zona / unidad). */
+  /** Última ubicación: alcance jerárquico + perfil + ocultar/share. App y consola. */
   router.get('/', async (req, res) => {
-    if (!isDispatch(req.user.role)) {
-      return res.status(403).json({ ok: false, error: 'Sin permiso' });
-    }
     const scope = await loadTrackScope(req.user);
     if (!scope.orgWide && !scope.unitIds?.length) {
       return res.json({ ok: true, locations: [], scope: { level: scope.level } });
@@ -113,12 +111,22 @@ export function createLocationsRouter(io) {
     let unitFilter = '';
     if (!scope.orgWide) {
       params.push(scope.unitIds);
-      unitFilter = `AND u.unit_id = ANY($${params.length}::uuid[])`;
+      // Adscripción a la unidad O membresía en canal de esa unidad (servicios sin unit_id).
+      unitFilter = `AND (
+        u.unit_id = ANY($${params.length}::uuid[])
+        OR u.id IN (
+          SELECT gm.user_id
+          FROM group_members gm
+          INNER JOIN groups g ON g.id = gm.group_id AND g.is_active = TRUE
+          WHERE g.organization_id = $1
+            AND g.unit_id = ANY($${params.length}::uuid[])
+        )
+      )`;
     }
 
     const { rows } = await query(
       `SELECT u.id AS user_id, u.display_name, u.grade, u.cargo, u.role, u.is_active, u.avatar_url, u.unit_id,
-              u.last_seen_at,
+              u.admin_scope_unit_id, u.location_share, u.last_seen_at,
               l.latitude, l.longitude, l.accuracy_m, l.recorded_at
        FROM users u
        INNER JOIN user_last_location l ON l.user_id = u.id
@@ -140,6 +148,25 @@ export function createLocationsRouter(io) {
     } = thresholds;
     const presenceByUser = await buildOrgPresenceMap(req.user.orgId);
     const now = Date.now();
+    const { rows: prof } = await query(
+      `SELECT p.visibility
+       FROM users u
+       LEFT JOIN access_profiles p ON p.id = u.profile_id
+       WHERE u.id = $1`,
+      [req.user.sub]
+    );
+    const viewer = {
+      id: req.user.sub,
+      role: req.user.role,
+      profileVisibility: prof[0]?.visibility || null,
+    };
+    const visibleRows = rows.filter((r) =>
+      canSeePerson(viewer, {
+        id: r.user_id,
+        role: r.role,
+        locationShare: r.location_share,
+      })
+    );
 
     res.json({
       ok: true,
@@ -153,7 +180,7 @@ export function createLocationsRouter(io) {
       presenceAbsenceMinutes: absenceMinutes,
       presenceShowAway: showAway,
       presenceShowOffline: showOffline,
-      locations: rows.map((r) => {
+      locations: visibleRows.map((r) => {
         const online = presenceByUser.get(r.user_id);
         const focus = online?.focus || null;
         const awaySince = online?.awaySince ?? null;

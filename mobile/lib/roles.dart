@@ -1,12 +1,13 @@
 /// Roles de organización (alineado con backend `services/roles.js` y web `api.js`).
 
 const _roleLabels = {
-  'root': 'Superadmin',
-  'admin': 'Admin',
-  'zone_admin': 'Admin zona',
-  'unit_admin': 'Admin unidad',
-  'dispatcher': 'Despacho',
-  'operator': 'Operador',
+  'root': 'Administrador',
+  'region_admin': 'Admin de región',
+  'region_user': 'Usuario de región',
+  'zone_admin': 'Admin de zona',
+  'zone_user': 'Usuario de zona',
+  'unit_admin': 'Admin de unidad',
+  'unit_user': 'Usuario de unidad',
 };
 
 String roleLabel(String? role) =>
@@ -15,14 +16,16 @@ String roleLabel(String? role) =>
 bool canManageUsers(Map<String, dynamic>? user) {
   final role = user?['role']?.toString();
   return role == 'root' ||
-      role == 'admin' ||
+      role == 'region_admin' ||
       role == 'zone_admin' ||
-      role == 'unit_admin';
+      role == 'unit_admin' ||
+      role == 'admin';
 }
 
-/// Puede ver seguimiento GPS en vivo (mapa APK): root, región, zona, unidad.
-/// Alineado con `canManageUsers` (no incluye dispatcher/operador).
-bool canViewGpsTrack(Map<String, dynamic>? user) => canManageUsers(user);
+bool canViewGpsTrack(Map<String, dynamic>? user) {
+  final role = user?['role']?.toString() ?? '';
+  return role.isNotEmpty;
+}
 
 /// Salir de la app: solo Superadmin, Región, Zona y Admin de unidad.
 bool canLogoutFromApp(Map<String, dynamic>? user) => canManageUsers(user);

@@ -136,6 +136,7 @@ export async function login(username, password) {
       username,
       password,
       deviceId: getDeviceId() || undefined,
+      client: 'web',
     }),
   });
   const data = await res.json().catch(() => ({}));
@@ -146,6 +147,7 @@ export async function login(username, password) {
     err.locked = Boolean(data.locked);
     err.attemptsRemaining = data.attemptsRemaining;
     err.lockdown = Boolean(data.lockdown);
+    err.appOnly = Boolean(data.appOnly || data.code === 'WEB_APP_ONLY');
     throw err;
   }
   return data;
@@ -449,6 +451,14 @@ export function fetchAdminUsers(token) {
 
 export function previewAdminUsername(token, payload) {
   return api('/api/admin/users/preview-username', { token, method: 'POST', body: payload });
+}
+
+export function checkAdminMatricula(token, { matricula, excludeUserId } = {}) {
+  return api('/api/admin/users/check-matricula', {
+    token,
+    method: 'POST',
+    body: { matricula, excludeUserId: excludeUserId || undefined },
+  });
 }
 
 export function createAdminUser(token, payload) {
@@ -1024,7 +1034,7 @@ export function usersCsvUrl() {
 export function canDispatch(user) {
   return (
     user &&
-    ['root', 'admin', 'zone_admin', 'unit_admin', 'dispatcher'].includes(user.role)
+    ['root', 'region_admin', 'zone_admin', 'unit_admin', 'admin'].includes(user.role)
   );
 }
 
@@ -1033,10 +1043,34 @@ export function isRootUser(user) {
 }
 
 export function isAdminUser(user) {
-  return user && ['root', 'admin'].includes(user.role);
+  return user && ['root', 'region_admin', 'admin'].includes(user.role);
 }
 
 /** Alta/edición de usuarios (org, zona o unidad). */
 export function canManageUsers(user) {
-  return user && ['root', 'admin', 'zone_admin', 'unit_admin'].includes(user.role);
+  return user && ['root', 'region_admin', 'admin', 'zone_admin', 'unit_admin'].includes(user.role);
+}
+
+export async function fetchAccessProfiles(token) {
+  return api('/api/admin/profiles', { token });
+}
+
+export async function createAccessProfile(token, body) {
+  return api('/api/admin/profiles', { token, method: 'POST', body });
+}
+
+export async function patchAccessProfile(token, id, body) {
+  return api(`/api/admin/profiles/${id}`, { token, method: 'PATCH', body });
+}
+
+export async function deleteAccessProfile(token, id) {
+  return api(`/api/admin/profiles/${id}`, { token, method: 'DELETE' });
+}
+
+export async function patchLocationShare(token, userId, locationShare) {
+  return api(`/api/admin/profiles/location-share/${userId}`, {
+    token,
+    method: 'PATCH',
+    body: { locationShare },
+  });
 }

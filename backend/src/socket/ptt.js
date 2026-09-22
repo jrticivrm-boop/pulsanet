@@ -9,7 +9,7 @@ import {
   broadcastPresence,
   clearFloor,
   getFloor,
-  getMemberRole,
+  resolvePttMemberRole,
   normalizePresenceFocus,
   pttFloorRank,
   refreshFloorTtl,
@@ -42,7 +42,7 @@ export function registerPttHandlers(io) {
       if (!groupId) return;
       try {
         ensureJoinState(socket);
-        const role = await getMemberRole(groupId, user.sub);
+        const role = await resolvePttMemberRole(groupId, user);
         if (!role) {
           socket.emit('ptt:error', { groupId, error: 'No eres miembro' });
           return;
@@ -90,8 +90,7 @@ export function registerPttHandlers(io) {
         ensureJoinState(socket);
         const memberRole =
           socket.data.memberRoles[groupId] ||
-          socket.data.memberRole ||
-          (await getMemberRole(groupId, user.sub));
+          (await resolvePttMemberRole(groupId, user));
         if (!memberRole) {
           socket.emit('ptt:error', { groupId, error: 'No eres miembro' });
           return;

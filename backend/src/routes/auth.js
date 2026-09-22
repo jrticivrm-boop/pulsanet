@@ -184,6 +184,22 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
     return res.status(status).json(body);
   }
 
+  // Consola web: solo administradores. Móvil no envía client=web.
+  const clientHint = String(
+    req.body?.client || req.get('x-tacticalptx-client') || ''
+  ).toLowerCase();
+  const isWebConsole =
+    clientHint === 'web' || clientHint === 'dispatch' || clientHint === 'console';
+  if (isWebConsole && !isDispatch(user.role)) {
+    return res.status(403).json({
+      ok: false,
+      error:
+        'Tu usuario solo puede ingresar desde la aplicación móvil. La consola web es para administradores.',
+      code: 'WEB_APP_ONLY',
+      appOnly: true,
+    });
+  }
+
   await clearLoginFailuresForUser(user);
 
   await query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [user.id]);

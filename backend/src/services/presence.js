@@ -12,6 +12,7 @@ import {
 } from '../redis.js';
 import { query } from '../db.js';
 import { logPresenceTransition } from './userEvents.js';
+import { isDispatch } from './roles.js';
 
 const FOCUS_RANK = { foreground: 3, background: 2, service: 1 };
 
@@ -702,6 +703,24 @@ export async function getMemberRole(groupId, userId) {
     [groupId, userId]
   );
   return rows[0]?.role || null;
+}
+
+/**
+ * Rol PTT efectivo: membresía explícita, o bypass consolas (root/admins)
+ * si el canal es de su organización — mismo criterio que LiveKit token.
+ */
+export async function resolvePttMemberRole(groupId, user) {
+  if (!groupId || !user?.sub) return null;
+  const explicit = await getMemberRole(groupId, user.sub);
+  if (explicit) return explicit;
+  if (!isDispatch(user.role) || !user.orgId) return null;
+  const { rows } = await query(
+    `SELECT 1 FROM groups
+     WHERE id = $1 AND organization_id = $2 AND is_active = TRUE
+     LIMIT 1`,
+    [groupId, user.orgId]
+  );
+  return rows[0] ? 'leader' : null;
 }
 
 export async function assertGroupMember(groupId, userId) {

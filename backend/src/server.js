@@ -24,6 +24,7 @@ import { livekitRouter } from './routes/livekit.js';
 import { createMessagesRouter, createMediaRouter } from './routes/messages.js';
 import { adminRouter } from './routes/admin.js';
 import { createLocationsRouter } from './routes/locations.js';
+import { profilesRouter } from './routes/profiles.js';
 import { geofencesRouter } from './routes/geofences.js';
 import { tacticalSitesRouter } from './routes/tacticalSites.js';
 import { createRecordingsRouter } from './routes/recordings.js';
@@ -96,23 +97,33 @@ app.use(
     legacyHeaders: false,
     /**
      * Por IP, todo el NAT (consola + flota APK) compartía un cupo → 429 en mapa.
-     * Con Bearer, cupo por prefijo de token (sesión).
+     * Con Bearer: clave = cola de la firma JWT (últimos ~32). El header JWT es
+     * idéntico en todos los tokens (eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.); un
+     * slice(0,48) del Authorization colapsaba casi todas las sesiones en un bucket.
      */
     keyGenerator: (req) => {
       const auth = String(req.headers.authorization || '');
-      if (auth.length > 20 && /^Bearer\s+/i.test(auth)) {
-        return `b:${auth.slice(0, 48)}`;
+      const m = auth.match(/^Bearer\s+(\S+)/i);
+      if (m && m[1].length > 20) {
+        return `b:${m[1].slice(-32)}`;
       }
       return req.ip || req.socket?.remoteAddress || 'unknown';
     },
+    // Custom key (JWT suffix); no usar validación de fallback IP por defecto.
+    validate: { keyGeneratorIpFallback: false },
     // Salud y OTA tienen su propio control; no gastar el cupo global (NAT).
     skip: (req) => {
       const p = req.path || '';
+      // Salud/OTA: cupo propio. GPS poll (auth en la ruta): no gastar el global.
       return (
         p === '/api/health' ||
         p.startsWith('/api/health/') ||
         p === '/api/app' ||
-        p.startsWith('/api/app/')
+        p.startsWith('/api/app/') ||
+        (req.method === 'GET' &&
+          (p === '/api/locations' ||
+            p.startsWith('/api/locations/') ||
+            p === '/api/admin/overview'))
       );
     },
   })
@@ -149,6 +160,7 @@ app.use('/api/calls', callsRouter);
 app.use('/api/group-video', groupVideoRouter);
 app.use('/api/media', mediaRouter);
 app.use('/api/livekit', wrapRouterAsync(livekitRouter));
+app.use('/api/admin/profiles', wrapRouterAsync(profilesRouter));
 app.use('/api/admin', wrapRouterAsync(adminRouter));
 app.use('/api/catalogs', wrapRouterAsync(catalogsRouter));
 app.use('/api/backups', wrapRouterAsync(backupsRouter));

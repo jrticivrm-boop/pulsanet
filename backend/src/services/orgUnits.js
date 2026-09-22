@@ -1,5 +1,5 @@
 import { query } from '../db.js';
-import { isAdmin, isRoot, isUnitAdmin, isZoneAdmin } from './roles.js';
+import { isAdmin, isRegionAdmin, isRoot, isUnitAdmin, isZoneAdmin, normalizeRole } from './roles.js';
 
 /** IDs de un nodo + todos los descendientes en el árbol. */
 export async function listScopeUnitIds(orgId, rootUnitId) {
@@ -28,14 +28,48 @@ export async function listScopeUnitIds(orgId, rootUnitId) {
  */
 
 /**
+ * IDs de alcance para unit_admin: unidad asignada + subordinadas reales.
+ * Si el alcance apunta por error a zona/región, NO se expande el árbol (evita
+ * ver operadores de unidades hermanas).
+ */
+export async function listUnitAdminScopeIds(orgId, unitId) {
+  if (!unitId) return [];
+  const { rows } = await query(
+    `SELECT id, kind FROM org_units WHERE id = $1 AND organization_id = $2 AND is_active`,
+    [unitId, orgId]
+  );
+  const node = rows[0];
+  if (!node) return [unitId];
+  if (node.kind !== 'unit') {
+    return [unitId];
+  }
+  const unitIds = await listScopeUnitIds(orgId, unitId);
+  return unitIds.length ? unitIds : [unitId];
+}
+
+/**
  * Alcance para administrar usuarios.
  * - root/admin (Región): orgWide
  * - zone_admin (incl. C.G.): zona + unidades hijas
- * - unit_admin: solo su unidad (servicios desplegados)
+ * - unit_admin: solo su unidad asignada (+ subordinadas de ese nodo), no la zona padre
  */
 export async function loadAdminScope(user) {
   if (!user?.sub) return { orgWide: false, unitIds: [] };
-  if (isRoot(user.role) || user.role === 'admin') {
+  if (isRoot(user.role)) {
+    return { orgWide: true, unitIds: [], level: 'region' };
+  }
+  if (isRegionAdmin(user.role)) {
+    const { rows: me } = await query(
+      `SELECT admin_scope_unit_id FROM users WHERE id = $1`,
+      [user.sub]
+    );
+    const regionId = me[0]?.admin_scope_unit_id;
+    if (regionId) {
+      const unitIds = await listScopeUnitIds(user.orgId, regionId);
+      if (unitIds.length) {
+        return { orgWide: false, unitIds, regionId, level: 'region' };
+      }
+    }
     return { orgWide: true, unitIds: [], level: 'region' };
   }
 
@@ -56,7 +90,13 @@ export async function loadAdminScope(user) {
   if (isUnitAdmin(row.role)) {
     const unitId = row.admin_scope_unit_id || row.unit_id;
     if (!unitId) return { orgWide: false, unitIds: [], level: 'unit' };
-    return { orgWide: false, unitIds: [unitId], unitId, level: 'unit' };
+    const unitIds = await listUnitAdminScopeIds(user.orgId, unitId);
+    return {
+      orgWide: false,
+      unitIds,
+      unitId,
+      level: 'unit',
+    };
   }
 
   return { orgWide: false, unitIds: [] };
@@ -66,7 +106,7 @@ export async function loadAdminScope(user) {
  * Alcance de seguimiento (GPS) y oír en mapa: mismo criterio jerárquico + privilegios can_see_*.
  * - Ver Región / admin / dispatcher de mesa → toda la org
  * - Ver Zonas / zone_admin → unidades del árbol de zona (p. ej. C.G. o Z.M.)
- * - Ver Unidades / unit_admin → servicios desplegados de esa unidad
+ * - Ver Unidades / unit_admin → servicios desplegados de esa unidad (árbol)
  */
 export async function loadTrackScope(user) {
   if (!user?.sub || !user?.orgId) return { orgWide: false, unitIds: [], level: null };
@@ -80,8 +120,59 @@ export async function loadTrackScope(user) {
   const me = rows[0];
   if (!me) return { orgWide: false, unitIds: [], level: null };
 
-  const canRegion =
-    Boolean(me.can_see_region) || isAdmin(me.role) || me.role === 'dispatcher';
+  // unit_admin: siempre su unidad (+ subordinadas reales), sin ampliar por chips R/Z ni zona padre.
+  if (isUnitAdmin(me.role)) {
+    const unitId = me.admin_scope_unit_id || me.unit_id;
+    if (!unitId) return { orgWide: false, unitIds: [], level: 'unit' };
+    const unitIds = await listUnitAdminScopeIds(user.orgId, unitId);
+    return {
+      orgWide: false,
+      unitIds,
+      unitId,
+      level: 'unit',
+    };
+  }
+
+  const role = normalizeRole(me.role);
+  if (role === 'region_admin' || role === 'root') {
+    if (role === 'region_admin' && me.admin_scope_unit_id) {
+      const unitIds = await listScopeUnitIds(user.orgId, me.admin_scope_unit_id);
+      if (unitIds.length) {
+        return { orgWide: false, unitIds, regionId: me.admin_scope_unit_id, level: 'region' };
+      }
+    }
+    return { orgWide: true, unitIds: [], level: 'region' };
+  }
+  if (role === 'region_user') {
+    return { orgWide: true, unitIds: [], level: 'region' };
+  }
+  if (role === 'unit_user') {
+    const unitId = me.unit_id || me.admin_scope_unit_id;
+    if (!unitId) return { orgWide: false, unitIds: [], level: 'unit' };
+    return { orgWide: false, unitIds: [unitId], unitId, level: 'unit' };
+  }
+  if (role === 'zone_user') {
+    const anchor = me.unit_id || me.admin_scope_unit_id;
+    if (anchor) {
+      const { rows: z } = await query(
+        `WITH RECURSIVE up AS (
+           SELECT id, parent_id, kind FROM org_units WHERE id = $1
+           UNION ALL
+           SELECT o.id, o.parent_id, o.kind
+           FROM org_units o
+           INNER JOIN up ON o.id = up.parent_id
+         )
+         SELECT id FROM up WHERE kind = 'zone' LIMIT 1`,
+        [anchor]
+      );
+      if (z[0]?.id) {
+        const unitIds = await listScopeUnitIds(user.orgId, z[0].id);
+        return { orgWide: false, unitIds, zoneId: z[0].id, level: 'zone' };
+      }
+    }
+  }
+
+  const canRegion = Boolean(me.can_see_region) || isAdmin(me.role);
   if (canRegion) {
     return { orgWide: true, unitIds: [], level: 'region' };
   }
@@ -107,15 +198,16 @@ export async function loadTrackScope(user) {
       );
       zoneRoot = z[0]?.id || null;
     }
-    if (!zoneRoot) return { orgWide: false, unitIds: [], level: 'zone' };
-    const unitIds = await listScopeUnitIds(user.orgId, zoneRoot);
-    return { orgWide: false, unitIds, zoneId: zoneRoot, level: 'zone' };
+    if (zoneRoot) {
+      const unitIds = await listScopeUnitIds(user.orgId, zoneRoot);
+      return { orgWide: false, unitIds, zoneId: zoneRoot, level: 'zone' };
+    }
+    // Chip Z sin zona resoluble: no vaciar el mapa; caer a alcance de unidad.
   }
 
-  const canUnits = Boolean(me.can_see_units) || isUnitAdmin(me.role);
+  const canUnits = Boolean(me.can_see_units);
   if (canUnits) {
-    const unitId =
-      (isUnitAdmin(me.role) && me.admin_scope_unit_id) || me.unit_id || me.admin_scope_unit_id;
+    const unitId = me.unit_id || me.admin_scope_unit_id;
     if (!unitId) return { orgWide: false, unitIds: [], level: 'unit' };
     return { orgWide: false, unitIds: [unitId], unitId, level: 'unit' };
   }
@@ -170,13 +262,30 @@ export async function listVisibleGroups(user) {
   const me = meRows[0];
   if (!me) return [];
 
-  const canRegion = Boolean(me.can_see_region) || isAdmin(me.role);
-  const canZones = Boolean(me.can_see_zones) || canRegion || isZoneAdmin(me.role);
-  const canUnits = Boolean(me.can_see_units) || canZones || isUnitAdmin(me.role);
-
   const memberGroups = await listMemberGroups(user);
 
   let privilegeGroups = [];
+
+  // unit_admin: solo canales ligados a su unidad (no zona padre / hermanas).
+  if (isUnitAdmin(me.role)) {
+    const unitId = me.admin_scope_unit_id || me.unit_id;
+    if (unitId) {
+      const ids = await listUnitAdminScopeIds(user.orgId, unitId);
+      const { rows } = await query(
+        `SELECT g.id, g.name, g.description, g.livekit_room, g.is_active, g.unit_id, g.avatar_url,
+                'leader'::text AS member_role,
+                ${GROUP_MEMBER_COUNT_SQL}
+         FROM groups g
+         WHERE g.organization_id = $1 AND g.is_active = TRUE
+           AND g.unit_id = ANY($2::uuid[])`,
+        [user.orgId, ids]
+      );
+      privilegeGroups = rows;
+    }
+  } else {
+  const canRegion = Boolean(me.can_see_region) || isAdmin(me.role);
+  const canZones = Boolean(me.can_see_zones) || canRegion || isZoneAdmin(me.role);
+  const canUnits = Boolean(me.can_see_units) || canZones;
 
   if (canRegion) {
     const { rows } = await query(
@@ -223,8 +332,7 @@ export async function listVisibleGroups(user) {
       privilegeGroups = rows;
     }
   } else if (canUnits) {
-    const unitId =
-      (isUnitAdmin(me.role) && me.admin_scope_unit_id) || me.unit_id || me.admin_scope_unit_id;
+    const unitId = me.unit_id || me.admin_scope_unit_id;
     if (unitId) {
       const { rows } = await query(
         `SELECT g.id, g.name, g.description, g.livekit_room, g.is_active, g.unit_id, g.avatar_url,
@@ -236,6 +344,7 @@ export async function listVisibleGroups(user) {
       );
       privilegeGroups = rows;
     }
+  }
   }
 
   const byId = new Map();

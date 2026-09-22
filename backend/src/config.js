@@ -115,7 +115,8 @@ export const config = {
         isProd ||
         Boolean(String(process.env.PUBLIC_DOMAIN || '').trim()),
   rateLimitMax: parseInt(
-    process.env.RATE_LIMIT_MAX || (isProd ? '300' : '2000'),
+    // Consola: locations ~cada 5 s + overview 15 s + track → >300/15min por sesión.
+    process.env.RATE_LIMIT_MAX || (isProd ? '2000' : '2000'),
     10
   ),
   /**

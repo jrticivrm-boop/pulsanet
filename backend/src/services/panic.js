@@ -106,6 +106,18 @@ export async function triggerPanic({
   // Solo el canal activo: radio + consola de miembros de ese grupo (no org-wide)
   io.to(`group:${groupId}`).emit('panic:alert', event);
   await emitPanicToGroupMembers(io, 'dispatch:panic', event, groupId);
+  try {
+    const { rows: everyone } = await query(
+      `SELECT id FROM users WHERE organization_id = $1 AND is_active = TRUE`,
+      [orgId]
+    );
+    for (const u of everyone) {
+      io.to(`user:${u.id}`).emit('panic:alert', event);
+    }
+    io.to('dispatch').emit('dispatch:panic', event);
+  } catch (err) {
+    console.warn('panic broadcast:', err.message);
+  }
 
   const title = '🚨 ALERTA';
   const body = `${displayName || 'Usuario'} — ${event.groupName || 'canal'}`;

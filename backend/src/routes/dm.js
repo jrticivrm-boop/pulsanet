@@ -7,6 +7,7 @@ import {
   assertSameOrgPeer,
   listOrgContacts,
   listSharedGroupContacts,
+  sharesGroup,
   listDmConversations,
   listDmMessages,
   insertDmMessage,
@@ -20,7 +21,6 @@ import {
 import { listOrgPresence } from '../services/presence.js';
 import { getStickerById } from '../data/stickers.js';
 import { notifyUserDevices } from '../services/fcm.js';
-import { isDispatch } from '../services/roles.js';
 
 const MAX_BODY = 2000;
 
@@ -63,14 +63,7 @@ export function createDmRouter(io) {
 
   /** Contactos: shared = comparten grupo; org = toda la organización (despacho). */
   router.get('/contacts', async (req, res) => {
-    const raw = String(req.query.scope || '').toLowerCase();
-    let scope = raw === 'org' || raw === 'shared' ? raw : '';
-    if (!scope) {
-      scope = isDispatch(req.user.role) ? 'org' : 'shared';
-    }
-    if (scope === 'org' && !isDispatch(req.user.role)) {
-      scope = 'shared';
-    }
+    const scope = 'shared';
     let contacts =
       scope === 'org'
         ? await listOrgContacts(req.user.orgId, req.user.sub, { includeSelf: true })
@@ -103,10 +96,13 @@ export function createDmRouter(io) {
     });
   });
 
-  /** Enviar texto */
+  /** Enviar texto — solo si comparten grupo. */
   router.post('/:userId/messages', async (req, res) => {
     const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);
     if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    if (!(await sharesGroup(req.user.orgId, req.user.sub, peer.id))) {
+      return res.status(403).json({ ok: false, error: 'Solo puedes contactar a usuarios de tus grupos' });
+    }
     const text = String(req.body?.body || '').trim();
     if (!text) return res.status(400).json({ ok: false, error: 'Mensaje vacío' });
     if (text.length > MAX_BODY) {

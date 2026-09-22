@@ -33,6 +33,17 @@ export async function notifySessionReplaced(userId, role, { exceptDeviceId = nul
   return { notified: true, exceptDeviceId };
 }
 
+/** Cierra todas las consolas/apps conectadas por socket (p. ej. force-logout admin). */
+export async function forceLogoutUserSockets(userId, message = 'Sesión cerrada') {
+  if (!_io || !userId) return { notified: false };
+  _io.to(`user:${userId}`).emit('session:replaced', {
+    reason: 'force_logout',
+    message,
+    deviceId: null,
+  });
+  return { notified: true };
+}
+
 /** @deprecated usar notifySessionReplaced */
 export async function enforceSingleSession(userId, role, opts = {}) {
   return notifySessionReplaced(userId, role, {

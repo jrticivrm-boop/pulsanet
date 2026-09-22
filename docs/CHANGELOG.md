@@ -10,12 +10,20 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Perfiles (modelo B):** pestaña propia en Administración (junto a Usuarios; solo Administrador/`root`) con módulos/permisos y alcance de visibilidad. Plantillas de sistema. Solo el Administrador crea y edita perfiles.
+- **Jerarquía Región / Zona / Unidad:** administradores y usuarios por nivel; consola web solo administradores; mapa, ocultar ubicación y grupos por nivel; Contactar solo con compañeros de grupo.
+- **Usuarios — designación de admins:** etiquetas claras Admin de región / Admin de zona / Admin de unidad con texto de ayuda y cascada de alcance; el admin de zona puede designar admin de unidad (no región/zona).
 - **Configuración → Eventos (timeline):** sesión, presencia, geocerca, mensajes (uno a uno), llamadas, radio/PTT, pánico y cuenta. Botón **Ver** abre el chat DM/grupo en **solo lectura**.
 - **Configuración → Eventos:** historial legible por operador (select persona + tipo + fechas). Incluye enter/exit de geocerca y creación/desactivación/reactivación de cuenta.
 - **Consola — geocerca:** notificación flotante + campanita al entrar/salir de zona.
 - **Chat directo APK — selección múltiple:** mantener pulsado entra en modo selección (check, contador, borrar / compartir / copiar). Borrar solo mensajes propios con el delete ya existente; compartir solo texto y archivos que ya están en el teléfono.
 
 ### Changed
+- **Usuarios / Grupos — jerarquía:** en Usuarios, region_*/zone_* sin paso unidad; en Grupos, miembros por alcance orgánico del canal (no solo tipo de perfil). Admin de zona: canal toda zona o una unidad; no agrega perfiles de región. Select de asignar muestra rol · adscripción.
+- **Grupos — alcance:** misma cascada explícita que Usuarios; textos claros de quién puede ser miembro. Admin de zona solo canales de unidad y no puede agregar perfiles de región.
+- **Usuarios — alcance (cascada PV):** alta/edición con Región → Zona («todas» solo region_*) → Unidad («todos los organismos» o una); root = todas las regiones. Mapeo a `unit_id`/`admin_scope_unit_id`; API permite ancla de `region_admin`.
+- **Usuarios (admin) — filtros en encabezado:** selects «— Todos —» bajo cada columna (estilo Parque Vehicular); se retiró el panel Filtros del toolbar. Columnas y búsqueda global se conservan.
+- **Grupos (admin):** listado y alta acotados por alcance; canal nuevo ligado a unidad; unit_admin/zone_admin gestionan solo sus canales.
 - **Consola — tooltip radio:** se quitó «Oír es aparte» del tooltip del canal de Hablar.
 - **Consola KPI:** Canales → Grupos, Con GPS → Operadores, Alertas activas → Alertas; se quitó el KPI «Al aire ahora».
 - **Consola / Sitios — color:** doble clic en la bolita abre una paleta propia; **doble clic en el color de esa paleta** confirma y cierra (ya no depende de la ventanita nativa del SO).
@@ -26,6 +34,14 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Consola — barra ops (maximizado):** pulido a11y/chrome; colapso solo en maximizado.
 
 ### Fixed
+- **Usuarios — admins org:** Admin de región/zona/unidad tienen **Editar** para datos básicos (identidad); rol y alcance no se tocan en ese modal.
+- **Usuarios — editar adscripción:** al guardar `Usuario de zona` se persiste la Zona (antes se perdía y al reabrir quedaba «— Selecciona —»); rehidratación de cascada Región→Zona→Unidad.
+- **Login web — solo app:** usuarios sin consola (`region_user` / `zone_user` / `unit_user`) reciben mensaje claro al entrar y no quedan en pantalla vacía (`/solo-app`); la API rechaza `client=web` sin emitir sesión.
+- **Usuarios — nombre de perfil:** al renombrar en Perfiles, columna/filtros/selects de Usuarios muestran el nombre vivo de `access_profiles` (antes labels fijos de `ROLE_OPTIONS` por código de rol).
+- **Admin de unidad — lista y grupos:** alcance acotado a la unidad asignada (sin expandir zona padre); canales admin filtrados por `unit_id`; backfill de unidad en grupos homónimos. `amadridm2` es operador de 8/o. R.C. (misma unidad que Mijangos), no un falso positivo de zona.
+- **Admin de unidad — mapa y pánico:** alcance GPS/canales acotado a su unidad (árbol); ubicaciones de servicios por adscripción o canal de la unidad; columna Pánico «Por rol» para `unit_admin`/`zone_admin`; operadores nuevos con pánico activo; el admin de unidad solo gestiona operadores.
+- **Usuarios — admin de unidad:** Región → Zona/C.G. → Unidad quedan preseleccionadas y bloqueadas a su unidad de adscripción (alta/edición de servicios desplegados).
+- **API — rate-limit 429:** la clave por sesión usa la cola de la firma JWT (el prefijo del Bearer es idéntico entre tokens); poll de mapa/overview no gasta el cupo global. Evita «Demasiadas solicitudes» en la consola.
 - **Consola ops — toolbar:** la franja de paneles ya no cambia de alto al pasar entre Sitios / Operadores / Ruta / Geocerca (altura fija de una fila label+control).
 - **Consola / Sitios — color:** se quitó el cuadro intermedio del portal; doble clic en la bolita abre solo la paleta nativa.
 - **Consola / Sitios — paleta nativa:** al doble clic en la bolita vuelve a abrirse el selector de color (antes solo se veía el swatch del portal y se cerraba al interactuar).

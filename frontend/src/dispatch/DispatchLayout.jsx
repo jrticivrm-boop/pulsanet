@@ -8,6 +8,7 @@ import { useGpsReporter } from '../useGpsReporter';
 import { useDispatchListen } from '../useDispatchListen';
 import { unlockMediaAudio } from '../unlockMediaAudio';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
+import { esMsg } from '../esMsg';
 import DispatchPanicHost from './DispatchPanicHost.jsx';
 import DispatchGeofenceToastHost from './DispatchGeofenceToastHost.jsx';
 import RadioPage from '../pages/RadioPage.jsx';
@@ -38,12 +39,13 @@ function dispatchModuleSegment(pathname) {
 }
 
 const ROLE_LABEL = {
-  root: 'Superadministrador',
-  admin: 'Administrador (Región)',
-  zone_admin: 'Admin de zona',
-  unit_admin: 'Admin de unidad',
-  dispatcher: 'Despacho',
-  operator: 'Operador',
+  root: 'Administrador',
+  region_admin: 'Administrador de región',
+  region_user: 'Usuario de región',
+  zone_admin: 'Administrador de zona',
+  zone_user: 'Usuario de zona',
+  unit_admin: 'Administrador de unidad',
+  unit_user: 'Usuario de unidad',
 };
 
 const LISTEN_KEY = 'tacticalptx_listen_groups';
@@ -1176,12 +1178,12 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
               {ptt.listenMuted ? 'MUTE' : 'Altavoz'}
             </button>
             {(ptt.denied || ptt.error) && (
-              <span className="cc-ptt-mini-err" role="status">
-                {ptt.denied?.reason === 'busy'
+              <span className="cc-ptt-mini-err" role="status" title={ptt.error || ''}>
+                {ptt.denied?.reason === 'busy' || ptt.denied?.reason === 'ocupado'
                   ? 'Canal ocupado'
                   : ptt.denied
                     ? 'Sin permiso'
-                    : 'Error de audio'}
+                    : esMsg(ptt.error, 'Error de audio')}
               </span>
             )}
           </div>

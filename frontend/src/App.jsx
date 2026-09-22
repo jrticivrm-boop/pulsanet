@@ -20,10 +20,10 @@ import PrivateCallHost from './PrivateCallHost.jsx';
 import { clearAvatarBlobCache } from './avatarBlobCache.js';
 import { PeerActionSheetHost } from './PeerActionSheet.jsx';
 import { PeoplePaletteHost } from './PeoplePalette.jsx';
-import RadioPage from './pages/RadioPage.jsx';
 import DispatchLayout from './dispatch/DispatchLayout.jsx';
 import DispatchMap from './dispatch/DispatchMap.jsx';
 import DispatchUsers from './dispatch/DispatchUsers.jsx';
+import DispatchProfiles from './dispatch/DispatchProfiles.jsx';
 import DispatchGroups from './dispatch/DispatchGroups.jsx';
 import LiveTrackMap from './dispatch/LiveTrackMap.jsx';
 import DispatchVideo from './dispatch/DispatchVideo.jsx';
@@ -71,7 +71,29 @@ function needsPasswordChange(session) {
 }
 
 function homeFor(user) {
-  return canDispatch(user) ? '/despacho' : '/radio';
+  return canDispatch(user) ? '/despacho' : '/solo-app';
+}
+
+const APP_ONLY_MSG =
+  'Tu usuario solo puede ingresar desde la aplicación móvil. La consola web es para administradores.';
+
+function AppOnlyNotice({ onLogout }) {
+  return (
+    <div className="login-page">
+      <section className="login-side" style={{ margin: 'auto', maxWidth: 480 }}>
+        <div className="login-card">
+          <div className="login-card-accent" aria-hidden="true" />
+          <header className="login-card-head">
+            <h1>Acceso solo por app</h1>
+            <p>{APP_ONLY_MSG}</p>
+          </header>
+          <button type="button" className="btn primary login-submit" onClick={onLogout}>
+            Volver al inicio de sesión
+          </button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function PasswordField({
@@ -246,6 +268,16 @@ export default function App() {
         }
       />
       <Route
+        path="/solo-app"
+        element={
+          !session ? (
+            <Navigate to="/login" replace />
+          ) : (
+            <AppOnlyNotice onLogout={logout} />
+          )
+        }
+      />
+      <Route
         path="/radio"
         element={
           !session ? (
@@ -255,7 +287,7 @@ export default function App() {
           ) : canDispatch(session.user) ? (
             <Navigate to="/despacho/radio" replace />
           ) : (
-            <RadioPage session={session} onLogout={logout} />
+            <AppOnlyNotice onLogout={logout} />
           )
         }
       />
@@ -269,7 +301,7 @@ export default function App() {
           ) : session && canDispatch(session.user) ? (
             <DispatchLayout session={session} onLogout={logout} onSession={saveSession} />
           ) : (
-            <Navigate to="/radio" replace />
+            <AppOnlyNotice onLogout={logout} />
           )
         }
       >
@@ -293,8 +325,9 @@ export default function App() {
           <Route path="grupos" element={<Navigate to="/despacho/administracion/grupos" replace />} />
           <Route path="geocercas" element={<Navigate to="/despacho" replace />} />
         </Route>
-        <Route path="administracion" element={<AdminLayout />}>
+        <Route path="administracion" element={<AdminLayout session={session} />}>
           <Route path="usuarios" element={<DispatchUsers session={session} />} />
+          <Route path="perfiles" element={<DispatchProfiles session={session} />} />
           <Route path="grupos" element={<DispatchGroups session={session} />} />
           <Route path="sitios-tacticos" element={<CatalogTacticalSites session={session} />} />
         </Route>
@@ -390,6 +423,11 @@ function LoginPage({ onLogin }) {
     setWarn(false);
     try {
       const data = await login(username.trim().toLowerCase(), password);
+      if (!canDispatch(data.user)) {
+        setErr(APP_ONLY_MSG);
+        setWarn(true);
+        return;
+      }
       const next = {
         token: data.token,
         refreshToken: data.refreshToken,
@@ -399,8 +437,8 @@ function LoginPage({ onLogin }) {
       onLogin(next);
       navigate(data.user?.mustChangePassword ? '/cambiar-clave' : homeFor(data.user));
     } catch (error) {
-      setErr(error.message);
-      setWarn(Boolean(error.warn || error.locked));
+      setErr(error.appOnly ? APP_ONLY_MSG : error.message);
+      setWarn(Boolean(error.warn || error.locked || error.appOnly));
     } finally {
       setBusy(false);
     }

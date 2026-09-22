@@ -1527,6 +1527,14 @@ body {
   text-transform: uppercase;
 }
 
+/* Tema obscuro: encabezados alineados al panel (sin verde oliva institucional) */
+[data-theme='obscuro'] .cc-table th,
+[data-theme='obscuro'] .data-table th {
+  background: color-mix(in srgb, var(--cc-panel, #0f172a) 88%, #94a3b8 12%) !important;
+  color: var(--cc-muted, #94a3b8) !important;
+  border-bottom-color: var(--cc-border, #334155) !important;
+}
+
 .lt-avatar.live,
 .lt-status-pill.on {
   background: #128c7e !important;

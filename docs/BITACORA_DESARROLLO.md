@@ -1,3 +1,394 @@
+## 2026-09-22 — Grupos: guía de alcance sin estilo de error
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** El aviso «Siguiente paso…» del alcance del canal se muestra como ayuda (hint), no en rojo de error.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchGroups.jsx`
+
+## 2026-09-22 — Usuarios/Grupos: alcance por jerarquía (opción 2)
+
+- **Tipo:** feature | ux
+- **Área:** web | backend
+- **Qué:**
+  - **Usuarios:** `region_*` y `zone_*` ya no bajan a unidad (región→zona; zona=toda la zona). Solo `unit_*` elige organismo.
+  - **Grupos:** miembros por alcance geográfico del canal (toda región / zona / unidad); admin de zona puede canal de toda la zona o una unidad; admin de zona no agrega perfiles de región; región sí puede entrar en canal zona/unidad.
+  - Asignar miembro: etiqueta `nombre — rol · adscripción`.
+- **Archivos / refs:** `DispatchUsers.jsx`, `DispatchGroups.jsx`, `groupPolicy.js`, `groups.js`, `admin.js`
+
+## 2026-09-22 — Grupos: asignar miembro en cascada
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Formulario «Asignar miembro» escalonado: Grupo → Usuario → Rol en canal (y botón Asignar solo al final).
+- **Archivos / refs:** `frontend/src/dispatch/DispatchGroups.jsx`
+
+## 2026-09-22 — Grupos: cascada clara + límite admin de zona
+
+- **Tipo:** feature | ux | security
+- **Área:** web | backend
+- **Qué:**
+  - Alcance del canal alineado con Usuarios (Región → todas zonas / zona → todos org. / unidad) y textos en lenguaje sencillo.
+  - Admin de zona solo crea canales de una unidad; no puede asignar `region_admin` / `region_user` (API + filtro en Asignar miembro).
+- **Archivos / refs:** `DispatchGroups.jsx`, `groupPolicy.js`, `admin.js`
+
+## 2026-09-22 — Usuarios: menú Más sin Contactar ni Perfil
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En el menú «Más» de la tabla se quitaron Contactar y el selector de Perfil (se valora volver a ponerlos después). Quedan Restablecer clave y el resto de acciones.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`
+
+## 2026-09-22 — Usuarios: textos claros de radio/mapa por rol
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Explicación en lenguaje sencillo de qué oye/ve cada rol en radio y mapa (según designación; no se elige a mano).
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`
+
+## 2026-09-22 — Usuarios: alcance en cascada (estilo Parque Vehicular)
+
+- **Tipo:** feature | ux
+- **Área:** web | backend
+- **Qué:**
+  - Adscripción con selects progresivos: Región → Zona (o «todas las zonas») → Unidad (o «todos los organismos»).
+  - `region_*`: puede elegir toda la región o acotar a zona/unidad; `zone_*`: zona fija + todos org. o una unidad; `unit_*`: unidad obligatoria; root = todas las regiones.
+  - Persistencia vía `unit_id` / `admin_scope_unit_id`; create/patch de `region_admin` acepta ancla región/zona/unidad.
+- **Por qué / notas:** Misma lógica de alcance que Parque Vehicular para evitar confusión en perfiles de región.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `backend/src/routes/admin.js`
+
+## 2026-09-22 — Error de edición visible dentro del modal
+
+- **Tipo:** fix | ux
+- **Área:** web | backend
+- **Qué:**
+  - Los errores de Guardar en Usuarios se muestran dentro del modal (ya no detrás en la lista).
+  - Refuerzo al persistir `Usuario de zona` con Zona seleccionada (unidad opcional).
+- **Archivos / refs:** `DispatchUsers.jsx`, `backend/src/routes/admin.js`
+
+## 2026-09-22 — Admins región/zona/unidad: Editar solo datos básicos
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Botón **Editar** disponible para Admin de región / zona / unidad (también sobre la propia cuenta).
+  - Modal «Editar datos básicos»: grado, nombres, matrícula, cargo — sin cambiar rol ni alcance orgánico.
+  - El cambio de perfil vía Más queda solo para root en esos casos.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`
+
+## 2026-09-22 — Editar usuario: Región/Zona ya no se vacían
+
+- **Tipo:** fix
+- **Área:** web | backend
+- **Qué:**
+  - Al guardar, `zone_user` persiste la zona elegida (`unit_id` = unidad || zona); antes solo mandaba `unitId` vacío y se perdía la adscripción.
+  - Rehidratación de cascada al abrir Editar cuando el árbol org llega o el ancla es zona/región.
+  - API create/patch valida y guarda ancla de `zone_user`; listado muestra `zoneName` también desde `admin_scope`.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `backend/src/routes/admin.js`
+
+## 2026-09-22 — Login web: mensaje claro si el usuario es solo app
+
+- **Tipo:** fix | ux
+- **Área:** web | backend
+- **Qué:**
+  - Login consola envía `client: 'web'`; si el rol no es admin de despacho, API responde 403 `WEB_APP_ONLY` sin emitir sesión.
+  - Formulario muestra aviso: ingresar solo desde la app móvil (sin pantalla vacía).
+  - Ruta `/solo-app` con aviso + botón para volver al login (evita el blank por redirect circular).
+  - `POST /api/admin/users/:id/force-logout` + cierre de sesión de `mperezh4` en este equipo.
+- **Archivos / refs:** `backend/src/routes/auth.js`, `admin.js`, `sessionPolicy.js`, `frontend/src/App.jsx`, `api.js`
+
+## 2026-09-22 — LiveKit: revisión de estabilidad y reinicio
+
+- **Tipo:** ops | infra
+- **Área:** infra | backend
+- **Qué:**
+  - Comprobado health API (`ready`, LiveKit configured), IP pública = `node_ip`/`LIVEKIT_PUBLIC_HOST` (189.175.60.174).
+  - Señalización `/rtc` OK vía directo :7880, Caddy :443 y Vite :5173 (401 sin token = esperado).
+  - Reinicio elevado de `livekit-server` (nuevo PID; UDP 7882 + TURN 3478 + TCP 7880/7881).
+- **Por qué / notas:** Error de consola «No se pudo conectar el audio (LiveKit)»; el servicio estaba vivo pero se reinició para limpiar estado ICE.
+- **Archivos / refs:** `infra/livekit.dev.yaml`, `infra/start-services.ps1`, Caddy `/rtc*`
+
+## 2026-09-22 — Alta usuario: aviso inmediato si matrícula ya existe
+
+- **Tipo:** feature | ux
+- **Área:** web | backend
+- **Qué:**
+  - Endpoint `POST /api/admin/users/check-matricula` (valida formato + `taken` en la org; respeta `excludeUserId` en edición).
+  - En el campo Matrícula del alta/edición: verificación en vivo (~350 ms) con mensajes Disponible / Ya registrada / Formato inválido; bloquea Continuar/Guardar si está tomada.
+- **Archivos / refs:** `backend/src/routes/admin.js`, `frontend/src/api.js`, `frontend/src/dispatch/DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-22 — Alta usuario: grupos opcionales de verdad
+
+- **Tipo:** fix | ux
+- **Área:** web | backend
+- **Qué:**
+  - Paso Grupos ya no pre-marca canales; botones «Marcar sugeridos» / «Ninguno».
+  - Se quitó el auto-ingreso al canal de la unidad cuando `groupIds` venía vacío (impedía «Crear sin grupos»).
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `backend/src/routes/admin.js`
+
+## 2026-09-22 — Radio PTT: admins pueden oír/hablar sin ser miembros explícitos
+
+- **Tipo:** fix
+- **Área:** backend | web
+- **Qué:**
+  - `ptt:join` / `ptt:request` aceptan root y admins de consola en canales activos de su org aunque no estén en `group_members` (rol efectivo `leader`), alineado con el bypass LiveKit.
+  - Dock muestra el mensaje real del error (`esMsg`) en lugar de siempre «Error de audio».
+- **Por qué / notas:** Al actualizar, Escuchar restauraba canales visibles por privilegio; el socket rechazaba join → banner engañoso y «Conectando…».
+- **Archivos / refs:** `backend/src/services/presence.js`, `backend/src/socket/ptt.js`, `frontend/src/dispatch/DispatchLayout.jsx`
+
+## 2026-09-22 — Grupos: cascada Región → Zona → Unidad al crear
+
+- **Tipo:** feature | ux
+- **Área:** web | backend
+- **Qué:**
+  - Alta de grupo con cascada orgánica (como Usuarios): Región → Zona / C.G. → Unidad opcional.
+  - Se envía `scopeLevel` explícito (`region` | `zone` | `unit`); ancla en `unit_id` (región/zona/unidad).
+  - API valida `kind` del ancla; admin de zona sigue exigiendo unidad; admin de unidad queda fijado.
+  - Listado muestra `scopeLabel` (Región/Zona/Unidad · nombre).
+- **Por qué / notas:** El nivel define membresía (`groupPolicy`) y visibilidad radio; «Sin unidad» ambiguo se reemplaza por alcance claro.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchGroups.jsx`, `frontend/src/dispatch/command-center.css`, `backend/src/routes/groups.js`, `backend/src/routes/admin.js`
+
+## 2026-09-22 — Fix 502: admin.js SyntaxError (effectiveRole duplicado)
+
+- **Tipo:** fix | ops
+- **Área:** backend
+- **Qué:** En `PATCH /users/:id` se declaró `effectiveRole` dos veces → la API no arrancaba (`SyntaxError`) y Caddy devolvía 502 al no poder conectar a `:4000`. Se eliminó la redeclaración; health público vuelve a OK.
+- **Archivos / refs:** `backend/src/routes/admin.js`
+
+## 2026-09-22 — Usuarios: filtros vacíos conservan encabezados de tabla
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:** Si «Desmarcar» en un filtro deja 0 filas, la tabla ya no se sustituye por un vacío: se mantienen encabezados/filtros y el mensaje va en una fila del tbody (como Parque Vehicular).
+- **Por qué / notas:** Antes `filteredUsers.length === 0` ocultaba toda la tabla, incluidos los th.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`
+
+## 2026-09-22 — Alcance radio/mapa fijado por rol (sin checks editables)
+
+- **Tipo:** fix | ux
+- **Área:** web | backend
+- **Qué:**
+  - En Alta/Editar Adscripción, los privilegios R/Z/U ya no se eligen a mano: se muestran solo los del rol (Admin unidad → solo Unidades; Admin zona → Zonas+Unidades; Admin región → los tres).
+  - Chips de visibilidad en listado solo informativos; se quitó el toggle manual.
+  - API create/update fuerza `can_see_*` con `defaultVisibilityFlags(role)` e ignora el body.
+- **Por qué / notas:** El alcance ya lo define el perfil/rol; Admin de unidad no debe poder marcar Región ni Zona.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`, `backend/src/routes/admin.js`
+
+## 2026-09-22 — Usuario de unidad: Unidad obligatoria + footer Grupos en una fila
+
+- **Tipo:** fix | ux
+- **Área:** web | backend
+- **Qué:**
+  - En Alta/Editar usuario, rol `unit_user` exige Unidad (asterisco, checklist, bloqueo Continuar/Guardar), igual que `unit_admin`.
+  - Backend create/update rechaza `unit_user` sin `unit_id` (unidad `kind=unit` válida).
+  - Paso Grupos: botones «Atrás» y «Crear e ingresar…» en una sola fila (`cc-form-actions` + `flex-wrap: nowrap`).
+- **Por qué / notas:** Paridad con Admin de unidad; footer del modal se apilaba por `.field` en columna y wrap.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`, `backend/src/routes/admin.js`
+
+## 2026-09-22 — Alta de usuario: placeholders Selecciona (rol / unidad)
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - En Adscripción, «Rol / designación» ya no arranca en «Usuario de unidad»; muestra «— Selecciona —» y exige elección antes de continuar (Alta).
+  - Placeholder de «Unidad» pasa de «— Opcional —» a «— Selecciona —» (misma etiqueta que Región/Zona); sigue opcional salvo Admin de unidad.
+  - Edición conserva el rol del usuario; Admin de unidad sigue bloqueado en `unit_user`.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`
+
+## 2026-09-22 — Usuarios: nombres de perfil desde Perfiles
+
+- **Tipo:** fix
+- **Área:** web | backend
+- **Qué:**
+  - Usuarios deja de mostrar solo labels fijos de `ROLE_OPTIONS`; carga `access_profiles` y usa el `name` por `code` (columna Perfil, filtros, selects de asignación).
+  - `GET /api/admin/profiles` legible para gestores de usuarios (escritura sigue solo Administrador).
+- **Por qué / notas:** Renombrar en Perfiles no se veía en Usuarios porque el listado referenciaba el rol por código y pintaba texto hardcodeado.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `backend/src/routes/profiles.js`
+
+## 2026-09-22 — Usuarios: filtros multi estilo Parque Vehicular
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Botón **Filtros** (junto a Columnas) muestra/oculta los filtros bajo cada columna (default oculto).
+  - Cada filtro pasa de `<select>` simple a panel multi estilo PV: **Ascendente/Descendente**, **Marcar/Desmarcar**, búsqueda en lista y checkboxes (selección múltiple).
+  - Badge con columnas filtradas activas; drag de columnas y Columnas sin cambios.
+- **Por qué / notas:** Paridad UX con Parque Vehicular Usuarios (`th-filter-multi`).
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`
+
+## 2026-09-22 — Usuarios: botón Filtros (mostrar/ocultar encabezado)
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Se restaura el botón **Filtros** en el toolbar de Usuarios (junto a Columnas), estilo PV.
+  - Solo muestra/oculta los selects «— Todos —» bajo cada columna; sin panel/popover de Perfil/Estado/Zona.
+  - Badge opcional con cantidad de filtros de columna activos; default oculto (como PV).
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`
+
+## 2026-09-22 — Orden del dropdown de roles (Usuarios)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - `ROLE_OPTIONS` en Usuarios (modal Adscripción y demás consumidores) reordenado: root → region_admin → region_user → zone_admin → zone_user → unit_admin → unit_user.
+  - Labels de `ROLE_LABEL` en Perfiles alineados a la misma nomenclatura; `allowedRoleOptions` sin cambios de lógica.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `DispatchProfiles.jsx`
+
+## 2026-09-22 — Acceso público desde otro equipo (UPnP + DuckDNS)
+
+- **Tipo:** fix | ops
+- **Área:** infra
+- **Qué:**
+  - Reafirmados mapeos UPnP TCP/80+443 (+ media LiveKit) → `192.168.1.77`; DuckDNS `pulsanet.duckdns.org` → WAN `189.175.60.174`.
+  - `ENSURE-PUBLIC-EDGE.ps1`: si el edge local está OK (hosts→LAN), ahora también refresca DuckDNS y `Reinforce-UPnP` (antes salía sin tocar el camino Internet).
+- **Por qué / notas:** Caddy/API/Web seguían vivos; el health “público” desde este PC iba por hosts→LAN y ocultaba UPnP vacío. URL correcta: `https://pulsanet.duckdns.org` (no `tacticalptx.duckdns.org`).
+- **Archivos / refs:** `infra/ENSURE-PUBLIC-EDGE.ps1`, `infra/Reinforce-UPnP.ps1`
+
+## 2026-09-22 — Escalera de roles en alta/edición de usuarios
+
+- **Tipo:** security | fix
+- **Área:** web | backend
+- **Qué:**
+  - UI (`allowedRoleOptions`): escalera root → region_admin → zone_admin → unit_admin; alias legacy `admin`/`dispatcher`/`operator` normalizados (no aparecen como opción root).
+  - API PATCH `/users/:id`: `canAssignRole` siempre (antes solo si `!orgWide`); rol normalizado al persistir.
+- **Por qué / notas:** Create/Más/Adscripción ya filtraban; se cierra hueco API org-wide y alias.
+- **Archivos / refs:** `DispatchUsers.jsx`, `backend/src/routes/admin.js`, `backend/src/services/roles.js`
+
+## 2026-09-22 — Usuarios: filtros en encabezado (estilo PV)
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Se elimina el botón/panel Filtros del toolbar; el filtrado pasa a selects «— Todos —» bajo cada título de columna (Acciones sin filtro).
+  - Opciones derivadas de los datos (perfil, estado, alcance, grado, nombre, etc.); siguen el orden de columnas (incluido drag-reorder). Se conserva Columnas y la búsqueda global.
+- **Archivos / refs:** `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-22 — Usuarios: Rol en paso Adscripción
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - En el modal crear/editar usuario, el campo Rol / designación pasa del paso Generales al paso Adscripción (antes de la cascada Región → Zona → Unidad).
+  - Checklist de adscripción incluye Rol; se mantienen ROLE_HELP, required y bloqueo para unit_admin.
+- **Archivos / refs:** `DispatchUsers.jsx`
+
+## 2026-09-22 — Usuarios: filtros ampliados (estilo PV)
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Panel Filtros más amplio en grilla: Perfil, Estado, Nivel de alcance, Zona, Unidad.
+  - Badge con conteo en el botón; chips activos quitables; Limpiar filtros; búsqueda del toolbar sin duplicar.
+- **Archivos / refs:** `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-22 — Usuarios: reordenar columnas arrastrando encabezados
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - En la tabla de usuarios se puede reordenar columnas arrastrando los `<th>` (icono ⠿ + cursor grab), como en Parque Vehicular.
+  - El orden se persiste en el mismo `localStorage` (`tacticalptx_users_cols`); Acciones queda fija al final (no arrastrable).
+- **Archivos / refs:** `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-22 — Usuarios: paginación al estilo Parque Vehicular
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Pie de listado: izquierda «Mostrando X de Y usuarios · Página N de M»; derecha botones cuadrados « ‹ 1 2 3 › » (página activa resaltada).
+  - Tamaño de página 15 (como PV); ventana de hasta 5 números; tokens `--cc-*`.
+- **Archivos / refs:** `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-22 — Usuarios: Filtros y Columnas al estilo Parque Vehicular
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Botones Filtros / Columnas con iconos y estilo compacto tipo PV (sin Exportar).
+  - Paneles popover: filtros Perfil/Estado; columnas con checkbox, reordenar (↑↓ / drag) y Restablecer.
+  - Preferencias de columnas en `localStorage` (`tacticalptx_users_cols`); cierre al clic fuera o al cambiar de panel.
+- **Archivos / refs:** `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-22 — Perfiles como pestaña de Administración
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:** Se quitó la barra interna «Usuarios registrados / Perfiles» en Usuarios. Perfiles pasa a pestaña hermana de Administración (junto a Usuarios), visible solo para Administrador (`root`).
+- **Archivos / refs:** `AdminLayout.jsx`, `App.jsx`, `DispatchUsers.jsx`, `DispatchProfiles.jsx`
+
+## 2026-09-22 — Encabezados de tabla en tema obscuro
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En tema obscuro, `.cc-table th` / `.data-table th` dejan el verde oliva institucional y usan tono de panel + texto muted.
+- **Archivos / refs:** `institutional.css`
+
+
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** La pestaña Usuarios registrados pasa de tarjetas a tabla (grado, nombre, usuario, perfil, alcance, estado, fechas y acciones). Sin exportar. Filtros, columnas y paginación. Editar / Eliminar a la vista; Contactar, clave, pánico y ubicación quedan en Más.
+- **Archivos / refs:** `DispatchUsers.jsx`, `command-center.css`, `admin.js` (`created_at`)
+
+
+
+- **Tipo:** feature
+- **Área:** backend | web | database | mobile
+- **Qué:**
+  - Respaldo previo: `C:\pulsanet_soporte\Respaldos\pre-perfiles-jerarquia-20260922`.
+  - Roles: Administrador (`root`), Admin/Usuario de región, zona y unidad. Migrados `admin`→`region_admin`, `operator`→`unit_user`.
+  - Consola web solo administradores. Usuarios: app + mapa según perfil.
+  - Pestaña Perfiles (modelo B): módulos y alcance; solo el Administrador crea/edita; el perfil Administrador no se borra.
+  - Mapa: matriz de visibilidad + ocultar ubicación (solo admins) y share hacia abajo.
+  - Grupos por nivel (región/zona/unidad) y DM/Contactar solo si comparten grupo.
+  - Pánico: habilitado; la alerta se emite también a la organización (alcance fino pendiente).
+- **Por qué / notas:** El Administrador no se puede eliminar (sí restablecer clave). Hay varias cuentas `root` en BD; no se borraron. El mapa en el APK ya instalado sigue con el filtro viejo hasta una compilación nueva; el API ya filtra.
+- **Archivos / refs:** `roles.js`, `visibility.js`, `profiles.js`, `DispatchProfiles.jsx`, `DispatchUsers.jsx`, migración `apply-031-profiles.js`
+
+
+
+- **Tipo:** fix | ux
+- **Área:** backend | web | database
+- **Qué:**
+  - Aclarado: `amadridm2` aparece en Usuarios del admin Mijangos porque ambos tienen `unit_id` = **8/o. R.C.** (servicios desplegados correctos; no era alcance a toda la 8/a. Z.M.).
+  - `unit_admin`: alcance admin/track/canales = unidad asignada (+ subordinadas reales); si el alcance apunta a zona/región por error, **no** se expande el árbol de zona.
+  - UX designación: etiquetas Admin de región / zona / unidad + ayuda; `zone_admin` solo puede designar operador/despacho/admin de unidad; cascada y alcance al promover.
+  - Grupos: listado/CRUD filtrado por alcance; crear canal exige `unit_id` (fijo para unit_admin); backfill de `unit_id` en canales cuyo nombre = unidad (p. ej. «8/o. R.C.»).
+- **Por qué / notas:** Feedback panel ADMIN DE UNIDAD (lista «ajena», designar admins, grupos mal). Datos Mijangos OK; no se cambió su fila.
+- **Archivos / refs:** `orgUnits.js`, `admin.js`, `groups.js`, `DispatchUsers.jsx`, `DispatchGroups.jsx`, `_backfill_group_unit_ids.js`
+
+## 2026-09-21 — unit_admin: ubicaciones + pánico
+
+- **Tipo:** fix | ux
+- **Área:** backend | web
+- **Qué:**
+  - Alcance GPS/mapa/canales de **admin de unidad** fijo a su unidad (árbol); ya no se vacía por chip Z sin zona ni se limita a un solo `unit_id`.
+  - `/api/locations` incluye operadores adscritos **o** miembros de canales de esa unidad.
+  - Columna **Pánico** muestra «Por rol» para `unit_admin` / `zone_admin`; operadores nuevos con pánico en sí; admin de unidad solo crea/gestiona operadores.
+- **Por qué / notas:** Queja: Admor de unidad no veía ubicaciones de servicios desplegados y veía Pánico=No.
+- **Archivos / refs:** `backend/src/services/orgUnits.js`, `backend/src/routes/locations.js`, `backend/src/routes/admin.js`, `frontend/src/dispatch/DispatchUsers.jsx`
+
+## 2026-09-21 — Admin unidad: cascada adscripción fijada
+
+- **Tipo:** ux | fix
+- **Área:** web | backend
+- **Qué:**
+  - En alta/edición de usuarios (servicios desplegados), si el operador es **admin de unidad**, Región / Zona·C.G. / Unidad se rellenan solas con su jerarquía y quedan deshabilitadas.
+  - API: create/patch ya no aceptan otra `unitId` ni alta sin unidad asignada para `unit_admin`.
+- **Por qué / notas:** Solo ese rol registra servicios de su unidad; root/admin/zone_admin siguen eligiendo libremente.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `backend/src/routes/admin.js`
+
+## 2026-09-21 — Rate-limit 429: clave JWT + poll consola
+
+- **Tipo:** fix
+- **Área:** backend
+- **Qué:**
+  - `keyGenerator` del rate-limit global usa la **cola de la firma JWT** (últimos ~32), no el prefijo del header Authorization (header JWT idéntico → un solo bucket).
+  - Confirmados skip de poll consola (`GET /api/locations*`, `/api/admin/overview`) y default `RATE_LIMIT_MAX` ~2000; comentario en `.env.example`.
+  - Soft-reload API (`--watch`); health OK; sin auth → 401 (no 429).
+- **Por qué / notas:** Consola hacía poll GPS/overview y casi todas las sesiones compartían cupo → HTTP 429 «Demasiadas solicitudes». Tras reload de la consola el 429 debería desaparecer.
+- **Archivos / refs:** `backend/src/server.js`, `backend/src/config.js`, `backend/.env.example`
+
 ## 2026-09-21 — Edge schtask + push rama WIP
 
 - **Tipo:** ops

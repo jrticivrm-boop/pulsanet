@@ -70,6 +70,21 @@ export async function listOrgContacts(orgId, excludeUserId, { includeSelf = fals
   return rows.map(mapContactRow);
 }
 
+/** ¿Comparten al menos un grupo activo? (Contactar / DM). */
+export async function sharesGroup(orgId, userId, peerId) {
+  if (String(userId) === String(peerId)) return true;
+  const { rows } = await query(
+    `SELECT 1
+     FROM group_members me
+     JOIN group_members peer ON peer.group_id = me.group_id AND peer.user_id = $2
+     JOIN groups g ON g.id = me.group_id AND g.is_active = TRUE AND g.organization_id = $3
+     WHERE me.user_id = $1
+     LIMIT 1`,
+    [userId, peerId, orgId]
+  );
+  return Boolean(rows[0]);
+}
+
 /**
  * Contactos con los que compartes al menos un grupo (membresía activa),
  * más el propio usuario (chat contigo).
