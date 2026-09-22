@@ -69,8 +69,23 @@ try {
       $lan = Get-TpxPreferredLanIp
       if (Test-TpxLocalEdgeHealth -Domain $dom -LanIp $lan) {
         Write-Host "Edge LOCAL OK https://$dom (443) lan=$lan" -ForegroundColor Green
+        # Local OK suele ser hosts→LAN; sin reafirmar UPnP/DuckDNS el acceso desde
+        # otro equipo por Internet puede quedar caído aunque Caddy siga vivo.
+        $ipNow = Get-TpxCurrentPublicIp
+        if ($ipNow) {
+          try { [void](Update-TpxDuckDns -Root $root -PublicIp $ipNow) } catch {
+            Write-Host "DuckDNS: $($_.Exception.Message)" -ForegroundColor Yellow
+          }
+        }
+        $reinforce = Join-Path $PSScriptRoot 'Reinforce-UPnP.ps1'
+        if (Test-Path $reinforce) {
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $reinforce
+          if ($LASTEXITCODE -notin @(0, $null)) {
+            Write-Host "AVISO: Reinforce-UPnP exit=$LASTEXITCODE (otro equipo puede no ver :80/:443)" -ForegroundColor Yellow
+          }
+        }
         if (-not (Test-TpxUPnPAvailable)) {
-          Write-Host "AVISO: UPnP IGD null - APK 4G necesita port-forward 80/443 -> $lan" -ForegroundColor Yellow
+          Write-Host "AVISO: UPnP IGD null - APK 4G / otro equipo necesita port-forward 80/443 -> $lan" -ForegroundColor Yellow
           exit 3
         }
         exit 0
@@ -78,6 +93,10 @@ try {
       $code = & curl.exe -sk --connect-timeout 8 --max-time 12 -o NUL -w '%{http_code}' "https://$dom/api/health" 2>$null
       if ($code -eq '200') {
         Write-Host "Edge WAN OK https://$dom (443)" -ForegroundColor Green
+        $reinforce2 = Join-Path $PSScriptRoot 'Reinforce-UPnP.ps1'
+        if (Test-Path $reinforce2) {
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $reinforce2 | Out-Null
+        }
         exit 0
       }
       Write-Host "Edge escucha pero health local/WAN fallo (wan=$code) - reiniciando..." -ForegroundColor Yellow
