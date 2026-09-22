@@ -10,6 +10,7 @@ import '../audio_session_setup.dart';
 import '../channel_session.dart';
 import '../config.dart';
 import '../livekit_e2ee.dart';
+import '../private_call_stabilizer.dart';
 import '../theme.dart';
 
 /// Radio personal 1:1 — franja superior; PTT por toque (abre / libera).
@@ -23,6 +24,7 @@ class PersonalRadioBar extends StatefulWidget {
     required this.url,
     required this.role,
     this.e2eeKey,
+    this.e2ee = false,
     required this.onClosed,
   });
 
@@ -33,6 +35,8 @@ class PersonalRadioBar extends StatefulWidget {
   final String url;
   final String role;
   final String? e2eeKey;
+  /// Si el API marcó `e2ee: true`, no conectar sin clave.
+  final bool e2ee;
   final VoidCallback onClosed;
 
   @override
@@ -48,6 +52,7 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
   bool _busy = false;
   bool _connectFailed = false;
   io.Socket? _signalSocket;
+  PrivateCallStabilizer? _stabilizer;
   EventsListener<RoomEvent>? _roomListener;
 
   bool get pttHeld => _pttOn;
@@ -67,6 +72,7 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
       io.OptionBuilder()
           .setTransports(['websocket'])
           .setAuth({'token': token})
+          .enableReconnection()
           .disableAutoConnect()
           .enableForceNew()
           .build(),
@@ -96,7 +102,10 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
       // El canal grupal suele tener el mic ocupado → sin esto el 1:1 falla o no abre PTT.
       await ChannelSession.current?.pauseForPersonalRadio();
 
-      final e2eeFuture = buildVoiceE2eeOptions(widget.e2eeKey);
+      final e2eeFuture = buildVoiceE2eeOptions(
+        widget.e2eeKey,
+        required: widget.e2ee,
+      );
       await AudioSessionSetup.acquireRadio();
       final e2ee = await e2eeFuture;
       room = Room(roomOptions: RoomOptions(encryption: e2ee));
@@ -126,6 +135,20 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
         _connectFailed = false;
         _status = 'Listo · toca para hablar';
       });
+      _stabilizer?.dispose();
+      _stabilizer = PrivateCallStabilizer(
+        api: widget.api,
+        callId: widget.callId,
+        room: room,
+        liveKitUrl: widget.url,
+        liveKitToken: widget.token,
+        peerLabel: widget.peerName,
+        isClosing: () => _closing,
+        onStatus: (msg) {
+          if (mounted && !_closing) setState(() => _status = msg);
+        },
+        onRemoteEnd: () => _close(remote: true),
+      )..attach(signalSocket: _signalSocket);
     } catch (e) {
       try {
         await room?.disconnect();
@@ -235,6 +258,7 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
 
   @override
   void dispose() {
+    _stabilizer?.dispose();
     _roomListener?.dispose();
     try {
       _signalSocket?.dispose();

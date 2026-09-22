@@ -1,7 +1,8 @@
 /**
  * Respaldos PostgreSQL (pg_dump) para TacticalPtx.
- * Formato: tacticalptx_YYYYMMDD_HHMMSS.zip → database.sql + meta.json
+ * Formato: tacticalptx_YYYYMMDD_HHMMSS.zip → database.sql + meta.json + uploads/
  * Carpeta: backend/data/backups (o BACKUP_DIR)
+ * Multimedia: contenido de UPLOADS_DIR (backend/uploads)
  */
 import fs from 'fs';
 import path from 'path';
@@ -10,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import { config } from '../config.js';
 import { APP_VERSION } from '../version.js';
+import { UPLOADS_DIR } from './uploads.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BACKEND_ROOT = path.resolve(__dirname, '../..');
@@ -25,6 +27,7 @@ const SPAWN_TIMEOUT_MS = Number(process.env.BACKUP_SPAWN_TIMEOUT_MS) || 30 * 60 
 const OFFICIAL_BACKUP_RE = /^tacticalptx_\d{8}_\d{6}\.(sql|zip)$/;
 const ZIP_DB_ENTRY = 'database.sql';
 const ZIP_META_ENTRY = 'meta.json';
+const ZIP_UPLOADS_ENTRY = 'uploads';
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -205,6 +208,95 @@ function runTar(args) {
   });
 }
 
+/** Lista entradas del archivo (stdout de `tar -tf`). */
+function runTarList(args) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('tar', args, { env: process.env, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (chunk) => {
+      if (stdout.length < 5_000_000) stdout += chunk.toString();
+    });
+    proc.stderr.on('data', (chunk) => {
+      if (stderr.length < 200000) stderr += chunk.toString();
+    });
+    const timer = setTimeout(() => {
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        /* ignore */
+      }
+      reject(new Error('tar: tiempo de espera agotado.'));
+    }, SPAWN_TIMEOUT_MS);
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      if (err.code === 'ENOENT') {
+        reject(new Error('No se encontró tar (necesario para empaquetar .zip).'));
+      } else reject(err);
+    });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(stdout);
+      else reject(new Error(stderr.trim() || `tar terminó con código ${code}`));
+    });
+  });
+}
+
+/** Rechaza path traversal / absolutos antes de extraer (zip-slip). */
+async function assertTarEntriesSafe(zipPath) {
+  const listing = await runTarList(['-tf', zipPath]);
+  for (const line of listing.split(/\r?\n/)) {
+    const entry = String(line || '').trim();
+    if (!entry) continue;
+    const n = entry.replace(/\\/g, '/');
+    if (n.startsWith('/') || n.startsWith('~/') || /^[A-Za-z]:/.test(n)) {
+      throw new Error('Respaldo inválido: ruta absoluta en el archivo.');
+    }
+    const parts = n.split('/');
+    if (parts.some((p) => p === '..')) {
+      throw new Error('Respaldo inválido: path traversal (..).');
+    }
+  }
+}
+
+function assertPathInside(rootAbs, candidateAbs) {
+  const root = path.resolve(rootAbs);
+  const cand = path.resolve(candidateAbs);
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+  if (cand !== root && !cand.startsWith(prefix)) {
+    throw new Error('Respaldo inválido: archivo fuera de staging.');
+  }
+}
+
+/** Defensa en profundidad tras extract (incluye symlinks). */
+function assertExtractedInside(stagingAbs) {
+  const root = path.resolve(stagingAbs);
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      const full = path.join(dir, ent.name);
+      assertPathInside(root, full);
+      if (ent.isSymbolicLink()) {
+        let target;
+        try {
+          target = fs.readlinkSync(full);
+        } catch {
+          continue;
+        }
+        assertPathInside(root, path.resolve(dir, target));
+      } else if (ent.isDirectory()) {
+        walk(full);
+      }
+    }
+  };
+  walk(root);
+}
+
 function formatBytes(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -247,6 +339,8 @@ function listBackups() {
         origin: manual ? 'manual' : 'automatic',
         format: f.endsWith('.zip') ? 'zip' : 'sql',
         includesMeta: f.endsWith('.zip'),
+        // Zips nuevos = BD + meta + multimedia; .sql legado = solo BD
+        includesMedia: f.endsWith('.zip'),
       };
     })
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -268,12 +362,49 @@ function pruneBackups(retentionCount) {
   return removed;
 }
 
+function uploadsDirHasContent(dir = UPLOADS_DIR) {
+  if (!dir || !fs.existsSync(dir)) return false;
+  try {
+    return fs.readdirSync(dir).some((name) => !name.startsWith('_tmp'));
+  } catch {
+    return false;
+  }
+}
+
+function measureUploadsBytes(dir = UPLOADS_DIR) {
+  let total = 0;
+  const walk = (d) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith('_tmp')) continue;
+      const p = path.join(d, e.name);
+      try {
+        if (e.isDirectory() && !e.isSymbolicLink()) walk(p);
+        else if (e.isFile()) total += fs.statSync(p).size;
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+  if (fs.existsSync(dir)) walk(dir);
+  return total;
+}
+
 async function packBackupZip(zipPath, sqlPath) {
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'tpx-bk-'));
   try {
     const stagedSql = path.join(staging, ZIP_DB_ENTRY);
     const stagedMeta = path.join(staging, ZIP_META_ENTRY);
     fs.copyFileSync(sqlPath, stagedSql);
+
+    const includesUploads = uploadsDirHasContent(UPLOADS_DIR);
+    const uploadsBytes = includesUploads ? measureUploadsBytes(UPLOADS_DIR) : 0;
+
     fs.writeFileSync(
       stagedMeta,
       JSON.stringify(
@@ -281,6 +412,8 @@ async function packBackupZip(zipPath, sqlPath) {
           product: 'TacticalPtx',
           version: APP_VERSION,
           createdAt: new Date().toISOString(),
+          includesUploads,
+          ...(includesUploads ? { uploadsBytes } : {}),
         },
         null,
         2
@@ -288,7 +421,23 @@ async function packBackupZip(zipPath, sqlPath) {
       'utf8'
     );
     if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
-    await runTar(['-a', '-cf', zipPath, '-C', staging, ZIP_DB_ENTRY, ZIP_META_ENTRY]);
+    // Windows bsdtar falla con varios -C («Couldn't visit directory») y -rf en .zip
+    // no es fiable. Si hay multimedia, enlazar uploads/ dentro del staging y un solo tar.
+    const entries = [ZIP_DB_ENTRY, ZIP_META_ENTRY];
+    if (includesUploads) {
+      const stagedUploads = path.join(staging, ZIP_UPLOADS_ENTRY);
+      try {
+        fs.symlinkSync(UPLOADS_DIR, stagedUploads, 'junction');
+      } catch {
+        fs.cpSync(UPLOADS_DIR, stagedUploads, {
+          recursive: true,
+          dereference: true,
+          filter: (src) => !path.basename(src).startsWith('_tmp'),
+        });
+      }
+      entries.push(ZIP_UPLOADS_ENTRY);
+    }
+    await runTar(['-a', '-cf', zipPath, '--exclude=_tmp*', '-C', staging, ...entries]);
   } finally {
     try {
       fs.rmSync(staging, { recursive: true, force: true });
@@ -299,8 +448,19 @@ async function packBackupZip(zipPath, sqlPath) {
 }
 
 async function unpackBackupZip(zipPath) {
+  await assertTarEntriesSafe(zipPath);
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'tpx-bk-x-'));
-  await runTar(['-xf', zipPath, '-C', staging]);
+  try {
+    await runTar(['-xf', zipPath, '-C', staging]);
+    assertExtractedInside(staging);
+  } catch (err) {
+    try {
+      fs.rmSync(staging, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
   const sqlPath = path.join(staging, ZIP_DB_ENTRY);
   if (!fs.existsSync(sqlPath)) {
     try {
@@ -310,7 +470,53 @@ async function unpackBackupZip(zipPath) {
     }
     throw new Error('El ZIP no contiene database.sql.');
   }
-  return { staging, sqlPath };
+  const uploadsPath = path.join(staging, ZIP_UPLOADS_ENTRY);
+  const hasUploads = uploadsDirHasContent(uploadsPath);
+  return { staging, sqlPath, uploadsPath, hasUploads };
+}
+
+/**
+ * Sustituye UPLOADS_DIR por el árbol restaurado (clon exacto).
+ * Mueve el uploads actual a uploads_pre_restore_<timestamp> como seguridad.
+ */
+function replaceUploadsTree(restoredUploadsPath) {
+  const parent = path.dirname(UPLOADS_DIR);
+  fs.mkdirSync(parent, { recursive: true });
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[-:TZ.]/g, '')
+    .slice(0, 14);
+  const aside = path.join(parent, `uploads_pre_restore_${stamp}`);
+
+  let movedAside = false;
+  if (fs.existsSync(UPLOADS_DIR)) {
+    fs.renameSync(UPLOADS_DIR, aside);
+    movedAside = true;
+  }
+  try {
+    try {
+      fs.renameSync(restoredUploadsPath, UPLOADS_DIR);
+    } catch (err) {
+      // Fallback si rename falla entre volúmenes: copiar y borrar origen en staging
+      fs.cpSync(restoredUploadsPath, UPLOADS_DIR, { recursive: true });
+      try {
+        fs.rmSync(restoredUploadsPath, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+      if (!fs.existsSync(UPLOADS_DIR)) throw err;
+    }
+  } catch (err) {
+    if (movedAside && fs.existsSync(aside) && !fs.existsSync(UPLOADS_DIR)) {
+      try {
+        fs.renameSync(aside, UPLOADS_DIR);
+      } catch {
+        /* ignore */
+      }
+    }
+    throw err;
+  }
+  return aside;
 }
 
 function runPgDump(outputPath) {
@@ -470,11 +676,15 @@ export async function restoreFromArchive(archivePath, { createSafetyBackup = tru
   let staging = null;
   let sqlPath = archivePath;
   let safetyFile = null;
+  let hasUploads = false;
+  let restoredUploadsPath = null;
   try {
     if (isZip) {
       const unpacked = await unpackBackupZip(archivePath);
       staging = unpacked.staging;
       sqlPath = unpacked.sqlPath;
+      hasUploads = !!unpacked.hasUploads;
+      restoredUploadsPath = unpacked.uploadsPath;
     }
     if (!isSqlBackupFile(sqlPath)) throw new Error('SQL del respaldo no válido.');
 
@@ -484,6 +694,20 @@ export async function restoreFromArchive(archivePath, { createSafetyBackup = tru
     }
     await wipePublicSchema();
     await runPsql(['-f', sqlPath]);
+
+    let includesUploads = false;
+    let message = 'Base de datos restaurada correctamente.';
+    if (hasUploads && restoredUploadsPath && fs.existsSync(restoredUploadsPath)) {
+      replaceUploadsTree(restoredUploadsPath);
+      includesUploads = true;
+      message =
+        'Base de datos y multimedia restaurados correctamente. Los uploads previos quedaron en uploads_pre_restore_*.';
+    } else if (isZip || isSql) {
+      message =
+        'Base de datos restaurada. El archivo no incluye multimedia; se conservaron los archivos uploads actuales.';
+      includesUploads = false;
+    }
+
     const cfg = loadConfig();
     saveConfig({
       ...cfg,
@@ -494,7 +718,8 @@ export async function restoreFromArchive(archivePath, { createSafetyBackup = tru
     });
     return {
       ok: true,
-      message: 'Base de datos restaurada correctamente.',
+      includesUploads,
+      message,
       safetyFile,
     };
   } finally {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Paleta TacticalPtx — tema institucional claro (oliva / oro).
+/// Paleta SICOM — oliva / bronce alineados al logotipo.
 const Color kTacBg = Color(0xFFE6EAE1);
 const Color kTacHeader = Color(0xFFF8F9F5);
 const Color kTacSurface = Color(0xFFF8F9F5);
@@ -10,16 +10,16 @@ const Color kTacPanel = Color(0xFFEEF1EA);
 const Color kTacBorder = Color(0xFFD5DCCE);
 const Color kTacOnSurface = Color(0xFF172015);
 const Color kTacMuted = Color(0xFF5C6756);
-const Color kTacGold = Color(0xFF9A7B2F);
-const Color kTacGoldSoft = Color(0xFFB8943F);
+const Color kTacGold = Color(0xFFB8954A);
+const Color kTacGoldSoft = Color(0xFFC9A84C);
 const Color kTacBubbleMine = Color(0xFFDCE8D4);
 const Color kTacBubbleOther = Color(0xFFFFFFFF);
 const Color kTacInputBar = Color(0xFFF8F9F5);
 
 /// Alias institucionales.
-const Color kInstOlive = Color(0xFF243D20);
-const Color kInstOliveMid = Color(0xFF355C2E);
-const Color kInstOliveDeep = Color(0xFF1C2E19);
+const Color kInstOlive = Color(0xFF2A3D22);
+const Color kInstOliveMid = Color(0xFF3D5A32);
+const Color kInstOliveDeep = Color(0xFF1A2816);
 const Color kInstGold = kTacGold;
 const Color kInstGoldSoft = kTacGoldSoft;
 const Color kInstInk = kTacOnSurface;
@@ -30,12 +30,17 @@ const Color kInstSurface = kTacSurface;
 const Color kInstPanel2 = kTacPanel;
 const Color kInstBorder = kTacBorder;
 const Color kInstDanger = Color(0xFF7A1F1F);
-const Color kInstOk = Color(0xFF1F5A2E);
+const Color kInstDangerSoft = Color(0xFFE53935);
+const Color kInstOk = Color(0xFF3D6B28);
 const Color kInstOnPrimary = Color(0xFFF4F7F1);
 
-/// Fondos de llamadas.
-const Color kInstCallBg = Color(0xFF0C1410);
-const Color kInstCallSurface = Color(0xFF152018);
+/// Fondos de llamadas (negro táctico del logo).
+const Color kInstCallBg = Color(0xFF0A0A0A);
+const Color kInstCallSurface = Color(0xFF141412);
+const Color kInstCallSurfaceHi = Color(0xFF3A5242);
+
+/// HUD / en línea (visor del logo).
+const Color kInstHud = Color(0xFFB8E04A);
 
 /// Alias de compatibilidad.
 const Color kRadioBlue = kInstOlive;
@@ -51,15 +56,31 @@ const Color kRadioDanger = kInstDanger;
 abstract final class TacticalFonts {
   static TextStyle display({
     double fontSize = 28,
-    FontWeight fontWeight = FontWeight.w600,
+    FontWeight fontWeight = FontWeight.w700,
     Color? color,
-    double letterSpacing = 1.2,
+    double letterSpacing = 1.6,
     double? height,
   }) =>
       GoogleFonts.oswald(
         fontSize: fontSize,
         fontWeight: fontWeight,
         color: color ?? kTacOnSurface,
+        letterSpacing: letterSpacing,
+        height: height,
+      );
+
+  /// Wordmark SICOM — grande, condensado, imponente (como el logotipo).
+  static TextStyle brand({
+    double fontSize = 52,
+    FontWeight fontWeight = FontWeight.w700,
+    Color? color,
+    double letterSpacing = 2.4,
+    double height = 0.95,
+  }) =>
+      GoogleFonts.oswald(
+        fontSize: fontSize,
+        fontWeight: fontWeight,
+        color: color ?? kInstGoldSoft,
         letterSpacing: letterSpacing,
         height: height,
       );
@@ -120,7 +141,7 @@ TextTheme _buildTextTheme() {
     headlineMedium: display.headlineMedium?.copyWith(
       fontWeight: FontWeight.w600,
       color: kInstOlive,
-      letterSpacing: 0.5,
+      letterSpacing: 0.4,
     ),
     headlineSmall: display.headlineSmall?.copyWith(
       fontWeight: FontWeight.w600,
@@ -132,7 +153,7 @@ TextTheme _buildTextTheme() {
       letterSpacing: 0.2,
     ),
     titleMedium: body.titleMedium?.copyWith(
-      fontWeight: FontWeight.w700,
+      fontWeight: FontWeight.w600,
       color: kTacOnSurface,
     ),
     titleSmall: body.titleSmall?.copyWith(
@@ -143,12 +164,12 @@ TextTheme _buildTextTheme() {
     bodyLarge: body.bodyLarge?.copyWith(
       fontWeight: FontWeight.w500,
       color: kTacOnSurface,
-      height: 1.35,
+      height: 1.4,
     ),
     bodyMedium: body.bodyMedium?.copyWith(
       fontWeight: FontWeight.w500,
       color: kTacOnSurface,
-      height: 1.35,
+      height: 1.4,
     ),
     bodySmall: body.bodySmall?.copyWith(
       fontWeight: FontWeight.w500,
@@ -156,17 +177,17 @@ TextTheme _buildTextTheme() {
     ),
     labelLarge: body.labelLarge?.copyWith(
       fontWeight: FontWeight.w700,
-      letterSpacing: 0.8,
+      letterSpacing: 0.6,
       color: kTacOnSurface,
     ),
     labelMedium: body.labelMedium?.copyWith(
       fontWeight: FontWeight.w700,
-      letterSpacing: 1.0,
+      letterSpacing: 0.8,
       color: kTacMuted,
     ),
     labelSmall: body.labelSmall?.copyWith(
       fontWeight: FontWeight.w700,
-      letterSpacing: 1.2,
+      letterSpacing: 1.0,
       color: kTacMuted,
     ),
   );

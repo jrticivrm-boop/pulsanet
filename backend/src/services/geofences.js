@@ -1,5 +1,6 @@
 import { query } from '../db.js';
 import { emitDispatchTrack } from '../socket/dispatch.js';
+import { logUserEvent } from './userEvents.js';
 
 const EARTH_M = 6371000;
 
@@ -16,16 +17,12 @@ export function haversineM(lat1, lng1, lat2, lng2) {
 
 /**
  * Evalúa enter/exit de geocercas activas de la org tras un reporte GPS.
- * Emite dispatch:geofence por cada transición.
+ * Emite dispatch:geofence por cada transición y persiste en user_events.
  */
-export async function evaluateGeofences(io, {
-  orgId,
-  userId,
-  displayName,
-  latitude,
-  longitude,
-  unitId = null,
-}) {
+export async function evaluateGeofences(
+  io,
+  { orgId, userId, displayName, latitude, longitude, unitId = null }
+) {
   const { rows: fences } = await query(
     `SELECT id, name, center_lat, center_lng, radius_m
      FROM geofences
@@ -56,18 +53,18 @@ export async function evaluateGeofences(io, {
     );
 
     if (was === null) {
-      // Primera vez: solo alerta si ya está dentro (entrada inicial)
       if (!inside) continue;
     } else if (was === inside) {
       continue;
     }
 
     const event = inside ? 'enter' : 'exit';
+    const fenceName = f.name || 'Geocerca';
     const payload = {
       userId,
       displayName: displayName || null,
       geofenceId: f.id,
-      name: f.name,
+      name: fenceName,
       event,
       distanceM: Math.round(dist),
       latitude,
@@ -76,6 +73,22 @@ export async function evaluateGeofences(io, {
     };
     events.push(payload);
     emitDispatchTrack(io, 'dispatch:geofence', payload, { unitId });
+    void logUserEvent({
+      organizationId: orgId,
+      subjectUserId: userId,
+      kind: 'geofence',
+      summary: inside
+        ? `Entró a la geocerca «${fenceName}»`
+        : `Salió de la geocerca «${fenceName}»`,
+      meta: {
+        event,
+        geofenceId: f.id,
+        name: fenceName,
+        distanceM: Math.round(dist),
+        latitude,
+        longitude,
+      },
+    });
   }
   return events;
 }

@@ -1,0 +1,26 @@
+{
+  "name": "SICOM — Sistema de Comunicaciones para Operaciones Militares",
+  "short_name": "SICOM",
+  "description": "Sistema de Comunicaciones para Operaciones Militares — radio PTT, chat y despacho.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "lang": "es-MX",
+  "icons": [
+    {
+      "src": "/brand/sicom.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/sicom_round.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

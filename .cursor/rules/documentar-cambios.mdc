@@ -10,8 +10,8 @@ Al terminar cualquier trabajo que implique **código, infra, docs de producto, U
 ## Obligatorio
 
 1. Añadir una entrada **al inicio** (después del encabezado) de:
- - `C:\pulsanet\Soporte\Documentos\BITACORA_DESARROLLO.md`
- - y sincronizar la misma entrada en `C:\pulsanet\docs\BITACORA_DESARROLLO.md`
+ - `C:\pulsanet\docs\BITACORA_DESARROLLO.md`
+ - y la misma entrada en `C:\pulsanet_soporte\Documentos\BITACORA_DESARROLLO.md`
 
 2. Si el cambio es de producto/versión (feature, breaking, release), actualizar también:
  - `C:\pulsanet\docs\CHANGELOG.md` (sección `[Unreleased]` o versión nueva)

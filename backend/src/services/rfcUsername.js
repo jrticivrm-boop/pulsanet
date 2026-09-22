@@ -2,16 +2,8 @@
  * Usuario de acceso (login) a partir del nombre civil:
  *   Guadalupe Gómez de la Cruz → ggomezd2
  *
- * Indicativo al aire (display_name) — lo que se ve en chat / PTT:
- *   SGTO GOMEZ
- *   B.O. LINARES
- *   S.O. IV R.M. (SALA DE OPERACIONES IV R.M.)
- *
- * Regla login:
- *   1) inicial del primer nombre
- *   2) apellido paterno completo (minúsculas, sin acentos)
- *   3) inicial del apellido materno
- *   4) número secuencial desde 2
+ * Indicativo (display_name) en chat / PTT:
+ *   Sgto. 1/o. Gomez, desarrollador
  */
 
 function toAsciiLower(s) {
@@ -69,93 +61,57 @@ export function buildDisplayName(p) {
     .join(' ');
 }
 
-/** Apellido / texto de indicativo en mayúsculas (conserva ñ). */
+/** Apellido paterno en título (Gomez). */
 export function formatSurnameCall(paternalSurname) {
-  const raw = String(paternalSurname || '').trim();
-  if (!raw) return '';
-  return raw.toLocaleUpperCase('es');
-}
-
-/** @deprecated alias — mayúscula inicial; preferir formatSurnameCall */
-export function formatPaternalShort(paternalSurname) {
   const raw = String(paternalSurname || '').trim().split(/\s+/)[0] || '';
   if (!raw) return '';
   return raw.charAt(0).toLocaleUpperCase('es') + raw.slice(1).toLocaleLowerCase('es');
 }
 
-function stripOuterParens(s) {
-  return String(s || '')
-    .trim()
-    .replace(/^\(+/, '')
-    .replace(/\)+$/, '')
-    .trim();
+/** @deprecated alias */
+export function formatPaternalShort(paternalSurname) {
+  return formatSurnameCall(paternalSurname);
 }
 
 /**
- * Indicativo al aire / al publicar.
- * - Automático: Grado + apellido (MAYÚSCULAS) → «SGTO GOMEZ»
- * - Override: callSign libre → «S.O. IV R.M.» o «B.O. LINARES»
- * - Detalle: callSignDetail → «S.O. IV R.M. (SALA DE OPERACIONES IV R.M.)»
- * - Cargo corto sin detalle: «CAP. LUNA, JFE. RGNL. TIC»
+ * Indicativo: «Sgto. 1/o. Gomez» o «Sgto. 1/o. Gomez, desarrollador».
+ * Usa grado + apellido; si hay cargo/puesto, lo agrega tras coma.
  */
 export function buildCallSign(p) {
   const grade = String(p.grade || '').trim();
-  const override = String(p.callSign || '').trim();
-  const detail = stripOuterParens(p.callSignDetail || '');
-  const cargo = String(p.cargo || p.specialty || '').trim();
-
-  let base = override;
-  if (!base) {
-    const surname = formatSurnameCall(p.paternalSurname);
-    if (!grade) {
-      throw new Error('Grado es requerido');
-    }
-    if (!surname) {
-      throw new Error('Apellido paterno es requerido');
-    }
-    base = `${grade} ${surname}`;
-  }
-
-  if (detail) {
-    return `${base} (${detail})`;
-  }
-
-  if (cargo && !override) {
-    // Expansiones institucionales → paréntesis; cargo corto → coma
-    if (/sala|r\.?\s*m\.?|operaci|dependenc|batall[oó]n|base\b/i.test(cargo) || cargo.length > 24) {
-      return `${base} (${cargo.toLocaleUpperCase('es')})`;
-    }
-    return `${base}, ${cargo}`;
-  }
-
-  return base;
-}
-
-/**
- * Sugerencia corta de indicativo (sin paréntesis), para el campo editable.
- */
-export function suggestCallSign(p) {
-  const override = String(p.callSign || '').trim();
-  if (override) return override;
-  const grade = String(p.grade || '').trim();
   const surname = formatSurnameCall(p.paternalSurname);
-  if (!grade || !surname) return '';
-  return `${grade} ${surname}`;
+  const cargo = String(p.cargo || '').trim();
+
+  if (!grade) {
+    throw new Error('Grado es requerido');
+  }
+  if (!surname) {
+    throw new Error('Apellido paterno es requerido');
+  }
+
+  const base = `${grade} ${surname}`;
+  return cargo ? `${base}, ${cargo}` : base;
+}
+
+/** Misma regla que buildCallSign (sin overrides). */
+export function suggestCallSign(p) {
+  try {
+    return buildCallSign(p);
+  } catch {
+    return '';
+  }
 }
 
 /**
- * @param {{ givenNames: string, paternalSurname: string, maternalSurname?: string, grade?: string, cargo?: string, specialty?: string, callSign?: string, callSignDetail?: string }} p
+ * @param {{ givenNames: string, paternalSurname: string, maternalSurname?: string, grade?: string, cargo?: string, specialty?: string }} p
  * @param {(candidate: string) => Promise<boolean>|boolean} isTaken
- * @returns {Promise<{ username: string, displayName: string, fullName: string, callSign: string, callSignShort: string, base: string }>}
  */
 export async function buildUsername(p, isTaken) {
   const base = buildUsernameBase(p);
   const fullName = buildDisplayName(p);
-  const callSignShort = suggestCallSign(p);
-  const callSign = p.grade || p.callSign
-    ? buildCallSign(p)
-    : fullName;
+  const callSign = p.grade ? buildCallSign(p) : fullName;
   const displayName = callSign;
+  const callSignShort = callSign;
 
   for (let n = 2; n <= 999; n += 1) {
     const candidate = `${base}${n}`.slice(0, 20);
@@ -174,25 +130,24 @@ export async function buildUsername(p, isTaken) {
   throw new Error('No se pudo generar un usuario único');
 }
 
-/** @deprecated usar buildUsername — se mantiene el nombre por compatibilidad de imports */
+/** @deprecated usar buildUsername */
 export async function buildRfcUsername(p, isTaken) {
   if (typeof isTaken !== 'function') {
     const base = buildUsernameBase(p);
     const fullName = buildDisplayName(p);
-    const callSign = p.grade || p.callSign ? buildCallSign(p) : fullName;
+    const callSign = p.grade ? buildCallSign(p) : fullName;
     return {
       username: `${base}2`.slice(0, 20),
       displayName: callSign,
       fullName,
       callSign,
-      callSignShort: suggestCallSign(p),
+      callSignShort: callSign,
       base,
     };
   }
   return buildUsername(p, isTaken);
 }
 
-/** Normaliza lo que el usuario escribe en login (minúsculas). */
 export function normalizeUsername(raw) {
   return String(raw || '')
     .trim()

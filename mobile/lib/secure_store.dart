@@ -38,10 +38,16 @@ class SecureStore {
 
   static Future<({String? token, String? refresh, String? userJson, String? avatarTicket})>
       readSession() async {
-    var token = await _storage.read(key: _kToken);
-    var refresh = await _storage.read(key: _kRefresh);
-    var userJson = await _storage.read(key: _kUser);
-    var avatarTicket = await _storage.read(key: _kAvatarTicket);
+    final results = await Future.wait([
+      _storage.read(key: _kToken),
+      _storage.read(key: _kRefresh),
+      _storage.read(key: _kUser),
+      _storage.read(key: _kAvatarTicket),
+    ]);
+    var token = results[0];
+    var refresh = results[1];
+    var userJson = results[2];
+    var avatarTicket = results[3];
 
     // Migración desde SharedPreferences (versiones ≤1.8.0)
     if (token == null || token.isEmpty) {

@@ -89,6 +89,31 @@ export function createRecordingsRouter(io) {
     }
     res.setHeader('Content-Type', rec.mime_type || 'audio/webm');
     res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    const total = fs.statSync(disk).size;
+    const range = req.headers.range;
+    // Peticiones parciales: permiten buscar dentro del audio sin bajarlo entero.
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range || '');
+    if (match) {
+      let start = match[1] ? parseInt(match[1], 10) : 0;
+      let end = match[2] ? parseInt(match[2], 10) : total - 1;
+      if (!match[1] && match[2]) {
+        start = Math.max(0, total - parseInt(match[2], 10));
+        end = total - 1;
+      }
+      if (Number.isNaN(start) || Number.isNaN(end) || start >= total || start > end) {
+        res.setHeader('Content-Range', `bytes */${total}`);
+        return res.status(416).end();
+      }
+      end = Math.min(end, total - 1);
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+      res.setHeader('Content-Length', end - start + 1);
+      return fs.createReadStream(disk, { start, end }).pipe(res);
+    }
+
+    res.setHeader('Content-Length', total);
     fs.createReadStream(disk).pipe(res);
   });
 

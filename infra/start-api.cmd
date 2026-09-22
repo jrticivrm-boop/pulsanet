@@ -3,11 +3,11 @@ setlocal EnableExtensions
 chcp 65001 >nul
 set "PATH=C:\Program Files\nodejs;%SystemRoot%\System32;%PATH%"
 
-REM Resolver carpeta backend: C:\pulsanet, D:\pulsanet o relativa a infra
+REM Resolver carpeta backend: primero relativa a infra (portable), luego C:/D:
 set "API_DIR="
-if exist "C:\pulsanet\backend\package.json" set "API_DIR=C:\pulsanet\backend"
+if exist "%~dp0..\backend\package.json" set "API_DIR=%~dp0..\backend"
+if not defined API_DIR if exist "C:\pulsanet\backend\package.json" set "API_DIR=C:\pulsanet\backend"
 if not defined API_DIR if exist "D:\pulsanet\backend\package.json" set "API_DIR=D:\pulsanet\backend"
-if not defined API_DIR if exist "%~dp0..\backend\package.json" set "API_DIR=%~dp0..\backend"
 if not defined API_DIR goto api_no_dir
 cd /d "%API_DIR%"
 if errorlevel 1 goto api_no_cd
@@ -26,7 +26,7 @@ echo Node:
 node.exe -v
 echo.
 
-if not exist "node_modules\" (
+if not exist "node_modules" (
   echo Instalando dependencias...
   call npm.cmd install --no-fund --no-audit
   if errorlevel 1 goto api_npm_fail
@@ -39,6 +39,10 @@ if not exist ".env" (
     echo AVISO: falta backend\.env
   )
 )
+
+REM Forzar puerto API: LEVANTAR :port_busy dejaba PORT=7880 en el entorno padre
+REM y dotenv no sobrescribe variables ya definidas → API escuchaba en LiveKit.
+set "PORT=4000"
 
 set "N=0"
 :api_loop

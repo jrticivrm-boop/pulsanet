@@ -40,6 +40,8 @@ export function isRedisReady() {
 export const FLOOR_TTL_SEC = 90;
 /** Sin presence:ping en este intervalo → se oculta de “en línea”. */
 export const PRESENCE_STALE_MS = 90_000;
+/** Heartbeat FGS (focus=service): intervalo más holgado (FGS ~12s). */
+export const PRESENCE_SERVICE_STALE_MS = 150_000;
 
 export function floorKey(groupId) {
   return `ptt:floor:${groupId}`;
@@ -56,6 +58,15 @@ export function presenceTsKey(groupId) {
 /** Hash socketId → { userId, displayName, focus } por grupo (multi-dispositivo). */
 export function presenceSocketsKey(groupId) {
   return `presence:sockets:${groupId}`;
+}
+
+/** Presencia org-wide (p.ej. FGS service sin canal). Hash userId → JSON. */
+export function orgPresenceKey(orgId) {
+  return `presence:org:${orgId}`;
+}
+
+export function orgPresenceTsKey(orgId) {
+  return `presence:org:ts:${orgId}`;
 }
 
 /**

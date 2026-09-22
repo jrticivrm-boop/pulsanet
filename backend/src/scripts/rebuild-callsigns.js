@@ -1,8 +1,6 @@
 /**
- * Regenera display_name (indicativo) desde grado + apellido paterno.
+ * Regenera display_name: grado + apellido[, cargo].
  * Uso: node src/scripts/rebuild-callsigns.js [--dry-run]
- *
- * No toca el username de login. Solo actualiza display_name cuando hay grade + paternal_surname.
  */
 import { query } from '../db.js';
 import { buildCallSign } from '../services/rfcUsername.js';

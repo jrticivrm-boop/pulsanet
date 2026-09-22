@@ -21,25 +21,18 @@ function pickProtoAndPort(source) {
   return { proto, port };
 }
 
-function clientIp(req) {
-  const xf = req?.headers?.['x-forwarded-for'];
-  if (typeof xf === 'string' && xf.trim()) return xf.split(',')[0].trim();
-  const ip = req?.ip || req?.socket?.remoteAddress || '';
-  return String(ip).replace(/^::ffff:/, '');
-}
-
-function isPrivateIp(ip) {
+function isAdvertisableLanHost(ip) {
   if (!ip) return false;
-  return /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(ip);
+  return /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(ip);
 }
 
 /**
  * URL LiveKit para el cliente (móvil / web / referencia).
  *
  * Preferencia:
- * 1) LIVEKIT_PUBLIC_URL — override (p. ej. wss://dominio.sslip.io)
- * 2) Cliente en LAN → ws://LIVEKIT_LAN_HOST:7880 (ICE local, sin hairpin)
- * 3) PUBLIC_DOMAIN → wss://dominio (4G / otra red, Caddy /rtc :443)
+ * 1) Cliente en LAN (Host o IP privada) → wss://IP-LAN (Caddy /rtc :443)
+ * 2) LIVEKIT_PUBLIC_URL — 4G / DuckDNS
+ * 3) PUBLIC_DOMAIN → wss://dominio
  * 4) LIVEKIT_PUBLIC_HOST → ws://IP:7880
  *
  * ICE remoto: UDP 7882 + TCP 7881 + TURN 3478 (UPnP).
@@ -47,20 +40,36 @@ function isPrivateIp(ip) {
 export function resolveLiveKitUrl(req) {
   const configured = config.livekit.url || '';
   const override = process.env.LIVEKIT_PUBLIC_URL?.trim();
-  const lanHost = (process.env.LIVEKIT_LAN_HOST || '').trim() || '192.168.1.66';
+  // Prefer LIVEKIT_LAN_HOST from .env (synced by start-services). Avoid stale .66 default.
+  const lanHost = (process.env.LIVEKIT_LAN_HOST || '').trim() || '127.0.0.1';
   const publicHost = (process.env.LIVEKIT_PUBLIC_HOST || '').trim();
   const publicDomain = (process.env.PUBLIC_DOMAIN || '').trim();
   const source = override || configured || `ws://${lanHost}:7880`;
   const { proto, port } = pickProtoAndPort(source);
 
-  if (override && /^wss?:\/\//i.test(override)) {
-    return override.replace(/\/$/, '');
+  const xfHost =
+    typeof req?.headers?.['x-forwarded-host'] === 'string'
+      ? req.headers['x-forwarded-host'].split(',')[0].trim()
+      : '';
+  const reqHost = (
+    xfHost ||
+    (typeof req?.headers?.host === 'string' ? req.headers.host : '') ||
+    ''
+  )
+    .split(':')[0]
+    .trim();
+  // LAN solo por Host/SNI privado (Caddy tls internal). No usar clientIp:
+  // XFF spoofeado podría devolver wss://LAN a un cliente 4G.
+  const onLan = isAdvertisableLanHost(reqHost);
+
+  // Wi‑Fi / cable: Caddy LAN :443 /rtc. LIVEKIT_PUBLIC_URL (DuckDNS) solo para 4G.
+  if (onLan && lanHost) {
+    const host = isAdvertisableLanHost(reqHost) ? reqHost : lanHost;
+    return `wss://${host}`;
   }
 
-  const onLan = isPrivateIp(clientIp(req));
-
-  if (onLan && lanHost) {
-    return `${proto}://${lanHost}:${port}`;
+  if (override && /^wss?:\/\//i.test(override)) {
+    return override.replace(/\/$/, '');
   }
 
   if (publicDomain) {
@@ -103,7 +112,8 @@ export async function createRoomToken({
   const at = new AccessToken(config.livekit.apiKey, config.livekit.apiSecret, {
     identity: String(identity),
     name: displayName || String(identity),
-    ttl: '2h',
+    // 1h: menos ventana de reuso; refresh de llamada renueva.
+    ttl: '1h',
   });
 
   at.addGrant({

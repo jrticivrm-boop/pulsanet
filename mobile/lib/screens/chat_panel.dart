@@ -1,17 +1,12 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:record/record.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player/video_player.dart';
 
 import '../api_client.dart';
@@ -24,8 +19,10 @@ import '../media_kind.dart';
 import '../peer_actions.dart';
 import '../chat_bubble_style.dart';
 import '../theme.dart';
+import '../widgets/chat_composer.dart';
+import '../widgets/chat_attach_sheet.dart';
+import '../widgets/chat_voice_bubble.dart';
 import '../widgets/user_avatar.dart';
-import '../widgets/chat_emoji_panel.dart';
 import '../widgets/tactical_backdrop.dart';
 
 /// Colores: ver chat_bubble_style.dart
@@ -58,12 +55,7 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
   final _chat = TextEditingController();
   final _scroll = ScrollController();
   final _composerFocus = FocusNode();
-  final _recorder = AudioRecorder();
   bool _uploading = false;
-  bool _recordingVoice = false;
-  bool _showEmojiPanel = false;
-  DateTime? _voiceStartedAt;
-  String? _voicePath;
   Map<String, String>? _pinned;
 
   ChannelSession get session => widget.session;
@@ -144,138 +136,7 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
     _chat.dispose();
     _scroll.dispose();
     _composerFocus.dispose();
-    unawaited(_recorder.dispose());
     super.dispose();
-  }
-
-  Future<void> _startVoice() async {
-    if (_uploading || _recordingVoice) return;
-    final mic = await Permission.microphone.request();
-    if (!mic.isGranted) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Se necesita micrófono para notas de voz')),
-      );
-      return;
-    }
-    try {
-      final dir = await getTemporaryDirectory();
-      final path = p.join(dir.path, 'nota-voz-${DateTime.now().millisecondsSinceEpoch}.m4a');
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 64000,
-          sampleRate: 44100,
-          numChannels: 1,
-        ),
-        path: path,
-      );
-      if (!mounted) return;
-      setState(() {
-        _recordingVoice = true;
-        _voiceStartedAt = DateTime.now();
-        _voicePath = path;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo grabar: $e')));
-    }
-  }
-
-  Future<void> _stopVoice({required bool send}) async {
-    if (!_recordingVoice) return;
-    final started = _voiceStartedAt;
-    String? path;
-    try {
-      path = await _recorder.stop();
-    } catch (_) {
-      path = _voicePath;
-    }
-    if (!mounted) return;
-    setState(() {
-      _recordingVoice = false;
-      _voiceStartedAt = null;
-      _voicePath = null;
-    });
-    if (!send || path == null) {
-      try {
-        final f = File(path ?? '');
-        if (await f.exists()) await f.delete();
-      } catch (_) {}
-      return;
-    }
-    final ms = started == null ? 0 : DateTime.now().difference(started).inMilliseconds;
-    final file = File(path);
-    if (ms < 400 || !await file.exists() || await file.length() < 400) {
-      try {
-        await file.delete();
-      } catch (_) {}
-      return;
-    }
-    setState(() => _uploading = true);
-    try {
-      await session.sendMediaFile(
-        path: path,
-        filename: p.basename(path),
-        mime: 'audio/mp4',
-        type: 'audio',
-      );
-    } finally {
-      if (mounted) setState(() => _uploading = false);
-      try {
-        await file.delete();
-      } catch (_) {}
-    }
-  }
-
-  Future<void> _openAttachMenu() async {
-    if (_uploading || _recordingVoice) return;
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: kInstSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: kInstOlive),
-              title: const Text('Galería'),
-              onTap: () => Navigator.pop(ctx, 'gallery'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined, color: kInstOlive),
-              title: const Text('Cámara'),
-              onTap: () => Navigator.pop(ctx, 'camera'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.videocam_outlined, color: kInstOlive),
-              title: const Text('Video'),
-              onTap: () => Navigator.pop(ctx, 'video'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.attach_file, color: kInstOlive),
-              title: const Text('Documento o archivo'),
-              subtitle: const Text('PDF, Word, Excel, ZIP, RAR…'),
-              onTap: () => Navigator.pop(ctx, 'file'),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-    if (!mounted || choice == null) return;
-    if (choice == 'gallery') {
-      await pickImage(source: ImageSource.gallery);
-    } else if (choice == 'camera') {
-      await pickImage(source: ImageSource.camera);
-    } else if (choice == 'video') {
-      await _pickVideo();
-    } else if (choice == 'file') {
-      await _pickFile();
-    }
   }
 
   Future<void> pickImage({ImageSource source = ImageSource.gallery}) async {
@@ -287,15 +148,28 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
     } catch (_) {}
     try {
       final picker = ImagePicker();
-      final x = await picker.pickImage(source: source, imageQuality: 85);
+      final x = await picker.pickImage(
+        source: source,
+        imageQuality: 92,
+        maxWidth: 1920,
+      );
       if (x == null) return;
+      if (!mounted) return;
+      final caption = await showMediaSendConfirm(
+        context,
+        path: x.path,
+        kind: 'image',
+        filename: x.name,
+        initialCaption: _chat.text.trim().isEmpty ? null : _chat.text.trim(),
+      );
+      if (caption == null) return;
       setState(() => _uploading = true);
       try {
         await session.sendMediaFile(
           path: x.path,
           filename: x.name,
           mime: x.mimeType,
-          caption: _chat.text.trim().isEmpty ? null : _chat.text.trim(),
+          caption: caption.isEmpty ? null : caption,
           type: 'image',
         );
         _chat.clear();
@@ -318,13 +192,22 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
       maxDuration: const Duration(minutes: 5),
     );
     if (x == null) return;
+    if (!mounted) return;
+    final caption = await showMediaSendConfirm(
+      context,
+      path: x.path,
+      kind: 'video',
+      filename: x.name,
+      initialCaption: _chat.text.trim().isEmpty ? null : _chat.text.trim(),
+    );
+    if (caption == null) return;
     setState(() => _uploading = true);
     try {
       await session.sendMediaFile(
         path: x.path,
         filename: x.name,
         mime: x.mimeType ?? 'video/mp4',
-        caption: _chat.text.trim().isEmpty ? null : _chat.text.trim(),
+        caption: caption.isEmpty ? null : caption,
         type: 'video',
       );
       _chat.clear();
@@ -336,47 +219,41 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
   Future<void> _pickFile() async {
     final result = await FilePicker.platform.pickFiles(
       withData: false,
-      type: FileType.any,
+      type: FileType.custom,
+      allowedExtensions: kDocumentExtensions,
     );
     final f = result?.files.single;
     if (f?.path == null) return;
+    if (!isDocumentFile(name: f!.name)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tipo no permitido (PDF, Office, ZIP, texto…)'),
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    final caption = await showMediaSendConfirm(
+      context,
+      path: f.path!,
+      kind: 'file',
+      filename: f.name,
+      initialCaption: _chat.text.trim().isEmpty ? null : _chat.text.trim(),
+    );
+    if (caption == null) return;
     setState(() => _uploading = true);
     try {
-      final name = f!.name;
-      final type = classifyUploadName(name);
       await session.sendMediaFile(
         path: f.path!,
-        filename: name,
-        caption: _chat.text.trim().isEmpty ? null : _chat.text.trim(),
-        type: type,
+        filename: f.name,
+        caption: caption.isEmpty ? null : caption,
+        type: 'file',
       );
       _chat.clear();
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
-  }
-
-  void _send() {
-    final t = _chat.text;
-    _chat.clear();
-    session.setTyping(false);
-    session.sendChat(t);
-  }
-
-  void _toggleEmojiPanel() {
-    if (_uploading || _recordingVoice) return;
-    final open = !_showEmojiPanel;
-    setState(() => _showEmojiPanel = open);
-    if (open) {
-      _composerFocus.unfocus();
-    } else {
-      _composerFocus.requestFocus();
-    }
-  }
-
-  void _showKeyboard() {
-    setState(() => _showEmojiPanel = false);
-    _composerFocus.requestFocus();
   }
 
   Future<void> _messageActions(ChatMessage m, bool mine) async {
@@ -511,6 +388,13 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
     }
   }
 
+  void _send() {
+    final t = _chat.text;
+    _chat.clear();
+    session.setTyping(false);
+    session.sendChat(t);
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -633,6 +517,12 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
                         clusteredBelow: sameAsNext,
                         onLongPress: () => _messageActions(m, mine),
                         onReact: (emoji) => session.reactTo(m.id, emoji),
+                        onSwipeReply: (m.isDeleted || m.type == 'system')
+                            ? null
+                            : () {
+                                session.setReplyTo(m);
+                                _composerFocus.requestFocus();
+                              },
                         onPeerTap: mine
                             ? null
                             : () => showChannelPeerActions(
@@ -677,188 +567,55 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
                 ),
               ),
             ),
-          Material(
-            color: kComposerBar,
-            child: SafeArea(
-              top: false,
-              bottom: !_showEmojiPanel,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_recordingVoice)
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 6),
-                        child: Row(
-                          children: [
-                            Icon(Icons.mic, color: kRadioDanger, size: 18),
-                            SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Grabando… suelta para enviar',
-                                style: TextStyle(fontSize: 12, color: kRadioDanger),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: kTacPanel,
-                              borderRadius: BorderRadius.circular(22),
-                              border: Border.all(color: kTacBorder),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: (_uploading || _recordingVoice) ? null : _toggleEmojiPanel,
-                                  icon: Icon(
-                                    _showEmojiPanel ? Icons.keyboard_alt_outlined : Icons.emoji_emotions_outlined,
-                                    color: kChatMeta,
-                                  ),
-                                  tooltip: _showEmojiPanel ? 'Teclado' : 'Emojis y stickers',
-                                ),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _chat,
-                                    focusNode: _composerFocus,
-                                    autofocus: widget.autofocusComposer,
-                                    enabled: !_recordingVoice,
-                                    minLines: 1,
-                                    maxLines: 5,
-                                    textCapitalization: TextCapitalization.sentences,
-                                    decoration: InputDecoration(
-                                      hintText: _uploading
-                                          ? 'Subiendo…'
-                                          : _recordingVoice
-                                              ? 'Grabando…'
-                                              : 'Mensaje',
-                                      hintStyle: const TextStyle(color: kChatMeta, fontSize: 15),
-                                      border: InputBorder.none,
-                                      enabledBorder: InputBorder.none,
-                                      focusedBorder: InputBorder.none,
-                                      disabledBorder: InputBorder.none,
-                                      isDense: true,
-                                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                                    ),
-                                    onTap: () {
-                                      if (_showEmojiPanel) {
-                                        setState(() => _showEmojiPanel = false);
-                                      }
-                                    },
-                                    onChanged: (v) => session.setTyping(v.trim().isNotEmpty),
-                                    onSubmitted: (_) => _send(),
-                                  ),
-                                ),
-                                IconButton(
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: (_uploading || _recordingVoice) ? null : _openAttachMenu,
-                                  icon: const Icon(Icons.add_circle_outline, color: kInstOlive),
-                                  tooltip: 'Adjuntar foto o archivo',
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        if (_chat.text.trim().isNotEmpty)
-                          _RoundAction(
-                            color: kInstOlive,
-                            icon: Icons.send,
-                            onTap: (_uploading || _recordingVoice) ? null : _send,
-                          )
-                        else
-                          GestureDetector(
-                            onLongPressStart: (_) => _startVoice(),
-                            onLongPressEnd: (_) => _stopVoice(send: true),
-                            onLongPressCancel: () => _stopVoice(send: false),
-                            onTap: _uploading
-                                ? null
-                                : () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Mantén pulsado para nota de voz'),
-                                        duration: Duration(seconds: 2),
-                                      ),
-                                    );
-                                  },
-                            child: _RoundAction(
-                              color: _recordingVoice ? kRadioDanger : kInstOlive,
-                              icon: _recordingVoice ? Icons.mic : Icons.mic_none,
-                              onTap: null,
-                            ),
-                          ),
-                      ],
-                    ),
-                    if (_recordingVoice)
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton(
-                          onPressed: () => _stopVoice(send: false),
-                          child: const Text('Cancelar'),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          if (_showEmojiPanel)
-            ChatEmojiPanel(
-              api: widget.api,
-              onRequestKeyboard: _showKeyboard,
-              onEmoji: (e) {
-                final t = _chat.text;
-                final sel = _chat.selection;
-                final start = sel.isValid ? sel.start : t.length;
-                final end = sel.isValid ? sel.end : t.length;
-                final next = t.replaceRange(start, end, e);
-                _chat.value = TextEditingValue(
-                  text: next,
-                  selection: TextSelection.collapsed(offset: start + e.length),
+          ChatComposer(
+            api: widget.api,
+            controller: _chat,
+            focusNode: _composerFocus,
+            uploading: _uploading,
+            autofocus: widget.autofocusComposer,
+            errorText: session.error,
+            onDismissError: session.clearError,
+            onTyping: session.setTyping,
+            onSendText: _send,
+            onSendSticker: (s) {
+              final id = s['id']?.toString() ?? '';
+              if (id.isEmpty) return;
+              session.sendSticker(id);
+            },
+            onSendVoice: ({
+              required String path,
+              required String filename,
+              required String mime,
+            }) async {
+              setState(() => _uploading = true);
+              try {
+                await session.sendMediaFile(
+                  path: path,
+                  filename: filename,
+                  mime: mime,
+                  type: 'audio',
                 );
-                session.setTyping(next.trim().isNotEmpty);
-              },
-              onSticker: (s) {
-                final id = s['id']?.toString() ?? '';
-                if (id.isEmpty) return;
-                setState(() => _showEmojiPanel = false);
-                session.sendSticker(id);
-              },
-            ),
+              } finally {
+                if (mounted) setState(() => _uploading = false);
+              }
+            },
+            onBeforeVoiceStart: () async {
+              try {
+                await session.pauseMicForVoiceNote();
+              } catch (_) {}
+            },
+            onAfterVoiceEnd: () async {
+              try {
+                await session.resumeAfterVoiceNote();
+              } catch (_) {}
+            },
+            onPickCamera: () => pickImage(source: ImageSource.camera),
+            onPickGallery: () => pickImage(source: ImageSource.gallery),
+            onPickVideo: _pickVideo,
+            onPickFile: _pickFile,
+          ),
         ],
       ),
-      ),
-    );
-  }
-}
-
-class _RoundAction extends StatelessWidget {
-  const _RoundAction({required this.color, required this.icon, this.onTap});
-  final Color color;
-  final IconData icon;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: color,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Icon(icon, color: Colors.white, size: 22),
-        ),
       ),
     );
   }
@@ -871,6 +628,7 @@ class _ChatBubble extends StatelessWidget {
     required this.api,
     required this.onLongPress,
     required this.onReact,
+    this.onSwipeReply,
     this.imageGallery = const [],
     this.onPeerTap,
     this.clusteredAbove = false,
@@ -882,6 +640,7 @@ class _ChatBubble extends StatelessWidget {
   final ApiClient api;
   final VoidCallback onLongPress;
   final void Function(String emoji) onReact;
+  final VoidCallback? onSwipeReply;
   final List<ChatGalleryItem> imageGallery;
   final VoidCallback? onPeerTap;
   final bool clusteredAbove;
@@ -1018,7 +777,7 @@ class _ChatBubble extends StatelessWidget {
               ),
             if (m.mediaUrl != null && _isVideo(m) && !_isImage(m))
               _AuthVideo(api: api, mediaUrl: m.mediaUrl!, name: m.mediaName),
-            if (m.mediaUrl != null && !_isImage(m) && !_isVideo(m) && m.type != 'audio')
+            if (m.mediaUrl != null && !_isImage(m) && !_isVideo(m) && !isAudioMedia(type: m.type, mime: m.mediaMime, name: m.mediaName))
               _AuthFileChip(
                 api: api,
                 mediaUrl: m.mediaUrl!,
@@ -1026,8 +785,14 @@ class _ChatBubble extends StatelessWidget {
                 mime: m.mediaMime,
                 size: m.mediaSize,
               ),
-            if (m.mediaUrl != null && m.type == 'audio')
-              _AuthAudio(api: api, mediaUrl: m.mediaUrl!),
+            if (m.mediaUrl != null && isAudioMedia(type: m.type, mime: m.mediaMime, name: m.mediaName))
+              ChatVoiceBubble(
+                api: api,
+                mediaUrl: m.mediaUrl!,
+                senderName: m.displayName,
+                senderId: m.senderId,
+                mine: mine,
+              ),
             if (m.body != null && m.body!.isNotEmpty && m.type != 'sticker')
               LinkifiedText(
                 m.body!,
@@ -1093,33 +858,47 @@ class _ChatBubble extends StatelessWidget {
           Flexible(
             child: Align(
               alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-              child: GestureDetector(
-                onLongPress: onLongPress,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.sizeOf(context).width * 0.72,
-                    minWidth: chatBubbleMinWidth(
-                      showMeta: time.isNotEmpty || mine || (m.editedAt != null && !m.isDeleted),
-                    ),
-                  ),
-                  child: IntrinsicWidth(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: mine ? kBubbleMine : kBubbleOther,
-                        borderRadius: radius,
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x1A000000),
-                            blurRadius: 1.5,
-                            offset: Offset(0, 0.5),
-                          ),
-                        ],
+              child: Builder(
+                builder: (context) {
+                  Widget bubble = GestureDetector(
+                    onLongPress: onLongPress,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: MediaQuery.sizeOf(context).width * 0.72,
+                        minWidth: chatBubbleMinWidth(
+                          showMeta: time.isNotEmpty ||
+                              mine ||
+                              (m.editedAt != null && !m.isDeleted),
+                        ),
                       ),
-                      clipBehavior: Clip.antiAlias,
-                      child: content,
+                      child: IntrinsicWidth(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: mine ? kBubbleMine : kBubbleOther,
+                            borderRadius: radius,
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x1A000000),
+                                blurRadius: 1.5,
+                                offset: Offset(0, 0.5),
+                              ),
+                            ],
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: content,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                  if (onSwipeReply != null && !m.isDeleted) {
+                    bubble = wrapChatSwipeReply(
+                      key: ValueKey('group-swipe-${m.id}'),
+                      onReply: onSwipeReply!,
+                      child: bubble,
+                    );
+                  }
+                  return bubble;
+                },
               ),
             ),
           ),
@@ -1213,160 +992,6 @@ class _AuthImageState extends State<_AuthImage> {
           width: 240,
           fit: BoxFit.cover,
         ),
-      ),
-    );
-  }
-}
-
-class _AuthAudio extends StatefulWidget {
-  const _AuthAudio({required this.api, required this.mediaUrl});
-  final ApiClient api;
-  final String mediaUrl;
-
-  @override
-  State<_AuthAudio> createState() => _AuthAudioState();
-}
-
-class _AuthAudioState extends State<_AuthAudio> {
-  final _player = AudioPlayer();
-  String? _localPath;
-  String? _err;
-  bool _loading = true;
-  bool _playing = false;
-  Duration _pos = Duration.zero;
-  Duration _dur = Duration.zero;
-
-  @override
-  void initState() {
-    super.initState();
-    _player.onPlayerStateChanged.listen((s) {
-      if (!mounted) return;
-      setState(() => _playing = s == PlayerState.playing);
-    });
-    _player.onDurationChanged.listen((d) {
-      if (!mounted) return;
-      setState(() => _dur = d);
-    });
-    _player.onPositionChanged.listen((pos) {
-      if (!mounted) return;
-      setState(() => _pos = pos);
-    });
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _player.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    try {
-      final url = widget.api.mediaAbsoluteUrl(widget.mediaUrl);
-      final res = await http.get(
-        Uri.parse(url),
-        headers: {
-          if (widget.api.token != null) 'Authorization': 'Bearer ${widget.api.token}',
-        },
-      );
-      if (res.statusCode >= 400) {
-        setState(() {
-          _err = 'Error ${res.statusCode}';
-          _loading = false;
-        });
-        return;
-      }
-      final dir = await getTemporaryDirectory();
-      final ext = widget.mediaUrl.contains('.') ? p.extension(widget.mediaUrl.split('?').first) : '.m4a';
-      final file = File(p.join(dir.path, 'chat-audio-${url.hashCode}$ext'));
-      await file.writeAsBytes(res.bodyBytes, flush: true);
-      if (!mounted) return;
-      setState(() {
-        _localPath = file.path;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _err = e.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  Future<void> _toggle() async {
-    if (_localPath == null) return;
-    if (_playing) {
-      await _player.pause();
-      return;
-    }
-    if (_pos > Duration.zero && _dur > Duration.zero && _pos < _dur) {
-      await _player.resume();
-    } else {
-      await _player.play(DeviceFileSource(_localPath!));
-    }
-  }
-
-  String _fmt(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(1, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_err != null) {
-      return Text(_err!, style: const TextStyle(fontSize: 12, color: Colors.red));
-    }
-    if (_loading) {
-      return const SizedBox(
-        height: 36,
-        width: 160,
-        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      );
-    }
-    final maxMs = _dur.inMilliseconds <= 0 ? 1 : _dur.inMilliseconds;
-    return SizedBox(
-      width: 220,
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: _toggle,
-            icon: Icon(_playing ? Icons.pause_circle_filled : Icons.play_circle_filled),
-            color: kInstOlive,
-            iconSize: 30,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 2,
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 8),
-                  ),
-                  child: Slider(
-                    value: _pos.inMilliseconds.clamp(0, maxMs).toDouble(),
-                    max: maxMs.toDouble(),
-                    activeColor: kInstOlive,
-                    onChanged: (v) async {
-                      final d = Duration(milliseconds: v.round());
-                      await _player.seek(d);
-                      setState(() => _pos = d);
-                    },
-                  ),
-                ),
-                Text(
-                  '${_fmt(_pos)} / ${_fmt(_dur)}',
-                  style: const TextStyle(fontSize: 10, color: kRadioMuted),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

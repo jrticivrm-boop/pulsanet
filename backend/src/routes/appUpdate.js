@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
+import jwt from 'jsonwebtoken';
 import { fileURLToPath } from 'url';
 import { config } from '../config.js';
 
@@ -23,7 +24,8 @@ function readAndroidManifest(dir) {
   for (const file of candidates) {
     if (!fs.existsSync(file)) continue;
     try {
-      const raw = fs.readFileSync(file, 'utf8');
+      // Strip BOM (PowerShell Set-Content -Encoding utf8 lo mete y rompe JSON.parse).
+      const raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
       const data = JSON.parse(raw);
       if (!data || typeof data !== 'object') continue;
       return { file, data };
@@ -48,19 +50,16 @@ function timingSafeEqualStr(a, b) {
   return crypto.timingSafeEqual(ba, bb);
 }
 
-function extractUpdateKey(req) {
-  const h =
-    req.get('x-app-update-key') ||
-    req.get('x-tacticalptx-update-key') ||
-    '';
-  if (h.trim()) return h.trim();
-  const auth = req.get('authorization') || '';
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (m) return m[1].trim();
-  const q = String(req.query?.key || '').trim();
-  return q;
+function looksLikeJwt(token) {
+  const parts = String(token || '').split('.');
+  return parts.length === 3 && parts.every((p) => p.length > 0);
 }
 
+/**
+ * Autoriza manifiesto OTA solo con APP_UPDATE_SECRET:
+ * X-App-Update-Key / X-TacticalPtx-Update-Key / Bearer (secreto, no JWT).
+ * Query ?key= deshabilitado (fuga en logs/proxies).
+ */
 function requireUpdateKey(req, res, next) {
   const secret = config.appUpdateSecret;
   if (!secret) {
@@ -72,11 +71,27 @@ function requireUpdateKey(req, res, next) {
     }
     return next();
   }
-  const got = extractUpdateKey(req);
-  if (!got || !timingSafeEqualStr(got, secret)) {
-    return res.status(401).json({ ok: false, error: 'No autorizado' });
+
+  const headerKey = (
+    req.get('x-app-update-key') ||
+    req.get('x-tacticalptx-update-key') ||
+    ''
+  ).trim();
+  if (headerKey && timingSafeEqualStr(headerKey, secret)) {
+    return next();
   }
-  return next();
+
+  const auth = req.get('authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (m) {
+    const tok = m[1].trim();
+    // Solo secreto OTA en Bearer — no JWT de sesión
+    if (!looksLikeJwt(tok) && timingSafeEqualStr(tok, secret)) {
+      return next();
+    }
+  }
+
+  return res.status(401).json({ ok: false, error: 'No autorizado' });
 }
 
 function signDownloadToken(fileName, expSec) {
@@ -119,21 +134,25 @@ function resolveApkUrl(req, data, updatesDir, token) {
   return url;
 }
 
+/**
+ * Límite solo del manifiesto OTA. Todos los móviles detrás de NAT/Caddy
+ * comparten una IP pública: 40/15min bloqueaba a toda la flota (HTTP 429).
+ * La descarga del APK va con token HMAC y no cuenta aquí.
+ */
 const otaLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: parseInt(process.env.APP_UPDATE_RATE_MAX || '40', 10),
+  max: parseInt(process.env.APP_UPDATE_RATE_MAX || '300', 10),
   standardHeaders: true,
   legacyHeaders: false,
-  message: { ok: false, error: 'Demasiadas solicitudes de actualización' },
+  message: { ok: false, error: 'Demasiadas solicitudes de actualización. Espera unos minutos.' },
+  skip: (req) => /\/android\/file\//i.test(req.path || ''),
 });
 
 export function createAppUpdateRouter() {
   const router = Router();
   const updatesDir = resolveAppUpdatesDir();
 
-  router.use(otaLimiter);
-
-  router.get('/android', requireUpdateKey, (req, res) => {
+  router.get('/android', otaLimiter, requireUpdateKey, (req, res) => {
     const found = readAndroidManifest(updatesDir);
     if (!found) {
       return res.json({
@@ -156,7 +175,7 @@ export function createAppUpdateRouter() {
     const fileName = String(data.apkFile || data.file || 'TacticalPtx.apk').trim();
     const ttlSec = Math.max(
       60,
-      parseInt(process.env.APP_UPDATE_TOKEN_TTL_SEC || '900', 10) || 900
+      parseInt(process.env.APP_UPDATE_TOKEN_TTL_SEC || '3600', 10) || 3600
     );
     const expSec = Math.floor(Date.now() / 1000) + ttlSec;
     const token = config.appUpdateSecret ? signDownloadToken(fileName, expSec) : null;

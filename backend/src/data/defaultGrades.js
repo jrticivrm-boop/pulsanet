@@ -5,7 +5,7 @@ export const DEFAULT_GRADE_SEED = [
   { category: 'Generales', abbreviation: 'Gral. Brig.', name: 'General Brigadier', sortOrder: 30 },
   { category: 'Jefes', abbreviation: 'Cor.', name: 'Coronel', sortOrder: 40 },
   { category: 'Jefes', abbreviation: 'Tte. Cor.', name: 'Teniente Coronel', sortOrder: 50 },
-  { category: 'Jefes', abbreviation: 'May.', name: 'Mayor', sortOrder: 60 },
+  { category: 'Jefes', abbreviation: 'Myr.', name: 'Mayor', sortOrder: 60 },
   { category: 'Oficiales', abbreviation: 'Cap. 1/o.', name: 'Capitán Primero', sortOrder: 70 },
   { category: 'Oficiales', abbreviation: 'Cap. 2/o.', name: 'Capitán Segundo', sortOrder: 80 },
   { category: 'Oficiales', abbreviation: 'Tte.', name: 'Teniente', sortOrder: 90 },
@@ -18,6 +18,15 @@ export const DEFAULT_GRADE_SEED = [
   { category: 'Puestos / salas', abbreviation: 'B.O.', name: 'Base / Batallón de Operaciones', sortOrder: 200 },
   { category: 'Puestos / salas', abbreviation: 'S.O.', name: 'Sala de Operaciones', sortOrder: 210 },
   { category: 'Puestos / salas', abbreviation: 'C.G.', name: 'Cuartel General', sortOrder: 220 },
+];
+
+/** Jerarquías implícitas del seed de grados (catálogo editable). */
+export const DEFAULT_JERARQUIA_SEED = [
+  { name: 'Generales', sortOrder: 10 },
+  { name: 'Jefes', sortOrder: 20 },
+  { name: 'Oficiales', sortOrder: 30 },
+  { name: 'Tropa', sortOrder: 40 },
+  { name: 'Puestos / salas', sortOrder: 50 },
 ];
 
 export const DEFAULT_EMPLEO_SEED = [

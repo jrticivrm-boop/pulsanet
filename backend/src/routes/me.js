@@ -11,6 +11,7 @@ import { mintAvatarTicket, verifyAvatarTicket } from '../services/avatarTicket.j
 import { UPLOADS_DIR, mediaDiskPath, prepareAvatarUploadDir, storedUploadRel, ensureUploadAbsDir, resolveAvatarUploadRel } from '../services/uploads.js';
 import { logActivity } from '../services/activity.js';
 import { bindLiveUser } from '../services/userProfile.js';
+import { getOrgGpsSettings } from '../services/orgGpsSettings.js';
 
 /** @deprecated prefer mediaDiskPath — mantenido para imports existentes */
 const AVATAR_DIR = path.join(UPLOADS_DIR, 'avatars');
@@ -106,18 +107,6 @@ function authFromHeaderOrQuery(req, res, next) {
     return next();
   }
 
-  // Compat breve: ?token= JWT — deprecar (no mint nuevos clientes así)
-  const legacy = typeof req.query?.token === 'string' ? req.query.token : null;
-  if (legacy) {
-    try {
-      const payload = jwt.verify(legacy, config.jwtSecret);
-      req.user = payload;
-      return next();
-    } catch {
-      return res.status(401).json({ ok: false, error: 'Token inválido o expirado' });
-    }
-  }
-
   return res.status(401).json({ ok: false, error: 'Token requerido' });
 }
 
@@ -171,6 +160,19 @@ export function createMeRouter() {
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message || 'No se pudo emitir ticket' });
     }
+  });
+
+  /** Umbral/intervalo GPS de la org (cualquier usuario autenticado; sin admin). */
+  router.get('/gps-settings', authMiddleware, async (req, res) => {
+    const gps = await getOrgGpsSettings(req.user.orgId);
+    res.setHeader('Cache-Control', 'private, max-age=30');
+    res.json({
+      ok: true,
+      gps: {
+        maxAccuracyM: gps.maxAccuracyM,
+        intervalSec: gps.intervalSec,
+      },
+    });
   });
 
   /** Subir / cambiar icono de perfil */

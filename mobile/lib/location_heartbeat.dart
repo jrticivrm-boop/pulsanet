@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'api_client.dart';
+import 'app_focus.dart';
 
 /// GPS continuo hacia despacho (stream + latido periódico).
 /// Stream al moverse + latido cada 5 s; sigue con pantalla bloqueada vía FGS location.
@@ -14,6 +15,7 @@ class LocationHeartbeat {
   static const interval = Duration(seconds: 5);
   static const _minSendGap = Duration(seconds: 3);
   static const _minMoveMeters = 4.0;
+  static const _presenceGap = Duration(seconds: 15);
 
   static Timer? _timer;
   static StreamSubscription<Position>? _stream;
@@ -21,6 +23,7 @@ class LocationHeartbeat {
   static bool _starting = false;
   static ApiClient? _api;
   static DateTime? _lastSentAt;
+  static DateTime? _lastPresenceAt;
   static double? _lastLat;
   static double? _lastLng;
   static void Function(bool ok, double? lat, double? lng, double? accuracyM)?
@@ -165,6 +168,17 @@ class LocationHeartbeat {
       _lastLat = pos.latitude;
       _lastLng = pos.longitude;
       onFix?.call(true, pos.latitude, pos.longitude, pos.accuracy);
+      // Refuerzo presencia mientras el FGS de ubicación sigue vivo.
+      if (_lastPresenceAt == null ||
+          now.difference(_lastPresenceAt!) >= _presenceGap) {
+        _lastPresenceAt = now;
+        unawaited(
+          api.presenceHeartbeat(
+            // FGS de ubicación: solo focus=service (UI usa socket presence:ping).
+            focus: 'service',
+          ),
+        );
+      }
     } catch (_) {
       onFix?.call(false, null, null, null);
     }
@@ -180,6 +194,7 @@ class LocationHeartbeat {
     _starting = false;
     _busy = false;
     _lastSentAt = null;
+    _lastPresenceAt = null;
     _lastLat = null;
     _lastLng = null;
   }

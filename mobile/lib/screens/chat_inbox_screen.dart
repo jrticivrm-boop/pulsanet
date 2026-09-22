@@ -8,16 +8,20 @@ import '../api_client.dart';
 import '../app_focus.dart';
 import '../channel_session.dart';
 import '../config.dart';
+import '../es_msg.dart';
+import '../inbox_tab_order.dart';
 import '../peer_actions.dart';
 import '../theme.dart';
+import '../widgets/app_overflow_menu.dart';
 import '../widgets/tactical_backdrop.dart';
 import '../widgets/user_avatar.dart';
+import 'group_video_screen.dart';
 import 'chat_panel.dart';
 
 const _favKey = 'tacticalptx_chat_favorites';
 const _hiddenKey = 'tacticalptx_chat_hidden';
 
-enum InboxTab { all, unread, favorites, groups }
+enum InboxTab { contacts, unread, favorites, groups }
 
 class ChatFavorites {
   ChatFavorites({this.dm = const [], this.group = const []});
@@ -106,6 +110,10 @@ class InboxRow {
     this.unread = 0,
     this.favorite = false,
     this.isContactOnly = false,
+    this.online = false,
+    this.presence,
+    this.gradeSortOrder = 999999,
+    this.isSelf = false,
   });
 
   final String key;
@@ -118,9 +126,14 @@ class InboxRow {
   final int unread;
   final bool favorite;
   final bool isContactOnly;
+  final bool online;
+  /// online | away | stale | offline (semáforo GPS).
+  final String? presence;
+  final int gradeSortOrder;
+  final bool isSelf;
 }
 
-/// Bandeja estilo WhatsApp: Todos | No leídos | Favoritos | Grupos.
+/// Bandeja: Contactos | Grupos | No leídos | Favoritos (chips reordenables).
 class ChatInboxScreen extends StatefulWidget {
   const ChatInboxScreen({
     super.key,
@@ -132,6 +145,9 @@ class ChatInboxScreen extends StatefulWidget {
     this.onUnreadTotalChanged,
     this.viewingKind,
     this.viewingId,
+    this.onOverflowMenu,
+    this.showLogout = false,
+    this.locationMenuLabel = 'Ubicación GPS',
   });
 
   final ApiClient api;
@@ -144,13 +160,17 @@ class ChatInboxScreen extends StatefulWidget {
   /// Conversación abierta encima del inbox (evita badge mientras se lee).
   final String? viewingKind;
   final String? viewingId;
+  final ValueChanged<String>? onOverflowMenu;
+  final bool showLogout;
+  final String locationMenuLabel;
 
   @override
   State<ChatInboxScreen> createState() => ChatInboxScreenState();
 }
 
 class ChatInboxScreenState extends State<ChatInboxScreen> {
-  InboxTab _tab = InboxTab.all;
+  InboxTab _tab = InboxTab.contacts;
+  List<String> _tabOrder = List<String>.from(kInboxTabIds);
   ChatFavorites _favorites = ChatFavorites();
   ChatHidden _hidden = ChatHidden();
   final Map<String, int> _unread = {};
@@ -162,6 +182,8 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
   io.Socket? _dmSocket;
   String? _lastGroupMsgId;
   int _lastMsgCount = 0;
+
+  String? get _selfId => widget.api.user?['id']?.toString();
 
   @override
   void initState() {
@@ -337,17 +359,47 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
     try {
       final fav = await loadChatFavorites();
       final hidden = await loadChatHidden();
-      final results = await Future.wait([
-        widget.api.fetchDmConversations(),
-        widget.api.fetchContacts(),
-      ]);
+      final tabOrder = await loadInboxTabOrder(_selfId);
+      List<Map<String, dynamic>> dm = const [];
+      List<Map<String, dynamic>> contacts = const [];
+      String? softErr;
+      var htmlRoutingOnly = false;
+      try {
+        dm = await widget.api.fetchDmConversations();
+      } catch (e) {
+        if (ApiClient.isHtmlOrRoutingError(e) && !ApiClient.isAuthError(e)) {
+          htmlRoutingOnly = true;
+        } else {
+          softErr = esMsg(e, 'No se pudieron cargar los chats');
+        }
+      }
+      try {
+        contacts = await widget.api.fetchContacts();
+      } catch (e) {
+        if (ApiClient.isHtmlOrRoutingError(e) && !ApiClient.isAuthError(e)) {
+          htmlRoutingOnly = htmlRoutingOnly || softErr == null;
+        } else {
+          softErr ??= esMsg(e, 'No se pudieron cargar los contactos');
+          htmlRoutingOnly = false;
+        }
+      }
       if (!mounted) return;
       setState(() {
         _favorites = fav;
         _hidden = hidden;
-        _dmConversations = results[0];
-        _contacts = results[1];
+        _tabOrder = tabOrder;
+        _dmConversations = dm;
+        _contacts = contacts;
         _loading = false;
+        // HTML del borde → inbox vacío sin Exception roja.
+        // Auth u otros errores: mostrar si no hay datos.
+        if (htmlRoutingOnly && softErr == null) {
+          _error = null;
+        } else {
+          _error = (dm.isEmpty && contacts.isEmpty && softErr != null)
+              ? softErr
+              : null;
+        }
       });
       _notifyUnreadTotal();
     } catch (e) {
@@ -417,14 +469,15 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
   void _connectDmSocket() {
     final token = widget.api.token;
     if (token == null) return;
-    final socket = io.io(
-      AppConfig.socketUrl,
-      io.OptionBuilder()
-          .setTransports(['websocket', 'polling'])
-          .setAuth({'token': token})
-          .disableAutoConnect()
-          .build(),
-    );
+    final opts = io.OptionBuilder()
+        .setTransports(['websocket', 'polling'])
+        .setAuth({'token': token})
+        .enableReconnection()
+        .disableAutoConnect()
+        .build();
+    opts['port'] = AppConfig.socketPortFor(AppConfig.apiBaseUrl);
+    opts['secure'] = AppConfig.apiBaseUrl.toLowerCase().startsWith('https');
+    final socket = io.io(AppConfig.socketUrl, opts);
     socket.connect();
     socket.on('dm:notify', (data) {
       if (data is! Map) return;
@@ -444,6 +497,13 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
       if (senderId == me) return;
       final peerId = senderId;
       if (peerId == null || peerId.isEmpty) return;
+      final mid = msg['id']?.toString();
+      if (mid != null && mid.isNotEmpty) {
+        socket.emit('dm:delivered', {
+          'peerId': peerId,
+          'messageIds': [mid],
+        });
+      }
       _reloadDmMeta();
       final viewingDm =
           widget.viewingKind == 'dm' && widget.viewingId == peerId;
@@ -541,6 +601,7 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
       final last = c['lastMessage'] is Map
           ? Map<String, dynamic>.from(c['lastMessage'] as Map)
           : null;
+      final meta = _contactMeta(id);
       items.add(InboxRow(
         key: 'dm:$id',
         kind: 'dm',
@@ -554,6 +615,10 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
         at: last?['createdAt']?.toString(),
         unread: _unread['dm:$id'] ?? 0,
         favorite: _favorites.dm.contains(id),
+        online: meta.$1,
+        presence: meta.$4,
+        gradeSortOrder: meta.$2,
+        isSelf: meta.$3,
       ));
     }
 
@@ -561,6 +626,11 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
       final id = c['id']?.toString() ?? '';
       if (id.isEmpty) continue;
       if (items.any((i) => i.kind == 'dm' && i.id == id)) continue;
+      if (_hidden.isHidden('dm', id)) continue;
+      final isSelf = c['isSelf'] == true || id == _selfId;
+      final presence = (c['presence']?.toString() ??
+              (c['online'] == true || isSelf ? 'online' : 'offline'))
+          .toLowerCase();
       items.add(InboxRow(
         key: 'dm:$id',
         kind: 'dm',
@@ -570,41 +640,66 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
           id,
           c['avatarUrl']?.toString(),
         ),
-        preview: 'Toca para escribir',
+        preview: isSelf ? 'Notas / yo mismo' : 'Toca para escribir',
         unread: _unread['dm:$id'] ?? 0,
         favorite: _favorites.dm.contains(id),
         isContactOnly: true,
+        online: presence != 'offline' || isSelf,
+        presence: isSelf ? 'online' : presence,
+        gradeSortOrder: (c['gradeSortOrder'] as num?)?.toInt() ?? 999999,
+        isSelf: isSelf,
       ));
     }
 
-    items.sort((a, b) {
-      if (a.favorite != b.favorite) return a.favorite ? -1 : 1;
-      final ta = a.at != null ? DateTime.tryParse(a.at!) : null;
-      final tb = b.at != null ? DateTime.tryParse(b.at!) : null;
-      final na = ta?.millisecondsSinceEpoch ?? 0;
-      final nb = tb?.millisecondsSinceEpoch ?? 0;
-      if (nb != na) return nb.compareTo(na);
-      if (a.isContactOnly != b.isContactOnly) {
-        return a.isContactOnly ? 1 : -1;
-      }
-      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    });
     return items;
   }
 
+  (bool, int, bool, String) _contactMeta(String id) {
+    final isSelf = id == _selfId;
+    for (final c in _contacts) {
+      if (c['id']?.toString() != id) continue;
+      final presence = (c['presence']?.toString() ??
+              (c['online'] == true || isSelf ? 'online' : 'offline'))
+          .toLowerCase();
+      return (
+        presence != 'offline' || isSelf,
+        (c['gradeSortOrder'] as num?)?.toInt() ?? 999999,
+        c['isSelf'] == true || isSelf,
+        isSelf ? 'online' : presence,
+      );
+    }
+    return (isSelf, 999999, isSelf, isSelf ? 'online' : 'offline');
+  }
+
   List<InboxRow> _filteredRows(List<InboxRow> rows) {
-    var list = rows;
+    var list = List<InboxRow>.from(rows);
     switch (_tab) {
-      case InboxTab.unread:
-        list = list.where((r) => r.unread > 0).toList();
-        break;
-      case InboxTab.favorites:
-        list = list.where((r) => r.favorite).toList();
+      case InboxTab.contacts:
+        list = list.where((r) => r.kind == 'dm').toList();
+        list.sort(
+          (a, b) => compareContactRows(
+            aOnline: a.online,
+            bOnline: b.online,
+            aGrade: a.gradeSortOrder,
+            bGrade: b.gradeSortOrder,
+            aAt: a.at,
+            bAt: b.at,
+            aPresence: a.presence,
+            bPresence: b.presence,
+          ),
+        );
         break;
       case InboxTab.groups:
         list = list.where((r) => r.kind == 'group').toList();
+        list.sort((a, b) => compareByLastMessage(a.at, b.at));
         break;
-      case InboxTab.all:
+      case InboxTab.unread:
+        list = list.where((r) => r.unread > 0).toList();
+        list.sort((a, b) => compareByLastMessage(a.at, b.at));
+        break;
+      case InboxTab.favorites:
+        list = list.where((r) => r.favorite).toList();
+        list.sort((a, b) => compareByLastMessage(a.at, b.at));
         break;
     }
     final q = _query.trim().toLowerCase();
@@ -616,10 +711,6 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
                 r.preview.toLowerCase().contains(q),
           )
           .toList();
-    } else if (_tab == InboxTab.all || _tab == InboxTab.favorites) {
-      list = list
-          .where((r) => !r.isContactOnly || r.favorite || r.unread > 0)
-          .toList();
     }
     return list;
   }
@@ -627,6 +718,8 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
   String _previewText(ChatMessage msg) {
     if (msg.isDeleted) return 'Mensaje eliminado';
     switch (msg.type) {
+      case 'nudge':
+        return '¡Zumbido!';
       case 'image':
         return '📷 Imagen';
       case 'audio':
@@ -642,6 +735,7 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
       default:
         final b = msg.body ?? msg.type;
         final s = b.toString();
+        if (s == 'nudge') return '¡Zumbido!';
         return s.length > 80 ? '${s.substring(0, 80)}…' : s;
     }
   }
@@ -651,6 +745,8 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
     if (msg['isDeleted'] == true) return 'Mensaje eliminado';
     final type = msg['type']?.toString() ?? 'text';
     switch (type) {
+      case 'nudge':
+        return '¡Zumbido!';
       case 'image':
         return '📷 Imagen';
       case 'audio':
@@ -661,6 +757,7 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
         return '📎 Archivo';
       default:
         final s = msg['body']?.toString() ?? type;
+        if (s == 'nudge') return '¡Zumbido!';
         return s.length > 80 ? '${s.substring(0, 80)}…' : s;
     }
   }
@@ -710,57 +807,99 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Column(
+              padding: const EdgeInsets.fromLTRB(16, 8, 4, 8),
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'CHATS',
-                    style: TacticalFonts.display(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: kTacOnSurface,
-                      letterSpacing: 1.2,
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 4, right: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'CHATS',
+                            style: TacticalFonts.display(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                              color: kTacOnSurface,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                          Text(
+                            'Contactos y grupos',
+                            style: TacticalFonts.body(
+                              fontSize: 13,
+                              color: kTacMuted.withValues(alpha: 0.9),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  Text(
-                    'Grupos y mensajes directos',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: kTacMuted.withValues(alpha: 0.9),
+                  if (widget.onOverflowMenu != null)
+                    AppOverflowMenuButton(
+                      showLogout: widget.showLogout,
+                      locationMenuLabel: widget.locationMenuLabel,
+                      onSelected: widget.onOverflowMenu!,
                     ),
-                  ),
                 ],
               ),
             ),
             SizedBox(
-              height: 40,
-              child: ListView(
+              height: 44,
+              child: ReorderableListView.builder(
                 scrollDirection: Axis.horizontal,
+                buildDefaultDragHandles: false,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                children: [
-                  _TabChip(
-                    label: 'Todos',
-                    selected: _tab == InboxTab.all,
-                    onTap: () => setState(() => _tab = InboxTab.all),
-                  ),
-                  _TabChip(
-                    label: 'No leídos',
-                    selected: _tab == InboxTab.unread,
-                    badge: total,
-                    onTap: () => setState(() => _tab = InboxTab.unread),
-                  ),
-                  _TabChip(
-                    label: 'Favoritos',
-                    selected: _tab == InboxTab.favorites,
-                    onTap: () => setState(() => _tab = InboxTab.favorites),
-                  ),
-                  _TabChip(
-                    label: 'Grupos',
-                    selected: _tab == InboxTab.groups,
-                    onTap: () => setState(() => _tab = InboxTab.groups),
-                  ),
-                ],
+                proxyDecorator: (child, index, animation) {
+                  final id = _tabOrder[index.clamp(0, _tabOrder.length - 1)];
+                  return AnimatedBuilder(
+                    animation: animation,
+                    builder: (context, _) {
+                      return Material(
+                        elevation: 6,
+                        color: Colors.transparent,
+                        shadowColor: kInstOlive.withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(20),
+                        child: _TabChip(
+                          label: kInboxTabLabels[id] ?? id,
+                          selected: true,
+                          badge: id == 'unread' ? total : 0,
+                          onTap: () {},
+                          forDragProxy: true,
+                        ),
+                      );
+                    },
+                  );
+                },
+                itemCount: _tabOrder.length,
+                onReorder: (oldIndex, newIndex) async {
+                  setState(() {
+                    if (newIndex > oldIndex) newIndex -= 1;
+                    final id = _tabOrder.removeAt(oldIndex);
+                    _tabOrder.insert(newIndex, id);
+                    _tabOrder = normalizeInboxTabOrder(_tabOrder);
+                  });
+                  await saveInboxTabOrder(_selfId, _tabOrder);
+                },
+                itemBuilder: (context, index) {
+                  final id = _tabOrder[index];
+                  final tab = _tabFromId(id);
+                  return ReorderableDelayedDragStartListener(
+                    key: ValueKey(id),
+                    index: index,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _TabChip(
+                        label: kInboxTabLabels[id] ?? id,
+                        selected: _tab == tab,
+                        badge: id == 'unread' ? total : 0,
+                        onTap: () => setState(() => _tab = tab),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
             Padding(
@@ -829,6 +968,20 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
     );
   }
 
+  InboxTab _tabFromId(String id) {
+    switch (id) {
+      case 'groups':
+        return InboxTab.groups;
+      case 'unread':
+        return InboxTab.unread;
+      case 'favorites':
+        return InboxTab.favorites;
+      case 'contacts':
+      default:
+        return InboxTab.contacts;
+    }
+  }
+
   String _emptyLabel() {
     switch (_tab) {
       case InboxTab.unread:
@@ -837,9 +990,9 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
         return 'Marca chats con ★ para verlos aquí';
       case InboxTab.groups:
         return 'No hay grupos';
-      case InboxTab.all:
+      case InboxTab.contacts:
         if (_query.trim().isNotEmpty) return 'Sin resultados';
-        return 'Sin conversaciones';
+        return 'Sin contactos en tus grupos';
     }
   }
 }
@@ -850,59 +1003,65 @@ class _TabChip extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.badge = 0,
+    this.forDragProxy = false,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
   final int badge;
+  /// Fantasma de arrastre: mismo tamaño de pill (sin padding externo doble).
+  final bool forDragProxy;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 6),
-      child: Material(
-        color: selected ? kInstOlive.withValues(alpha: 0.35) : kTacPanel,
+    final chip = Material(
+      color: selected ? kInstOlive : kInstSurface,
+      borderRadius: BorderRadius.circular(20),
+      elevation: forDragProxy ? 2 : 0,
+      child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected ? kTacGoldSoft : kTacMuted,
+        onTap: forDragProxy ? null : onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? kInstOnPrimary : kInstInk,
+                ),
+              ),
+              if (badge > 0) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: selected ? kInstOnPrimary : kInstOlive,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    badge > 99 ? '99+' : '$badge',
+                    style: TextStyle(
+                      color: selected ? kInstOlive : Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                if (badge > 0) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: kTacGold,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      badge > 99 ? '99+' : '$badge',
-                      style: const TextStyle(
-                        color: Color(0xFF1A2A18),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
               ],
-            ),
+            ],
           ),
         ),
       ),
+    );
+    if (forDragProxy) return chip;
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: chip,
     );
   }
 }
@@ -938,12 +1097,34 @@ class _InboxTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
-              UserAvatar(
-                name: row.name,
-                userId: row.kind == 'dm' ? row.id : null,
-                avatarUrl: row.avatarUrl,
-                headers: avatarHeaders,
-                group: row.kind == 'group',
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  UserAvatar(
+                    name: row.name,
+                    userId: row.kind == 'dm' ? row.id : null,
+                    avatarUrl: row.avatarUrl,
+                    headers: avatarHeaders,
+                    group: row.kind == 'group',
+                  ),
+                  if (row.kind == 'dm')
+                    Positioned(
+                      right: -1,
+                      bottom: -1,
+                      child: Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: presenceSemaphoreColor(
+                            row.presence,
+                            online: row.online,
+                          ),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: kInstSurface, width: 2),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1149,10 +1330,37 @@ class GroupChatScreen extends StatelessWidget {
                         ),
                       ),
                     ),
+                    IconButton(
+                      tooltip: 'Video grupal en vivo',
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          GroupVideoScreen.route(
+                            child: GroupVideoScreen(
+                              api: api,
+                              groupId: session.groupId,
+                              groupName: groupName,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.video_camera_front_outlined, color: kTacGoldSoft),
+                    ),
                     PopupMenuButton<String>(
                       tooltip: 'Opciones',
                       color: kTacSurface,
                       onSelected: (v) async {
+                        if (v == 'video') {
+                          await Navigator.of(context).push(
+                            GroupVideoScreen.route(
+                              child: GroupVideoScreen(
+                                api: api,
+                                groupId: session.groupId,
+                                groupName: groupName,
+                              ),
+                            ),
+                          );
+                          return;
+                        }
                         if (v != 'clear') return;
                         final ok = await showDialog<bool>(
                           context: context,
@@ -1193,6 +1401,15 @@ class GroupChatScreen extends StatelessWidget {
                         }
                       },
                       itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'video',
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.videocam_outlined, color: kTacOnSurface),
+                            title: Text('Video en vivo', style: TextStyle(color: kTacOnSurface)),
+                          ),
+                        ),
                         PopupMenuItem(
                           value: 'clear',
                           child: Text('Vaciar grupo', style: TextStyle(color: kTacOnSurface)),

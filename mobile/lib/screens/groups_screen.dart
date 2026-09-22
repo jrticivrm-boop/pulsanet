@@ -38,7 +38,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('TacticalPtx', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22)),
+            const Text('SICOM', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22)),
             Text('$name', style: const TextStyle(fontSize: 13, color: kRadioMuted)),
           ],
         ),

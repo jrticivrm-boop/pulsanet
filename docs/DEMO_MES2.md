@@ -12,7 +12,7 @@ cd backend
 npm run seed # si aún no
 npm run dev
 
-cd ../web
+cd ../frontend
 npm run dev
 ```
 

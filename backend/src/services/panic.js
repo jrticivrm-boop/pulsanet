@@ -2,7 +2,7 @@ import { query } from '../db.js';
 import { assertGroupMember } from './presence.js';
 import { notifyGroupMembers } from './fcm.js';
 import { insertGroupMessage } from '../socket/chat.js';
-import { packWireEvent } from './wireCrypto.js';
+import { emitWireToUserIds } from '../socket/dispatch.js';
 import { logActivity } from './activity.js';
 
 function formatPanic(row) {
@@ -27,18 +27,16 @@ function formatPanic(row) {
 
 /**
  * Consola de despacho: solo sockets de miembros del grupo (sala user:{id}).
- * No usa dispatch:track:* (esa ruta era a nivel unidad/org).
+ * Wire se sella por clave de cada socket (mint en dispatch:join).
  */
 export async function emitPanicToGroupMembers(io, eventName, payload, groupId) {
   if (!io || !groupId || !eventName) return;
-  const packed = packWireEvent(payload);
   const { rows } = await query(
     `SELECT user_id FROM group_members WHERE group_id = $1`,
     [groupId]
   );
-  for (const r of rows) {
-    io.to(`user:${r.user_id}`).emit(eventName, packed);
-  }
+  const userIds = rows.map((r) => r.user_id);
+  await emitWireToUserIds(io, eventName, payload, userIds);
 }
 
 export async function triggerPanic({
@@ -98,7 +96,7 @@ export async function triggerPanic({
       groupId,
       senderId: userId,
       type: 'system',
-      body: `🚨 PÁNICO — ${displayName || 'Usuario'}`,
+      body: `🚨 ALERTA — ${displayName || 'Usuario'}`,
     });
     io.to(`group:${groupId}`).emit('chat:message', systemMsg);
   } catch (err) {
@@ -108,8 +106,20 @@ export async function triggerPanic({
   // Solo el canal activo: radio + consola de miembros de ese grupo (no org-wide)
   io.to(`group:${groupId}`).emit('panic:alert', event);
   await emitPanicToGroupMembers(io, 'dispatch:panic', event, groupId);
+  try {
+    const { rows: everyone } = await query(
+      `SELECT id FROM users WHERE organization_id = $1 AND is_active = TRUE`,
+      [orgId]
+    );
+    for (const u of everyone) {
+      io.to(`user:${u.id}`).emit('panic:alert', event);
+    }
+    io.to('dispatch').emit('dispatch:panic', event);
+  } catch (err) {
+    console.warn('panic broadcast:', err.message);
+  }
 
-  const title = '🚨 ALERTA DE PÁNICO';
+  const title = '🚨 ALERTA';
   const body = `${displayName || 'Usuario'} — ${event.groupName || 'canal'}`;
   const data = {
     type: 'panic',

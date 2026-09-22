@@ -1,63 +1,164 @@
-/** Roles de organización y helpers de autorización */
+/** Roles jerárquicos SICOM: Administrador + Región / Zona / Unidad (admin y usuario). */
 
 export const ORG_ROLES = [
   'root',
-  'admin',
+  'region_admin',
+  'region_user',
   'zone_admin',
+  'zone_user',
   'unit_admin',
-  'dispatcher',
-  'operator',
+  'unit_user',
 ];
 
+/** Valores antiguos aceptados en entrada y filas aún no migradas. */
+const ROLE_ALIAS = {
+  admin: 'region_admin',
+  dispatcher: 'region_user',
+  operator: 'unit_user',
+};
+
+export const ROLE_LABELS = {
+  root: 'Administrador',
+  region_admin: 'Administrador de región',
+  region_user: 'Usuario de región',
+  zone_admin: 'Administrador de zona',
+  zone_user: 'Usuario de zona',
+  unit_admin: 'Administrador de unidad',
+  unit_user: 'Usuario de unidad',
+};
+
+export function normalizeRole(role) {
+  const raw = String(role || '').trim();
+  return ROLE_ALIAS[raw] || raw;
+}
+
+export function isKnownRole(role) {
+  return ORG_ROLES.includes(normalizeRole(role));
+}
+
 export function isRoot(role) {
-  return role === 'root';
+  return normalizeRole(role) === 'root';
 }
 
-/** Admin de zona (usuarios y unidades de su zona) */
+export function isRegionAdmin(role) {
+  return normalizeRole(role) === 'region_admin';
+}
+
 export function isZoneAdmin(role) {
-  return role === 'zone_admin';
+  return normalizeRole(role) === 'zone_admin';
 }
 
-/** Admin de unidad (solo usuarios/canales de su unidad) */
 export function isUnitAdmin(role) {
-  return role === 'unit_admin';
+  return normalizeRole(role) === 'unit_admin';
 }
 
-/** Admin de org o root (Región / maestro) */
+/** Maestro o administrador de región (gestión amplia de la org / región). */
 export function isAdmin(role) {
-  return role === 'root' || role === 'admin';
+  const r = normalizeRole(role);
+  return r === 'root' || r === 'region_admin';
 }
 
-/** Puede administrar usuarios (org, zona o unidad) */
-export function canManageUsers(role) {
-  return isAdmin(role) || isZoneAdmin(role) || isUnitAdmin(role);
+export function isUserProfile(role) {
+  const r = normalizeRole(role);
+  return r === 'region_user' || r === 'zone_user' || r === 'unit_user';
 }
 
-/** Consola despacho / overview / mapa (con alcance según rol) */
+/** Consola web: solo administradores. Ningún perfil Usuario. */
 export function isDispatch(role) {
-  return (
-    role === 'root' ||
-    role === 'admin' ||
-    role === 'zone_admin' ||
-    role === 'unit_admin' ||
-    role === 'dispatcher'
-  );
+  const r = normalizeRole(role);
+  return r === 'root' || r === 'region_admin' || r === 'zone_admin' || r === 'unit_admin';
 }
 
-/** Moderar mensajes ajenos, pánico por rol, etc. */
+export function canManageUsers(role) {
+  return isDispatch(role);
+}
+
+export function canManageProfiles(role) {
+  return isRoot(role);
+}
+
+/** Puede ocultar / elegir nivel de ubicación. */
+export function canChooseLocationShare(role) {
+  return isDispatch(role) && !isRoot(role);
+}
+
 export function isModerator(role) {
   return isDispatch(role);
 }
 
-/** Privilegios de visibilidad por defecto según rol. */
+export function roleLevel(role) {
+  const r = normalizeRole(role);
+  if (r === 'root' || r === 'region_admin' || r === 'region_user') return 'region';
+  if (r === 'zone_admin' || r === 'zone_user') return 'zone';
+  return 'unit';
+}
+
+/**
+ * Quién puede dar de alta qué rol.
+ * Administrador → cualquiera.
+ * Admin región → región / zona / unidad.
+ * Admin zona → zona (usuarios) y unidad.
+ * Admin unidad → solo usuarios de unidad.
+ */
+export function canAssignRole(actorRole, targetRole) {
+  const a = normalizeRole(actorRole);
+  const t = normalizeRole(targetRole);
+  if (!ORG_ROLES.includes(t)) return false;
+  if (t === 'root') return a === 'root';
+  if (a === 'root') return true;
+  if (a === 'region_admin') {
+    return t !== 'root';
+  }
+  if (a === 'zone_admin') {
+    return t === 'zone_user' || t === 'unit_admin' || t === 'unit_user';
+  }
+  if (a === 'unit_admin') return t === 'unit_user';
+  return false;
+}
+
+export function defaultLocationShare(role) {
+  const r = normalizeRole(role);
+  if (r === 'region_admin') return 'region';
+  if (r === 'zone_admin') return 'zone';
+  if (r === 'unit_admin') return 'unit';
+  return 'peers';
+}
+
+export function shareOptionsForRole(role) {
+  const r = normalizeRole(role);
+  if (r === 'region_admin') {
+    return [
+      { value: 'region', label: 'Toda la región' },
+      { value: 'zone', label: 'Zonas y hacia abajo' },
+      { value: 'unit', label: 'Solo unidades' },
+      { value: 'hidden', label: 'Ocultar ubicación' },
+    ];
+  }
+  if (r === 'zone_admin') {
+    return [
+      { value: 'zone', label: 'Toda la zona' },
+      { value: 'unit', label: 'Solo unidades' },
+      { value: 'hidden', label: 'Ocultar ubicación' },
+    ];
+  }
+  if (r === 'unit_admin') {
+    return [
+      { value: 'unit', label: 'Su unidad' },
+      { value: 'hidden', label: 'Ocultar ubicación' },
+    ];
+  }
+  return [];
+}
+
 export function defaultVisibilityFlags(role) {
-  if (isAdmin(role)) {
+  const r = normalizeRole(role);
+  if (r === 'root' || r === 'region_admin') {
     return { canSeeRegion: true, canSeeZones: true, canSeeUnits: true };
   }
-  if (isZoneAdmin(role)) {
+  if (r === 'zone_admin') {
     return { canSeeRegion: false, canSeeZones: true, canSeeUnits: true };
   }
-  if (isUnitAdmin(role)) {
+  if (r === 'unit_admin') {
     return { canSeeRegion: false, canSeeZones: false, canSeeUnits: true };
   }
   return { canSeeRegion: false, canSeeZones: false, canSeeUnits: false };

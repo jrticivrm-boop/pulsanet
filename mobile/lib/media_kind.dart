@@ -36,11 +36,73 @@ String fileKindEmoji(String? name, String? mime) {
   final n = (name ?? '').toLowerCase();
   final m = (mime ?? '').toLowerCase();
   if (isVideoMedia(mime: mime, name: name)) return '🎬';
+  if (n.endsWith('.apk') || m.contains('android.package')) return '📦'; // histórico OTA/recibidos; no se envían por chat
   if (m.contains('pdf') || n.endsWith('.pdf')) return '📄';
   if (n.endsWith('.doc') || n.endsWith('.docx') || m.contains('word')) return '📝';
   if (n.endsWith('.xls') || n.endsWith('.xlsx') || n.endsWith('.csv')) return '📊';
   if (RegExp(r'\.(zip|rar|7z|gz|tar)$').hasMatch(n)) return '🗜️';
   return '📎';
+}
+
+/// Extensiones permitidas en «Documento / archivo» (estilo WhatsApp).
+/// Sin .apk: distribución solo por OTA (`app-updates`).
+final _docExtRe = RegExp(
+  r'\.(pdf|docx?|xlsx?|xlsm|pptx?|ppsx?|txt|text|rtf|odt|ods|odp|csv|md|log|json|xml|html?|zip|rar|7z|gz|tar|epub|azw3?)$',
+  caseSensitive: false,
+);
+
+const kDocumentExtensions = <String>[
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'xlsm',
+  'ppt',
+  'pptx',
+  'pps',
+  'ppsx',
+  'txt',
+  'rtf',
+  'odt',
+  'ods',
+  'odp',
+  'csv',
+  'md',
+  'log',
+  'json',
+  'xml',
+  'html',
+  'htm',
+  'zip',
+  'rar',
+  '7z',
+  'gz',
+  'tar',
+  'epub',
+];
+
+bool isDocumentFile({String? mime, String? name}) {
+  final n = name ?? '';
+  final m = (mime ?? '').toLowerCase();
+  if (n.toLowerCase().endsWith('.apk') || m.contains('android.package')) {
+    return false;
+  }
+  if (_docExtRe.hasMatch(n)) return true;
+  if (m.startsWith('text/')) return true;
+  if (m.contains('zip') || m.contains('x-rar') || m.contains('x-7z')) return true;
+  if (m.contains('pdf') ||
+      m.contains('msword') ||
+      m.contains('wordprocessingml') ||
+      m.contains('spreadsheetml') ||
+      m.contains('presentationml') ||
+      m.contains('ms-excel') ||
+      m.contains('ms-powerpoint') ||
+      m.contains('opendocument') ||
+      m.contains('rtf')) {
+    return true;
+  }
+  return false;
 }
 
 String formatBytes(int? n) {

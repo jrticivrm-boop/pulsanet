@@ -3,9 +3,11 @@ import {
   dmSocketRoom,
   insertDmMessage,
   listDmMessages,
+  markDmMessagesDelivered,
 } from '../services/dm.js';
 import { query } from '../db.js';
 import { notifyUserDevices } from '../services/fcm.js';
+import { friendlyMessageDbError } from '../services/messageErrors.js';
 
 /**
  * Chat DM + presencia en room user:{id}
@@ -47,6 +49,33 @@ export function registerDmHandlers(io) {
       });
     });
 
+    socket.on('dm:delivered', async ({ peerId, messageIds, upToMessageId }) => {
+      try {
+        if (!peerId) return;
+        const { rows } = await query(
+          `SELECT organization_id FROM users WHERE id = $1`,
+          [user.sub]
+        );
+        const orgId = rows[0]?.organization_id;
+        const peer = await assertSameOrgPeer(orgId, user.sub, peerId);
+        if (!peer) return;
+        const ids = await markDmMessagesDelivered({
+          readerId: user.sub,
+          peerId: peer.id,
+          messageIds: Array.isArray(messageIds) ? messageIds : null,
+          upToMessageId: upToMessageId || null,
+        });
+        if (!ids.length) return;
+        const room = dmSocketRoom(user.sub, peer.id);
+        io.to(room).emit('dm:delivery', {
+          peerId: user.sub,
+          messageIds: ids,
+        });
+      } catch {
+        /* ignore */
+      }
+    });
+
     socket.on('dm:send', async ({ peerId, body, replyToId, clientMsgId }) => {
       try {
         let orgId = user.orgId;
@@ -76,9 +105,10 @@ export function registerDmHandlers(io) {
           displayName: user.displayName,
         });
         if (clientMsgId) msg.clientMsgId = String(clientMsgId);
+        msg.delivered = false;
+        msg.deliveredCount = 0;
         const room = dmSocketRoom(user.sub, peer.id);
         io.to(room).emit('dm:message', msg);
-        // Eco al emisor aunque aún no haya hecho dm:join (race al abrir el chat).
         socket.emit('dm:message', msg);
         io.to(`user:${peer.id}`).emit('dm:notify', {
           peerId: user.sub,
@@ -87,17 +117,20 @@ export function registerDmHandlers(io) {
         });
         notifyUserDevices({
           userId: peer.id,
-          title: user.displayName || 'TacticalPtx',
+          title: user.displayName || 'SICOM',
           body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
           data: {
             type: 'dm',
             peerId: user.sub,
-            title: user.displayName || 'TacticalPtx',
+            title: user.displayName || 'SICOM',
             body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
           },
         }).catch(() => {});
       } catch (e) {
-        socket.emit('dm:error', { error: e.message || 'Error', clientMsgId });
+        socket.emit('dm:error', {
+          error: friendlyMessageDbError(e),
+          clientMsgId,
+        });
       }
     });
 

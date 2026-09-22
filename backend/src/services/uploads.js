@@ -45,7 +45,7 @@ const AUDIO_MIME = new Set([
   'audio/aac',
 ]);
 
-/** Extensiones ejecutables / peligrosas — no chat. */
+/** Extensiones ejecutables / peligrosas — no chat (OTA APK va por app-updates, no aquí). */
 const BLOCKED_EXT = new Set([
   '.exe',
   '.bat',
@@ -64,15 +64,27 @@ const BLOCKED_EXT = new Set([
   '.ps1',
   '.reg',
   '.apk',
+  '.aab',
+  '.dex',
+  '.jar',
+]);
+
+const BLOCKED_MIME = new Set([
+  'application/vnd.android.package-archive',
+  'application/java-archive',
+  'application/x-dex',
 ]);
 
 const MB = 1024 * 1024;
+/** Techo de transporte multer (docs grandes; imagen/audio/video siguen con tope propio). */
+const MULTER_CEILING = 5 * 1024 * MB; // 5 GB
 export const LIMITS = {
   image: 10 * MB,
   audio: 15 * MB,
   video: 50 * MB,
-  file: 25 * MB,
-  multer: 50 * MB,
+  /** Documentos: sin tope práctico (solo el techo multer). */
+  file: MULTER_CEILING,
+  multer: MULTER_CEILING,
 };
 
 function extOf(name) {
@@ -94,8 +106,15 @@ export function looksLikeVideo(mime, filename) {
   return VIDEO_EXT.has(extOf(filename));
 }
 
-function isBlocked(filename) {
-  return BLOCKED_EXT.has(extOf(filename));
+function isBlocked(filename, mime) {
+  if (BLOCKED_EXT.has(extOf(filename))) return true;
+  const base = String(mime || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  if (base && BLOCKED_MIME.has(base)) return true;
+  if (base.includes('android.package')) return true;
+  return false;
 }
 
 /** Segmento de carpeta seguro (nombres de región/zona/unidad/grupo). */
@@ -195,7 +214,7 @@ const storage = multer.diskStorage({
 });
 
 function fileFilter(_req, file, cb) {
-  if (isBlocked(file.originalname || file.filename)) {
+  if (isBlocked(file.originalname || file.filename, file.mimetype)) {
     cb(new Error('Tipo de archivo no permitido'));
     return;
   }
@@ -281,7 +300,7 @@ export function prepareAvatarUploadDir(req, res, next) {
  * el cliente usa mediaMime / mediaName para reproducir o icono.
  */
 export function classifyMedia(mime, declaredType, filename) {
-  if (isBlocked(filename)) {
+  if (isBlocked(filename, mime)) {
     return { ok: false, error: 'Tipo de archivo no permitido' };
   }
   const base = (mime || '').split(';')[0];
@@ -344,5 +363,5 @@ export function sizeLimitError(classified) {
   if (classified?.type === 'image') return 'Imagen demasiado grande (máx 10 MB)';
   if (classified?.type === 'audio') return 'Audio demasiado grande (máx 15 MB)';
   if (classified?.kind === 'video') return 'Video demasiado grande (máx 50 MB)';
-  return 'Archivo demasiado grande (máx 25 MB)';
+  return 'Documento demasiado grande (máx 5 GB)';
 }

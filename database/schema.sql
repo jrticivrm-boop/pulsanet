@@ -119,7 +119,7 @@ CREATE TABLE devices (
 -- ---------------------------------------------------------------------------
 -- Mensajes (chat)
 -- ---------------------------------------------------------------------------
-CREATE TYPE message_type AS ENUM ('text', 'image', 'file', 'audio', 'sticker', 'location', 'system');
+CREATE TYPE message_type AS ENUM ('text', 'image', 'file', 'audio', 'sticker', 'location', 'system', 'nudge');
 
 CREATE TABLE messages (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -203,6 +203,7 @@ CREATE TABLE geofences (
  center_lat DOUBLE PRECISION NOT NULL,
  center_lng DOUBLE PRECISION NOT NULL,
  radius_m REAL NOT NULL CHECK (radius_m > 0 AND radius_m <= 50000),
+ color VARCHAR(16) NOT NULL DEFAULT '#243d20',
  is_active BOOLEAN NOT NULL DEFAULT TRUE,
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -355,6 +356,32 @@ CREATE INDEX idx_users_unit ON users (unit_id);
 CREATE INDEX idx_groups_unit ON groups (unit_id);
 
 -- ---------------------------------------------------------------------------
+-- Historial llamadas privadas 1:1 (voz, video, radio)
+-- ---------------------------------------------------------------------------
+CREATE TABLE private_call_logs (
+  id              UUID PRIMARY KEY,
+  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  caller_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  mode            TEXT NOT NULL DEFAULT 'call',
+  outcome         TEXT NOT NULL DEFAULT 'completed',
+  reason          TEXT,
+  started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  answered_at     TIMESTAMPTZ,
+  ended_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  duration_sec    INT
+);
+
+CREATE INDEX idx_private_call_logs_org_ended
+  ON private_call_logs (organization_id, ended_at DESC);
+
+CREATE INDEX idx_private_call_logs_caller
+  ON private_call_logs (caller_id, ended_at DESC);
+
+CREATE INDEX idx_private_call_logs_target
+  ON private_call_logs (target_id, ended_at DESC);
+
+-- ---------------------------------------------------------------------------
 -- Activity logs (auditoría)
 -- ---------------------------------------------------------------------------
 CREATE TABLE activity_logs (
@@ -370,6 +397,25 @@ CREATE TABLE activity_logs (
 
 CREATE INDEX idx_activity_logs_org_time ON activity_logs (organization_id, created_at DESC);
 CREATE INDEX idx_activity_logs_actor ON activity_logs (actor_id, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Eventos legibles por operador (geocerca, cuenta, …)
+-- ---------------------------------------------------------------------------
+CREATE TABLE user_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  subject_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind VARCHAR(32) NOT NULL,
+  summary TEXT NOT NULL,
+  meta JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_user_events_subject_time
+  ON user_events (organization_id, subject_user_id, created_at DESC);
+
+CREATE INDEX idx_user_events_kind_time
+  ON user_events (organization_id, kind, created_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Datos semilla (desarrollo)

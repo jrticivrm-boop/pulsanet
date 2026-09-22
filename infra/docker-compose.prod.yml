@@ -76,7 +76,7 @@ services:
 
  web:
  build:
- context: ../web
+ context: ../frontend
  dockerfile: Dockerfile
  args:
  VITE_API_URL: ""

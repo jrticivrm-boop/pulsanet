@@ -1,3 +1,12 @@
+/**
+ * SICOM API — punto de entrada HTTP + Socket.IO
+ *
+ * Secciones:
+ *  - Config / TLS / Express (helmet, CORS, rate-limit, lockdown)
+ *  - Rutas REST (/api/*): auth, grupos, chat, llamadas, GPS, admin, OTA…
+ *  - Socket.IO: PTT, chat, DM, despacho, política de sesión
+ *  - Arranque: Redis, FCM, LiveKit, respaldos programados
+ */
 import http from 'http';
 import https from 'https';
 import express from 'express';
@@ -15,7 +24,9 @@ import { livekitRouter } from './routes/livekit.js';
 import { createMessagesRouter, createMediaRouter } from './routes/messages.js';
 import { adminRouter } from './routes/admin.js';
 import { createLocationsRouter } from './routes/locations.js';
+import { profilesRouter } from './routes/profiles.js';
 import { geofencesRouter } from './routes/geofences.js';
+import { tacticalSitesRouter } from './routes/tacticalSites.js';
 import { createRecordingsRouter } from './routes/recordings.js';
 import { createMetricsRouter } from './routes/metrics.js';
 import { devicesRouter } from './routes/devices.js';
@@ -28,13 +39,16 @@ import { registerChatHandlers } from './socket/chat.js';
 import { registerDispatchHandlers } from './socket/dispatch.js';
 import { registerDmHandlers } from './socket/dm.js';
 import { createDmRouter } from './routes/dm.js';
-import { createCallsRouter } from './routes/calls.js';
+import { createCallsRouter, startPrivateCallSweeper } from './routes/calls.js';
+import { createGroupVideoRouter } from './routes/groupVideo.js';
 import { createMeRouter, createAvatarsRouter } from './routes/me.js';
 import { createAppUpdateRouter } from './routes/appUpdate.js';
 import { catalogsRouter } from './routes/catalogs.js';
 import { backupsRouter } from './routes/backups.js';
+import { createPresenceRouter } from './routes/presence.js';
 import { isLiveKitConfigured } from './services/livekit.js';
 import { startBackupScheduler } from './services/backup.js';
+import { bindSessionIo, normalizeDeviceId } from './services/sessionPolicy.js';
 
 import { connectRedis, isRedisReady } from './redis.js';
 import { inc } from './services/metrics.js';
@@ -45,6 +59,7 @@ import { isWireEncryptionEnabled } from './services/wireCrypto.js';
 import { isContentEncryptionReady } from './services/contentCrypto.js';
 import { isVoiceE2eeReady } from './services/voiceE2ee.js';
 
+// --- HTTP(S) + Express ---
 const app = express();
 const tlsOptions = loadTlsOptions();
 const server = tlsOptions
@@ -80,6 +95,37 @@ app.use(
     max: config.rateLimitMax,
     standardHeaders: true,
     legacyHeaders: false,
+    /**
+     * Por IP, todo el NAT (consola + flota APK) compartía un cupo → 429 en mapa.
+     * Con Bearer: clave = cola de la firma JWT (últimos ~32). El header JWT es
+     * idéntico en todos los tokens (eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.); un
+     * slice(0,48) del Authorization colapsaba casi todas las sesiones en un bucket.
+     */
+    keyGenerator: (req) => {
+      const auth = String(req.headers.authorization || '');
+      const m = auth.match(/^Bearer\s+(\S+)/i);
+      if (m && m[1].length > 20) {
+        return `b:${m[1].slice(-32)}`;
+      }
+      return req.ip || req.socket?.remoteAddress || 'unknown';
+    },
+    // Custom key (JWT suffix); no usar validación de fallback IP por defecto.
+    validate: { keyGeneratorIpFallback: false },
+    // Salud y OTA tienen su propio control; no gastar el cupo global (NAT).
+    skip: (req) => {
+      const p = req.path || '';
+      // Salud/OTA: cupo propio. GPS poll (auth en la ruta): no gastar el global.
+      return (
+        p === '/api/health' ||
+        p.startsWith('/api/health/') ||
+        p === '/api/app' ||
+        p.startsWith('/api/app/') ||
+        (req.method === 'GET' &&
+          (p === '/api/locations' ||
+            p.startsWith('/api/locations/') ||
+            p === '/api/admin/overview'))
+      );
+    },
   })
 );
 app.use(lockdownGuard);
@@ -97,6 +143,7 @@ const recordingsRouter = createRecordingsRouter(io);
 const mediaRouter = wrapRouterAsync(createMediaRouter());
 const dmRouter = wrapRouterAsync(createDmRouter(io));
 const callsRouter = wrapRouterAsync(createCallsRouter(io));
+const groupVideoRouter = wrapRouterAsync(createGroupVideoRouter(io));
 
 app.use('/api/health', wrapRouterAsync(healthRouter));
 app.use('/api/app', wrapRouterAsync(createAppUpdateRouter()));
@@ -110,13 +157,17 @@ app.use('/api/groups', wrapRouterAsync(groupsRouter));
 app.use('/api/groups/:id/messages', messagesRouter);
 app.use('/api/dm', dmRouter);
 app.use('/api/calls', callsRouter);
+app.use('/api/group-video', groupVideoRouter);
 app.use('/api/media', mediaRouter);
 app.use('/api/livekit', wrapRouterAsync(livekitRouter));
+app.use('/api/admin/profiles', wrapRouterAsync(profilesRouter));
 app.use('/api/admin', wrapRouterAsync(adminRouter));
 app.use('/api/catalogs', wrapRouterAsync(catalogsRouter));
 app.use('/api/backups', wrapRouterAsync(backupsRouter));
 app.use('/api/locations', locationsRouter);
+app.use('/api/presence', wrapRouterAsync(createPresenceRouter(io)));
 app.use('/api/geofences', wrapRouterAsync(geofencesRouter));
+app.use('/api/tactical-sites', wrapRouterAsync(tacticalSitesRouter));
 app.use('/api/recordings', recordingsRouter);
 app.use('/api/devices', wrapRouterAsync(devicesRouter));
 app.use('/api/stickers', wrapRouterAsync(stickersRouter));
@@ -148,6 +199,7 @@ io.use((socket, next) => {
         displayName: user.displayName || 'Usuario',
         orgId: user.orgId,
       };
+      socket.data.deviceId = normalizeDeviceId(socket.handshake.auth?.deviceId);
       next();
     })
     .catch((err) => {
@@ -158,6 +210,14 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   inc('socketConnects');
+  const user = socket.data.user;
+  if (user?.sub) {
+    socket.join(`user:${user.sub}`);
+  }
+  // Avisos de abuso de login (admin / despacho)
+  if (user?.role && (user.role === 'root' || user.role === 'admin' || user.role === 'zone_admin' || user.role === 'unit_admin' || user.role === 'dispatcher')) {
+    socket.join('security:alerts');
+  }
   socket.on('disconnect', () => inc('socketDisconnects'));
 });
 
@@ -189,9 +249,12 @@ async function start() {
 
   const scheme = tlsOptions ? 'https' : 'http';
   bindIntrusionIo(io);
-  server.listen(config.port, () => {
+  bindSessionIo(io);
+  // Bind: production/publico → 127.0.0.1 (Caddy upstream). Dev: 0.0.0.0 o LISTEN_HOST.
+  const listenHost = config.listenHost || '127.0.0.1';
+  server.listen(config.port, listenHost, () => {
     console.log(
-      `TacticalPtx API v${config.version} [${config.nodeEnv}] → ${scheme}://localhost:${config.port}`
+      `SICOM API v${config.version} [${config.nodeEnv}] → ${scheme}://${listenHost}:${config.port}`
     );
     console.log(`  Health: GET /api/health`);
     console.log(`  Root →  ${config.webPublicUrl}`);
@@ -203,6 +266,7 @@ async function start() {
     console.log(`  Wire:   ${isWireEncryptionEnabled() ? 'on' : 'off'} (GPS socket)`);
     console.log(`  Content AES: ${isContentEncryptionReady() ? 'on' : 'off'}`);
     console.log(`  Voice E2EE: ${isVoiceE2eeReady() ? 'on' : 'off'}`);
+    startPrivateCallSweeper(io);
   });
 }
 

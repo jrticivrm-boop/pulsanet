@@ -1,25 +1,25 @@
-# Instalar TacticalPtx en el teléfono (misma Wi‑Fi)
+﻿# Instalar TacticalPtx en el telÃ©fono (misma Wiâ€‘Fi)
 
 No hace falta `flutter run` cada vez. El **APK** es la app instalable.
 
-## Cómo funciona
+## CÃ³mo funciona
 
 | Pieza | Rol |
 |-------|-----|
 | Cable USB / archivo APK | Solo para **instalar** la app |
-| Wi‑Fi (misma red que el PC) | Login, chat, PTT, GPS, audio |
+| Wiâ€‘Fi (misma red que el PC) | Login, chat, PTT, GPS, audio |
 
-El APK se compiló con `API_BASE=http://192.168.1.66:4000` (IP de este PC). Si cambia la IP del PC, hay que generar otro APK o usar `run-usb.ps1`.
+El APK se compilÃ³ con `API_BASE=http://192.168.1.77:4000` (IP de este PC). Si cambia la IP del PC, hay que generar otro APK o usar `run-usb.ps1`.
 
 ## Antes de abrir la app
 
 En el PC deben estar corriendo:
 
 1. Redis + LiveKit (`infra/start-services.ps1`)
-2. API: `cd D:\pulsanet\backend` → `npm run dev`
+2. API: `cd D:\pulsanet\backend` â†’ `npm run dev`
 3. Firewall: TCP **4000** y **7880** (ya se abrieron antes)
 
-Teléfono y PC en la **misma Wi‑Fi**.
+TelÃ©fono y PC en la **misma Wiâ€‘Fi**.
 
 ## Instalar el APK
 
@@ -27,24 +27,24 @@ Archivo:
 
 `D:\Soporte\APK\TacticalPtx-LAN.apk`
 
-### Opción A — USB (rápido)
+### OpciÃ³n A â€” USB (rÃ¡pido)
 
 ```powershell
 adb install -r "D:\Soporte\APK\TacticalPtx-LAN.apk"
 ```
 
-### Opción B — sin cable de depuración
+### OpciÃ³n B â€” sin cable de depuraciÃ³n
 
-1. Copia el `.apk` al teléfono (USB almacenamiento, Drive, WhatsApp a ti mismo…).
-2. En el teléfono: permitir **instalar apps de orígenes desconocidos** para ese gestor de archivos.
+1. Copia el `.apk` al telÃ©fono (USB almacenamiento, Drive, WhatsApp a ti mismoâ€¦).
+2. En el telÃ©fono: permitir **instalar apps de orÃ­genes desconocidos** para ese gestor de archivos.
 3. Abre el APK e instala.
 
 ## Cuentas demo
 
-`op1@tacticalptx.local` … `op4` / `demo1234`
+`op1@tacticalptx.local` â€¦ `op4` / `demo1234`
 
 ## Si no conecta
 
-- ¿Misma Wi‑Fi? (no datos móviles)
-- ¿API arriba? Prueba en el PC: http://192.168.1.66:4000/api/health
-- ¿IP del PC cambió? Regenera APK o usa `powershell -File D:\pulsanet\mobile\run-usb.ps1`
+- Â¿Misma Wiâ€‘Fi? (no datos mÃ³viles)
+- Â¿API arriba? Prueba en el PC: http://192.168.1.77:4000/api/health
+- Â¿IP del PC cambiÃ³? Regenera APK o usa `powershell -File D:\pulsanet\mobile\run-usb.ps1`

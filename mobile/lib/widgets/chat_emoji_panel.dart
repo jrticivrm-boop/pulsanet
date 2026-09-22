@@ -170,13 +170,15 @@ class _ChatEmojiPanelState extends State<ChatEmojiPanel> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   _TabPill(
-                    label: '🙂',
+                    icon: Icons.emoji_emotions_rounded,
+                    label: 'Emojis',
                     active: _tab == 0,
                     onTap: () => setState(() => _tab = 0),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
                   _TabPill(
-                    label: '🎭',
+                    icon: Icons.sticky_note_2_rounded,
+                    label: 'Stickers',
                     active: _tab == 1,
                     onTap: () => setState(() => _tab = 1),
                   ),
@@ -239,22 +241,44 @@ class _ChatEmojiPanelState extends State<ChatEmojiPanel> {
 }
 
 class _TabPill extends StatelessWidget {
-  const _TabPill({required this.label, required this.active, required this.onTap});
+  const _TabPill({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final IconData icon;
   final String label;
   final bool active;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final color = active ? kInstOlive : Colors.white70;
     return Material(
       color: active ? kInstOlive.withValues(alpha: 0.28) : const Color(0xFF2A3942),
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(22),
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-          child: Text(label, style: TextStyle(fontSize: 18, color: active ? kInstOlive : Colors.white70)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

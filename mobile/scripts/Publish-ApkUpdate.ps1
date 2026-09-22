@@ -1,5 +1,10 @@
-# Publica APK OTA endurecida (lee versión de pubspec + APP_UPDATE_SECRET)
+# Publica APK endurecida (lee versión de pubspec + APP_UPDATE_SECRET)
 # Uso: powershell -File mobile\scripts\Publish-ApkUpdate.ps1
+#      powershell -File mobile\scripts\Publish-ApkUpdate.ps1 -Ota   # solo si se pide OTA
+param(
+  [switch]$Ota
+)
+
 $ErrorActionPreference = 'Stop'
 
 function Resolve-RepoRoot {
@@ -107,11 +112,29 @@ if (Test-Path $gpPath) {
 $apiBase = if ($env:API_BASE) { $env:API_BASE } else {
   $dom = $null
   $envFile = Join-Path $root 'backend\.env'
-  if (Test-Path $envFile) {
-    $line = Get-Content $envFile | Where-Object { $_ -match '^PUBLIC_DOMAIN=' } | Select-Object -First 1
-    if ($line) { $dom = ($line -split '=', 2)[1].Trim() }
+  $hint = Join-Path $root 'infra\caddy\apk-api-base.txt'
+  if (Test-Path $hint) {
+    $h = (Get-Content $hint -Raw -ErrorAction SilentlyContinue).Trim()
+    if ($h -match '^https?://') { $dom = $h }
   }
-  if ($dom) { "https://$dom" } else { 'https://189.152.200.238.sslip.io' }
+  if (-not $dom -and (Test-Path $envFile)) {
+    . (Join-Path $root 'infra\Sync-PublicIp.ps1')
+    $stable = Get-TpxStablePublicDomain -Root $root
+    if ($stable) {
+      $dom = "https://$stable"
+    } else {
+      $line = Get-Content $envFile | Where-Object { $_ -match '^PUBLIC_DOMAIN=' } | Select-Object -First 1
+      if ($line) { $dom = 'https://' + (($line -split '=', 2)[1].Trim().Trim('"').Trim("'")) }
+    }
+  }
+  if ($dom) {
+    $dom.TrimEnd('/')
+  } else {
+    . (Join-Path $root 'infra\Sync-PublicIp.ps1')
+    $ip = Get-TpxCurrentPublicIp
+    if (-not $ip) { throw 'Sin PUBLIC_DOMAIN en .env y sin IP publica (ipify). Ejecuta infra\START-PUBLIC-EDGE.ps1' }
+    "https://$ip.sslip.io"
+  }
 }
 
 function Read-Secret {
@@ -149,21 +172,59 @@ if ($LASTEXITCODE -ne 0) { throw 'flutter pub get failed' }
 $defines = @("--dart-define=API_BASE=$apiBase")
 if ($secret) { $defines += "--dart-define=APP_UPDATE_SECRET=$secret" }
 
+# LAN del host para bypass hairpin en el APK (teléfono en Wi‑Fi / subred cruzada).
+$serverLan = $env:SERVER_LAN_IP
+if (-not $serverLan) {
+  . (Join-Path $root 'infra\Sync-PublicIp.ps1')
+  $serverLan = Get-TpxPreferredLanIp
+  if (-not $serverLan) {
+    $line = Get-Content (Join-Path $root 'backend\.env') -EA SilentlyContinue |
+      Where-Object { $_ -match '^PUBLIC_LAN_IP=' } | Select-Object -First 1
+    if ($line) { $serverLan = (($line -split '=', 2)[1].Trim().Trim('"').Trim("'")) }
+  }
+}
+if ($serverLan) {
+  $defines += "--dart-define=SERVER_LAN_IP=$serverLan"
+  # Solo Ethernet canónico (+ override). Sin mesh 68.x legacy.
+  $extras = @($serverLan, '192.168.1.77') |
+    Where-Object { $_ -and $_.Trim() } |
+    Select-Object -Unique
+  $defines += ("--dart-define=SERVER_LAN_IPS=" + ($extras -join ','))
+  Write-Host "SERVER_LAN_IP=$serverLan"
+}
+
 & flutter build apk --release @defines
 if ($LASTEXITCODE -ne 0) { throw 'flutter build apk failed' }
 
 $apkSrc = Join-Path $mobile 'build\app\outputs\flutter-apk\app-release.apk'
 if (-not (Test-Path $apkSrc)) { throw "No APK: $apkSrc" }
 
-$upDir = Join-Path $root 'backend\app-updates'
-$filesDir = Join-Path $upDir 'files'
-$soporte = Join-Path $root 'Soporte\APK'
-New-Item -ItemType Directory -Force -Path $filesDir, $soporte | Out-Null
+$resolveAux = Join-Path $root 'infra\Resolve-AuxRoot.ps1'
+$auxRoot = $null
+if (Test-Path $resolveAux) {
+  $auxRoot = & $resolveAux -RepoRoot $root -EnsureApk
+}
+if (-not $auxRoot) { $auxRoot = Join-Path $root 'var' }
+$soporte = Join-Path $auxRoot 'APK'
+New-Item -ItemType Directory -Force -Path $soporte | Out-Null
 
-$apkDst = Join-Path $filesDir 'TacticalPtx.apk'
-Copy-Item -Force $apkSrc $apkDst
 Copy-Item -Force $apkSrc (Join-Path $soporte "TacticalPtx-$verName+$verCode.apk")
 Copy-Item -Force $apkSrc (Join-Path $soporte 'TacticalPtx-latest.apk')
+
+Write-Host '========== APK LISTO ==========' -ForegroundColor Green
+Write-Host "Archivo: $soporte\TacticalPtx-$verName+$verCode.apk"
+Write-Host "Latest:  $soporte\TacticalPtx-latest.apk"
+
+if (-not $Ota) {
+  Write-Host 'OTA: no publicada (usa -Ota solo si lo pides).' -ForegroundColor Yellow
+  exit 0
+}
+
+$upDir = Join-Path $root 'backend\app-updates'
+$filesDir = Join-Path $upDir 'files'
+New-Item -ItemType Directory -Force -Path $filesDir | Out-Null
+$apkDst = Join-Path $filesDir 'TacticalPtx.apk'
+Copy-Item -Force $apkSrc $apkDst
 
 $sha = (Get-FileHash -Algorithm SHA256 -Path $apkDst).Hash.ToLower()
 $manifest = @{
@@ -171,14 +232,13 @@ $manifest = @{
   versionCode = [int]$verCode
   versionName = $verName
   apkFile = 'TacticalPtx.apk'
-  force = $true
-  message = 'Actualizando...'
+  force = $false
+  message = 'Actualización disponible (opcional).'
   sha256 = $sha
 } | ConvertTo-Json -Compress
 [System.IO.File]::WriteAllText((Join-Path $upDir 'android.json'), $manifest + "`n", [System.Text.UTF8Encoding]::new($false))
 
-Write-Host '========== PUBLICADO ==========' -ForegroundColor Green
-Write-Host "Soporte: $soporte\TacticalPtx-$verName+$verCode.apk"
+Write-Host 'OTA publicada (force=false).' -ForegroundColor Cyan
 Write-Host "OTA:     $apkDst"
 Write-Host "SHA256:  $sha"
 Write-Host "API:     $apiBase/api/app/android"

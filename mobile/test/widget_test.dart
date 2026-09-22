@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:tacticalptx_mobile/config.dart';
 
 void main() {
@@ -12,16 +12,16 @@ void main() {
 
   test('socketUrl fuerza puerto 443 si HTTPS sin puerto (evita :0)', () {
     expect(
-      AppConfig.socketUrlFor('https://189.152.200.238.sslip.io'),
-      'https://189.152.200.238.sslip.io:443',
+      AppConfig.socketUrlFor('https://tacticalptx.example.sslip.io'),
+      'https://tacticalptx.example.sslip.io:443',
     );
     expect(
-      AppConfig.socketUrlFor('https://189.152.200.238.sslip.io:443'),
-      'https://189.152.200.238.sslip.io:443',
+      AppConfig.socketUrlFor('https://tacticalptx.example.sslip.io:443'),
+      'https://tacticalptx.example.sslip.io:443',
     );
     expect(
-      AppConfig.socketUrlFor('http://192.168.1.66:4000'),
-      'http://192.168.1.66:4000',
+      AppConfig.socketUrlFor('http://192.168.1.77:4000'),
+      'http://192.168.1.77:4000',
     );
   });
 }

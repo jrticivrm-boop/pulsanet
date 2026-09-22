@@ -1,18 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Confía el certificado LAN autofirmado + permite cleartext a LiveKit ws:// -->
+<!--
+  Producción: HTTPS (DuckDNS / Let's Encrypt) vía system trust.
+  LAN del PC (Ethernet 192.168.1.77): cert Caddy tls internal en @raw/lan_cert.
+  Sin cleartext. Sin IPs legacy (.66 / mesh 68.x).
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
             <certificates src="user" />
+            <certificates src="@raw/lan_cert" />
         </trust-anchors>
     </base-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">192.168.1.66</domain>
-        <domain includeSubdomains="true">189.175.38.29</domain>
+    <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">127.0.0.1</domain>
         <domain includeSubdomains="true">10.0.2.2</domain>
         <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">192.168.1.77</domain>
         <trust-anchors>
             <certificates src="system" />
             <certificates src="user" />

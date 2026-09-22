@@ -68,16 +68,16 @@ Future<void> showChannelPeerActions({
               onTap: () => Navigator.pop(ctx, 'dm'),
             ),
             ListTile(
-              leading: const Icon(Icons.cell_tower, color: kInstOlive),
-              title: const Text('Radio personal'),
-              subtitle: const Text('PTT 1:1 (mantener para hablar)'),
-              onTap: () => Navigator.pop(ctx, 'radio'),
-            ),
-            ListTile(
               leading: const Icon(Icons.call, color: kInstOlive),
               title: const Text('Llamada personal'),
               subtitle: const Text('Llamada de voz privada'),
               onTap: () => Navigator.pop(ctx, 'call'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam, color: kInstOlive),
+              title: const Text('Videollamada'),
+              subtitle: const Text('Llamada con cámara 1:1'),
+              onTap: () => Navigator.pop(ctx, 'video'),
             ),
             const SizedBox(height: 8),
           ],
@@ -103,24 +103,18 @@ Future<void> showChannelPeerActions({
     return;
   }
 
-  if (choice == 'radio') {
-    final nav = Navigator.of(context);
-    await nav.push<void>(
-      MaterialPageRoute(
-        builder: (_) => DirectPane(
-          api: api,
-          initialPeerId: peerId,
-          threadOnly: true,
-          initialStartRadio: true,
-          onBack: () => nav.popUntil((route) => route.isFirst),
-        ),
-      ),
+  if (choice == 'call') {
+    await startPersonalCall(
+      context: context,
+      api: api,
+      peerId: peerId,
+      peerName: displayName,
     );
     return;
   }
 
-  if (choice == 'call') {
-    await startPersonalCall(
+  if (choice == 'video') {
+    await startPersonalVideoCall(
       context: context,
       api: api,
       peerId: peerId,
@@ -150,6 +144,7 @@ Future<void> startPersonalCall({
           url: AppConfig.publicLiveKitUrl(data['url'] as String),
           role: 'caller',
           e2eeKey: data['e2eeKey']?.toString(),
+          e2ee: data['e2ee'] == true,
           mode: 'call',
         ),
       ),
@@ -158,6 +153,40 @@ Future<void> startPersonalCall({
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(esMsg(e, 'No se pudo iniciar la llamada'))),
+    );
+  }
+}
+
+Future<void> startPersonalVideoCall({
+  required BuildContext context,
+  required ApiClient api,
+  required String peerId,
+  required String peerName,
+}) async {
+  try {
+    final data = await api.startPrivateCall(peerId, mode: 'video');
+    if (!context.mounted) return;
+    final call = data['call'] as Map? ?? {};
+    await Navigator.of(context).push(
+      PrivateCallScreen.route(
+        child: PrivateCallScreen(
+          api: api,
+          callId: call['callId']?.toString() ?? '',
+          peerId: peerId,
+          peerName: peerName,
+          token: data['token'] as String,
+          url: AppConfig.publicLiveKitUrl(data['url'] as String),
+          role: 'caller',
+          e2eeKey: data['e2eeKey']?.toString(),
+          e2ee: data['e2ee'] == true,
+          mode: 'video',
+        ),
+      ),
+    );
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(esMsg(e, 'No se pudo iniciar la videollamada'))),
     );
   }
 }

@@ -14,6 +14,11 @@ workflows:
 
     working_directory: mobile
 
+    # Debe coincidir EXACTO con el nombre de la API key en
+    # Team settings → Integrations → Developer Portal → Manage keys
+    integrations:
+      app_store_connect: Codemagic TacticalPtx
+
     environment:
       flutter: stable
       xcode: latest
@@ -24,7 +29,7 @@ workflows:
       groups:
         - tacticalptx_ios
       vars:
-        API_BASE: https://189.152.200.238.sslip.io
+        API_BASE: https://pulsanet.duckdns.org
         BUNDLE_ID: com.tacticalptx.app
         XCODE_PROJECT: ios/Runner.xcworkspace
         XCODE_SCHEME: Runner
@@ -94,6 +99,9 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
     working_directory: mobile
+    # Misma clave ASC que arriba (firma automatica / subir IPA opcional)
+    integrations:
+      app_store_connect: Codemagic TacticalPtx
     environment:
       flutter: stable
       xcode: latest
@@ -104,7 +112,7 @@ workflows:
       groups:
         - tacticalptx_ios
       vars:
-        API_BASE: https://189.152.200.238.sslip.io
+        API_BASE: https://pulsanet.duckdns.org
     scripts:
       - name: Firebase plist
         script: |

@@ -1,0 +1,26 @@
+---
+description: Prohíbe revertir o pisar features con código viejo sin pedirlo explícitamente
+alwaysApply: true
+---
+
+# Anti-regresión TacticalPtx
+
+## Prohibido sin petición explícita del usuario
+
+- Revertir / rollback / `git checkout --` de archivos a versión antigua
+- Reescribir un módulo entero “desde cero” o “como estaba antes”
+- Sustituir `DispatchLayout`, `CommandCenter`, Radio, Video, etc. por una versión más corta que pierda features
+- “Simplificar” quitando Video, PTT múltiple, KPIs, hosts globales, keepalive, etc.
+
+Palabras que SÍ autorizan revert: *revertir, regresar, rollback, volver a la versión anterior, descartar*.
+
+## Si algo parece incompleto
+
+1. Leer el archivo actual.
+2. Comparar con ramas (`cursor/video-panic-stable-domain`, etc.) y commits más nuevos.
+3. Preferir **recuperar lo nuevo**, no pisar con lo viejo.
+4. Preguntar si hay duda.
+
+## Edits
+
+Cambios mínimos y quirúrgicos. No reemplazar un componente grande por un ajuste puntual.

@@ -9,6 +9,7 @@ import {
   REACTION_NORMALIZED,
 } from '../socket/chat.js';
 import { openMessageBody, sealMessageBody } from './contentCrypto.js';
+import { friendlyMessageDbError } from './messageErrors.js';
 import { isModerator } from './roles.js';
 
 export function dmPairKey(userA, userB) {
@@ -19,15 +20,21 @@ export function dmSocketRoom(userA, userB) {
   return `dm:${dmPairKey(userA, userB)}`;
 }
 
-export function privateCallRoom(userA, userB, mode = 'call') {
-  const prefix = mode === 'radio' ? 'radio' : 'call';
-  return `${prefix}_${dmPairKey(userA, userB)}`;
+export function privateCallRoom(userA, userB, mode = 'call', callId = null) {
+  const m = String(mode || 'call').toLowerCase();
+  const prefix = m === 'radio' ? 'radio' : m === 'video' ? 'video' : 'call';
+  const pair = dmPairKey(userA, userB);
+  // Sala única por llamada: evita colisión de publishers/E2EE entre sesiones.
+  const idPart = callId
+    ? `_${String(callId).replace(/-/g, '').slice(0, 16)}`
+    : '';
+  return `${prefix}_${pair}${idPart}`;
 }
 
 export async function assertSameOrgPeer(orgId, userId, peerId) {
-  if (!peerId || peerId === userId) return null;
+  if (!peerId) return null;
   const { rows } = await query(
-    `SELECT id, username, email, display_name, role, is_active
+    `SELECT id, username, email, display_name, role, is_active, grade, avatar_url
      FROM users
      WHERE id = $1 AND organization_id = $2 AND is_active = TRUE`,
     [peerId, orgId]
@@ -35,25 +42,89 @@ export async function assertSameOrgPeer(orgId, userId, peerId) {
   return rows[0] || null;
 }
 
-export async function listOrgContacts(orgId, excludeUserId) {
+const CONTACT_SELECT = `
+  u.id, u.username, u.email, u.display_name, u.role, u.last_seen_at, u.avatar_url, u.grade,
+  COALESCE((
+    SELECT MIN(cg.sort_order)
+    FROM cat_grades cg
+    WHERE cg.organization_id = u.organization_id
+      AND cg.is_active = TRUE
+      AND u.grade IS NOT NULL
+      AND TRIM(u.grade) <> ''
+      AND (
+        LOWER(TRIM(cg.abbreviation)) = LOWER(TRIM(u.grade))
+        OR LOWER(TRIM(cg.name)) = LOWER(TRIM(u.grade))
+      )
+  ), 999999) AS grade_sort_order
+`;
+
+export async function listOrgContacts(orgId, excludeUserId, { includeSelf = false } = {}) {
   const { rows } = await query(
-    `SELECT id, username, email, display_name, role, last_seen_at, avatar_url
-     FROM users
-     WHERE organization_id = $1 AND is_active = TRUE AND id <> $2
-     ORDER BY display_name`,
-    [orgId, excludeUserId]
+    `SELECT ${CONTACT_SELECT}
+     FROM users u
+     WHERE u.organization_id = $1 AND u.is_active = TRUE
+       AND ($3::boolean OR u.id <> $2)
+     ORDER BY u.display_name`,
+    [orgId, excludeUserId, includeSelf]
   );
-  return rows.map((u) => ({
+  return rows.map(mapContactRow);
+}
+
+/** ¿Comparten al menos un grupo activo? (Contactar / DM). */
+export async function sharesGroup(orgId, userId, peerId) {
+  if (String(userId) === String(peerId)) return true;
+  const { rows } = await query(
+    `SELECT 1
+     FROM group_members me
+     JOIN group_members peer ON peer.group_id = me.group_id AND peer.user_id = $2
+     JOIN groups g ON g.id = me.group_id AND g.is_active = TRUE AND g.organization_id = $3
+     WHERE me.user_id = $1
+     LIMIT 1`,
+    [userId, peerId, orgId]
+  );
+  return Boolean(rows[0]);
+}
+
+/**
+ * Contactos con los que compartes al menos un grupo (membresía activa),
+ * más el propio usuario (chat contigo).
+ */
+export async function listSharedGroupContacts(orgId, userId) {
+  const { rows } = await query(
+    `SELECT ${CONTACT_SELECT}
+     FROM users u
+     WHERE u.organization_id = $2
+       AND u.is_active = TRUE
+       AND (
+         u.id = $1
+         OR EXISTS (
+           SELECT 1
+           FROM group_members me
+           JOIN group_members peer ON peer.group_id = me.group_id AND peer.user_id = u.id
+           JOIN groups g ON g.id = me.group_id AND g.is_active = TRUE
+           WHERE me.user_id = $1
+         )
+       )
+     ORDER BY u.display_name`,
+    [userId, orgId]
+  );
+  return rows.map(mapContactRow);
+}
+
+function mapContactRow(u) {
+  return {
     id: u.id,
     username: u.username,
     email: u.email,
     displayName: u.display_name,
     role: u.role,
+    grade: u.grade || null,
+    gradeSortOrder: Number(u.grade_sort_order) || 999999,
     lastSeenAt: u.last_seen_at,
     avatarUrl: u.avatar_url
       ? `/api/avatars/file/${encodeURIComponent(u.avatar_url)}`
       : null,
-  }));
+  };
 }
 
 export async function listDmConversations(userId) {
@@ -93,7 +164,13 @@ export async function listDmConversations(userId) {
     lastMessage: {
       id: r.id,
       type: r.deleted_at ? 'text' : r.type,
-      body: r.deleted_at ? null : r.type === 'sticker' ? null : openMessageBody(r.type, r.body),
+      body: r.deleted_at
+        ? null
+        : r.type === 'sticker'
+          ? null
+          : r.type === 'nudge'
+            ? '¡Zumbido!'
+            : openMessageBody(r.type, r.body),
       mediaName: r.deleted_at ? null : r.media_name,
       createdAt: r.created_at,
       isDeleted: Boolean(r.deleted_at),
@@ -144,6 +221,9 @@ export async function insertDmMessage({
   replyToId = null,
   displayName = null,
 }) {
+  if (!senderId) throw new Error('Sesión inválida — vuelve a iniciar sesión');
+  if (!recipientId) throw new Error('Destinatario no válido');
+
   let safeReply = null;
   let reply = null;
   if (replyToId) {
@@ -171,25 +251,30 @@ export async function insertDmMessage({
     }
   }
 
-  const { rows } = await query(
-    `INSERT INTO messages (
-       group_id, sender_id, recipient_id, type, body,
-       media_url, media_mime, media_name, media_size, reply_to_id
-     ) VALUES (NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9)
-     RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
-               reply_to_id, edited_at, deleted_at, created_at`,
-    [
-      senderId,
-      recipientId,
-      type,
-      sealMessageBody(type, body),
-      mediaUrl,
-      mediaMime,
-      mediaName,
-      mediaSize,
-      safeReply,
-    ]
-  );
+  let rows;
+  try {
+    ({ rows } = await query(
+      `INSERT INTO messages (
+         group_id, sender_id, recipient_id, type, body,
+         media_url, media_mime, media_name, media_size, reply_to_id
+       ) VALUES (NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
+                 reply_to_id, edited_at, deleted_at, created_at`,
+      [
+        senderId,
+        recipientId,
+        type,
+        sealMessageBody(type, body),
+        mediaUrl,
+        mediaMime,
+        mediaName,
+        mediaSize,
+        safeReply,
+      ]
+    ));
+  } catch (err) {
+    throw new Error(friendlyMessageDbError(err));
+  }
 
   let name = displayName;
   if (!name) {
@@ -247,6 +332,46 @@ export async function softDeleteDmMessage({
      RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
                reply_to_id, edited_at, deleted_at, created_at`,
     [messageId]
+  );
+  return hydrateDmMessage(updated[0], userId);
+}
+
+/** Editar mensaje de texto propio (o moderador) en DM. */
+export async function editDmMessage({
+  peerId,
+  messageId,
+  userId,
+  body,
+  userRole,
+}) {
+  const text = String(body || '').trim();
+  if (!text) throw new Error('Mensaje vacío');
+  if (text.length > 2000) throw new Error('Máximo 2000 caracteres');
+
+  const { rows } = await query(
+    `SELECT id, sender_id, recipient_id, type, deleted_at
+     FROM messages
+     WHERE id = $1 AND group_id IS NULL AND recipient_id IS NOT NULL
+       AND (
+         (sender_id = $2 AND recipient_id = $3)
+         OR (sender_id = $3 AND recipient_id = $2)
+       )`,
+    [messageId, userId, peerId]
+  );
+  const row = rows[0];
+  if (!row) throw new Error('Mensaje no encontrado');
+  if (row.deleted_at) throw new Error('El mensaje está eliminado');
+  if (row.type !== 'text') throw new Error('Solo se pueden editar mensajes de texto');
+  if (!canModerateDm(userId, row.sender_id, userRole)) {
+    throw new Error('No puedes editar este mensaje');
+  }
+
+  const { rows: updated } = await query(
+    `UPDATE messages SET body = $1, edited_at = NOW()
+     WHERE id = $2
+     RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
+               reply_to_id, edited_at, deleted_at, created_at`,
+    [sealMessageBody('text', text), messageId]
   );
   return hydrateDmMessage(updated[0], userId);
 }
@@ -363,36 +488,280 @@ export async function hydrateDmMessage(row, viewerUserId = null) {
     msg.readCount = reads[0]?.c || 0;
     msg.peerCount = 1;
     msg.readFully = msg.readCount >= 1;
+    msg.deliveredCount = 0;
+    msg.delivered = msg.readFully;
+    try {
+      const { rows: dels } = await query(
+        `SELECT COUNT(*)::int AS c FROM message_deliveries
+         WHERE message_id = $1 AND user_id IS DISTINCT FROM $2`,
+        [row.id, row.sender_id]
+      );
+      msg.deliveredCount = dels[0]?.c || 0;
+      msg.delivered = msg.deliveredCount >= 1 || msg.readFully;
+    } catch (err) {
+      // Tabla ausente / migración pendiente: no tumbar el hilo DM.
+      if (!/message_deliveries/i.test(err?.message || '')) throw err;
+    }
   }
   return msg;
 }
 
-/** Llamadas privadas en memoria (demo / proceso) */
+/**
+ * Marca mensajes DM como entregados al dispositivo del receptor.
+ * @returns {string[]} ids marcados (nuevos)
+ */
+export async function markDmMessagesDelivered({
+  readerId,
+  peerId,
+  messageIds = null,
+  upToMessageId = null,
+}) {
+  let ids = Array.isArray(messageIds)
+    ? messageIds.map((x) => String(x || '')).filter(Boolean)
+    : [];
+  if (!ids.length) {
+    const { rows } = await query(
+      `SELECT id FROM messages
+       WHERE group_id IS NULL AND recipient_id IS NOT NULL
+         AND sender_id = $1 AND recipient_id = $2
+         AND deleted_at IS NULL
+         AND ($3::uuid IS NULL OR created_at <= (SELECT created_at FROM messages WHERE id = $3))
+       ORDER BY created_at DESC
+       LIMIT 80`,
+      [peerId, readerId, upToMessageId]
+    );
+    ids = rows.map((r) => r.id);
+  }
+  if (!ids.length) return [];
+  const { rows: inserted } = await query(
+    `INSERT INTO message_deliveries (message_id, user_id)
+     SELECT m.id, $2
+     FROM messages m
+     WHERE m.id = ANY($1::uuid[])
+       AND m.group_id IS NULL
+       AND m.recipient_id = $2
+       AND m.sender_id = $3
+       AND m.deleted_at IS NULL
+     ON CONFLICT DO NOTHING
+     RETURNING message_id`,
+    [ids, readerId, peerId]
+  );
+  return inserted.map((r) => r.message_id);
+}
+
+/** Llamadas privadas en memoria (activas) */
 const activeCalls = new Map();
 
-export function createPrivateCall({ callerId, callerName, targetId, targetName, room, mode = 'call' }) {
+function computeCallOutcome(call, { reason = 'hangup', endedBy = null } = {}) {
+  const answered = Boolean(call.answeredAt);
+  const r = String(reason || '').toLowerCase();
+  if (r === 'timeout' || r === 'no_answer') return 'missed';
+  if (r === 'reject') {
+    if (answered) return 'completed';
+    if (endedBy && endedBy === call.targetId) return 'rejected';
+    return 'missed';
+  }
+  if (!answered) {
+    if (endedBy && endedBy === call.callerId) return 'cancelled';
+    return 'missed';
+  }
+  return 'completed';
+}
+
+export function createPrivateCall({
+  callerId,
+  callerName,
+  callerAvatarUrl = null,
+  targetId,
+  targetName,
+  room = null,
+  mode = 'call',
+  intent = null,
+  orgId = null,
+}) {
   const id = randomUUID();
+  const normalized = String(mode || 'call').toLowerCase();
+  const callMode = normalized === 'radio' ? 'radio' : normalized === 'video' ? 'video' : 'call';
+  const intentNorm = String(intent || '').toLowerCase() === 'remote_camera' ? 'remote_camera' : null;
+  const roomName = room || privateCallRoom(callerId, targetId, callMode, id);
   const call = {
     id,
+    orgId,
     callerId,
     callerName,
+    callerAvatarUrl: callerAvatarUrl || null,
     targetId,
     targetName,
-    room,
-    mode: mode === 'radio' ? 'radio' : 'call',
+    room: roomName,
+    mode: callMode,
+    intent: intentNorm,
+    withVideo: callMode === 'video',
+    videoRequest: null,
     status: 'ringing',
     createdAt: Date.now(),
+    answeredAt: null,
+    lastSeenAt: {},
+    /** userId → { userId, displayName, role, status: ringing|joined|left, … } */
+    participants: {
+      [callerId]: {
+        userId: callerId,
+        displayName: callerName || 'Usuario',
+        role: 'caller',
+        status: 'joined',
+        joinedAt: Date.now(),
+      },
+      [targetId]: {
+        userId: targetId,
+        displayName: targetName || 'Usuario',
+        role: 'callee',
+        status: 'ringing',
+        invitedAt: Date.now(),
+      },
+    },
   };
   activeCalls.set(id, call);
-  // limpia llamadas viejas (>10 min)
+  touchPrivateCall(id, callerId);
   for (const [cid, c] of activeCalls) {
     if (Date.now() - c.createdAt > 10 * 60 * 1000) activeCalls.delete(cid);
   }
   return call;
 }
 
+function ensureParticipants(call) {
+  if (!call) return {};
+  if (!call.participants || typeof call.participants !== 'object') {
+    call.participants = {};
+    if (call.callerId) {
+      call.participants[call.callerId] = {
+        userId: call.callerId,
+        displayName: call.callerName || 'Usuario',
+        role: 'caller',
+        status: call.answeredAt ? 'joined' : 'joined',
+        joinedAt: call.createdAt || Date.now(),
+      };
+    }
+    if (call.targetId) {
+      call.participants[call.targetId] = {
+        userId: call.targetId,
+        displayName: call.targetName || 'Usuario',
+        role: 'callee',
+        status: call.answeredAt ? 'joined' : 'ringing',
+        invitedAt: call.createdAt || Date.now(),
+        joinedAt: call.answeredAt || null,
+      };
+    }
+  }
+  return call.participants;
+}
+
+export function isPrivateCallParticipant(call, userId) {
+  if (!call || !userId) return false;
+  const parts = ensureParticipants(call);
+  const p = parts[String(userId)];
+  return Boolean(p && p.status !== 'left');
+}
+
+export function listPrivateCallParticipantIds(call, { includeRinging = true } = {}) {
+  const parts = ensureParticipants(call);
+  return Object.values(parts)
+    .filter((p) => {
+      if (!p || p.status === 'left') return false;
+      if (!includeRinging && p.status === 'ringing') return false;
+      return true;
+    })
+    .map((p) => String(p.userId));
+}
+
+export function serializePrivateCallParticipants(call) {
+  return Object.values(ensureParticipants(call))
+    .filter((p) => p && p.status !== 'left')
+    .map((p) => ({
+      userId: p.userId,
+      displayName: p.displayName || 'Usuario',
+      role: p.role || 'guest',
+      status: p.status || 'ringing',
+    }));
+}
+
+export function markPrivateCallParticipantJoined(call, userId, displayName) {
+  if (!call || !userId) return null;
+  const parts = ensureParticipants(call);
+  const id = String(userId);
+  const prev = parts[id] || {
+    userId: id,
+    role: 'guest',
+    invitedAt: Date.now(),
+  };
+  parts[id] = {
+    ...prev,
+    userId: id,
+    displayName: displayName || prev.displayName || 'Usuario',
+    status: 'joined',
+    joinedAt: Date.now(),
+  };
+  return parts[id];
+}
+
+export function invitePrivateCallParticipant(
+  call,
+  { userId, displayName, invitedBy }
+) {
+  if (!call || !userId) return null;
+  const parts = ensureParticipants(call);
+  const id = String(userId);
+  if (parts[id] && parts[id].status !== 'left') {
+    return { error: 'already_in_call', participant: parts[id] };
+  }
+  parts[id] = {
+    userId: id,
+    displayName: displayName || 'Usuario',
+    role: 'guest',
+    status: 'ringing',
+    invitedBy: invitedBy || null,
+    invitedAt: Date.now(),
+  };
+  return { participant: parts[id] };
+}
+
+export function leavePrivateCallParticipant(call, userId) {
+  if (!call || !userId) return null;
+  const parts = ensureParticipants(call);
+  const id = String(userId);
+  if (!parts[id]) return null;
+  parts[id] = { ...parts[id], status: 'left', leftAt: Date.now() };
+  return parts[id];
+}
+
+export function touchPrivateCall(id, userId) {
+  const c = activeCalls.get(id);
+  if (!c || !userId) return null;
+  if (!c.lastSeenAt) c.lastSeenAt = {};
+  c.lastSeenAt[userId] = Date.now();
+  return c;
+}
+
 export function getPrivateCall(id) {
   return activeCalls.get(id) || null;
+}
+
+/** Snapshot de llamadas en memoria (sweeper / diagnóstico). */
+export function listActivePrivateCalls() {
+  return [...activeCalls.values()];
+}
+
+/** Llamada activa (ringing/answered) que involucra a alguno de los usuarios. */
+export function findBusyPrivateCallForUsers(...userIds) {
+  const ids = new Set(userIds.map((u) => String(u || '')).filter(Boolean));
+  if (!ids.size) return null;
+  for (const c of activeCalls.values()) {
+    if (!c || c.status === 'ended') continue;
+    const parts = listPrivateCallParticipantIds(c, { includeRinging: true });
+    for (const pid of parts) {
+      if (ids.has(String(pid))) return c;
+    }
+    if (ids.has(String(c.callerId)) || ids.has(String(c.targetId))) return c;
+  }
+  return null;
 }
 
 export function updatePrivateCall(id, patch) {
@@ -402,11 +771,121 @@ export function updatePrivateCall(id, patch) {
   return c;
 }
 
-export function endPrivateCall(id) {
+export function endPrivateCall(id, { reason = 'hangup', endedBy = null } = {}) {
   const c = activeCalls.get(id);
-  if (c) {
-    c.status = 'ended';
-    activeCalls.delete(id);
+  if (!c) return null;
+  c.status = 'ended';
+  activeCalls.delete(id);
+  return { call: c, reason, endedBy };
+}
+
+export async function persistPrivateCallLog({ call, reason = 'hangup', endedBy = null }) {
+  if (!call?.id || !call.callerId || !call.targetId) return null;
+  const endedAt = new Date();
+  const startedAt = new Date(call.createdAt || Date.now());
+  const answeredAt = call.answeredAt ? new Date(call.answeredAt) : null;
+  const outcome = computeCallOutcome(call, { reason, endedBy });
+  let durationSec = null;
+  if (answeredAt) {
+    durationSec = Math.max(0, Math.floor((endedAt.getTime() - answeredAt.getTime()) / 1000));
   }
-  return c;
+  const orgId = call.orgId;
+  if (!orgId) return { outcome, durationSec };
+  try {
+    await query(
+      `INSERT INTO private_call_logs (
+         id, organization_id, caller_id, target_id, mode, outcome, reason,
+         started_at, answered_at, ended_at, duration_sec
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (id) DO UPDATE SET
+         outcome = EXCLUDED.outcome,
+         reason = EXCLUDED.reason,
+         answered_at = COALESCE(private_call_logs.answered_at, EXCLUDED.answered_at),
+         ended_at = EXCLUDED.ended_at,
+         duration_sec = EXCLUDED.duration_sec`,
+      [
+        call.id,
+        orgId,
+        call.callerId,
+        call.targetId,
+        call.mode || 'call',
+        outcome,
+        reason || null,
+        startedAt,
+        answeredAt,
+        endedAt,
+        durationSec,
+      ]
+    );
+  } catch (e) {
+    console.error('[calls] persist log failed:', e.message);
+  }
+  return { outcome, durationSec };
+}
+
+export async function listPrivateCallHistory(
+  userId,
+  orgId,
+  { limit = 80, peerId = null, missedOnly = false, receivedOnly = false } = {}
+) {
+  if (!userId || !orgId) return [];
+  const lim = Math.min(Math.max(Number(limit) || 80, 1), 200);
+  const params = [userId, orgId];
+  let peerFilter = '';
+  if (peerId) {
+    params.push(peerId);
+    peerFilter = ` AND (l.caller_id = $3 OR l.target_id = $3)`;
+  }
+  let outcomeFilter = '';
+  if (missedOnly) {
+    outcomeFilter = ` AND l.outcome IN ('missed', 'rejected')`;
+  } else if (receivedOnly) {
+    /* Entrantes contestadas (no perdidas/rechazadas) */
+    outcomeFilter = ` AND l.caller_id <> $1 AND l.outcome NOT IN ('missed', 'rejected')`;
+  }
+  const { rows } = await query(
+    `SELECT l.id, l.caller_id, l.target_id, l.mode, l.outcome, l.reason,
+            l.started_at, l.answered_at, l.ended_at, l.duration_sec,
+            CASE WHEN l.caller_id = $1 THEN l.target_id ELSE l.caller_id END AS peer_id,
+            CASE WHEN l.caller_id = $1 THEN 'outgoing' ELSE 'incoming' END AS direction,
+            u.display_name AS peer_name,
+            u.avatar_url AS peer_avatar_url
+     FROM private_call_logs l
+     JOIN users u ON u.id = CASE WHEN l.caller_id = $1 THEN l.target_id ELSE l.caller_id END
+     WHERE l.organization_id = $2
+       AND (l.caller_id = $1 OR l.target_id = $1)
+       ${peerFilter}
+       ${outcomeFilter}
+     ORDER BY l.ended_at DESC
+     LIMIT ${lim}`,
+    params
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    peerId: r.peer_id,
+    peerName: r.peer_name,
+    peerAvatarUrl: r.peer_avatar_url
+      ? `/api/avatars/file/${encodeURIComponent(r.peer_avatar_url)}`
+      : null,
+    direction: r.direction,
+    mode: r.mode || 'call',
+    outcome: r.outcome || 'completed',
+    reason: r.reason,
+    startedAt: r.started_at,
+    answeredAt: r.answered_at,
+    endedAt: r.ended_at,
+    durationSec: r.duration_sec,
+  }));
+}
+
+/** Borra el historial de llamadas privadas visibles para el usuario. */
+export async function clearPrivateCallHistory(userId, orgId) {
+  if (!userId || !orgId) return 0;
+  const { rowCount } = await query(
+    `DELETE FROM private_call_logs
+     WHERE organization_id = $1
+       AND (caller_id = $2 OR target_id = $2)`,
+    [orgId, userId]
+  );
+  return rowCount || 0;
 }

@@ -42,7 +42,7 @@ npm run dev
 ## 4. Web demo
 
 ```bash
-cd web
+cd frontend
 npm install
 npm run dev
 ```

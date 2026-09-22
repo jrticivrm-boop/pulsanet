@@ -2,15 +2,25 @@
 $ErrorActionPreference = 'Continue'
 $root = Split-Path $PSScriptRoot -Parent
 if (-not (Test-Path "$root\backend")) { $root = $PSScriptRoot }
+. (Join-Path $PSScriptRoot 'Sync-PublicIp.ps1')
 
 Write-Host '== TacticalPtx start ==' -ForegroundColor Cyan
 
 function Get-LanIPv4 {
+  # Host: preferir Ethernet cableado (Get-TpxPreferredLanIp); no forzar mesh Wi‑Fi del PC.
+  if (Get-Command Get-TpxPreferredLanIp -ErrorAction SilentlyContinue) {
+    $pref = Get-TpxPreferredLanIp
+    if ($pref) { return $pref }
+  }
+  $found = @()
   foreach ($line in (& ipconfig.exe 2>$null)) {
     if ($line -match 'IPv4.*:\s*(192\.168\.\d+\.\d+)') {
-      return $Matches[1]
+      $found += $Matches[1]
     }
   }
+  $eth = $found | Where-Object { $_ -like '192.168.1.*' } | Select-Object -First 1
+  if ($eth) { return $eth }
+  if ($found.Count -gt 0) { return $found[0] }
   return $null
 }
 
@@ -57,27 +67,28 @@ if ($lanIp) {
   }
 }
 
-# IP pública (UPnP / 4G): referencia STUN/TURN en logs.
-$publicIp = $null
-try {
-  $envLine = Get-Content (Join-Path $root 'backend\.env') -ErrorAction SilentlyContinue |
-    Where-Object { $_ -match '^LIVEKIT_PUBLIC_HOST=' } |
-    Select-Object -First 1
-  if ($envLine -match '^LIVEKIT_PUBLIC_HOST=(.+)$') {
-    $publicIp = $Matches[1].Trim().Trim('"').Trim("'")
+# IP pública (UPnP / 4G / ICE): ipify manda; .env se corrige si quedó viejo.
+$publicIp = Get-TpxCurrentPublicIp
+$storedIp = Get-TpxStoredPublicIp -Root $root
+if ($publicIp -and $storedIp -and $publicIp -ne $storedIp) {
+  Write-Host "IP publica cambio: $storedIp -> $publicIp (sincronizando .env + yaml + UPnP)" -ForegroundColor Yellow
+  [void](Sync-TpxPublicEnv -Root $root -PublicIp $publicIp)
+  try { & (Join-Path $PSScriptRoot 'Reinforce-UPnP.ps1') } catch {}
+} elseif ($publicIp -and -not $storedIp) {
+  [void](Sync-TpxPublicEnv -Root $root -PublicIp $publicIp)
+} elseif (-not $publicIp) {
+  $publicIp = $storedIp
+  if (-not $publicIp) {
+    Write-Host 'LiveKit: sin IP publica (ipify fallo y .env vacio)' -ForegroundColor Yellow
   }
-} catch { }
-if (-not $publicIp) {
-  try {
-    $publicIp = (Invoke-RestMethod -Uri 'https://api.ipify.org' -TimeoutSec 4).Trim()
-  } catch { $publicIp = $null }
 }
 
 # Redis (Laragon u otras rutas comunes)
 $redisCandidates = @(
+  'C:\Program Files\Redis\redis-server.exe',
+  'C:\Program Files\Redis\redis-server\redis-server.exe',
   'C:\laragon\bin\redis\redis-x64-5.0.14.1\redis-server.exe',
-  'C:\laragon\bin\redis\redis-x64-5.0.14\redis-server.exe',
-  'C:\Program Files\Redis\redis-server.exe'
+  'C:\laragon\bin\redis\redis-x64-5.0.14\redis-server.exe'
 )
 $redis = $null
 foreach ($c in $redisCandidates) {
@@ -109,9 +120,13 @@ if (-not (Test-Path $lk)) {
   if (Test-Path $lkCfg) {
     $lkArgs = @('--config', $lkCfg, '--dev', '--udp-port', '7882')
   }
-  # Sin --node-ip: STUN (use_external_ip) anuncia IP pública + candidatos host LAN.
   if ($publicIp) {
-    Write-Host "LiveKit: STUN public=$publicIp udp=7882 tcp=7881 turn=3478" -ForegroundColor Cyan
+    $yamlIp = Get-TpxLiveKitYamlNodeIp -Root $root
+    if ($yamlIp -and $yamlIp -ne $publicIp) {
+      [void](Sync-TpxLiveKitYaml -Root $root -PublicIp $publicIp)
+    }
+    $lkArgs += @('--node-ip', $publicIp)
+    Write-Host "LiveKit: node-ip=$publicIp udp=7882 tcp=7881 turn=3478" -ForegroundColor Cyan
   } elseif ($lanIp) {
     Write-Host "LiveKit: solo LAN $lanIp (sin IP publica)" -ForegroundColor Yellow
   } else {
