@@ -302,6 +302,16 @@ class ChannelSession extends ChangeNotifier {
   double? incomingPanicLng;
   double? incomingPanicAccuracyM;
   String? incomingPanicUserId;
+
+  /// Aviso global (warning) pendiente de Enterado.
+  String? announcementId;
+  String? announcementBody;
+  String? announcementFrom;
+  bool announcementActive = false;
+  bool announcementAcking = false;
+  Timer? _announcementAlarm;
+  /// Evita que un FCM/socket tardío reinicie vibración tras Enterado.
+  final Set<String> _ackedAnnouncementIds = <String>{};
   double? lastLatitude;
   double? lastLongitude;
   double? lastAccuracyM;
@@ -987,6 +997,10 @@ class ChannelSession extends ChangeNotifier {
         if (m['groupId']?.toString() != groupId) return;
         applyIncomingPanic(m);
       })
+      ..on('announcement:alert', (data) {
+        final m = Map<String, dynamic>.from(data as Map);
+        applyAnnouncement(m);
+      })
       ..on('panic:update', (data) {
         final m = Map<String, dynamic>.from(data as Map);
         final status = m['status']?.toString();
@@ -1007,6 +1021,7 @@ class ChannelSession extends ChangeNotifier {
     _attachGps();
     // Si llegó pánico mientras la app estaba inactiva / sin socket.
     unawaited(syncActivePanic());
+    unawaited(syncPendingAnnouncements());
   }
 
   static double? _toDouble(dynamic v) {
@@ -1112,6 +1127,32 @@ class ChannelSession extends ChangeNotifier {
   }
 
   /// Mute de escucha: no se oye el radio hasta desactivar.
+  /// Además, llamadas 1:1 pueden «duck» el radio sin tocar la preferencia del usuario.
+  bool _radioDuckedForCall = false;
+
+  bool get _radioPlaybackMuted => listenMuted || _radioDuckedForCall;
+
+  /// Silencia el canal de radio mientras hay llamada/videollamada (sin cambiar Silenciar).
+  Future<void> duckRadioForPrivateCall() async {
+    if (_radioDuckedForCall) {
+      await _applyListenMute();
+      return;
+    }
+    _radioDuckedForCall = true;
+    await _applyListenMute();
+  }
+
+  Future<void> unduckRadioAfterPrivateCall() async {
+    if (!_radioDuckedForCall) return;
+    _radioDuckedForCall = false;
+    await _applyListenMute();
+    if (!listenMuted && livekitReady && !PrivateCallGate.uiOpen) {
+      try {
+        await AudioSessionSetup.acquireRadio();
+      } catch (_) {}
+    }
+  }
+
   Future<void> setListenMuted(bool muted) async {
     if (listenMuted == muted) {
       await _applyListenMute();
@@ -1126,7 +1167,7 @@ class ChannelSession extends ChangeNotifier {
     await _applyListenMute();
     if (muted && !holding) {
       await AudioSessionSetup.release();
-    } else if (!muted && livekitReady) {
+    } else if (!muted && livekitReady && !_radioDuckedForCall) {
       await AudioSessionSetup.acquireRadio();
     }
   }
@@ -1134,6 +1175,7 @@ class ChannelSession extends ChangeNotifier {
   Future<void> toggleListenMuted() => setListenMuted(!listenMuted);
 
   Future<void> _applyListenMute() async {
+    final muted = _radioPlaybackMuted;
     final rooms = _roomsByGroup.isNotEmpty
         ? _roomsByGroup.values.toList()
         : (_room != null ? [_room!] : <Room>[]);
@@ -1145,10 +1187,10 @@ class ChannelSession extends ChangeNotifier {
             // Corta reproducción local sin dejar de recibir señal (mejor que solo disable).
             if (track is RemoteAudioTrack) {
               try {
-                track.mediaStreamTrack.enabled = !listenMuted;
+                track.mediaStreamTrack.enabled = !muted;
               } catch (_) {}
             }
-            if (listenMuted) {
+            if (muted) {
               await pub.disable();
             } else {
               await pub.enable();
@@ -1891,6 +1933,108 @@ class ChannelSession extends ChangeNotifier {
     }
   }
 
+  void applyAnnouncement(Map<String, dynamic> m) {
+    final rawId = m['id']?.toString() ?? m['announcementId']?.toString();
+    final id = rawId?.trim().toLowerCase();
+    final text = m['body']?.toString();
+    if (id == null || id.isEmpty || text == null || text.isEmpty) return;
+    if (_ackedAnnouncementIds.contains(id)) return;
+    if (announcementId == id && announcementActive) return;
+    announcementId = id;
+    announcementBody = text;
+    announcementFrom = m['createdBy']?.toString() ??
+        m['createdByName']?.toString();
+    announcementActive = true;
+    _startAnnouncementAlarm();
+    notifyListeners();
+  }
+
+  void _startAnnouncementAlarm() {
+    // Un solo waveform nativo en bucle (no Timer+plugin: OEM no cancelaba).
+    unawaited(PanicVibration.startAlarm());
+  }
+
+  Future<void> _stopAnnouncementAlarm() async {
+    _announcementAlarm?.cancel();
+    _announcementAlarm = null;
+    await PanicVibration.stop();
+  }
+
+  Future<void> syncPendingAnnouncements() async {
+    try {
+      await _loadAckedAnnouncementIds();
+      final list = await api.fetchPendingAnnouncements();
+      if (list.isEmpty) return;
+      Map<String, dynamic>? next;
+      for (final a in list) {
+        final aid = (a['id']?.toString() ?? '').trim().toLowerCase();
+        if (aid.isEmpty || _ackedAnnouncementIds.contains(aid)) continue;
+        next = a;
+        break;
+      }
+      if (next == null) return;
+      applyAnnouncement(next);
+    } catch (e) {
+      debugPrint('syncPendingAnnouncements: $e');
+    }
+  }
+
+  static const _kAckedAnnKey = 'tacticalptx_acked_announcements_v1';
+
+  Future<void> _loadAckedAnnouncementIds() async {
+    if (_ackedAnnouncementIds.isNotEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getStringList(_kAckedAnnKey) ?? const <String>[];
+      _ackedAnnouncementIds.addAll(raw.map((e) => e.trim().toLowerCase()));
+    } catch (_) {}
+  }
+
+  Future<void> _persistAckedAnnouncementIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = _ackedAnnouncementIds.take(40).toList();
+      await prefs.setStringList(_kAckedAnnKey, list);
+    } catch (_) {}
+  }
+
+  Future<bool> ackAnnouncement() async {
+    if (announcementAcking) return false;
+    announcementAcking = true;
+    final id = announcementId;
+    // Cortar vibración YA (antes de red / sync).
+    announcementActive = false;
+    await _stopAnnouncementAlarm();
+    announcementBody = null;
+    announcementFrom = null;
+    announcementId = null;
+    if (id != null && id.isNotEmpty) {
+      _ackedAnnouncementIds.add(id);
+      if (_ackedAnnouncementIds.length > 40) {
+        final drop = _ackedAnnouncementIds.take(20).toList();
+        _ackedAnnouncementIds.removeAll(drop);
+        _ackedAnnouncementIds.add(id);
+      }
+      unawaited(_persistAckedAnnouncementIds());
+      unawaited(PushService.instance.clearAnnouncementNotifications(id));
+    }
+    notifyListeners();
+    try {
+      if (id != null) await api.ackAnnouncement(id);
+      // No reabrir el mismo aviso; solo el siguiente pendiente distinto.
+      await syncPendingAnnouncements();
+      return true;
+    } catch (e) {
+      error = e.toString();
+      return false;
+    } finally {
+      // Por si un OEM reanudó el motor tras el primer cancel.
+      unawaited(PanicVibration.stop());
+      announcementAcking = false;
+      notifyListeners();
+    }
+  }
+
   /// Botón de pánico: notifica al grupo + admin/despacho + usuarios con permiso.
   Future<bool> triggerPanic({String? note}) async {
     if (panicSending) return false;
@@ -1931,6 +2075,8 @@ class ChannelSession extends ChangeNotifier {
     _lastHeardExpire?.cancel();
     _lastHeardExpire = null;
     _stopPanicAlarmLoop();
+    announcementActive = false;
+    await _stopAnnouncementAlarm();
     await _stopMic();
     for (final gid in listenGroupIds) {
       _socket?.emit('ptt:leave', {'groupId': gid});

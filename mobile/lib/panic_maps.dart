@@ -25,7 +25,7 @@ Future<bool> openPanicLocation({
   final lng = longitude;
   final name = Uri.encodeComponent(label?.trim().isNotEmpty == true
       ? label!.trim()
-      : 'Alerta de pánico');
+      : 'Alerta');
 
   final candidates = <Uri>[];
   if (navigate) {

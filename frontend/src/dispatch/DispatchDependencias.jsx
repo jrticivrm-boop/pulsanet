@@ -310,9 +310,22 @@ export default function DispatchDependencias({ session }) {
                       ) : (
                         <div className="cc-dep-org-chips">
                           {(zone.children || []).map((org) => (
-                            <div key={org.id} className="cc-dep-org-chip">
-                              <span>{org.name}</span>
-                              {canEdit && (
+                            <div
+                              key={org.id}
+                              className={`cc-dep-org-chip${org.linked ? ' cc-dep-org-chip--linked' : ''}`}
+                              title={
+                                org.linked
+                                  ? 'Vínculo de alcance: se ve como organismo de esta zona (sigue existiendo como zona propia)'
+                                  : undefined
+                              }
+                            >
+                              <span>
+                                {org.name}
+                                {org.linked ? (
+                                  <span className="cc-dep-linked-tag"> · vínculo</span>
+                                ) : null}
+                              </span>
+                              {canEdit && !org.linked && (
                                 <button
                                   type="button"
                                   className="cc-cat-edit"
@@ -322,7 +335,11 @@ export default function DispatchDependencias({ session }) {
                                   ✎
                                 </button>
                               )}
-                              {org.inUse ? (
+                              {org.linked ? (
+                                <span className="cc-cat-lock" title="Vínculo de alcance">
+                                  ↗
+                                </span>
+                              ) : org.inUse ? (
                                 <span className="cc-cat-lock" title="En uso">
                                   🔒
                                 </span>

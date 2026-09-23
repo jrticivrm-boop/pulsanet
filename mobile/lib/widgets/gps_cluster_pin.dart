@@ -220,7 +220,7 @@ class _GpsClusterPinState extends State<GpsClusterPin>
       case 'stale':
         return 'fuera de línea';
       case 'panic':
-        return 'pánico';
+        return 'alerta';
       default:
         return key;
     }

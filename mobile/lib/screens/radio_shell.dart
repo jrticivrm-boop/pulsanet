@@ -88,7 +88,10 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
         _groupVideoDialogOpen ||
         (_session?.holding == true) ||
         (_session?.pttArmed == true) ||
-        BackgroundRadio.remoteMicActive;
+        BackgroundRadio.remoteMicActive ||
+        BackgroundRadio.privateCallActive ||
+        CallRingtone.isActive ||
+        CallRingtone.isOutgoingActive;
     _registerPushNavHandlers();
     _bootstrap();
   }
@@ -166,6 +169,10 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       }
       if (type == 'panic') {
         unawaited(_openPanicFromNotification(data));
+        return;
+      }
+      if (type == 'announcement') {
+        _session?.applyAnnouncement(Map<String, dynamic>.from(data));
         return;
       }
       final groupId = data['groupId']?.toString();
@@ -399,9 +406,16 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     } else if (state == AppLifecycleState.resumed) {
       BackgroundRadio.start(channelName: name).catchError((_) {});
       LocationHeartbeat.start(widget.api).catchError((_) {});
-      _session?.ensureBackgroundAudio();
-      // Al volver: multimedia; en pestaña Radio se reafirma media si hace falta.
-      unawaited(AudioSessionSetup.reclaimNormalVolume());
+      // En llamada: no reclaim multimedia (baja el volumen / silencia WebRTC).
+      if (PrivateCallGate.uiOpen ||
+          GroupVideoScreen.uiOpen ||
+          _privateCallDialogOpen ||
+          BackgroundRadio.privateCallActive) {
+        // Solo reafirmar presencia; el PrivateCallScreen reasegura voz.
+      } else {
+        _session?.ensureBackgroundAudio();
+        unawaited(AudioSessionSetup.reclaimNormalVolume());
+      }
       if (RemoteCameraSession.instance.isActive) {
         unawaited(BackgroundRadio.setRemoteCameraActive(true));
       }
@@ -1168,6 +1182,12 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     final accepted = data['call'] as Map? ?? {};
     final mode = accepted['mode']?.toString() ?? callMode;
     final intent = accepted['intent']?.toString() ?? callIntent;
+    // Gate antes de pop Contestar: evita reclaim multimedia en el hueco.
+    PrivateCallGate.bind(
+      callId: accepted['callId']?.toString() ?? callId,
+      peerId: accepted['callerId']?.toString() ?? call['callerId']?.toString(),
+    );
+    unawaited(ChannelSession.current?.duckRadioForPrivateCall() ?? Future<void>.value());
     _privateCallDialogOpen = false;
     if (!mounted) return;
     await Navigator.of(context).push(
@@ -1207,13 +1227,18 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
 
       final data = await widget.api.acceptPrivateCall(callId);
       _session?.incomingPrivateCall = null;
+      final accepted = data['call'] as Map? ?? {};
+      PrivateCallGate.bind(
+        callId: accepted['callId']?.toString() ?? callId,
+        peerId: accepted['callerId']?.toString() ?? call['callerId']?.toString(),
+      );
+      unawaited(ChannelSession.current?.duckRadioForPrivateCall() ?? Future<void>.value());
       _privateCallDialogOpen = false;
       if (!mounted) return;
 
       await PushService.instance.clearConversationNotifications(callId: callId);
       if (!mounted) return;
 
-      final accepted = data['call'] as Map? ?? {};
       final mode = accepted['mode']?.toString() ?? callMode;
       final intent = accepted['intent']?.toString() ?? callIntent;
 
@@ -2158,6 +2183,94 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     return Stack(
       children: [
         NudgeShakeHost(child: shell),
+        if (session.announcementActive)
+          Positioned.fill(
+            child: Material(
+              color: const Color(0xB8000000),
+              child: SafeArea(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: Material(
+                        color: const Color(0xFFFFEDD5),
+                        borderRadius: BorderRadius.circular(16),
+                        elevation: 10,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text(
+                                'AVISO',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Color(0xFF9A3412),
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 20,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                              if (session.announcementFrom != null) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  session.announcementFrom!,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Color(0xFF7C2D12),
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 12),
+                              // Texto largo: scroll; botón Enterado siempre visible (cel vs tablet).
+                              ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight:
+                                      MediaQuery.sizeOf(context).height * 0.48,
+                                ),
+                                child: SingleChildScrollView(
+                                  child: Text(
+                                    session.announcementBody ?? '',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 15,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              FilledButton(
+                                onPressed: session.announcementAcking
+                                    ? null
+                                    : () => session.ackAnnouncement(),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF9A3412),
+                                  minimumSize: const Size.fromHeight(48),
+                                ),
+                                child: Text(
+                                  session.announcementAcking
+                                      ? '…'
+                                      : 'Enterado',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (session.incomingPanicActive)
           Positioned.fill(
             child: Material(

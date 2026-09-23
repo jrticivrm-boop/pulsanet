@@ -589,6 +589,316 @@
   z-index: auto;
 }
 
+/* —— Página Chats (keepalive, mismo patrón que Radio) —— */
+.cc-chats-keepalive.is-parked {
+  position: fixed;
+  left: -12000px;
+  top: 0;
+  width: 2px;
+  height: 2px;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.cc-chats-keepalive:not(.is-parked) {
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  visibility: visible;
+  pointer-events: auto;
+  z-index: auto;
+}
+
+.cc-chats-page {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--cc-bg, #e6eae1);
+  color: var(--cc-text, #172015);
+}
+
+.cc-chats-page-head {
+  flex-shrink: 0;
+  padding: 0.85rem 1.15rem 0.75rem;
+  border-bottom: 1px solid var(--cc-border, #c2cbb8);
+  background: linear-gradient(180deg, var(--cc-panel-2, #eef2e8) 0%, var(--cc-panel, #f8f9f5) 100%);
+}
+
+.cc-chats-page-titles h1 {
+  margin: 0;
+  font-family: var(--cc-font, inherit);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--cc-accent, #2a3d22);
+}
+
+.cc-chats-page-titles p {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--cc-muted, #5c6756);
+  line-height: 1.4;
+  max-width: 40rem;
+}
+
+.cc-chats-page-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.65rem 0.85rem 0.85rem;
+  overflow: hidden;
+}
+
+.cc-chats-page-body .wa-inbox {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  border: 1px solid var(--cc-border, #c2cbb8);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--cc-panel, #f8f9f5);
+}
+
+.radio-chats-gateway {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1rem;
+  height: 100%;
+  min-height: 12rem;
+  padding: 1.25rem 1.35rem;
+  border: 1px solid var(--cc-border, #c2cbb8);
+  border-radius: 10px;
+  background:
+    linear-gradient(145deg, rgba(42, 61, 34, 0.06), transparent 55%),
+    var(--cc-panel, #f8f9f5);
+}
+
+.radio-chats-gateway-copy h2 {
+  margin: 0 0 0.35rem;
+  font-family: var(--cc-font, inherit);
+  font-size: 1.1rem;
+  color: var(--cc-accent, #2a3d22);
+}
+
+.radio-chats-gateway-copy p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--cc-muted, #5c6756);
+  line-height: 1.45;
+  max-width: 28rem;
+}
+
+.radio-chats-gateway-btn {
+  align-self: flex-start;
+}
+
+/* —— Avisos globales (warning crítico) —— */
+.cc-announce-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(12, 16, 10, 0.72);
+  pointer-events: auto;
+}
+
+.cc-announce-modal {
+  width: min(32rem, 100%);
+  max-height: min(80vh, 36rem);
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 2px solid #b45309;
+  background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%);
+  color: #1c1917;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.cc-announce-head {
+  padding: 1rem 1.15rem 0.65rem;
+  border-bottom: 1px solid rgba(180, 83, 9, 0.35);
+  background: #9a3412;
+  color: #fff7ed;
+}
+
+.cc-announce-head h2 {
+  margin: 0;
+  font-family: var(--cc-font, inherit);
+  font-size: 1.45rem;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.cc-announce-from {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.92;
+}
+
+.cc-announce-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1.15rem 1.25rem;
+}
+
+.cc-announce-body p {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cc-announce-actions {
+  padding: 0.85rem 1.15rem 1.1rem;
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid rgba(180, 83, 9, 0.25);
+}
+
+.cc-announcements-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 1rem;
+  padding: 0.75rem 0;
+  min-height: 0;
+}
+
+@media (max-width: 960px) {
+  .cc-announcements-page {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cc-announcements-compose,
+.cc-announcements-history {
+  background: var(--cc-panel, #f8f9f5);
+  border: 1px solid var(--cc-border, #c2cbb8);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+}
+
+.cc-announcements-compose h2,
+.cc-announcements-history h2 {
+  margin: 0 0 0.5rem;
+  font-family: var(--cc-font, inherit);
+  font-size: 1.1rem;
+  color: var(--cc-accent, #2a3d22);
+}
+
+.cc-announcements-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.cc-announcements-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cc-announcements-field textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 6rem;
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--cc-border, #c2cbb8);
+  background: #fff;
+}
+
+.cc-announcements-audience {
+  border: 1px solid var(--cc-border, #c2cbb8);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.cc-announcements-audience legend {
+  padding: 0 0.25rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.cc-announcements-pick {
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid var(--cc-border, #c2cbb8);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+}
+
+.cc-announcements-pick ul {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+}
+
+.cc-announcements-pick li {
+  padding: 0.2rem 0;
+}
+
+.cc-announcements-admins {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+}
+
+.cc-announcements-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-height: min(60vh, 480px);
+  overflow: auto;
+}
+
+.cc-announcements-list li {
+  border: 1px solid var(--cc-border, #c2cbb8);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  background: var(--cc-panel-2, #eef2e8);
+}
+
+.cc-announcements-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--cc-muted, #5c6756);
+  margin-bottom: 0.35rem;
+}
+
+.cc-announcements-list p {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.92rem;
+}
+
 .cc-radio-keepalive > .shell,
 .cc-radio-keepalive > .radio-ops {
   flex: 1;
@@ -8212,6 +8522,18 @@ html.cc-cat-dragging .cc-cat-item {
   padding: 4px 12px;
   font-size: 12px;
 }
+.cc-dep-org-chip--linked {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--cc-accent, #3b82f6) 55%, var(--cc-border));
+  background: color-mix(in srgb, var(--cc-accent, #3b82f6) 12%, transparent);
+}
+.cc-dep-linked-tag {
+  opacity: 0.75;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 .cc-dep-org-chip > span:first-child {
   flex: 0 1 auto;
 }
@@ -11067,6 +11389,35 @@ li.cc-states-row.on:hover {
   font: inherit;
   padding: 0.25rem 0.35rem;
   cursor: pointer;
+}
+.usr-groups-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: min(50vh, 360px);
+  overflow: auto;
+}
+.usr-groups-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--cc-border);
+  border-radius: 6px;
+  background: var(--cc-panel, #14202a);
+}
+.usr-groups-list li.is-inactive {
+  opacity: 0.65;
+}
+.usr-groups-name {
+  font-weight: 600;
+}
+.usr-groups-meta {
+  font-size: 0.8rem;
+  color: var(--cc-muted);
 }
 /* Paginación Usuarios — patrón Parque Vehicular, tokens SICOM */
 .usr-pager {

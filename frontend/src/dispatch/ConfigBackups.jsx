@@ -190,7 +190,7 @@ export default function ConfigBackups({ session }) {
           <h1>Respaldos</h1>
           <p className="cc-hint">
             Copia de <strong>datos + multimedia</strong>: base PostgreSQL (usuarios, canales, chat,
-            GPS, geocercas, pánico, organigrama, etc.) y archivos bajo <code>uploads/</code>{' '}
+            GPS, geocercas, alerta, organigrama, etc.) y archivos bajo <code>uploads/</code>{' '}
             (avatares, medios de chat, grabaciones, archivos de grupos/orgs). El{' '}
             <code>.zip</code> incluye <code>database.sql</code>, <code>meta.json</code> y{' '}
             <code>uploads/</code>. Se guarda en <code>{dirPath}</code>.

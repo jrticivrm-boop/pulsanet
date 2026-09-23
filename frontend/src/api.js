@@ -473,6 +473,26 @@ export function unlockAdminUserLogin(token, id) {
   return api(`/api/admin/users/${id}/unlock-login`, { token, method: 'POST', body: {} });
 }
 
+export function fetchAdminUserGroups(token, id) {
+  return api(`/api/admin/users/${id}/groups`, { token });
+}
+
+export function fetchAnnouncements(token) {
+  return api('/api/announcements', { token });
+}
+
+export function createAnnouncement(token, body) {
+  return api('/api/announcements', { token, method: 'POST', body });
+}
+
+export function fetchPendingAnnouncements(token) {
+  return api('/api/announcements/pending', { token });
+}
+
+export function ackAnnouncement(token, id) {
+  return api(`/api/announcements/${id}/ack`, { token, method: 'POST', body: {} });
+}
+
 export function deleteAdminUser(token, id) {
   return api(`/api/admin/users/${id}`, { token, method: 'DELETE' });
 }

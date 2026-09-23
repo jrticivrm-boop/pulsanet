@@ -316,7 +316,7 @@ export default function CommandCenter({ session }) {
         pushEvent(setEvents, {
           id: `panic-${payload.id}`,
           kind: 'panic',
-          title: `🚨 PÁNICO — ${payload.displayName || 'Operador'}`,
+          title: `🚨 ALERTA — ${payload.displayName || 'Operador'}`,
           subtitle: `Canal «${payload.groupName || '—'}»`,
           userId: payload.userId,
           lat: payload.latitude,
@@ -352,7 +352,7 @@ export default function CommandCenter({ session }) {
           pushEvent(setEvents, {
             id: `panic-upd-${payload.id}-${payload.status}`,
             kind: 'panic',
-            title: `Pánico enterado: ${payload.displayName || 'Operador'}`,
+            title: `Alerta enterada: ${payload.displayName || 'Operador'}`,
             subtitle: `Canal «${payload.groupName || '—'}»`,
             at: new Date().toISOString(),
           });
@@ -367,7 +367,7 @@ export default function CommandCenter({ session }) {
         pushEvent(setEvents, {
           id: `panic-upd-${payload.id}-${payload.status}`,
           kind: 'panic',
-          title: `Pánico ${payload.status}: ${payload.displayName || 'Operador'}`,
+          title: `Alerta ${payload.status}: ${payload.displayName || 'Operador'}`,
           subtitle: `Canal «${payload.groupName || '—'}»`,
           userId: payload.userId,
           at: new Date().toISOString(),
@@ -1010,14 +1010,14 @@ export default function CommandCenter({ session }) {
             <div className="cc-panel-head">
               <div>
                 <h2>Actividad reciente</h2>
-                <p className="cc-hint">Radio, geocercas y pánico</p>
+                <p className="cc-hint">Radio, geocercas y alerta</p>
               </div>
               <div className="cc-filters">
                 {[
                   { id: 'all', label: 'Todo' },
                   { id: 'radio', label: 'Radio' },
                   { id: 'zone', label: 'Zonas' },
-                  { id: 'panic', label: 'Pánico' },
+                  { id: 'panic', label: 'Alerta' },
                 ].map((f) => (
                   <button
                     key={f.id}

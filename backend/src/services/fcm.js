@@ -175,13 +175,26 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
             : undefined;
 
   const isNudge = data?.type === 'dm_nudge';
-  const androidSound = isCallPush ? 'default' : isNudge ? 'nudge_buzz' : 'tactical_msg';
-  const iosSound = isCallPush ? 'default' : isNudge ? 'nudge_buzz.wav' : 'tactical_msg.wav';
+  const isAnnouncement = data?.type === 'announcement';
+  const androidSound = isCallPush
+    ? 'default'
+    : isNudge
+      ? 'nudge_buzz'
+      : isAnnouncement
+        ? 'default'
+        : 'tactical_msg';
+  const iosSound = isCallPush
+    ? 'default'
+    : isNudge
+      ? 'nudge_buzz.wav'
+      : 'tactical_msg.wav';
   const channelId = isCallPush
     ? 'tacticalptx_calls_v3'
     : isNudge
       ? 'tacticalptx_nudge_v2'
-      : 'tacticalptx_alerts_v3';
+      : isAnnouncement
+        ? 'tacticalptx_announcements_v1'
+        : 'tacticalptx_alerts_v3';
 
   const payload = {
     notification: { title, body },
@@ -194,12 +207,16 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
     android: {
       priority: 'high',
       ...(notifTag ? { collapseKey: notifTag } : {}),
+      ...(isAnnouncement ? { collapseKey: `ann:${data.announcementId || 'x'}` } : {}),
       notification: {
         channelId,
         sound: androidSound,
         ...(notifTag ? { tag: notifTag } : {}),
+        ...(isAnnouncement && data.announcementId
+          ? { tag: `ann:${data.announcementId}` }
+          : {}),
         priority: 'max',
-        visibility: 'private',
+        visibility: isAnnouncement ? 'public' : 'private',
         defaultVibrateTimings: true,
         ...(isCallPush
           ? {

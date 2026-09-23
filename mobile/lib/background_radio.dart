@@ -21,6 +21,7 @@ class BackgroundRadio {
 
   static bool get remoteCameraActive => _remoteCameraActive;
   static bool get remoteMicActive => _remoteMicActive;
+  static bool get privateCallActive => _privateCallActive;
 
   static void _onFgsTick(Object _) {
     // Solo MODE_NORMAL nativo — no rearmar LiveKit (congelaba Radio en UI).

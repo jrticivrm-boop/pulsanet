@@ -994,7 +994,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
               }}
             >
               <Popup>
-                <strong>Punto de pánico</strong>
+                <strong>Punto de alerta</strong>
                 <br />
                 <MapCoordsLink lat={focusPin.lat} lng={focusPin.lng} />
               </Popup>

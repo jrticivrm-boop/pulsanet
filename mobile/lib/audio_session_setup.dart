@@ -99,7 +99,8 @@ class AudioSessionSetup {
     await NativeAudioMode.ensureNormal();
   }
 
-  /// PTT al aire o llamada 1:1. Ducking: no silencia del todo otras apps.
+  /// PTT al aire o llamada 1:1. Foco exclusivo: no dejar que otras apps
+  /// (ni el canal de radio) bajen el volumen de la conversación.
   static Future<void> acquireVoice() async {
     if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     _wanted = true;
@@ -112,7 +113,7 @@ class AudioSessionSetup {
           avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
           avAudioSessionCategoryOptions:
               AVAudioSessionCategoryOptions.allowBluetooth |
-                  AVAudioSessionCategoryOptions.mixWithOthers,
+                  AVAudioSessionCategoryOptions.defaultToSpeaker,
           avAudioSessionMode: AVAudioSessionMode.voiceChat,
           avAudioSessionRouteSharingPolicy:
               AVAudioSessionRouteSharingPolicy.defaultPolicy,
@@ -121,8 +122,7 @@ class AudioSessionSetup {
             contentType: AndroidAudioContentType.speech,
             usage: AndroidAudioUsage.voiceCommunication,
           ),
-          androidAudioFocusGainType:
-              AndroidAudioFocusGainType.gainTransientMayDuck,
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
           androidWillPauseWhenDucked: false,
         ),
       );

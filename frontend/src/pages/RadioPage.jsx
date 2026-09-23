@@ -14,6 +14,7 @@ import { unlockMediaAudio } from '../unlockMediaAudio';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
 import { useDispatchListen } from '../useDispatchListen';
 import { openPeoplePalette } from '../peerActions';
+import { openChatsPanel } from '../chatsPanel';
 import BrandName from '../BrandName.jsx';
 import { esDeniedReason, esMsg } from '../esMsg';
 import { radioSpeakerStatusLabel } from '../radioSpeakerLabel';
@@ -334,14 +335,30 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
 
   useEffect(() => {
     const st = location.state;
-    if (!st?.focusPeerId && !st?.focusGroupId && !st?.openGroupVideo) return;
+    if (!st) return;
+    if (embedded && (st.focusPeerId || st.focusGroupId)) {
+      openChatsPanel({
+        peerId: st.focusPeerId || undefined,
+        groupId: st.focusGroupId || undefined,
+      });
+      if (st.focusGroupId) setGroupFromSelect(st.focusGroupId);
+      const rest = { ...st };
+      delete rest.focusPeerId;
+      delete rest.focusGroupId;
+      navigate(location.pathname, {
+        replace: true,
+        state: Object.keys(rest).length ? rest : {},
+      });
+      return;
+    }
+    if (!st.focusPeerId && !st.focusGroupId && !st.openGroupVideo) return;
     if (st.focusPeerId) setFocusPeerId(st.focusPeerId);
     if (st.focusGroupId) {
       setFocusGroupId(st.focusGroupId);
       setGroupFromSelect(st.focusGroupId);
     }
     navigate(location.pathname, { replace: true, state: {} });
-  }, [location.pathname, location.state, navigate]);
+  }, [location.pathname, location.state, navigate, embedded]);
 
   useEffect(() => {
     /* En despacho el Espacio lo maneja DispatchLayout (todas las pestañas) */
@@ -404,7 +421,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
       accuracyM: gpsRef.current.accuracyM,
     });
     if (event) {
-      setPanicFlash('Alerta de pánico enviada');
+      setPanicFlash('Alerta enviada');
       setTimeout(() => setPanicFlash(''), 4000);
     }
   }
@@ -731,16 +748,35 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
         </section>
 
         <section className="radio-ops-inbox" aria-label="Chats">
-          <ChatInbox
-            session={session}
-            groups={groups}
-            group={group}
-            onSelectGroup={setGroupFromSelect}
-            ptt={ptt}
-            focusPeerId={focusPeerId}
-            focusGroupId={focusGroupId}
-            chatPanelVisible={onRadioPage}
-          />
+          {embedded ? (
+            <div className="radio-chats-gateway">
+              <div className="radio-chats-gateway-copy">
+                <h2>Mensajes</h2>
+                <p>
+                  Los chats viven en el módulo <strong>Chats</strong>. Ábrelo para ver y
+                  responder sin mezclarlos con el PTT.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="cc-btn primary radio-chats-gateway-btn"
+                onClick={() => openChatsPanel()}
+              >
+                Ir a Chats
+              </button>
+            </div>
+          ) : (
+            <ChatInbox
+              session={session}
+              groups={groups}
+              group={group}
+              onSelectGroup={setGroupFromSelect}
+              ptt={ptt}
+              focusPeerId={focusPeerId}
+              focusGroupId={focusGroupId}
+              chatPanelVisible={onRadioPage}
+            />
+          )}
         </section>
 
         {showRadioMap ? (
@@ -765,7 +801,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
             className="radio-panic-overlay"
             role="alertdialog"
             aria-modal="true"
-            aria-label="Alerta de pánico"
+            aria-label="Alerta"
           >
             <div className="radio-panic-modal">
               <h2>ALERTA</h2>

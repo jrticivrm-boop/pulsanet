@@ -81,7 +81,8 @@ class PrivateCallScreen extends StatefulWidget {
   State<PrivateCallScreen> createState() => _PrivateCallScreenState();
 }
 
-class _PrivateCallScreenState extends State<PrivateCallScreen> {
+class _PrivateCallScreenState extends State<PrivateCallScreen>
+    with WidgetsBindingObserver {
   Room? _room;
   LocalAudioTrack? _mic;
   LocalVideoTrack? _cam;
@@ -91,7 +92,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
   bool _minimized = false;
   /// Posición del mini-video local. null = esquina superior derecha (layout original).
   Offset? _pipOffset;
-  /// Voz: auricular por defecto. Video/radio: altavoz (manos libres).
+  /// Voz/video/radio: altavoz por defecto (manos libres). Auricular opcional.
   late bool _speakerOn;
   bool _listenMuted = false;
   bool _pttHeld = false;
@@ -123,7 +124,10 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
   @override
   void initState() {
     super.initState();
-    _speakerOn = _isVideo || _isRadio;
+    WidgetsBinding.instance.addObserver(this);
+    // Manos libres por defecto: el auricular suena mucho más bajo y el volumen
+    // de «llamadas» del sistema suele estar más bajo que el multimedia.
+    _speakerOn = true;
     if (_isRemoteCamera) {
       _cameraPosition = CameraPosition.back;
     }
@@ -140,6 +144,8 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
       return;
     }
     PrivateCallGate.bind(callId: widget.callId, peerId: widget.peerId);
+    // Radio en paralelo bajaba el volumen de la llamada (AGC / mix).
+    unawaited(ChannelSession.current?.duckRadioForPrivateCall() ?? Future<void>.value());
     _bannerTapPrev = ChatMessageBanner.instance.onTap;
     ChatMessageBanner.instance.onTap = _onBannerTap;
     // FGS alta prioridad: seguir hablando con app minimizada / pantalla bloqueada.
@@ -153,6 +159,13 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     _listenRemoteHangup();
     _connectAttempts = 0;
     _connect();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_closing) {
+      unawaited(_reassertCallVoice());
+    }
   }
 
   void _onBannerTap(ChatMessageBannerPayload p) {
@@ -352,6 +365,9 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
 
   /// Tras colgar: no dejar el móvil en modo llamada; vuelve a audio de radio (media).
   Future<void> _restorePhoneAudio() async {
+    try {
+      await ChannelSession.current?.unduckRadioAfterPrivateCall();
+    } catch (_) {}
     try {
       await AudioSessionSetup.acquireRadio();
     } catch (_) {
@@ -959,6 +975,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     PrivateCallGate.clear(callId: widget.callId);
     CameraSessionGate.release(
       _isRemoteCamera ? CameraOwner.remoteCam : CameraOwner.privateCall,
@@ -975,6 +992,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen> {
     _room?.disconnect();
     unawaited(CallRingtone.stopOutgoing());
     unawaited(BackgroundRadio.setPrivateCallActive(false));
+    unawaited(ChannelSession.current?.unduckRadioAfterPrivateCall() ?? Future<void>.value());
     // Si no se colgó limpio, igual restaurar ruta (sin matar holders de radio).
     if (!_closing) {
       unawaited(_restorePhoneAudio());

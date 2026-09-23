@@ -666,7 +666,9 @@ class _ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final m = message;
-    final isPanic = m.type == 'system' && (m.body?.contains('PÁNICO') ?? false);
+    final isPanic = m.type == 'system' &&
+        ((m.body?.contains('PÁNICO') ?? false) ||
+            (m.body?.contains('ALERTA') ?? false));
     if (m.type == 'system') {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),

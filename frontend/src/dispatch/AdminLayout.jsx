@@ -11,6 +11,7 @@ export default function AdminLayout({ session }) {
     () => [
       { to: '/despacho/administracion/usuarios', label: 'Usuarios' },
       ...(isRoot ? [{ to: '/despacho/administracion/perfiles', label: 'Perfiles' }] : []),
+      { to: '/despacho/administracion/avisos', label: 'Avisos' },
       { to: '/despacho/administracion/grupos', label: 'Grupos' },
       { to: '/despacho/administracion/sitios-tacticos', label: 'Sitios' },
     ],

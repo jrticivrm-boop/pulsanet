@@ -801,6 +801,20 @@ class ApiClient {
     return _patch('/api/panic/$panicId', {'status': 'acked'});
   }
 
+  Future<List<Map<String, dynamic>>> fetchPendingAnnouncements() async {
+    final data = await _get('/api/announcements/pending');
+    final list = data['announcements'];
+    if (list is! List) return [];
+    return list
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> ackAnnouncement(String id) {
+    return _post('/api/announcements/$id/ack', {});
+  }
+
   Future<Map<String, dynamic>> _get(
     String path, {
     bool retried = false,

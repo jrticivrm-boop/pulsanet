@@ -381,6 +381,9 @@ class PushService {
         if (type == 'panic') {
           onNotificationData?.call(data);
         }
+        if (type == 'announcement') {
+          onNotificationData?.call(data);
+        }
       });
 
       FirebaseMessaging.onMessageOpenedApp.listen((msg) {
@@ -550,6 +553,38 @@ class PushService {
     if (alsoClearAll) {
       // No bloquea al llamador si se invoca sin await; aquí sí se espera.
       await clearAllNotifications();
+    }
+  }
+
+  /// Quita el push FCM de un aviso global (`tag: ann:<id>`).
+  Future<void> clearAnnouncementNotifications(String announcementId) async {
+    final id = announcementId.trim();
+    if (id.isEmpty) return;
+    final tag = 'ann:$id';
+    final futures = <Future<void>>[];
+    try {
+      if (localReady) {
+        final notifId = _stableId(tag);
+        futures.add(_local.cancel(notifId));
+        futures.add(_local.cancel(notifId, tag: tag));
+      }
+    } catch (e) {
+      debugPrint('clear announcement local: $e');
+    }
+    if (Platform.isAndroid) {
+      try {
+        futures.add(_notifyNative
+            .invokeMethod('cancelTag', {'tag': tag, 'id': 0})
+            .then((_) {}));
+        futures.add(_notifyNative
+            .invokeMethod('cancelTag', {'tag': tag, 'id': _stableId(tag)})
+            .then((_) {}));
+      } catch (e) {
+        debugPrint('clear announcement native: $e');
+      }
+    }
+    if (futures.isNotEmpty) {
+      await Future.wait(futures).catchError((_) => <void>[]);
     }
   }
 
@@ -897,6 +932,13 @@ class PushService {
         onNotificationData?.call(data);
       }
       clearConversationNotifications(groupId: pendingGroupId);
+      return;
+    }
+    if (type == 'announcement') {
+      pendingPanicData = null;
+      if (invokeCallbacks) {
+        onNotificationData?.call(Map<String, dynamic>.from(data));
+      }
       return;
     }
     final groupId = data['groupId']?.toString();

@@ -996,6 +996,57 @@ adminRouter.post('/users/:id/force-logout', requireUserManager, async (req, res)
   res.json({ ok: true, username: existing[0].username });
 });
 
+/** Grupos donde el usuario es miembro (solo lectura; filtrado al alcance del gestor). */
+adminRouter.get('/users/:id/groups', requireUserManager, async (req, res) => {
+  const scope = await loadAdminScope(req.user);
+  const { rows: existing } = await query(
+    `SELECT id, role, unit_id, admin_scope_unit_id, username, display_name
+     FROM users WHERE id = $1 AND organization_id = $2`,
+    [req.params.id, req.user.orgId]
+  );
+  if (!existing[0]) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+  if (!scope.orgWide) {
+    const inScope =
+      (existing[0].unit_id && scope.unitIds.includes(existing[0].unit_id)) ||
+      (existing[0].admin_scope_unit_id && scope.unitIds.includes(existing[0].admin_scope_unit_id));
+    if (!inScope) {
+      return res.status(403).json({ ok: false, error: 'Usuario fuera de tu alcance' });
+    }
+  }
+
+  const { rows } = await query(
+    `SELECT g.id, g.name, g.is_active, g.unit_id, g.scope_level,
+            gm.role AS member_role,
+            ou.name AS unit_name
+     FROM group_members gm
+     INNER JOIN groups g ON g.id = gm.group_id AND g.organization_id = $2
+     LEFT JOIN org_units ou ON ou.id = g.unit_id
+     WHERE gm.user_id = $1
+     ORDER BY g.name ASC`,
+    [existing[0].id, req.user.orgId]
+  );
+
+  const groups = rows
+    .filter((r) => groupInAdminScope(scope, r.unit_id))
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      isActive: r.is_active !== false,
+      unitId: r.unit_id || null,
+      unitName: r.unit_name || null,
+      scopeLevel: r.scope_level || null,
+      memberRole: r.member_role || 'member',
+    }));
+
+  res.json({
+    ok: true,
+    userId: existing[0].id,
+    username: existing[0].username,
+    displayName: existing[0].display_name || existing[0].username,
+    groups,
+  });
+});
+
 adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
   const {
     isActive,

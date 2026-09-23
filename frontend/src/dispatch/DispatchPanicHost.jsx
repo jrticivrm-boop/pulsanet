@@ -287,7 +287,7 @@ export default function DispatchPanicHost({
       : undefined;
 
   return createPortal(
-    <div className="cc-panic-overlay cc-panic-overlay--float" aria-label="Alerta de pánico">
+    <div className="cc-panic-overlay cc-panic-overlay--float" aria-label="Alerta">
       <div
         ref={panelRef}
         className="cc-panic-modal"
@@ -304,7 +304,7 @@ export default function DispatchPanicHost({
           title="Arrastra para mover"
         >
           <div className="cc-panic-modal-head-row">
-            <h2>🚨 Alerta de pánico</h2>
+            <h2>🚨 Alerta</h2>
             <div className="cc-panic-head-actions">
               <button
                 type="button"

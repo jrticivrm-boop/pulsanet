@@ -9,7 +9,17 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **APK 1.8.182+192:** Enterado en avisos corta vibración nativa (OEM) de forma fiable.
+- **APK 1.8.181+191:** volumen en llamadas — altavoz por defecto, sin ducking de radio, foco exclusivo.
+- **APK 1.8.180+190:** modal AVISO en celular — texto scrolleable; **Enterado** siempre visible.
+- **APK 1.8.179+189:** Enterado en avisos globales ahora detiene la vibración (carrera start/stop + FCM tardío).
+
 ### Added
+- **APK 1.8.178+188:** avisos globales (warning + Enterado) en app; sideload sin OTA → `pulsanet_soporte\APK\`.
+- **Administración — Avisos:** aviso global tipo warning (Enterado obligatorio), alcance subordinados/zona/unidad/admins; socket + push + pendientes al login. No aparece en Chats. Permiso en Perfiles (`avisos`).
+- **Despacho — Chats:** módulo de página `/despacho/chats` (rail + keepalive) para ver/responder mensajes aparte de Radio PTT; notificaciones abren Chats.
+- **Usuarios — Ver grupos:** en Más, consulta de solo lectura los canales del usuario (alcance del gestor); `GET /api/admin/users/:id/groups`.
 - **Perfiles (modelo B):** pestaña propia en Administración (junto a Usuarios; solo Administrador/`root`) con módulos/permisos y alcance de visibilidad. Plantillas de sistema. Solo el Administrador crea y edita perfiles.
 - **Jerarquía Región / Zona / Unidad:** administradores y usuarios por nivel; consola web solo administradores; mapa, ocultar ubicación y grupos por nivel; Contactar solo con compañeros de grupo.
 - **Usuarios — designación de admins:** etiquetas claras Admin de región / Admin de zona / Admin de unidad con texto de ayuda y cascada de alcance; el admin de zona puede designar admin de unidad (no región/zona).
@@ -19,6 +29,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Chat directo APK — selección múltiple:** mantener pulsado entra en modo selección (check, contador, borrar / compartir / copiar). Borrar solo mensajes propios con el delete ya existente; compartir solo texto y archivos que ya están en el teléfono.
 
 ### Changed
+- **UI — Alerta:** se renombra la etiqueta visible «pánico» a **Alerta** en web/móvil (acciones, filtros, overlays, timeline). API e IDs internos sin cambio.
 - **Usuarios / Grupos — jerarquía:** en Usuarios, region_*/zone_* sin paso unidad; en Grupos, miembros por alcance orgánico del canal (no solo tipo de perfil). Admin de zona: canal toda zona o una unidad; no agrega perfiles de región. Select de asignar muestra rol · adscripción.
 - **Grupos — alcance:** misma cascada explícita que Usuarios; textos claros de quién puede ser miembro. Admin de zona solo canales de unidad y no puede agregar perfiles de región.
 - **Usuarios — alcance (cascada PV):** alta/edición con Región → Zona («todas» solo region_*) → Unidad («todos los organismos» o una); root = todas las regiones. Mapeo a `unit_id`/`admin_scope_unit_id`; API permite ancla de `region_admin`.

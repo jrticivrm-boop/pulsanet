@@ -1,9 +1,123 @@
+## 2026-09-22 — Fix duro: vibración aviso no para tras Enterado
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Alarma de aviso/pánico vía **Vibrator nativo** Android (cancel fiable); stop con reintentos.
+  - IDs Enterado normalizados + persistidos; cortar vibración antes del ack de red.
+- **Archivos / refs:** `MainActivity.kt`, `panic_vibration.dart`, `channel_session.dart` → APK **1.8.182+192**
+
+## 2026-09-22 — Fix: volumen bajo / baja en llamadas 1:1
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Llamada: altavoz por defecto; foco de audio exclusivo; silencia radio en paralelo (no pelea AGC).
+  - No reclaim multimedia al volver de segundo plano durante llamada; reafirma voz al resume.
+- **Archivos / refs:** `private_call_screen.dart`, `audio_session_setup.dart`, `channel_session.dart`, `radio_shell.dart` → APK **1.8.181+191**
+
+## 2026-09-22 — Fix: Enterado invisible en celulares (avisos largos)
+
+- **Tipo:** fix | ux
+- **Área:** mobile
+- **Qué:** Modal AVISO: texto con scroll y tope de altura; botón **Enterado** siempre visible en pantallas chicas (en tablet cabía).
+- **Archivos / refs:** `radio_shell.dart` → APK **1.8.180+190** sideload
+
+## 2026-09-22 — Fix: avisos no dejan de vibrar tras Enterado
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Vibración de aviso deja de usar `vibrate(repeat)` hardware (no se cancelaba bien); ahora pulsos Dart + stop con sesión.
+  - Enterado `await` stop, ignora FCM/socket tardío del mismo id, limpia notificación `ann:<id>`.
+  - APK **1.8.179+189** sideload sin OTA.
+- **Archivos / refs:** `panic_vibration.dart`, `channel_session.dart`, `push_service.dart`, `pubspec.yaml`
+
+## 2026-09-22 — APK sideload 1.8.178+188 (Avisos)
+
+- **Tipo:** release
+- **Área:** mobile
+- **Qué:**
+  - APK **1.8.178+188** sin OTA: avisos globales (modal Enterado), fix overlay; `API_BASE=https://pulsanet.duckdns.org`.
+  - → `C:\pulsanet_soporte\APK\TacticalPtx-1.8.178+188.apk` (+ latest).
+- **Archivos / refs:** `mobile/pubspec.yaml`, `radio_shell.dart`, `channel_session.dart`
+
+## 2026-09-22 — Avisos: fix enum role en SQL
+
+- **Tipo:** fix
+- **Área:** backend
+- **Qué:** `users.role` es enum `user_role`; las consultas de destinatarios usan `role::text = ANY(...)` (antes fallaba «operador no existe»).
+- **Archivos / refs:** `backend/src/services/announcements.js`
+
+## 2026-09-22 — Avisos globales (warning crítico)
+
+- **Tipo:** feature
+- **Área:** backend | web | mobile | database
+- **Qué:**
+  - **Administración → Avisos:** envío con alcance jerárquico (todos subordinados / zona / unidad / solo admins + opción incluir admins).
+  - Modal **AVISO** obligatorio hasta **Enterado**; no es mensaje de chat. Socket + FCM + pendientes al login (30 días).
+  - Permiso en **Perfiles** módulo `avisos` (admins por defecto).
+  - Sin OTA/APK en este cambio (código móvil listo para próximo build).
+- **Archivos / refs:** `037_announcements.sql`, `announcements.js`, `DispatchAnnouncements.jsx`, `GlobalAnnouncementHost.jsx`, `channel_session.dart`
+
+## 2026-09-22 — Renombre UI: pánico → Alerta
+
+- **Tipo:** ux
+- **Área:** web | mobile | backend | docs
+- **Qué:** Etiquetas visibles «pánico/Pánico» pasan a **Alerta** (Usuarios, eventos, consola, mapa, perfiles, timeline, overlays). Identificadores técnicos (`panic`, `canReceivePanic`, claves API) sin cambio.
+- **Archivos / refs:** `DispatchUsers.jsx`, `DispatchPanicHost.jsx`, `CommandCenter.jsx`, `ConfigEvents.jsx`, `profiles.js`, `userEventsTimeline.js`, `gps_cluster_pin.dart`, …
+
+## 2026-09-22 — Despacho: Chats como página (sin flotante)
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:** Se quitó el panel flotante; **Chats** es módulo de página (`/despacho/chats`) con keepalive (mismo patrón que Radio). Notificaciones/Contactar navegan a Chats.
+- **Archivos / refs:** `DispatchChatsPage.jsx`, `DispatchLayout.jsx`, `App.jsx`, `chatsPanel.js`, `command-center.css`
+
+## 2026-09-22 — Despacho: menú Chats + panel flotante
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - Ítem **Chats** en el rail (aparte de Radio PTT) abre un panel flotante para ver/responder mensajes sin cambiar de módulo.
+  - Una sola instancia de `ChatInbox` (keepalive parked); Radio embebido muestra acceso «Abrir chats».
+  - Notificaciones y Contactar abren el panel (ya no obligan a ir a Radio).
+- **Por qué / notas:** Separar mensajería del PTT sin duplicar sockets ni tocar keepalive de voz.
+- **Archivos / refs:** `DispatchChatsFloat.jsx`, `chatsPanel.js`, `DispatchLayout.jsx`, `RadioPage.jsx`, `GlobalChatNotifyHost.jsx`, `command-center.css`
+
+## 2026-09-22 — Usuarios: Ver grupos (solo lectura)
+
+- **Tipo:** feature | ux
+- **Área:** backend | web
+- **Qué:**
+  - `GET /api/admin/users/:id/groups`: lista grupos del usuario filtrados al alcance del gestor.
+  - En Usuarios → Más → **Ver grupos** (modal: nombre, rol en canal, dependencia).
+- **Por qué / notas:** Consulta sin tocar membresías; no reinicio de stack.
+- **Archivos / refs:** `backend/src/routes/admin.js`, `frontend/src/api.js`, `DispatchUsers.jsx`, `command-center.css`
+
 ## 2026-09-22 — Grupos: guía de alcance sin estilo de error
 
 - **Tipo:** ux
 - **Área:** web
 - **Qué:** El aviso «Siguiente paso…» del alcance del canal se muestra como ayuda (hint), no en rojo de error.
 - **Archivos / refs:** `frontend/src/dispatch/DispatchGroups.jsx`
+
+## 2026-09-22 — Asignar miembro: admin de zona entra en canales de Cías. vinculadas
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** En «Asignar miembro», el filtro de usuarios ya reconoce el alcance de un `zone_admin` (incl. vínculos Coord. → Cías. G.N.), p. ej. `jhernandezb2` en canales 200/264/265.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchGroups.jsx`
+
+## 2026-09-22 — 8/a. Z.M. ve Coord. Unidad 23 y 29 (vínculo de alcance)
+
+- **Tipo:** feature
+- **Área:** backend | database | web
+- **Qué:**
+  - Tabla `org_unit_scope_links`: una zona anfitriona incluye otras zonas/unidades (y descendientes) en su alcance.
+  - Vinculadas **23/a.** y **29/a. Coord. Unidad** a **8/a. Z.M.** (siguen existiendo como zonas propias).
+  - Dependencias muestra los vínculos bajo 8 con etiqueta «vínculo».
+- **Archivos / refs:** `036_org_unit_scope_links.sql`, `orgUnits.js`, `DispatchDependencias.jsx`, `apply-036-scope-links.js`
 
 ## 2026-09-22 — Usuarios/Grupos: alcance por jerarquía (opción 2)
 

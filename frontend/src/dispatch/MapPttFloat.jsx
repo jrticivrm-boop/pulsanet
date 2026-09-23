@@ -381,7 +381,7 @@ export default function MapPttFloat({
       .map((g) => g.name)
       .join(', ');
     const ok = window.confirm(
-      `¿Enviar alarma de pánico a ${ids.length === 1 ? '«' + (names || 'canal') + '»' : ids.length + ' canales'}?`
+      `¿Enviar alerta a ${ids.length === 1 ? '«' + (names || 'canal') + '»' : ids.length + ' canales'}?`
     );
     if (!ok) return;
     setBusyPanic(true);

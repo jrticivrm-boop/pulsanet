@@ -45,6 +45,7 @@ class MainActivity : FlutterActivity() {
 
     private var callRingtone: Ringtone? = null
     private var callVibrator: Vibrator? = null
+    private var alarmVibrator: Vibrator? = null
     private var ringbackTone: ToneGenerator? = null
     private var ringbackHandler: Handler? = null
     private var ringbackRunnable: Runnable? = null
@@ -231,6 +232,23 @@ class MainActivity : FlutterActivity() {
                             result.error("set_mode_failed", e.message, null)
                         }
                     }
+                    // Avisos / pánico: waveform en bucle con ref nativa (cancel fiable en OEM).
+                    "startAlarmVibration" -> {
+                        try {
+                            startAlarmVibration()
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("alarm_vib_start", e.message, null)
+                        }
+                    }
+                    "stopAlarmVibration" -> {
+                        try {
+                            stopAlarmVibration()
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("alarm_vib_stop", e.message, null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -266,6 +284,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         stopCallRingtone()
         stopOutgoingRingback()
+        stopAlarmVibration()
         releaseWakeLock()
         clearNetworkBind()
         super.onDestroy()
@@ -391,14 +410,49 @@ class MainActivity : FlutterActivity() {
         stopCallVibration()
     }
 
-    private fun startCallVibration() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    private fun defaultVibrator(): Vibrator {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             vm.defaultVibrator
         } else {
             @Suppress("DEPRECATION")
             getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
+    }
+
+    private fun startAlarmVibration() {
+        stopAlarmVibration()
+        val vibrator = defaultVibrator()
+        alarmVibrator = vibrator
+        // 500 on / 200 off, repeat desde índice 0.
+        val pattern = longArrayOf(0, 500, 200)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(pattern, 0)
+        }
+    }
+
+    private fun stopAlarmVibration() {
+        try {
+            alarmVibrator?.cancel()
+        } catch (_: Exception) {
+        }
+        alarmVibrator = null
+        // Por si el plugin Flutter / otro caller dejó el motor activo.
+        try {
+            defaultVibrator().cancel()
+        } catch (_: Exception) {
+        }
+        try {
+            callVibrator?.cancel()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun startCallVibration() {
+        val vibrator = defaultVibrator()
         callVibrator = vibrator
         // patrón teléfono: wait, buzz, wait, buzz…
         val pattern = longArrayOf(0, 500, 400, 500, 400)
@@ -416,6 +470,10 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {
         }
         callVibrator = null
+        try {
+            defaultVibrator().cancel()
+        } catch (_: Exception) {
+        }
     }
 
     /**

@@ -16,7 +16,8 @@ const ACTION_LABELS = {
   'group.delete_hard': 'Eliminación definitiva de grupo',
   'group.member_add': 'Miembro añadido a grupo',
   'group.member_remove': 'Miembro quitado de grupo',
-  'panic.trigger': 'Alerta de pánico',
+  'panic.trigger': 'Alerta',
+  'announcement.send': 'Aviso global enviado',
   'geofence.create': 'Alta de geocerca',
   'geofence.update': 'Edición de geocerca',
   'geofence.delete': 'Baja de geocerca',
@@ -153,7 +154,7 @@ export default function ConfigAudit({ session }) {
           <h1>Historial / Auditoría</h1>
           <p className="cc-hint">
             Quién hizo qué y cuándo en esta organización (inicios de sesión, usuarios, grupos,
-            pánico, etc.). Solo visible para administradores.
+            alerta, etc.). Solo visible para administradores.
           </p>
         </div>
         <button type="button" className="cc-btn" disabled={loading} onClick={() => load()}>

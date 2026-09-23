@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { canDispatch } from './api';
 import { unlockAppNotifyAudio } from './appNotify';
 import { subscribeChatMessageToast } from './chatNotify';
+import { openChatsPanel } from './chatsPanel';
 
 /**
  * Globo de mensaje en cualquier ruta (Radio, Despacho, Seguimiento, Config…).
@@ -71,12 +72,21 @@ export default function GlobalChatNotifyHost({ session }) {
     if (!t || !session?.user) return;
     setToast(null);
     pendingRef.current = null;
-    const radioPath = canDispatch(session.user) ? '/despacho/radio' : '/radio';
+    if (canDispatch(session.user)) {
+      if (t.kind === 'dm' && t.peerId) {
+        openChatsPanel({ peerId: t.peerId });
+      } else if (t.kind === 'group') {
+        openChatsPanel({ groupId: t.groupId || t.peerId });
+      } else {
+        openChatsPanel();
+      }
+      return;
+    }
     if (t.kind === 'dm' && t.peerId) {
-      navigate(radioPath, { state: { focusPeerId: t.peerId } });
+      navigate('/radio', { state: { focusPeerId: t.peerId } });
     } else if (t.kind === 'group') {
       const gid = t.groupId || t.peerId;
-      navigate(radioPath, { state: { focusGroupId: gid } });
+      navigate('/radio', { state: { focusGroupId: gid } });
     }
   }
 

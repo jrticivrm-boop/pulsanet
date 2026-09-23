@@ -244,7 +244,7 @@ function sliceAriaLabel(key) {
     case 'stale':
       return 'fuera de línea';
     case 'panic':
-      return 'pánico';
+      return 'alerta';
     default:
       return key || '';
   }

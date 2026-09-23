@@ -15,7 +15,7 @@ const KIND_OPTIONS = [
   { value: 'message', label: 'Mensajes' },
   { value: 'call', label: 'Llamadas' },
   { value: 'radio', label: 'Radio / PTT' },
-  { value: 'panic', label: 'Pánico' },
+  { value: 'panic', label: 'Alerta' },
   { value: 'account', label: 'Cuenta' },
 ];
 
@@ -40,7 +40,7 @@ function kindLabel(kind) {
     message: 'Mensaje',
     call: 'Llamada',
     radio: 'Radio',
-    panic: 'Pánico',
+    panic: 'Alerta',
   };
   return map[kind] || kind || '—';
 }

@@ -32,6 +32,7 @@ import { createMetricsRouter } from './routes/metrics.js';
 import { devicesRouter } from './routes/devices.js';
 import { stickersRouter } from './routes/stickers.js';
 import { createPanicRouter } from './routes/panic.js';
+import { createAnnouncementsRouter } from './routes/announcements.js';
 import { securityRouter } from './routes/security.js';
 import { lockdownGuard, bindIntrusionIo, isLockdownActive } from './services/intrusion.js';
 import { registerPttHandlers } from './socket/ptt.js';
@@ -172,6 +173,7 @@ app.use('/api/recordings', recordingsRouter);
 app.use('/api/devices', wrapRouterAsync(devicesRouter));
 app.use('/api/stickers', wrapRouterAsync(stickersRouter));
 app.use('/api/panic', wrapRouterAsync(createPanicRouter(io)));
+app.use('/api/announcements', wrapRouterAsync(createAnnouncementsRouter(io)));
 
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;

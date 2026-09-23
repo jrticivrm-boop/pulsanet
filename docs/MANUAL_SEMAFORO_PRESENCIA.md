@@ -84,7 +84,7 @@ El mapa es un **semáforo** que dice si alguien está disponible, un rato sin mi
 | ⚪ Gris | Desconectado | Ya no manda presencia; aún no llega al tiempo del rojo. | Solo si activas el check |
 | 🔴 Rojo | Fuera de línea | Hace demasiado que no hay señal de vida. | **Sí** |
 
-> **Pánico** es otra cosa (alerta). No es un color del semáforo de presencia.
+> **Alerta** (antes «pánico») es otra cosa. No es un color del semáforo de presencia.
 
 ---
 

@@ -204,21 +204,26 @@ function collectDescendantIds(node) {
   return ids;
 }
 
+/** Busca cualquier nodo (región / zona / unidad / vínculo) en el árbol. */
 function findNodeInTree(tree, id) {
   if (!id) return null;
-  for (const region of tree || []) {
-    if (region.id === id) return region;
-    for (const zone of region.children || []) {
-      if (zone.id === id) return zone;
-      for (const unit of zone.children || []) {
-        if (unit.id === id) return unit;
-      }
+  function walk(nodes) {
+    for (const n of nodes || []) {
+      if (n.id === id) return n;
+      const hit = walk(n.children);
+      if (hit) return hit;
     }
+    return null;
   }
-  return null;
+  return walk(tree);
 }
 
-/** Membresía geográfica (cliente): adscripción bajo el ancla del canal; region_* siempre ok. */
+/**
+ * Membresía geográfica (cliente), alineada con groupPolicy.memberFitsGroupGeo:
+ * - region_* / root: siempre
+ * - zone_admin / zone_user: canal cuyo ancla cae bajo su zona (incluye vínculos Coord.)
+ * - unit_*: su unidad (o ancla = su unidad)
+ */
 function memberFitsGroupGeoClient(u, group, orgTree) {
   const role = normalizeClientRole(u?.role);
   if (role === 'root' || role === 'region_admin' || role === 'region_user') return true;
@@ -226,9 +231,22 @@ function memberFitsGroupGeoClient(u, group, orgTree) {
   const anchor = group?.unitId || group?.unit_id || null;
   if (level === 'region' && !anchor) return true;
   if (!anchor) return false;
-  if (level === 'unit') {
+
+  if (u.unitId === anchor || u.adminScopeUnitId === anchor) return true;
+
+  if (role === 'zone_admin' || role === 'zone_user') {
+    const zoneRootId = u.adminScopeUnitId || u.unitId;
+    if (!zoneRootId) return false;
+    const zoneNode = findNodeInTree(orgTree, zoneRootId);
+    const ids = collectDescendantIds(zoneNode);
+    ids.add(zoneRootId);
+    return ids.has(anchor);
+  }
+
+  if (role === 'unit_admin' || role === 'unit_user') {
     return u.unitId === anchor || u.adminScopeUnitId === anchor;
   }
+
   const node = findNodeInTree(orgTree, anchor);
   const ids = collectDescendantIds(node);
   ids.add(anchor);

@@ -24,7 +24,9 @@ import DispatchLayout from './dispatch/DispatchLayout.jsx';
 import DispatchMap from './dispatch/DispatchMap.jsx';
 import DispatchUsers from './dispatch/DispatchUsers.jsx';
 import DispatchProfiles from './dispatch/DispatchProfiles.jsx';
+import DispatchAnnouncements from './dispatch/DispatchAnnouncements.jsx';
 import DispatchGroups from './dispatch/DispatchGroups.jsx';
+import GlobalAnnouncementHost from './dispatch/GlobalAnnouncementHost.jsx';
 import LiveTrackMap from './dispatch/LiveTrackMap.jsx';
 import DispatchVideo from './dispatch/DispatchVideo.jsx';
 import CatalogsLayout from './dispatch/CatalogsLayout.jsx';
@@ -234,6 +236,7 @@ export default function App() {
       {session?.token ? <SessionKickHost session={session} onLogout={logout} /> : null}
       {session?.token ? <SecurityAbuseHost session={session} /> : null}
       {session?.token ? <GlobalChatNotifyHost session={session} /> : null}
+      {session?.token ? <GlobalAnnouncementHost session={session} /> : null}
       {session?.token ? <GroupVideoIncomingHost session={session} /> : null}
       {session?.token ? <GroupVideoSessionHost session={session} /> : null}
       {session?.token ? <PrivateCallHost session={session} /> : null}
@@ -310,6 +313,7 @@ export default function App() {
         <Route path="video" element={<DispatchVideo session={session} />} />
         <Route path="mapa" element={<Navigate to="/despacho" replace />} />
         <Route path="radio" element={null} />
+        <Route path="chats" element={null} />
         <Route path="catalogos" element={<CatalogsLayout />}>
           <Route path="jerarquias" element={<CatalogJerarquias session={session} />} />
           <Route path="grados" element={<CatalogGrades session={session} />} />
@@ -328,6 +332,7 @@ export default function App() {
         <Route path="administracion" element={<AdminLayout session={session} />}>
           <Route path="usuarios" element={<DispatchUsers session={session} />} />
           <Route path="perfiles" element={<DispatchProfiles session={session} />} />
+          <Route path="avisos" element={<DispatchAnnouncements session={session} />} />
           <Route path="grupos" element={<DispatchGroups session={session} />} />
           <Route path="sitios-tacticos" element={<CatalogTacticalSites session={session} />} />
         </Route>

@@ -5,6 +5,7 @@ import {
   deleteAdminUser,
   fetchAdminGroups,
   fetchAdminUsers,
+  fetchAdminUserGroups,
   fetchAccessProfiles,
   canManageUsers,
   unlockAdminUserLogin,
@@ -61,6 +62,12 @@ const ROLE_ALIAS = {
   admin: 'region_admin',
   dispatcher: 'region_user',
   operator: 'unit_user',
+};
+
+const MEMBER_ROLE_LABEL = {
+  member: 'Miembro',
+  leader: 'Líder',
+  listen_only: 'Solo escucha',
 };
 
 function normalizeClientRole(role) {
@@ -1084,7 +1091,7 @@ function UserCard({
             </div>
           </div>
           <div className="cc-user-field">
-            <span className="cc-user-field-label">Pánico</span>
+            <span className="cc-user-field-label">Alerta</span>
             <span className="cc-user-field-value">{panicLabel}</span>
           </div>
         </div>
@@ -1121,7 +1128,7 @@ function UserCard({
           </button>
           {['unit_user', 'zone_user', 'region_user'].includes(u.role) && (
             <button type="button" className="cc-btn ghost cc-btn-sm" onClick={() => onTogglePanicPerm(u)}>
-              {u.canReceivePanic ? 'Quitar pánico' : 'Dar pánico'}
+              {u.canReceivePanic ? 'Quitar alerta' : 'Dar alerta'}
             </button>
           )}
           {isRoot && (
@@ -1174,6 +1181,8 @@ export default function DispatchUsers({ session }) {
   const [moreUserId, setMoreUserId] = useState(null);
   /** Modal de credenciales temporales (alta / restablecer). */
   const [credModal, setCredModal] = useState(null);
+  /** Modal solo lectura: grupos del usuario. */
+  const [userGroupsModal, setUserGroupsModal] = useState(null);
   /** Confirmación in-app (restablecer / eliminar). */
   const [confirmModal, setConfirmModal] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -2009,6 +2018,38 @@ export default function DispatchUsers({ session }) {
     });
   }
 
+  async function openUserGroups(u) {
+    setMoreUserId(null);
+    setUserGroupsModal({
+      userId: u.id,
+      displayName: u.displayName || u.username,
+      username: u.username,
+      loading: true,
+      error: null,
+      groups: [],
+    });
+    try {
+      const data = await fetchAdminUserGroups(session.token, u.id);
+      setUserGroupsModal((prev) =>
+        prev && prev.userId === u.id
+          ? {
+              ...prev,
+              loading: false,
+              groups: Array.isArray(data.groups) ? data.groups : [],
+              displayName: data.displayName || prev.displayName,
+              username: data.username || prev.username,
+            }
+          : prev
+      );
+    } catch (err) {
+      setUserGroupsModal((prev) =>
+        prev && prev.userId === u.id
+          ? { ...prev, loading: false, error: err.message || 'No se pudieron cargar los grupos' }
+          : prev
+      );
+    }
+  }
+
   async function copyCredentials() {
     if (!credModal?.temporaryPassword) return;
     const text = [
@@ -2347,6 +2388,11 @@ export default function DispatchUsers({ session }) {
                         )}
                         {moreUserId === u.id && (
                           <div className="usr-more">
+                            {canManage && (
+                              <button type="button" onClick={() => openUserGroups(u)}>
+                                Ver grupos
+                              </button>
+                            )}
                             {canEdit && (
                               <button type="button" onClick={() => { setMoreUserId(null); resetPassword(u); }}>
                                 Restablecer clave
@@ -2364,7 +2410,7 @@ export default function DispatchUsers({ session }) {
                             )}
                             {['unit_user', 'zone_user', 'region_user'].includes(u.role) && canEdit && (
                               <button type="button" onClick={() => { setMoreUserId(null); togglePanicPerm(u); }}>
-                                {u.canReceivePanic ? 'Quitar pánico' : 'Dar pánico'}
+                                {u.canReceivePanic ? 'Quitar alerta' : 'Dar alerta'}
                               </button>
                             )}
                             {['region_admin', 'zone_admin', 'unit_admin'].includes(u.role) && canManage && (
@@ -3100,6 +3146,61 @@ export default function DispatchUsers({ session }) {
               ) : null}
               <button type="button" className="cc-btn primary" onClick={() => setCredModal(null)}>
                 Entendido
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {userGroupsModal && (
+        <div className="sys-modal-backdrop" role="presentation" data-esc-close>
+          <div
+            className="sys-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="user-groups-modal-title"
+          >
+            <header className="sys-modal-head">
+              <h2 id="user-groups-modal-title">
+                Grupos — {userGroupsModal.displayName || userGroupsModal.username}
+              </h2>
+              <button
+                type="button"
+                className="sys-modal-x"
+                data-esc-close-btn
+                aria-label="Cerrar"
+                onClick={() => setUserGroupsModal(null)}
+              >
+                ×
+              </button>
+            </header>
+            <div className="sys-modal-body">
+              {userGroupsModal.loading ? (
+                <p className="sys-modal-lead">Cargando…</p>
+              ) : userGroupsModal.error ? (
+                <p className="sys-modal-hint" role="alert">
+                  {userGroupsModal.error}
+                </p>
+              ) : userGroupsModal.groups.length === 0 ? (
+                <p className="sys-modal-lead">Sin grupos en tu alcance.</p>
+              ) : (
+                <ul className="usr-groups-list">
+                  {userGroupsModal.groups.map((g) => (
+                    <li key={g.id} className={!g.isActive ? 'is-inactive' : undefined}>
+                      <span className="usr-groups-name">{g.name}</span>
+                      <span className="usr-groups-meta">
+                        {MEMBER_ROLE_LABEL[g.memberRole] || g.memberRole}
+                        {g.unitName ? ` · ${g.unitName}` : ''}
+                        {!g.isActive ? ' · inactivo' : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <footer className="sys-modal-actions">
+              <button type="button" className="cc-btn primary" onClick={() => setUserGroupsModal(null)}>
+                Cerrar
               </button>
             </footer>
           </div>

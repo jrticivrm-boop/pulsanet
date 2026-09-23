@@ -11,8 +11,10 @@ import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../background
 import { esMsg } from '../esMsg';
 import DispatchPanicHost from './DispatchPanicHost.jsx';
 import DispatchGeofenceToastHost from './DispatchGeofenceToastHost.jsx';
+import DispatchChatsPage from './DispatchChatsPage.jsx';
 import RadioPage from '../pages/RadioPage.jsx';
 import { PEER_EVENTS, openPeoplePalette } from '../peerActions';
+import { CHATS_EVENTS, openChatsPanel } from '../chatsPanel';
 import { useIsPhone, useIsCoarsePointer } from '../useMediaQuery.js';
 import { radioSpeakerStatusLabel } from '../radioSpeakerLabel';
 import { SICOM_FULL_NAME } from '../BrandName.jsx';
@@ -24,6 +26,7 @@ import '../theme-contrast.css';
 function dispatchModuleSegment(pathname) {
   const p = pathname || '';
   if (p.startsWith('/despacho/radio')) return 'radio';
+  if (p.startsWith('/despacho/chats')) return 'chats';
   if (p.startsWith('/despacho/seguimiento')) return 'track';
   if (p.startsWith('/despacho/video')) return 'video';
   if (p.startsWith('/despacho/catalogos')) return 'catalogs';
@@ -170,6 +173,13 @@ function ModIcon({ name }) {
           <path d="M9 4h6M12 4v3M10 12h4M10 15h4" />
         </svg>
       );
+    case 'chat':
+      return (
+        <svg {...common}>
+          <path d="M4.5 5.5h15a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H11l-4 3v-3H4.5A1.5 1.5 0 0 1 3 15V7a1.5 1.5 0 0 1 1.5-1.5Z" />
+          <path d="M8 10h8M8 13h5" />
+        </svg>
+      );
     case 'logout':
       return (
         <svg {...common}>
@@ -193,11 +203,12 @@ const NAV = [
   },
   { id: 'track', to: '/despacho/seguimiento', label: 'Seguimiento', hint: 'Ubicación en vivo', icon: 'track' },
   { id: 'video', to: '/despacho/video', label: 'Video', hint: 'Cámara y transmisiones', icon: 'video' },
-  { id: 'radio', to: '/despacho/radio', label: 'Radio PTT', hint: 'Hablar y chat', icon: 'radio' },
+  { id: 'radio', to: '/despacho/radio', label: 'Radio PTT', hint: 'Hablar y canales', icon: 'radio' },
+  { id: 'chats', to: '/despacho/chats', label: 'Chats', hint: 'Mensajes y respuestas', icon: 'chat' },
 ];
 
 const NAV_ORDER_KEY = 'tacticalptx_mod_nav_order';
-const DEFAULT_NAV_ORDER = ['ops', 'track', 'video', 'radio', 'catalogs', 'admin', 'config'];
+const DEFAULT_NAV_ORDER = ['ops', 'track', 'video', 'radio', 'chats', 'catalogs', 'admin', 'config'];
 
 function loadNavOrder() {
   try {
@@ -265,6 +276,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
   const location = useLocation();
   const navigate = useNavigate();
   const onRadioPage = location.pathname.startsWith('/despacho/radio');
+  const onChatsPage = location.pathname.startsWith('/despacho/chats');
   const moduleSeg = dispatchModuleSegment(location.pathname);
   const prevModuleSegRef = useRef(moduleSeg);
 
@@ -372,15 +384,26 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
   });
 
   useEffect(() => {
+    const onOpen = (e) => {
+      const d = e.detail || {};
+      const state = {};
+      if (d.peerId) state.focusPeerId = String(d.peerId);
+      if (d.groupId) state.focusGroupId = String(d.groupId);
+      navigate('/despacho/chats', { state });
+    };
+    window.addEventListener(CHATS_EVENTS.OPEN, onOpen);
+    return () => window.removeEventListener(CHATS_EVENTS.OPEN, onOpen);
+  }, [navigate]);
+
+  useEffect(() => {
     const onOpenDm = (e) => {
       const peer = e.detail?.peer;
       if (!peer?.id) return;
-      if (location.pathname.startsWith('/despacho/radio')) return;
-      navigate('/despacho/radio', { state: { focusPeerId: peer.id } });
+      openChatsPanel({ peerId: peer.id });
     };
     window.addEventListener(PEER_EVENTS.OPEN_DM, onOpenDm);
     return () => window.removeEventListener(PEER_EVENTS.OPEN_DM, onOpenDm);
-  }, [location.pathname, navigate]);
+  }, []);
 
   const catalogsOpen = location.pathname.startsWith('/despacho/catalogos');
   const adminOpen =
@@ -954,8 +977,11 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
 
   const path = location.pathname;
   const tabRadio = path.startsWith('/despacho/radio');
+  const tabChats = path.startsWith('/despacho/chats');
+  const keepaliveMain = onRadioPage || onChatsPage;
   const tabMore =
     !tabRadio &&
+    !tabChats &&
     (path === '/despacho' ||
       path.startsWith('/despacho/seguimiento') ||
       path.startsWith('/despacho/video') ||
@@ -1201,12 +1227,27 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
               />
             </div>
             <div
-              className={`cc-outlet-panel${onRadioPage ? ' is-parked' : ''}`}
-              aria-hidden={onRadioPage}
+              className={`cc-chats-keepalive${onChatsPage ? '' : ' is-parked'}`}
+              aria-hidden={!onChatsPage}
             >
-              {/* Remount al cambiar de módulo (F5 de datos). Radio vive fuera en keepalive. */}
+              <DispatchChatsPage
+                session={session}
+                groups={groups}
+                group={group}
+                onSelectGroup={onGroupChange}
+                ptt={ptt}
+                visible={onChatsPage}
+              />
+            </div>
+            <div
+              className={`cc-outlet-panel${keepaliveMain ? ' is-parked' : ''}`}
+              aria-hidden={keepaliveMain}
+            >
+              {/* Remount al cambiar de módulo (F5 de datos). Radio/Chats viven fuera en keepalive. */}
               <Outlet
-                key={moduleSeg === 'radio' ? 'outlet-parked' : moduleSeg}
+                key={
+                  moduleSeg === 'radio' || moduleSeg === 'chats' ? 'outlet-parked' : moduleSeg
+                }
                 context={outletContext}
               />
             </div>
@@ -1320,13 +1361,15 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
               <span>Radio</span>
             </NavLink>
             <NavLink
-              to="/despacho/radio"
-              className={() => `cc-phone-tab${tabRadio ? ' active' : ''}`}
+              to="/despacho/chats"
+              className={() => `cc-phone-tab${tabChats ? ' active' : ''}`}
               onClick={() => {
-                window.dispatchEvent(new CustomEvent('tacticalptx:inbox-list'));
+                if (tabChats) {
+                  window.dispatchEvent(new CustomEvent('tacticalptx:inbox-list'));
+                }
               }}
             >
-              <ModIcon name="groups" />
+              <ModIcon name="chat" />
               <span>Chats</span>
             </NavLink>
             <button

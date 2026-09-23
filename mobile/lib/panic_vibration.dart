@@ -1,3 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:vibration/vibration.dart';
 
 /// Vibración fuerte vía API nativa (no solo HapticFeedback).
@@ -20,7 +25,13 @@ class PanicVibration {
     0, 220, 0, 240, 0, 200, 0, 210, 0, 180,
   ];
 
+  static const _audioChannel = MethodChannel('com.tacticalptx.app/audio');
+
   static DateTime? _lastNudgeAt;
+
+  /// Invalidación de alarmas en vuelo (plugin Flutter / retries).
+  static int _alarmSession = 0;
+  static final List<Timer> _stopRetries = <Timer>[];
 
   static Future<bool> _ready() async {
     try {
@@ -30,24 +41,83 @@ class PanicVibration {
     }
   }
 
-  /// Alarma entrante: patrón fuerte en bucle hasta [stop].
-  static Future<void> startAlarm() async {
+  static Future<void> _nativeStart() async {
+    if (kIsWeb || !Platform.isAndroid) return;
     try {
+      await _audioChannel.invokeMethod<void>('startAlarmVibration');
+    } catch (e) {
+      debugPrint('PanicVibration native start: $e');
+    }
+  }
+
+  static Future<void> _nativeStop() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _audioChannel.invokeMethod<void>('stopAlarmVibration');
+    } catch (e) {
+      debugPrint('PanicVibration native stop: $e');
+    }
+  }
+
+  /// Alarma entrante: patrón fuerte en bucle hasta [stop].
+  /// En Android usa Vibrator nativo (cancel fiable al Enterado).
+  static Future<void> startAlarm() async {
+    final session = ++_alarmSession;
+    _cancelStopRetries();
+    try {
+      if (Platform.isAndroid && !kIsWeb) {
+        await _nativeStop();
+        if (session != _alarmSession) return;
+        await _nativeStart();
+        if (session != _alarmSession) {
+          await _nativeStop();
+        }
+        return;
+      }
       if (!await _ready()) return;
+      if (session != _alarmSession) return;
       await Vibration.cancel();
+      if (session != _alarmSession) return;
       final amp = await Vibration.hasAmplitudeControl() == true;
+      if (session != _alarmSession) return;
       await Vibration.vibrate(
         pattern: _alarmPattern,
         intensities: amp ? _alarmIntensities : const [],
         repeat: 0,
       );
+      if (session != _alarmSession) {
+        await Vibration.cancel();
+      }
     } catch (_) {}
   }
 
+  /// Corta la alarma de inmediato + reintentos (OEM tardan en aplicar cancel).
   static Future<void> stop() async {
+    final session = ++_alarmSession;
+    _cancelStopRetries();
+    await _stopOnce();
+    for (final ms in const [80, 220, 500]) {
+      _stopRetries.add(Timer(Duration(milliseconds: ms), () {
+        if (session != _alarmSession) return;
+        unawaited(_stopOnce());
+      }));
+    }
+  }
+
+  static Future<void> _stopOnce() async {
+    try {
+      await _nativeStop();
+    } catch (_) {}
     try {
       await Vibration.cancel();
     } catch (_) {}
+  }
+
+  static void _cancelStopRetries() {
+    for (final t in _stopRetries) {
+      t.cancel();
+    }
+    _stopRetries.clear();
   }
 
   /// Confirmación al emisor al tocar PÁNICO.

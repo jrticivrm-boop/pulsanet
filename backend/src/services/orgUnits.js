@@ -1,19 +1,31 @@
 import { query } from '../db.js';
 import { isAdmin, isRegionAdmin, isRoot, isUnitAdmin, isZoneAdmin, normalizeRole } from './roles.js';
 
-/** IDs de un nodo + todos los descendientes en el árbol. */
+/** IDs de un nodo + todos los descendientes en el árbol.
+ *  Incluye zonas/unidades vinculadas vía org_unit_scope_links (anfitrión = root).
+ */
 export async function listScopeUnitIds(orgId, rootUnitId) {
   if (!rootUnitId) return [];
   const { rows } = await query(
-    `WITH RECURSIVE tree AS (
-       SELECT id FROM org_units
-       WHERE id = $1 AND organization_id = $2
+    `WITH RECURSIVE roots AS (
+       SELECT $1::uuid AS id
+       UNION
+       SELECT l.linked_id
+       FROM org_unit_scope_links l
+       WHERE l.host_zone_id = $1 AND l.organization_id = $2
+     ),
+     tree AS (
+       SELECT u.id
+       FROM org_units u
+       INNER JOIN roots r ON r.id = u.id
+       WHERE u.organization_id = $2
        UNION ALL
-       SELECT u.id FROM org_units u
+       SELECT u.id
+       FROM org_units u
        INNER JOIN tree t ON u.parent_id = t.id
        WHERE u.organization_id = $2
      )
-     SELECT id FROM tree`,
+     SELECT DISTINCT id FROM tree`,
     [rootUnitId, orgId]
   );
   return rows.map((r) => r.id);
@@ -379,7 +391,9 @@ export function clipOrgTreeToScope(tree, scope) {
     .filter((r) => (r.children || []).length > 0);
 }
 
-/** Árbol Región → zonas → unidades para una org. */
+/** Árbol Región → zonas → unidades para una org.
+ *  Adjunta hijos virtuales por org_unit_scope_links (linked: true).
+ */
 export async function fetchOrgUnitTree(orgId) {
   const { rows } = await query(
     `SELECT id, parent_id, kind, zone_type, name, code, external_id, sort_order, is_active
@@ -411,6 +425,31 @@ export async function fetchOrgUnitTree(orgId) {
       roots.push(node);
     }
   }
+
+  // Vínculos: zona anfitriona muestra linked como organismo adicional
+  try {
+    const { rows: links } = await query(
+      `SELECT host_zone_id, linked_id FROM org_unit_scope_links WHERE organization_id = $1`,
+      [orgId]
+    );
+    for (const link of links) {
+      const host = byId.get(link.host_zone_id);
+      const linked = byId.get(link.linked_id);
+      if (!host || !linked) continue;
+      if (host.children.some((c) => c.id === linked.id)) continue;
+      host.children.push({
+        ...linked,
+        // Copia superficial: no reutilizar el mismo array children del nodo real
+        children: (linked.children || []).map((c) => ({ ...c, children: c.children || [] })),
+        linked: true,
+        linkedHostId: host.id,
+      });
+    }
+  } catch (err) {
+    // Tabla aún no migrada: el árbol sigue funcionando sin vínculos
+    if (err?.code !== '42P01') throw err;
+  }
+
   return roots;
 }
 

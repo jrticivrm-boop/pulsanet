@@ -286,7 +286,7 @@ export async function buildUserTimeline({
       events.push({
         id: `panic:${r.id}`,
         kind: 'panic',
-        summary: 'Activó pánico',
+        summary: 'Activó alerta',
         meta: { panicId: r.id, status: r.status },
         createdAt: r.created_at,
         source: 'panic',
@@ -297,8 +297,8 @@ export async function buildUserTimeline({
           kind: 'panic',
           summary:
             r.status === 'cancelled'
-              ? 'Canceló / se canceló su pánico'
-              : 'Su pánico fue atendido',
+              ? 'Canceló / se canceló su alerta'
+              : 'Su alerta fue atendida',
           meta: { panicId: r.id, status: r.status },
           createdAt: r.resolved_at,
           source: 'panic',

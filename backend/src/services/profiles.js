@@ -73,7 +73,8 @@ const MODULES = [
   { key: 'grupos', label: 'Grupos / radio' },
   { key: 'mapa', label: 'Mapa' },
   { key: 'video', label: 'Video' },
-  { key: 'panico', label: 'Pánico' },
+  { key: 'panico', label: 'Alerta' },
+  { key: 'avisos', label: 'Avisos' },
   { key: 'catalogos', label: 'Catálogos' },
   { key: 'configuracion', label: 'Configuración' },
 ];
@@ -96,6 +97,11 @@ function defaultModules(profile) {
   }
   mods.mapa.ver = true;
   mods.panico.ver = true;
+  if (full) {
+    mods.avisos = { ver: true, agregar: true, editar: false, eliminar: false };
+  } else {
+    mods.avisos = { ver: false, agregar: false, editar: false, eliminar: false };
+  }
   return mods;
 }
 
