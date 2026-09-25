@@ -1,0 +1,31 @@
+/* Archivado: no importar hasta reactivar PttVoiceBar en Radio.
+ * Componente: frontend/src/PttVoiceBar.jsx
+ * Reactivar: importar este CSS + montar <PttVoiceBar /> en RadioPage;
+ * usePtt ya expone getMicMediaStreamTrack().
+ */
+[data-theme='light'] {
+  --ptt-voice-edge: #7cb83a;
+  --ptt-voice-mid: #20b2aa;
+  --ptt-voice-core: #e0b44a;
+}
+[data-theme='verde'] {
+  --ptt-voice-edge: #e0b84a;
+  --ptt-voice-mid: #c6f04a;
+  --ptt-voice-core: #6ed0ff;
+}
+[data-theme='obscuro'] {
+  --ptt-voice-edge: #f472b6;
+  --ptt-voice-mid: #22d3ee;
+  --ptt-voice-core: #818cf8;
+}
+.ptt-voice-bar {
+  width: 100%;
+  height: 3.85rem;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.ptt-voice-bar.is-idle { display: none !important; }
+.ptt-voice-bar.is-live { display: block; background: transparent; }
+.ptt-voice-bar-canvas { display: block; width: 100%; height: 100%; background: transparent; }

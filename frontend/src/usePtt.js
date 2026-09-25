@@ -1463,5 +1463,10 @@ export function usePtt({
     listenMuted,
     setListenMuted,
     unlockAudio,
+    /** MediaStreamTrack del mic local (para barra de voz / medidores). */
+    getMicMediaStreamTrack: () => {
+      const master = micRef.current || [...micsByGroupRef.current.values()][0];
+      return master?.mediaStreamTrack || null;
+    },
   };
 }
