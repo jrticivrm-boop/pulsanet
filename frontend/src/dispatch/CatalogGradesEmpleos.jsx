@@ -9,6 +9,7 @@ import {
   deleteCatalogEmpleo,
   isAdminUser,
 } from '../api';
+import { canModuleAction } from './modulePermissions.js';
 import AppDialog from '../AppDialog.jsx';
 
 function CatSection({ title, hint, count, children, toolbar }) {
@@ -72,7 +73,9 @@ function CatItem({ label, abbr, inUse, canEdit, onRename, onDelete }) {
 }
 
 export default function CatalogGradesEmpleos({ session }) {
-  const canEdit = isAdminUser(session.user);
+  const canEdit = canModuleAction(session.user, 'catalogos', 'editar');
+  const canAdd = canModuleAction(session.user, 'catalogos', 'agregar');
+  const canDelete = canModuleAction(session.user, 'catalogos', 'eliminar');
   const [grades, setGrades] = useState([]);
   const [empleos, setEmpleos] = useState([]);
   const [err, setErr] = useState('');
@@ -268,7 +271,7 @@ export default function CatalogGradesEmpleos({ session }) {
           count={grades.length}
           hint="Abreviatura = indicativo al aire (users.grade). Lista inicial: Ejército Mexicano (LOEFAM)."
           toolbar={
-            canEdit ? (
+            canAdd ? (
               <div className="cc-cat-toolbar" onClick={(e) => e.stopPropagation()}>
                 <input
                   className="cc-cat-input"
@@ -320,7 +323,7 @@ export default function CatalogGradesEmpleos({ session }) {
           count={empleos.length}
           hint="Se usan como especialidad al dar de alta usuarios (users.specialty)."
           toolbar={
-            canEdit ? (
+            canAdd ? (
               <div className="cc-cat-toolbar" onClick={(e) => e.stopPropagation()}>
                 <input
                   className="cc-cat-input"

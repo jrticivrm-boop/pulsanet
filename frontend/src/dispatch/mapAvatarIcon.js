@@ -23,7 +23,8 @@ function escapeCssUrl(url) {
 /**
  * Foto del marcador según modo Operadores:
  * - Por operador → foto del usuario
- * - Por grupo → foto del grupo; si no hay, fallback a la del usuario
+ * - Por grupo → foto del grupo si `groupPhotoSrc` viene resuelto;
+ *   si no (varios grupos filtrados / sin avatar de grupo) → foto del usuario
  */
 export function pickMapMarkerPhotoSrc({
   operatorMode = 'operator',
@@ -35,12 +36,16 @@ export function pickMapMarkerPhotoSrc({
 }
 
 /**
- * Elige el grupo cuya foto mostrar cuando el operador está en varios
- * grupos seleccionados. Regla estable: primer id de `selectedGroupIds`
- * al que pertenece y que tenga avatar; si ninguno tiene foto → null
- * (fallback a foto de usuario).
+ * Elige el grupo cuya foto mostrar en el pin (modo Por grupo).
+ *
+ * Regla:
+ * - Pertenece a exactamente 1 de los grupos filtrados → foto de ese grupo
+ *   (si tiene avatar; si no, null → fallback a foto de usuario).
+ * - Pertenece a 2+ de los grupos filtrados → null → foto de perfil
+ *   (evita conflicto de cuál grupo mostrar).
+ *
  * @param {object} opts
- * @param {string[]} [opts.selectedGroupIds] — orden de la selección en barra
+ * @param {string[]} [opts.selectedGroupIds] — grupos marcados en el filtro
  * @param {string[]} [opts.memberGroupIds] — grupos del operador ∩ selección
  * @param {(groupId: string) => boolean} [opts.groupHasAvatar]
  * @returns {string|null} groupId o null
@@ -51,11 +56,13 @@ export function resolveOperatorGroupForMarker({
   groupHasAvatar,
 } = {}) {
   const memberSet = new Set((memberGroupIds || []).map(String));
-  const ordered = (selectedGroupIds || []).map(String).filter((id) => memberSet.has(id));
-  if (!ordered.length) return null;
+  const inFilter = (selectedGroupIds || []).map(String).filter((id) => memberSet.has(id));
+  // Varios grupos filtrados a la vez → no elegir uno al azar; foto de perfil.
+  if (inFilter.length !== 1) return null;
+  const onlyId = inFilter[0];
   const hasAv =
     typeof groupHasAvatar === 'function' ? groupHasAvatar : () => false;
-  return ordered.find((id) => hasAv(id)) || null;
+  return hasAv(onlyId) ? onlyId : null;
 }
 
 /**

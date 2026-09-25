@@ -15,6 +15,7 @@ import { config } from '../config.js';
 import { logActivity } from './activity.js';
 import { notifyUserDevices } from './fcm.js';
 import { clearUserProfileCache } from './userProfile.js';
+import { isRoot } from './roles.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '../../data');
@@ -23,6 +24,13 @@ const SIGNAL_FILE = path.join(DATA_DIR, 'LOCKDOWN.request');
 const REDIS_KEY = 'security:lockdown';
 const FAIL_IP_PREFIX = 'security:fail:ip:';
 const FAIL_USER_PREFIX = 'security:fail:user:';
+
+/**
+ * Perfil Administrador (role root): no se bloquea por intentos fallidos (política temporal).
+ */
+export function isLoginLockExempt(role) {
+  return isRoot(role);
+}
 
 let memoryLock = null;
 let ioRef = null;
@@ -587,9 +595,28 @@ export async function registerLoginFailure(
   }
 
   const alreadyLocked = Boolean(user?.login_locked_at);
-  const shouldLock = Boolean(user?.id && userCount >= lockAt);
+  // Administrador (root): no bloquear la cuenta por intentos (sigue el aviso/contadores).
+  const lockExempt = Boolean(user?.id && isLoginLockExempt(user.role));
+  const shouldLock = Boolean(user?.id && !lockExempt && userCount >= lockAt);
 
-  if (shouldLock || alreadyLocked) {
+  if (lockExempt && alreadyLocked) {
+    try {
+      await query(
+        `UPDATE users
+         SET login_locked_at = NULL,
+             login_locked_reason = NULL,
+             login_fail_count = 0,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [user.id]
+      );
+      user = { ...user, login_locked_at: null, login_locked_reason: null, login_fail_count: 0 };
+    } catch (err) {
+      console.error('unlock exempt admin:', err.message);
+    }
+  }
+
+  if ((shouldLock || alreadyLocked) && !lockExempt) {
     const reason = `Exceso de intentos de ingreso (${userCount} en ventana de ${windowSec}s)`;
     if (!alreadyLocked) {
       await query(

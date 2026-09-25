@@ -9,13 +9,106 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Perfiles — enforcement Catálogos/Avisos/Config:** UI y API usan `modules.*.agregar|editar|eliminar` (no solo el rol). Helper `requireModuleAction` en backend.
+- **Perfiles — permisos granulares:** Visible (menú) + pestañas (RESERVADO, Catálogos, Configuración) + Agregar/Editar/Eliminar. La sesión incluye `modules`; el rail y las rutas respetan esos permisos.
+- **App — grabaciones PTT:** al soltar el PTT en la app móvil se sube el audio a `/api/recordings` y aparece en RESERVADO → Grabaciones (Radio), junto con las de la consola web. Las notas de voz de chat siguen listándose en la columna Chat.
+
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
+- **Grupos / Usuarios — botón Filtros:** al desactivar Filtros se limpian los filtros aplicados (antes solo se ocultaban y la tabla seguía filtrada).
+- **Grupos — filtro Alcance:** el check de región/zona marca solo ese nodo, no toda la rama (ya no hace falta desmarcar zona por zona).
+- **Grupos / Usuarios — ordenar ▲/▼:** clic fiable en la fila del título (el `draggable` del th o la bandera post-drag bloqueaban el click). Solo el ⠿ mueve columnas.
+- **Grupos / Usuarios — ordenar columnas:** el `draggable` del encabezado bloqueaba el clic; ahora solo el ⠿ mueve columnas y el clic en el título ordena ▲/▼.
+- **Grupos / Usuarios — encabezados sticky:** al scrollear, el contenido de las filas (pastillas, Editar/Eliminar) ya no se ve detrás de los títulos de columna.
+- **Rail — marca al achicar ventana:** en ≤960px solo se muestra el emblema circular; el PNG expandido (con tipografía «SICOM») ya no se desborda del rail.
+- **RESERVADO — rate limit 429:** Grabaciones de chat usa un solo endpoint admin (`/api/admin/chat-audio`) en lugar de decenas de peticiones; lecturas auditables excluidas del cupo global agresivo.
+- **RESERVADO — notas de voz:** admin puede reproducir audios de chats ajenos vía `/api/media` (misma org); mensaje de error ya no dice «imagen».
+- **Grupos — alcance:** zona y unidad opcionales para Administrador / admin de región (solo región = toda la región; +zona = esa zona). Admin de zona: unidad opcional. Filtro de miembros corregido para incluir usuarios de unidad bajo región/zona.
+
+### Changed
+- **Radio PTT:** barra ecualizador encima de los controles; se anima al hablar y cambia de color con el tema (Claro/Verde/Obscuro).
+- **Radio PTT:** barra de controles arriba; las 4 columnas (Escuchar/Hablar/Video/Alerta) abajo a pantalla completa. Sin panel vacío de Mensajes/Chats.
+- **Grupos — Solo escucha:** puede iniciar/mostrar imagen en video de grupo; no puede publicar micrófono ni hablar por PTT. LiveKit restringe a fuente CAMERA.
+- **Configuración:** se quitó la pestaña Grabaciones (queda solo en RESERVADO). La URL antigua redirige a `/despacho/video/grabaciones`.
+- **Grupos — columna Alcance:** solo el nombre (sin pastillas Región/Zona/Unidad).
+- **Grupos — drawer:** al abrir, cede espacio en topbar + franja PTT + tabla (todo `.cc-shell-main`).
+- **Grupos — drawer:** al abrir, la tabla cede espacio a la izquierda (no tapa columnas).
+- **Grupos — tabla:** sin columna Acciones; clic en fila abre el panel. Eliminar (root) en el pie del drawer.
+- **Grupos — drawer:** flechas ↑/↓ del teclado cambian de grupo; clic fuera de las filas cierra el panel lateral.
+- **Grupos / Usuarios — filtros de columna:** el menú se puede agrandar desde la esquina inferior derecha (`resize: both`, como en mapa).
+- **Grupos — Alcance:** filtro en árbol por región (grupos todas zonas+unidades / zona todas unidades / unidad); pastilla Región|Zona|Unidad en la tabla; textos del alta «Todas las zonas y unidades».
+- **Grupos — filtro Alcance:** tres listas planas Regiones / Zonas / Unidades (sin árbol); etiquetas con padre y «toda la región/zona».
+- **Grupos — Alcance (filtro y alta):** etiquetas alineadas (`… (toda la región/zona)`); ayuda en el menú del filtro; opciones «Todas las zonas/unidades…» en el formulario.
+- **Grupos — filtro Alcance:** etiquetas de nivel Región / Zonas / Unidades sobre el desglose (barra accent); check por nodo.
+- **Perfiles — nombres de módulos:** labels del editor de permisos alineados al rail (Seguimiento, Alerta, Usuarios, Avisos, Grupos, Catálogos, Configuración) con el mismo hint.
+- **RESERVADO:** ya no se configura en Perfiles (Visible/pestañas). Solo cuentas **Administrador** (`root`) lo ven en el rail; no admins de región/zona/unidad.
+- **Grupos — filtro Alcance en árbol:** Región → Zona → Unidad (expandir/contraer), en lugar de tres listas planas.
+- **Grupos — filtro Alcance:** secciones Región/Zona/Unidad con barra visual (fondo, acento, contador) distinta de los nombres del listado.
+- **Grupos / Usuarios — ordenar columnas:** clic en el encabezado ordena ▲/▼ (como Parque Vehicular); se mantiene arrastrar para reordenar. Tooltip «Arrastra para mover · Clic para ordenar».
+- **Grupos — columna Alcance:** solo el nombre (sin prefijo Región/Zona/Unidad). El filtro de Alcance se agrupa en tres secciones: Región → Zona → Unidad (marcar/desmarcar por sección).
+- **RESERVADO:** el módulo Video del rail se llama «RESERVADO» (icono escudo + candado) con pestañas Video, Grabaciones y Conversaciones (visor solo lectura por operador). Visible **solo** para rol/perfil **Administrador** (`root`). Listas de Grabaciones/Conversaciones se auto-actualizan (sin botón ni F5). `/despacho/chats` sigue siendo la mensajería operativa (ChatInbox).
+- **Video:** retirada la columna «Canales» (Iniciar video / Sin transmisión); Operadores en línea a ancho completo.
+- **Grupos / Usuarios:** toolbar (título + Buscar/Filtros/Columnas/Nuevo) y encabezados de columna sticky al hacer scroll en Administración.
+- **Grupos / Usuarios:** pastillas Activo/Inactivo con el mismo ancho visual (`min-width: 5.25rem`, texto centrado).
+- **Grupos / Usuarios:** pastilla «Inactivo» en rojo (`--cc-danger`: texto, borde y fondo suave), simétrica a Activo verde.
+- **Grupos / Usuarios:** mismo aire vertical arriba y abajo de la barra Buscar/Filtros/Columnas/Nuevo (`gap: 1rem`, sin doble margen).
+- **Grupos:** clic en la foto ampliada (lupa −) también cierra el lightbox.
+- **Usuarios:** barra Buscar / Filtros / Columnas / «Nuevo usuario» alineada a Grupos (misma altura, neón en el CTA).
+- **Mapa:** en filtro Por grupo, foto de grupo solo si el usuario coincide con un único grupo filtrado; si está en 2+ de los filtrados, foto de perfil.
+- **Grupos:** «Nuevo canal» con contorno neón y luces que adaptan color al tema (claro / verde / obscuro).
+- **Grupos:** buscador, Filtros y Columnas a la misma altura que «Nuevo canal».
+- **Grupos:** botones Filtros/Columnas del mismo tamaño que «Nuevo canal».
+- **Grupos:** título «Grupos y canales» con el mismo tamaño y tipografía que «Usuarios».
+- **Usuarios:** quitado el subtítulo instructivo de alcance bajo el título.
+- **Grupos:** encabezados de tabla con el mismo estilo visual que Usuarios.
+- **Grupos:** buscador + Filtros/Columnas en la misma fila, a la izquierda de «Nuevo canal» (sin panel envolvente).
+- **Grupos:** lightbox de foto con fondo negro semitransparente (UI visible detrás) y cursor lupa (`zoom-in` / `zoom-out`).
+- **Grupos:** Filtros / Columnas (ocultar·reordenar, persistencia `localStorage`), filtros por encabezado estilo Usuarios; Acciones siempre fija; «Nuevo canal» en la fila del título.
+- **Usuarios:** quitado el botón «Actualizar»; la lista se refresca sola al crear/editar/eliminar.
+- **Usuarios:** pastilla Activo/Inactivo con el mismo estilo que en Grupos (borde + verde `--cc-ok`).
+- **Grupos:** clic en la foto del canal (drawer) abre vista ampliada elegante; cerrar con × / Esc / clic fuera.
+- **Obscuro — Usuarios/Grupos:** botones Editar/Eliminar con tonos de referencia (azul navy / rojo apagado) en las tablas de acciones.
+- **Grupos:** panel de edición sin overlay/bloqueo; clic en otro canal cambia el panel sin cerrarlo.
+- **Grupos:** Eliminar (root) solo en la tabla de Acciones; quitado del footer del drawer de edición (siguen Vaciar chat / Desactivar / Reactivar).
+- **Grupos:** en Acciones, Editar a la izquierda y Eliminar (root) a la derecha; mismo tamaño; colores con tokens de tema (`--cc-danger` / ghost).
+- **Grupos:** sección Miembros del drawer de edición contraíble (chevron / Contraer·Expandir); abierta por defecto.
+- **Grupos:** en cabecera del drawer, Activo/Inactivo con bolita + texto verde/rojo (`--cc-ok` / `--cc-danger`).
+- **Grupos:** título «Grupos y canales» con la misma `font-family` (`var(--cc-font)`) que «Canales de radio» en Configuración; sin color acento ni mayúsculas ADMIN; tamaño normal `1.05rem`.
+- **Grupos:** en el drawer de edición, el rol de cada miembro (Miembro / Líder / Solo escucha) se cambia con un `<select>` (antes solo texto).
+- **Grupos:** «Cambiar foto» / «Quitar» en la cabecera del drawer (bajo el avatar); quitado el enlace «Foto» de Identidad.
+- **Grupos:** listado paginado (15 por página, patrón `usr-pager` de Usuarios); búsqueda reinicia a página 1.
+- **Grupos:** tabla densa a ancho completo + panel lateral de edición (sin hueco vacío); alta en modal.
+- **Grupos:** nombre y descripción del canal se pueden modificar después de crearlo.
+- **Grupos:** la descripción del canal se muestra en el listado, debajo del nombre.
+- **Grupos:** tarjeta de canal con layout más claro (foto bajo avatar, alcance y miembros en secciones).
+- **Grupos:** ya no se muestra el ID técnico de sala (`grp_…`) en las tarjetas del catálogo.
+- **Grupos:** el alcance (región / zona / unidad) se puede editar después de crear el canal.
+- **Pestañas (despacho):** al F5 o al cambiar de módulo y volver, se restaura la última pestaña (Admin / Config / Catálogos / filtros de Chats / Mapa·Actividad en tablet).
+- **Alcance 3 (pertenencia / mapa / canales):** sin ocultar ubicación; alta de región solo elige región; usuario de región ve zona/unidad en mapa (territorio de su región); radio sigue por membresía. Ver `Alcance 4.docx`.
+- **Usuarios — edición de admins:** al editar a otro administrador se puede corregir perfil y alcance (región/zona/unidad), no solo identidad. Autoedición sigue limitada a datos básicos.
+- **Usuarios — perfiles:** el alta/edición elige **Perfil de acceso** (`profile_id`); el rol jerárquico se deriva del perfil. Plantillas en Administración → Perfiles.
+- **Usuarios — asignación de roles:** `region_admin` solo designa hacia abajo (`region_user`, zona, unidad); ya no puede crear otro administrador de región. Solo `root` designa `region_admin`.
+- **Administración (móvil):** pestañas con scroll horizontal; en **Más** aparecen Usuarios / Perfiles / Avisos / Grupos / Sitios.
+
+### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
+- **Grupos:** Activo/Inactivo en cabecera del drawer con bolita + verde/rojo (faltaba --cc-ok fuera de .cc-shell).
+- **Grupos:** botones Editar/Eliminar ya no se solapan con la pill Estado; columna Acciones ensanchada y flex solo dentro de un wrapper (no en el `<td>`).
+- **Login obscuro:** tip superior-derecho del marco SICOM reconstruido (PNG 1003×396; ya no cortado en vertical); `?v=9`. `sicom.png` paddeado a la misma caja (`?v=5`).
+- **Grupos (admin):** drawer de edición opaco (portal fuera de `.cc-shell`); inputs/selects visibles en modal «Nuevo canal» y drawer; texto UTF-8 reparado en `DispatchGroups.jsx`.
+- **Web:** pantalla en blanco en `/login` por carácter corrupto al inicio de `DispatchGroups.jsx` (rompía el bundle Vite).
+- **Login obscuro:** restaurado el PNG azul original (971×390) con transparencia real; eliminado recolor defectuoso sobre `sicom.png` (`?v=8`).
+- **Usuarios — perfiles:** 25 cuentas activas con alcance OK y `profile_id` vacío quedaron con el perfil del rol (script `_assign_missing_profiles.js`).
+- **Mapa — presencia:** desactivar Ausente (amarillo) ya no hace desaparecer pines en verde; el filtro remapea ausente→en línea.
 - **APK 1.8.182+192:** Enterado en avisos corta vibración nativa (OEM) de forma fiable.
 - **APK 1.8.181+191:** volumen en llamadas — altavoz por defecto, sin ducking de radio, foco exclusivo.
 - **APK 1.8.180+190:** modal AVISO en celular — texto scrolleable; **Enterado** siempre visible.
 - **APK 1.8.179+189:** Enterado en avisos globales ahora detiene la vibración (carrera start/stop + FCM tardío).
 
 ### Added
+- **Grupos — rol de miembro:** `PATCH /api/admin/groups/:id/members/:userId` para actualizar `member` / `leader` / `listen_only` (auth `requireUserManager` + scope).
+- **Administración — Avisos:** destinatarios por **usuarios específicos** o **canales/grupos** (además de subordinados/zona/unidad/admins). Migración 038.
 - **APK 1.8.178+188:** avisos globales (warning + Enterado) en app; sideload sin OTA → `pulsanet_soporte\APK\`.
 - **Administración — Avisos:** aviso global tipo warning (Enterado obligatorio), alcance subordinados/zona/unidad/admins; socket + push + pendientes al login. No aparece en Chats. Permiso en Perfiles (`avisos`).
 - **Despacho — Chats:** módulo de página `/despacho/chats` (rail + keepalive) para ver/responder mensajes aparte de Radio PTT; notificaciones abren Chats.
@@ -45,6 +138,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Consola — barra ops (maximizado):** pulido a11y/chrome; colapso solo en maximizado.
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Usuarios — admins org:** Admin de región/zona/unidad tienen **Editar** para datos básicos (identidad); rol y alcance no se tocan en ese modal.
 - **Usuarios — editar adscripción:** al guardar `Usuario de zona` se persiste la Zona (antes se perdía y al reabrir quedaba «— Selecciona —»); rehidratación de cascada Región→Zona→Unidad.
 - **Login web — solo app:** usuarios sin consola (`region_user` / `zone_user` / `unit_user`) reciben mensaje claro al entrar y no quedan en pantalla vacía (`/solo-app`); la API rechaza `client=web` sin emitir sesión.
@@ -121,6 +215,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Canales radio APK:** selector inferior solo iconos centrados (sin nombre repetido).
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Consola — Persona select «mocho»:** ellipsis + caret siempre visible en multi-selects ops; con 1 seleccionado, Grado+Cargo compacto + tooltip (como Ruta).
 - **Consola — pines Por grupo:** el pin vuelve a mostrar la foto del grupo (fallback a la del usuario); Por operador sigue con foto individual.
 - **Operadores «En grupo»:** Marcar/Desmarcar con ids explícitos (vacío = ninguno en mapa; 1.ª vez todos); sin bolitas de color de ruta en Persona/En grupo (`showColorDots`).
@@ -164,6 +259,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Pitido PTT (APK 1.8.165 + web):** chirp ascendente al pulsar y descendente al soltar (claro, volumen moderado).
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **APK 1.8.164 Enviar imagen:** botones Cancelar/Enviar ya no quedan bajo la barra del sistema en tablet.
 - **Web llamada — avatar:** la foto del peer vuelve a mostrarse en el overlay (antes caía a iniciales por cache/mapa).
 - **APK 1.8.163 Zumbido:** el botón de enviar zumbido volvió al composer DM (se había perdido al unificar `ChatComposer`).
@@ -200,6 +296,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Notificaciones alta prioridad + llamadas WhatsApp-like:** canales FCM/locales v3 (prioridad max); Contestar/Rechazar en bandeja; minimizar y seguir hablando (FGS + mic); timbre/ringback.
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **PTT flotante trabado AL AIRE:** al estar transmitiendo, el click izquierdo no soltaba; ahora vuelve a hacer toggle/release. Click derecho abre menú también al aire.
 - **Ruta probable naranja no visible (Orión / Hwy 54):** al cancelar el efecto de huecos (Strict Mode / cambio de traza), claves quedaban atrapadas en `pendingRef` y OSRM no se reintentaba; con ~37 huecos en 48 h el naranja nunca aparecía. Fetch en paralelo (6), reintentos más rápidos, contraste naranja subido (`#e87812` opacity 0.58 / weight 14) y marcas temporales en extremos mientras OSRM responde (sin recta por campo).
 
@@ -234,6 +331,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Llamadas web unificadas:** salida/entrada vía `PrivateCallHost`; DM con iconos directos (sin menú «Llamar ▾»).
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Selects del mapa al maximizar:** los MultiSelect (Sitios / Grupos / Ruta) y el PTT flotante portaleaban fuera del elemento en `requestFullscreen`, así que el panel no se veía ni recibía clics. Ahora el portal va al host fullscreen / página maximizada.
 - **Mini reproductor Grabaciones PTT no reproducía:** el `src` del `<audio>` se asigna de forma imperativa (sin esperar a React), el blob fuerza MIME `audio/webm` si el servidor manda vacío/octet-stream, se espera `canplay` antes de `play()`, y el realce Web Audio solo se arma al pedir ×2/×3. Quitado el botón duplicado **Escuchar**; la duración de la fila va en `m:ss` para no montarse sobre el player.
 - **Delimitaciones de estados desfasadas respecto al mapa base (causa raíz):** el desfase no era de render sino de **datos**: se mezclaban dos fuentes distintas — NL/TM/SLP detallados y los otros 29 en `mexicoHigh`, desviado hasta **32 km** — así que cada frontera compartida se dibujaba dos veces en sitios distintos y dejaba rendijas y solapes (visibles entre Nuevo León y Coahuila, y entre San Luis Potosí y Zacatecas). Ahora los **32 estados** salen de una **fuente única INEGI** (geoBoundaries gbOpen MEX ADM1) simplificada preservando topología, de modo que los vecinos comparten vértices idénticos. El área mal etiquetada baja de **4.47 % a 0.02 %** y los solapes a **cero**. Supersede la entrada anterior de «Delimitación IV R.M. (relleno + precisión)».
@@ -246,6 +344,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **UI llamada de voz (web):** foto de perfil del interlocutor; texto y avatar ya no se solapan.
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Llamada entrante:** abre pantalla Contestar (no solo banner); FCM data-only + wake a primer plano.
 - **Aislamiento Ver cámara / videollamada:** sin dependencia cruzada; control robusto. APK **1.8.72+82**.
 - **Cambio frontal/trasera (Ver cámara):** reinicio de track + señal por socket/LiveKit. APK **1.8.71+80**.
@@ -274,6 +373,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Calidad video despacho:** captura/publicación **720p @ ~3.2 Mbps @ 30 FPS (VP8)**; APK **1.8.64+73**.
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Expandir dejaba el video negro:** dos mosaicos enganchaban el mismo track; ahora solo uno activo.
 - **Video pixelado / sin nitidez:** el perfil 540p de estabilidad se sube a 720p con bitrate suficiente.
 
@@ -281,6 +381,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Cámara remota auto:** permiso inicial en el móvil; luego despacho puede activar la cámara sin Contestar (APK **1.8.63+72**).
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Video intermitente / “reconectando”:** ICE en puertos sin UPnP + uplink alto; LiveKit otra vez en UDP **7882**, video 540p estable, reconnect suave. APK **1.8.62+71**.
 - **Video tiles negros (audio OK):** H.264+E2EE → **VP8**; attach por `srcObject`; APK **1.8.61+70**.
 - **Video inestable / parpadeo:** simulcast demasiado pesado + adaptiveStream + republicación agresiva de cámara; ahora ladder 480/720 estable, hold de frame y reconnect suave.
@@ -297,6 +398,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Video en menú + cámara frontal/trasera:** opción Video en menús Radio/chat; en llamada y transmisión grupal se puede cambiar entre cámara frontal y trasera (web + mobile).
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Video consola negro:** preview y mosaico de videollamada; republicación de cámara tras reconectar LiveKit.
 - **APK 1.8.59+68:** ancla permanente `https://pulsanet.duckdns.org` (DuckDNS); deja de romperse al rotar la IP del ISP.
 - **APK 1.8.58+67:** `API_BASE` alineado a IP pública actual (`189.152.160.81.sslip.io`); login con override de servidor.
@@ -326,6 +428,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.8.56] — 2026-09-01
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - UI videollamada: controles sin solapamiento; **Apagar cam** operativo.
 - Estabilizadores de llamada ante caídas breves de red.
 
@@ -347,6 +450,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.8.54] — 2026-09-01
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Videollamada:** cámara automática al contestar (estilo WhatsApp); colgar cierra en ambos usuarios; menú Llamar con opción Video en web/despacho.
 
 ## [1.8.53] — 2026-09-01
@@ -366,6 +470,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - OTA obligatoria si el PTT/LiveKit fallaba tras cambio de IP del ISP.
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Infra IP/LiveKit:** auto-sync de IP pública (`Sync-PublicIp.ps1`); drift de ISP realinea `.env`, Caddy, UPnP y `node-ip` sin intervención manual.
 - **Web LiveKit:** señal siempre por `wss://` mismo origen (proxy `/rtc`); evita error «No se pudo conectar el audio» en consola local HTTPS.
 - **Mobile LiveKit 4G:** `node_ip` fija (`189.152.222.98`) tras cambio de IP del ISP; corrige `MediaConnectException` / ICE timeout en PTT.
@@ -426,6 +531,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Consola: selector multi-canal en **Configuración → Canales**; barra superior muestra canal PTT + enlace.
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
 - **APK llamadas:** foto de perfil en UI de llamada; al tocar el push se abre Contestar (antes se perdía la llamada) (**1.8.44+53**).
 - **APK chat recibido:** burbujas ya no se recortan en el borde izquierdo; hora visible en mensajes cortos (DM + grupo, **1.8.43+52**).
@@ -473,6 +579,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Web chats: notificaciones estilo WhatsApp (tono, banner, título `(N)`, aviso SO al minimizar).
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
 - Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
 - App: WebSocket Socket.IO fallaba con `…sslip.io:0/socket.io` (Dart `Uri.port == 0`); `AppConfig.socketUrl` fuerza `:443`.
@@ -501,6 +608,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Web despacho — panel Usuarios: lista principal con skeleton, búsqueda/filtros, refresh suave y alta en modal.
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
 - Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
 - Mapa seguimiento: «Hace X h» aclara GPS desactualizado (última señal al servidor); timestamps ISO UTC.
@@ -545,6 +653,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Wire AES-GCM ampliado a pánico; GPS REST solo despacho; sin `contentKey` en cliente; `wireKey` solo en memoria; FCM de chat genérico; prod rechaza secretos de ejemplo; health sin detalle crypto en production; TLS móvil solo host API.
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
 - Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
 - Consola HTTPS remota: banner **xhr poll error** (Socket.IO) — mismo origen `/socket.io` vía Vite, WebSocket primero, limpia error al reconectar; mensaje en español si falla el transporte.
@@ -594,6 +703,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Cifrado:** AES-256-GCM de chat/DM en reposo; E2EE LiveKit de voz (PTT/llamadas) por room; wire GPS + TLS entre hosts.
 - APK **1.8.1+5**: secure storage de sesión, tema institucional claro, HTTP con timeouts.
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
 - Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
 - Voz PTT de regreso: LiveKit ICE/URL (LAN + IP externa); el proxy Vite ya no devolvía mal la IP de audio.
@@ -646,6 +756,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Usuarios de prueba/seed/loadtest del entorno; seed solo deja un root de arranque
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
 - Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
 - Consola: identidad LiveKit duplicada al escuchar varios canales (expulsaba la sesión y cortaba el audio)
@@ -737,6 +848,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Mejoras FCM app: canal Android, foreground, token refresh
 
 ### Fixed
+- **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **APK radio 1:1:** vuelve barra PTT arriba del chat (sin pantalla de llamada); llamada de voz sigue fullscreen (**1.8.45+54**).
 - Móvil: ya no secuestra volumen/cámara (audio solo en radio/llamada; mic liberado; APK **1.8.27+36**).
 - Script `start-services.ps1` (encoding PowerShell)

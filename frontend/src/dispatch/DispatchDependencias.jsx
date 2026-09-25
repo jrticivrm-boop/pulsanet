@@ -6,8 +6,8 @@ import {
   createDependenciaUnidad,
   patchDependencia,
   deleteDependencia,
-  isAdminUser,
 } from '../api';
+import { canModuleAction } from './modulePermissions.js';
 import AppDialog from '../AppDialog.jsx';
 
 /** Fila colapsable (misma idea que catNestedRowShell de ParqueVehicular). */
@@ -33,7 +33,9 @@ function NestedRow({ title, count, actions, children, defaultOpen = false }) {
 }
 
 export default function DispatchDependencias({ session }) {
-  const canEdit = isAdminUser(session.user);
+  const canEdit = canModuleAction(session.user, 'catalogos', 'editar');
+  const canAdd = canModuleAction(session.user, 'catalogos', 'agregar');
+  const canDelete = canModuleAction(session.user, 'catalogos', 'eliminar');
   const [tree, setTree] = useState([]);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
@@ -188,7 +190,7 @@ export default function DispatchDependencias({ session }) {
         </p>
       </header>
 
-      {canEdit && (
+      {canAdd && (
         <div className="cc-cat-toolbar cc-dep-root-toolbar">
           <input
             className="cc-cat-input"
@@ -214,40 +216,46 @@ export default function DispatchDependencias({ session }) {
               title={`🗺 ${region.name}`}
               count={(region.children || []).length}
               actions={
-                canEdit ? (
+                canEdit || canAdd || canDelete ? (
                   <>
-                    <button
-                      type="button"
-                      className="cc-cat-edit"
-                      title="Renombrar región"
-                      onClick={() => renameNode(region, 'región')}
-                    >
-                      ✎
-                    </button>
-                    <input
-                      className="cc-cat-input cc-cat-input--sm"
-                      placeholder="Nueva zona militar…"
-                      value={zoneDraft[region.id] || ''}
-                      onChange={(e) => setZoneDraft((d) => ({ ...d, [region.id]: e.target.value }))}
-                      onKeyDown={(e) => e.key === 'Enter' && addZone(region.id)}
-                    />
-                    <button
-                      type="button"
-                      className="cc-btn cc-dep-action-btn"
-                      disabled={busy}
-                      onClick={() => addZone(region.id)}
-                    >
-                      + Zona
-                    </button>
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        className="cc-cat-edit"
+                        title="Renombrar región"
+                        onClick={() => renameNode(region, 'región')}
+                      >
+                        ✎
+                      </button>
+                    ) : null}
+                    {canAdd ? (
+                      <>
+                        <input
+                          className="cc-cat-input cc-cat-input--sm"
+                          placeholder="Nueva zona militar…"
+                          value={zoneDraft[region.id] || ''}
+                          onChange={(e) => setZoneDraft((d) => ({ ...d, [region.id]: e.target.value }))}
+                          onKeyDown={(e) => e.key === 'Enter' && addZone(region.id)}
+                        />
+                        <button
+                          type="button"
+                          className="cc-btn cc-dep-action-btn"
+                          disabled={busy}
+                          onClick={() => addZone(region.id)}
+                        >
+                          + Zona
+                        </button>
+                      </>
+                    ) : null}
                     {region.inUse ? (
                       <span className="cc-cat-lock" title="En uso">
                         🔒
                       </span>
-                    ) : (
+                    ) : canDelete ? (
                       <button type="button" className="cc-cat-rm" title="Eliminar" onClick={() => removeNode(region, 'región')}>
                         ×
                       </button>
-                    )}
+                    ) : null}
                   </>
                 ) : null
               }
@@ -262,36 +270,42 @@ export default function DispatchDependencias({ session }) {
                       title={`📍 ${zone.name}`}
                       count={(zone.children || []).length}
                       actions={
-                        canEdit ? (
+                        canEdit || canAdd || canDelete ? (
                           <>
-                            <button
-                              type="button"
-                              className="cc-cat-edit"
-                              title="Renombrar zona"
-                              onClick={() => renameNode(zone, 'zona')}
-                            >
-                              ✎
-                            </button>
-                            <input
-                              className="cc-cat-input cc-cat-input--sm"
-                              placeholder="Nuevo organismo…"
-                              value={orgDraft[zone.id] || ''}
-                              onChange={(e) => setOrgDraft((d) => ({ ...d, [zone.id]: e.target.value }))}
-                              onKeyDown={(e) => e.key === 'Enter' && addOrganismo(zone.id)}
-                            />
-                            <button
-                              type="button"
-                              className="cc-btn cc-dep-action-btn"
-                              disabled={busy}
-                              onClick={() => addOrganismo(zone.id)}
-                            >
-                              + Organismo
-                            </button>
+                            {canEdit ? (
+                              <button
+                                type="button"
+                                className="cc-cat-edit"
+                                title="Renombrar zona"
+                                onClick={() => renameNode(zone, 'zona')}
+                              >
+                                ✎
+                              </button>
+                            ) : null}
+                            {canAdd ? (
+                              <>
+                                <input
+                                  className="cc-cat-input cc-cat-input--sm"
+                                  placeholder="Nuevo organismo…"
+                                  value={orgDraft[zone.id] || ''}
+                                  onChange={(e) => setOrgDraft((d) => ({ ...d, [zone.id]: e.target.value }))}
+                                  onKeyDown={(e) => e.key === 'Enter' && addOrganismo(zone.id)}
+                                />
+                                <button
+                                  type="button"
+                                  className="cc-btn cc-dep-action-btn"
+                                  disabled={busy}
+                                  onClick={() => addOrganismo(zone.id)}
+                                >
+                                  + Organismo
+                                </button>
+                              </>
+                            ) : null}
                             {zone.inUse ? (
                               <span className="cc-cat-lock" title="En uso">
                                 🔒
                               </span>
-                            ) : (
+                            ) : canDelete ? (
                               <button
                                 type="button"
                                 className="cc-cat-rm"
@@ -300,7 +314,7 @@ export default function DispatchDependencias({ session }) {
                               >
                                 ×
                               </button>
-                            )}
+                            ) : null}
                           </>
                         ) : null
                       }
@@ -344,7 +358,7 @@ export default function DispatchDependencias({ session }) {
                                   🔒
                                 </span>
                               ) : (
-                                canEdit && (
+                                canDelete && (
                                   <button
                                     type="button"
                                     className="cc-cat-rm"

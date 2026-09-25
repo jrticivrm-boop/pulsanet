@@ -4,13 +4,15 @@ import {
   createCatalogEmpleo,
   patchCatalogEmpleo,
   deleteCatalogEmpleo,
-  isAdminUser,
 } from '../api';
+import { canModuleAction } from './modulePermissions.js';
 import AppDialog from '../AppDialog.jsx';
 import { CatItem, CatSection } from './catalogUi.jsx';
 
 export default function CatalogEmpleos({ session }) {
-  const canEdit = isAdminUser(session.user);
+  const canEdit = canModuleAction(session.user, 'catalogos', 'editar');
+  const canAdd = canModuleAction(session.user, 'catalogos', 'agregar');
+  const canDelete = canModuleAction(session.user, 'catalogos', 'eliminar');
   const [empleos, setEmpleos] = useState([]);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
@@ -108,7 +110,7 @@ export default function CatalogEmpleos({ session }) {
         count={empleos.length}
         hint="Se usan como especialidad al dar de alta usuarios (users.specialty)."
         toolbar={
-          canEdit ? (
+          canAdd ? (
             <div className="cc-cat-toolbar" onClick={(e) => e.stopPropagation()}>
               <input
                 className="cc-cat-input"
@@ -134,6 +136,7 @@ export default function CatalogEmpleos({ session }) {
                 label={e.name}
                 inUse={e.inUse}
                 canEdit={canEdit}
+                canDelete={canDelete}
                 onRename={() => askRenameEmpleo(e)}
                 onDelete={() => askDeleteEmpleo(e)}
               />

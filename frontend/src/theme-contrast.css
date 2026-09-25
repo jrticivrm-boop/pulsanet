@@ -361,9 +361,28 @@ select option,
 [data-theme='obscuro'] .wa-send,
 [data-theme='obscuro'] .wa-avatar,
 [data-theme='obscuro'] .cc-btn.primary {
-  background: #3b82f6 !important;
+  background: linear-gradient(180deg, #4b8ef7 0%, #2563eb 100%) !important;
   color: #f8fafc !important;
   border-color: #2563eb !important;
+}
+
+[data-theme='obscuro'] .btn.primary:hover:not(:disabled),
+[data-theme='obscuro'] .cc-btn.primary:hover:not(:disabled),
+[data-theme='obscuro'] .login-submit:hover:not(:disabled) {
+  background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%) !important;
+  border-color: #3b82f6 !important;
+}
+
+[data-theme='obscuro'] .btn.primary:active:not(:disabled),
+[data-theme='obscuro'] .cc-btn.primary:active:not(:disabled) {
+  background: linear-gradient(180deg, #2563eb 0%, #1e40af 100%) !important;
+  border-color: #1e40af !important;
+}
+
+[data-theme='obscuro'] .btn.primary:focus-visible,
+[data-theme='obscuro'] .login-submit:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
 }
 
 [data-theme='obscuro'] .wa-bubble.theirs .wa-voice-play {

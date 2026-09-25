@@ -16,13 +16,16 @@ import {
   loginFailureClientPayload,
   clearLoginFailuresForUser,
   clientIpFromReq,
+  isLoginLockExempt,
 } from '../services/intrusion.js';
 import { mintAvatarTicket } from '../services/avatarTicket.js';
-import { isAdmin, isDispatch } from '../services/roles.js';
+import { isAdmin, isDispatch, isRoot } from '../services/roles.js';
 import {
   normalizeDeviceId,
   notifySessionReplaced,
 } from '../services/sessionPolicy.js';
+import { loadUserProfile } from '../services/userProfile.js';
+import { normalizeModules } from '../services/profiles.js';
 
 export const authRouter = Router();
 
@@ -73,6 +76,12 @@ async function issueRefreshToken(userId, deviceId = null) {
 }
 
 function mapPublicUser(user) {
+  const modules =
+    user.modules && typeof user.modules === 'object'
+      ? user.modules
+      : user.profile_modules && typeof user.profile_modules === 'object'
+        ? user.profile_modules
+        : undefined;
   return {
     id: user.id,
     username: user.username,
@@ -88,6 +97,7 @@ function mapPublicUser(user) {
     canSeeRegion: Boolean(user.can_see_region),
     canSeeZones: Boolean(user.can_see_zones),
     canSeeUnits: Boolean(user.can_see_units),
+    ...(modules ? { modules } : {}),
   };
 }
 
@@ -157,15 +167,33 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
   }
 
   if (user?.login_locked_at) {
-    return res.status(423).json({
-      ok: false,
-      error:
-        'Tu usuario ha sido bloqueado por exceso de intentos. Contacta a un administrador para liberarlo.',
-      code: 'USER_LOCKED',
-      locked: true,
-      warn: true,
-      attemptsRemaining: 0,
-    });
+    // Perfil Administrador (root): no aplicar bloqueo por intentos.
+    if (isLoginLockExempt(user.role) || isRoot(user.role)) {
+      try {
+        await query(
+          `UPDATE users
+           SET login_locked_at = NULL,
+               login_locked_reason = NULL,
+               login_fail_count = 0,
+               updated_at = NOW()
+           WHERE id = $1`,
+          [user.id]
+        );
+        user = { ...user, login_locked_at: null, login_locked_reason: null, login_fail_count: 0 };
+      } catch (err) {
+        console.error('clear root login lock:', err.message);
+      }
+    } else {
+      return res.status(423).json({
+        ok: false,
+        error:
+          'Tu usuario ha sido bloqueado por exceso de intentos. Contacta a un administrador para liberarlo.',
+        code: 'USER_LOCKED',
+        locked: true,
+        warn: true,
+        attemptsRemaining: 0,
+      });
+    }
   }
 
   if (!user || !user.is_active) {
@@ -254,12 +282,16 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
 
   const token = signAccessToken(user);
   const refreshToken = await issueRefreshToken(user.id, deviceId);
+  const live = await loadUserProfile(user.id);
   res.json({
     ok: true,
     token,
     refreshToken,
     expiresIn: config.jwtExpiresIn,
-    user: mapPublicUser(user),
+    user: mapPublicUser({
+      ...user,
+      modules: live?.modules || normalizeModules({}),
+    }),
     ...sessionExtras(user),
   });
 });
@@ -295,14 +327,26 @@ authRouter.post('/refresh', async (req, res) => {
     return res.status(401).json({ ok: false, error: 'Refresh inválido' });
   }
   if (row.login_locked_at) {
-    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [row.uid]);
-    return res.status(423).json({
-      ok: false,
-      error:
-        'Tu usuario ha sido bloqueado por exceso de intentos. Contacta a un administrador para liberarlo.',
-      code: 'USER_LOCKED',
-      locked: true,
-    });
+    if (isLoginLockExempt(row.role) || isRoot(row.role)) {
+      await query(
+        `UPDATE users
+         SET login_locked_at = NULL,
+             login_locked_reason = NULL,
+             login_fail_count = 0,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [row.uid]
+      );
+    } else {
+      await query('DELETE FROM refresh_tokens WHERE user_id = $1', [row.uid]);
+      return res.status(423).json({
+        ok: false,
+        error:
+          'Tu usuario ha sido bloqueado por exceso de intentos. Contacta a un administrador para liberarlo.',
+        code: 'USER_LOCKED',
+        locked: true,
+      });
+    }
   }
   if (new Date(row.expires_at) < new Date()) {
     await query('DELETE FROM refresh_tokens WHERE id = $1', [row.id]);
@@ -331,13 +375,17 @@ authRouter.post('/refresh', async (req, res) => {
     normalizeDeviceId(req.body?.deviceId) || normalizeDeviceId(row.device_id);
   const token = signAccessToken(user);
   const refreshToken = await issueRefreshToken(user.id, deviceId);
+  const live = await loadUserProfile(user.id);
 
   res.json({
     ok: true,
     token,
     refreshToken,
     expiresIn: config.jwtExpiresIn,
-    user: mapPublicUser(user),
+    user: mapPublicUser({
+      ...user,
+      modules: live?.modules || normalizeModules({}),
+    }),
     ...sessionExtras(user),
   });
 });
@@ -381,7 +429,10 @@ authRouter.get('/me', authMiddleware, async (req, res) => {
   res.json({
     ok: true,
     user: {
-      ...mapPublicUser(u),
+      ...mapPublicUser({
+        ...u,
+        modules: req.user.modules || normalizeModules({}),
+      }),
       lastSeenAt: u.last_seen_at,
     },
     ...sessionExtras(u),
@@ -453,12 +504,16 @@ authRouter.post('/change-password', authMiddleware, async (req, res) => {
   const token = signAccessToken(refreshed);
   const refreshToken = await issueRefreshToken(user.id, deviceId);
 
+  const live = await loadUserProfile(refreshed.id);
   res.json({
     ok: true,
     token,
     refreshToken,
     expiresIn: config.jwtExpiresIn,
-    user: mapPublicUser(refreshed),
+    user: mapPublicUser({
+      ...refreshed,
+      modules: live?.modules || normalizeModules({}),
+    }),
     ...sessionExtras(refreshed),
   });
 });

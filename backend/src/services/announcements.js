@@ -2,15 +2,26 @@ import { query } from '../db.js';
 import { loadAdminScope, listScopeUnitIds } from './orgUnits.js';
 import { isRoot, isDispatch, normalizeRole } from './roles.js';
 import { notifyUserDevices } from './fcm.js';
+import { userHasModuleAction } from './moduleAccess.js';
 
 const ADMIN_ROLES = ['root', 'region_admin', 'zone_admin', 'unit_admin', 'admin'];
 
 /**
- * ¿Puede publicar avisos? root siempre; resto según perfil.modules.avisos.agregar
- * (si el módulo no existe en JSON, admins de consola = sí por defecto).
+ * ¿Puede ver listado de avisos? root; resto modules.avisos.ver
+ */
+export function canViewAnnouncements(user) {
+  return userHasModuleAction(user, 'avisos', 'ver');
+}
+
+/**
+ * ¿Puede publicar avisos? root; resto modules.avisos.agregar
  */
 export async function canPublishAnnouncements(user) {
-  if (!user?.sub || !user?.orgId) return false;
+  if (!user?.sub) return false;
+  // Preferir modules en sesión (bindLiveUser); si faltan, recargar desde BD
+  if (user.modules && typeof user.modules === 'object' && Object.keys(user.modules).length) {
+    return userHasModuleAction(user, 'avisos', 'agregar');
+  }
   const role = normalizeRole(user.role);
   if (isRoot(role)) return true;
   if (!isDispatch(role)) return false;
@@ -22,12 +33,11 @@ export async function canPublishAnnouncements(user) {
      WHERE u.id = $1 AND u.organization_id = $2`,
     [user.sub, user.orgId]
   );
-  const modules = rows[0]?.modules || {};
-  const avisos = modules.avisos;
-  if (avisos && typeof avisos === 'object') {
-    return Boolean(avisos.agregar || avisos.ver);
-  }
-  return true;
+  return userHasModuleAction(
+    { ...user, modules: rows[0]?.modules || {} },
+    'avisos',
+    'agregar'
+  );
 }
 
 function parseScopeIds(raw) {
@@ -45,8 +55,14 @@ function audienceLabel(audience, includeAdmins) {
           ? 'Unidad(es) seleccionada(s)'
           : audience === 'admins'
             ? 'Administradores'
-            : 'Alcance';
-  if (includeAdmins && audience !== 'admins') return `${base} + administradores`;
+            : audience === 'users'
+              ? 'Usuario(s) específico(s)'
+              : audience === 'groups'
+                ? 'Canal(es) / grupo(s)'
+                : 'Alcance';
+  if (includeAdmins && audience !== 'admins' && audience !== 'users' && audience !== 'groups') {
+    return `${base} + administradores`;
+  }
   return base;
 }
 
@@ -58,14 +74,26 @@ export async function resolveAnnouncementRecipients({
   actor,
   audience,
   scopeUnitIds = [],
+  targetIds = [],
   includeAdmins = false,
 }) {
   const scope = await loadAdminScope(actor);
   const ids = parseScopeIds(scopeUnitIds);
+  const targets = parseScopeIds(targetIds);
   const aud = String(audience || 'org').trim();
 
   if ((aud === 'zone' || aud === 'unit') && !ids.length) {
     const err = new Error('Selecciona al menos una zona o unidad');
+    err.status = 400;
+    throw err;
+  }
+  if (aud === 'users' && !targets.length) {
+    const err = new Error('Selecciona al menos un usuario');
+    err.status = 400;
+    throw err;
+  }
+  if (aud === 'groups' && !targets.length) {
+    const err = new Error('Selecciona al menos un canal o grupo');
     err.status = 400;
     throw err;
   }
@@ -82,7 +110,75 @@ export async function resolveAnnouncementRecipients({
 
   let userRows = [];
 
-  if (aud === 'org') {
+  if (aud === 'users') {
+    const { rows } = await query(
+      `SELECT id, unit_id, admin_scope_unit_id
+       FROM users
+       WHERE organization_id = $1 AND is_active = TRUE AND id = ANY($2::uuid[])`,
+      [orgId, targets]
+    );
+    if (rows.length !== targets.length) {
+      const err = new Error('Hay usuarios inválidos o inactivos');
+      err.status = 400;
+      throw err;
+    }
+    if (!scope.orgWide) {
+      const allowed = new Set(scope.unitIds || []);
+      for (const r of rows) {
+        const u = r.unit_id ? String(r.unit_id) : null;
+        const a = r.admin_scope_unit_id ? String(r.admin_scope_unit_id) : null;
+        if ((!u || !allowed.has(u)) && (!a || !allowed.has(a))) {
+          const err = new Error('Hay usuarios fuera de tu alcance');
+          err.status = 403;
+          throw err;
+        }
+      }
+    }
+    userRows = rows;
+  } else if (aud === 'groups') {
+    const groupParams = [orgId, targets];
+    let groupScopeSql = '';
+    if (!scope.orgWide) {
+      if (!scope.unitIds?.length) {
+        const err = new Error('Sin alcance para enviar avisos');
+        err.status = 403;
+        throw err;
+      }
+      groupParams.push(scope.unitIds);
+      groupScopeSql = ` AND g.unit_id = ANY($3::uuid[])`;
+    }
+    const { rows: groups } = await query(
+      `SELECT g.id FROM groups g
+       WHERE g.organization_id = $1 AND g.is_active = TRUE AND g.id = ANY($2::uuid[])
+       ${groupScopeSql}`,
+      groupParams
+    );
+    if (groups.length !== targets.length) {
+      const err = new Error('Hay canales fuera de tu alcance o inactivos');
+      err.status = 403;
+      throw err;
+    }
+    const memberParams = [orgId, targets];
+    let memberScopeSql = '';
+    if (!scope.orgWide) {
+      memberParams.push(scope.unitIds);
+      memberScopeSql = ` AND (
+        u.unit_id = ANY($3::uuid[])
+        OR u.admin_scope_unit_id = ANY($3::uuid[])
+      )`;
+    }
+    const { rows } = await query(
+      `SELECT DISTINCT u.id
+       FROM group_members gm
+       INNER JOIN users u ON u.id = gm.user_id
+       WHERE gm.group_id = ANY($2::uuid[])
+         AND u.organization_id = $1
+         AND u.is_active = TRUE
+         ${memberScopeSql}`,
+      memberParams
+    );
+    userRows = rows;
+  } else if (aud === 'org') {
     if (scope.orgWide) {
       const { rows } = await query(
         `SELECT id FROM users WHERE organization_id = $1 AND is_active = TRUE`,
@@ -158,7 +254,7 @@ export async function resolveAnnouncementRecipients({
 
   const recipientIds = new Set(userRows.map((r) => r.id));
 
-  if (includeAdmins && aud !== 'admins') {
+  if (includeAdmins && aud !== 'admins' && aud !== 'users' && aud !== 'groups') {
     let adminRows = [];
     if (scope.orgWide && aud === 'org') {
       const { rows } = await query(
@@ -205,6 +301,7 @@ export async function createAnnouncement({
   body,
   audience,
   scopeUnitIds,
+  targetIds,
   includeAdmins,
   io,
 }) {
@@ -222,11 +319,13 @@ export async function createAnnouncement({
     throw err;
   }
 
+  const aud = String(audience || 'org').trim();
   const recipientIds = await resolveAnnouncementRecipients({
     orgId,
     actor,
-    audience,
+    audience: aud,
     scopeUnitIds,
+    targetIds,
     includeAdmins: Boolean(includeAdmins),
   });
 
@@ -236,18 +335,22 @@ export async function createAnnouncement({
     throw err;
   }
 
+  const storedTargets =
+    aud === 'users' || aud === 'groups' ? parseScopeIds(targetIds) : [];
+
   const { rows } = await query(
     `INSERT INTO announcements (
-       organization_id, created_by, body, audience, scope_unit_ids, include_admins
-     ) VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+       organization_id, created_by, body, audience, scope_unit_ids, target_ids, include_admins
+     ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
      RETURNING id, organization_id, created_by, body, audience, scope_unit_ids,
-               include_admins, created_at`,
+               target_ids, include_admins, created_at`,
     [
       orgId,
       actor.sub,
       text,
-      String(audience || 'org'),
+      aud,
       JSON.stringify(parseScopeIds(scopeUnitIds)),
+      JSON.stringify(storedTargets),
       Boolean(includeAdmins),
     ]
   );

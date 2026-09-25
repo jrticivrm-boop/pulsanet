@@ -61,7 +61,7 @@ export default function ConfigRecordings({ session }) {
       <header className="cc-panel-head" style={{ marginBottom: '1rem' }}>
         <div>
           <h2 style={{ margin: 0 }}>Grabaciones PTT</h2>
-          <p className="cc-hint">Últimas 24 h · se generan al soltar el PTT (consola web)</p>
+          <p className="cc-hint">Últimas 24 h · app y consola web al soltar el PTT</p>
         </div>
       </header>
       {error && <p className="error">{error}</p>}
@@ -70,7 +70,7 @@ export default function ConfigRecordings({ session }) {
         <div className="cc-rec-list">
           {recordings.length === 0 && (
             <p className="cc-empty">
-              Aún no hay grabaciones. Habla por Radio web (PTT) para generar una.
+              Aún no hay grabaciones. Habla por PTT en la app o en la consola web.
             </p>
           )}
           {recordings.map((r) => (

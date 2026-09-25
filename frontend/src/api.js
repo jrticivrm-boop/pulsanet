@@ -609,6 +609,19 @@ export function fetchUserEvents(
   return api(`/api/admin/user-events?${params}`, { token });
 }
 
+/** Notas de voz recientes en chat (auditoría admin · RESERVADO). */
+export function fetchAuditChatAudio(token, { hours = 24, limit = 80 } = {}) {
+  const params = new URLSearchParams();
+  params.set('hours', String(hours));
+  params.set('limit', String(limit));
+  return api(`/api/admin/chat-audio?${params}`, { token });
+}
+
+/** Hilos DM de un operador (solo lectura admin). */
+export function fetchAuditDmConversations(token, userId) {
+  return api(`/api/admin/users/${encodeURIComponent(userId)}/dm/conversations`, { token });
+}
+
 /** Chat DM solo lectura (auditoría Eventos). */
 export function fetchAuditDmMessages(token, userId, peerId, { around = '', limit = 120 } = {}) {
   const params = new URLSearchParams();
@@ -707,6 +720,14 @@ export function removeGroupMember(token, groupId, userId) {
   return api(`/api/admin/groups/${groupId}/members/${userId}`, {
     token,
     method: 'DELETE',
+  });
+}
+
+export function patchGroupMember(token, groupId, userId, role) {
+  return api(`/api/admin/groups/${groupId}/members/${userId}`, {
+    token,
+    method: 'PATCH',
+    body: { role },
   });
 }
 
@@ -1036,9 +1057,9 @@ export async function fetchMediaBlobUrl(token, mediaUrl) {
   if (!res.ok) {
     throw new Error(
       res.status === 401 || res.status === 403
-        ? 'Sin permiso para ver la imagen'
+        ? 'Sin permiso para ver el archivo'
         : res.status === 404
-          ? 'Imagen no encontrada'
+          ? 'Archivo no encontrado'
           : `No se pudo cargar media (${res.status})`
     );
   }

@@ -9,7 +9,14 @@
  */
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { canDispatch, changePassword, fetchAuthMe, login, persistSession, isAdminUser } from './api';
+import {
+  canDispatch,
+  changePassword,
+  fetchAuthMe,
+  login,
+  persistSession,
+} from './api';
+import { canViewModule, canViewTab } from './dispatch/modulePermissions.js';
 import { setLiveWireKey } from './wireCrypto.js';
 import { ThemeToggle, useTheme } from './theme';
 import { ensureNotifyServiceWorker } from './appNotify.js';
@@ -29,6 +36,10 @@ import DispatchGroups from './dispatch/DispatchGroups.jsx';
 import GlobalAnnouncementHost from './dispatch/GlobalAnnouncementHost.jsx';
 import LiveTrackMap from './dispatch/LiveTrackMap.jsx';
 import DispatchVideo from './dispatch/DispatchVideo.jsx';
+import ReservedLayout from './dispatch/ReservedLayout.jsx';
+import ReservedGrabaciones from './dispatch/ReservedGrabaciones.jsx';
+import ReservedChats from './dispatch/ReservedChats.jsx';
+import { DispatchChatsRoute } from './dispatch/DispatchChatsPage.jsx';
 import CatalogsLayout from './dispatch/CatalogsLayout.jsx';
 import CatalogJerarquias from './dispatch/CatalogJerarquias.jsx';
 import CatalogGrades from './dispatch/CatalogGrades.jsx';
@@ -41,7 +52,6 @@ import ConfigBackups from './dispatch/ConfigBackups.jsx';
 import ConfigAudit from './dispatch/ConfigAudit.jsx';
 import ConfigEvents from './dispatch/ConfigEvents.jsx';
 import ConfigChannels from './dispatch/ConfigChannels.jsx';
-import ConfigRecordings from './dispatch/ConfigRecordings.jsx';
 import ConfigPresence from './dispatch/ConfigPresence.jsx';
 import ConfigStates from './dispatch/ConfigStates.jsx';
 import { useLayoutDataAttrs } from './useMediaQuery.js';
@@ -310,10 +320,50 @@ export default function App() {
       >
         <Route index element={<DispatchMap session={session} />} />
         <Route path="seguimiento" element={<LiveTrackMap session={session} />} />
-        <Route path="video" element={<DispatchVideo session={session} />} />
+        <Route
+          path="video"
+          element={
+            canViewModule(session?.user, 'video') ? (
+              <ReservedLayout />
+            ) : (
+              <Navigate to="/despacho" replace />
+            )
+          }
+        >
+          <Route
+            index
+            element={
+              canViewTab(session?.user, 'video', 'video') ? (
+                <DispatchVideo session={session} />
+              ) : (
+                <Navigate to="/despacho/video/grabaciones" replace />
+              )
+            }
+          />
+          <Route
+            path="grabaciones"
+            element={
+              canViewTab(session?.user, 'video', 'grabaciones') ? (
+                <ReservedGrabaciones session={session} />
+              ) : (
+                <Navigate to="/despacho/video" replace />
+              )
+            }
+          />
+          <Route
+            path="chats"
+            element={
+              canViewTab(session?.user, 'video', 'chats') ? (
+                <ReservedChats />
+              ) : (
+                <Navigate to="/despacho/video" replace />
+              )
+            }
+          />
+        </Route>
         <Route path="mapa" element={<Navigate to="/despacho" replace />} />
         <Route path="radio" element={null} />
-        <Route path="chats" element={null} />
+        <Route path="chats" element={<DispatchChatsRoute />} />
         <Route path="catalogos" element={<CatalogsLayout />}>
           <Route path="jerarquias" element={<CatalogJerarquias session={session} />} />
           <Route path="grados" element={<CatalogGrades session={session} />} />
@@ -341,12 +391,15 @@ export default function App() {
           element={session ? <ConfigLayout session={session} /> : <Navigate to="/login" replace />}
         >
           <Route path="canales" element={<ConfigChannels />} />
-          <Route path="grabaciones" element={<ConfigRecordings session={session} />} />
+          <Route
+            path="grabaciones"
+            element={<Navigate to="/despacho/video/grabaciones" replace />}
+          />
           <Route path="estados" element={<ConfigStates />} />
           <Route
             path="respaldos"
             element={
-              isAdminUser(session?.user) ? (
+              canViewTab(session?.user, 'configuracion', 'respaldos') ? (
                 <ConfigBackups session={session} />
               ) : (
                 <Navigate to="/despacho/configuracion/canales" replace />
@@ -356,7 +409,7 @@ export default function App() {
           <Route
             path="eventos"
             element={
-              isAdminUser(session?.user) ? (
+              canViewTab(session?.user, 'configuracion', 'eventos') ? (
                 <ConfigEvents session={session} />
               ) : (
                 <Navigate to="/despacho/configuracion/canales" replace />
@@ -366,7 +419,7 @@ export default function App() {
           <Route
             path="auditoria"
             element={
-              isAdminUser(session?.user) ? (
+              canViewTab(session?.user, 'configuracion', 'auditoria') ? (
                 <ConfigAudit session={session} />
               ) : (
                 <Navigate to="/despacho/configuracion/canales" replace />
@@ -376,7 +429,7 @@ export default function App() {
           <Route
             path="presencia"
             element={
-              isAdminUser(session?.user) ? (
+              canViewTab(session?.user, 'configuracion', 'presencia') ? (
                 <ConfigPresence session={session} />
               ) : (
                 <Navigate to="/despacho/configuracion/canales" replace />
@@ -412,8 +465,8 @@ function LoginPage({ onLogin }) {
   const { theme } = useTheme();
   const loginMark =
     theme === 'obscuro'
-      ? '/brand/tactical_login_obscuro.png?v=3'
-      : '/brand/sicom.png?v=4';
+      ? '/brand/tactical_login_obscuro.png?v=9'
+      : '/brand/sicom.png?v=5';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -530,8 +583,8 @@ function ChangePasswordPage({ session, onDone, onLogout }) {
   const { theme } = useTheme();
   const loginMark =
     theme === 'obscuro'
-      ? '/brand/tactical_login_obscuro.png?v=3'
-      : '/brand/sicom.png?v=4';
+      ? '/brand/tactical_login_obscuro.png?v=9'
+      : '/brand/sicom.png?v=5';
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');

@@ -178,6 +178,7 @@ export default function ReorderableCatalogTabs({ tabs, storageKey, ariaLabel }) 
           <NavLink
             key={t.to}
             to={t.to}
+            end={t.end === true}
             data-tab-to={t.to}
             draggable={false}
             className={({ isActive }) =>

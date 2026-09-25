@@ -66,11 +66,24 @@ export default function GroupVideoPanel({
       <footer className="group-video-controls">
         <button
           type="button"
-          className={`wa-call-btn${gv.muted ? ' off' : ''}`}
+          className={`wa-call-btn${gv.muted || !gv.canPublishAudio ? ' off' : ''}`}
           onClick={gv.toggleMute}
-          title={gv.muted ? 'Activar micrófono' : 'Silenciar'}
+          disabled={!gv.canPublishAudio}
+          title={
+            !gv.canPublishAudio
+              ? 'Solo escucha — puedes mostrar imagen, no el micrófono'
+              : gv.muted
+                ? 'Activar micrófono'
+                : 'Silenciar'
+          }
         >
-          {isConsole ? (gv.muted ? 'Mic off' : 'Mic') : gv.muted ? '🎤✕' : '🎤'}
+          {isConsole
+            ? !gv.canPublishAudio || gv.muted
+              ? 'Mic off'
+              : 'Mic'
+            : !gv.canPublishAudio || gv.muted
+              ? '🎤✕'
+              : '🎤'}
         </button>
         <button
           type="button"

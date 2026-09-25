@@ -435,7 +435,11 @@ export default function RecordingPlayer({ token, recordingId, durationMs, label 
               {bars.map((h, i) => (
                 <i
                   key={i}
-                  className={progress >= ((i + 0.5) / bars.length) * 100 ? 'on' : undefined}
+                  className={
+                    progress > (i / bars.length) * 100 || (i === 0 && progress > 0)
+                      ? 'on'
+                      : undefined
+                  }
                   style={{ height: `${h}%` }}
                 />
               ))}

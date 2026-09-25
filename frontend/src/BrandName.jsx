@@ -15,7 +15,7 @@ export default function BrandName({
       {withLogo ? (
         <img
           className="brand-logo"
-          src="/brand/sicom.png?v=4"
+          src="/brand/sicom.png?v=5"
           alt="SICOM"
           width={logoPx}
           height={Math.round(logoPx * 0.33)}

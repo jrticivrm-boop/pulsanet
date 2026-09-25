@@ -35,11 +35,14 @@ async function loadGroupMember(orgId, groupId, userId, role) {
 }
 
 async function issueGroupVideoCredentials(req, group, roomName) {
+  // Solo escucha: puede iniciar/mostrar imagen; no puede publicar micrófono.
+  const listenOnly = group.member_role === 'listen_only';
   const token = await createRoomToken({
     identity: req.user.sub,
     displayName: req.user.displayName,
     roomName,
-    canPublish: group.member_role !== 'listen_only',
+    canPublish: true,
+    publishMode: listenOnly ? 'camera' : 'all',
   });
   return {
     token,
@@ -47,6 +50,9 @@ async function issueGroupVideoCredentials(req, group, roomName) {
     room: roomName,
     e2eeKey: voiceE2eeKeyForRoom(roomName),
     e2ee: Boolean(voiceE2eeKeyForRoom(roomName)),
+    canPublishAudio: !listenOnly,
+    canPublishVideo: true,
+    memberRole: group.member_role || 'member',
   };
 }
 
@@ -124,9 +130,6 @@ export function createGroupVideoRouter(io) {
     }
     const group = await loadGroupMember(req.user.orgId, req.params.groupId, req.user.sub, req.user.role);
     if (!group) return res.status(403).json({ ok: false, error: 'No eres miembro de este grupo' });
-    if (group.member_role === 'listen_only') {
-      return res.status(403).json({ ok: false, error: 'Solo escucha — no puedes iniciar video' });
-    }
 
     const wasActive = Boolean(getGroupVideoSession(group.id));
     const session = startGroupVideoSession({

@@ -5,13 +5,15 @@ import {
   patchCatalogJerarquia,
   deleteCatalogJerarquia,
   reorderCatalogJerarquias,
-  isAdminUser,
 } from '../api';
+import { canModuleAction } from './modulePermissions.js';
 import AppDialog from '../AppDialog.jsx';
 import { CatItem, CatSection } from './catalogUi.jsx';
 
 export default function CatalogJerarquias({ session }) {
-  const canEdit = isAdminUser(session.user);
+  const canEdit = canModuleAction(session.user, 'catalogos', 'editar');
+  const canAdd = canModuleAction(session.user, 'catalogos', 'agregar');
+  const canDelete = canModuleAction(session.user, 'catalogos', 'eliminar');
   const [items, setItems] = useState([]);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
@@ -215,7 +217,7 @@ export default function CatalogJerarquias({ session }) {
         count={items.length}
         hint="Agrupan los grados (Generales, Jefes, Oficiales, Tropa…)."
         toolbar={
-          canEdit ? (
+          canAdd ? (
             <div className="cc-cat-toolbar" onClick={(e) => e.stopPropagation()}>
               <input
                 className="cc-cat-input"
@@ -250,6 +252,7 @@ export default function CatalogJerarquias({ session }) {
                   label={j.name}
                   inUse={j.inUse}
                   canEdit={canEdit}
+                  canDelete={canDelete}
                   className={cls}
                   title={canEdit ? 'Arrastra para reordenar' : undefined}
                   draggable={canEdit && !busy}

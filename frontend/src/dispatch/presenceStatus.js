@@ -120,6 +120,46 @@ export function visiblePresenceStatusIds({ showAway = true, showOffline = true }
   return ids;
 }
 
+/** Reconciliación del filtro ESTADO cuando la org apaga amarillo/gris. */
+export function reconcilePresenceFilterIds(
+  prevIds,
+  { showAway = true, showOffline = true } = {}
+) {
+  const allowed = visiblePresenceStatusIds({ showAway, showOffline });
+  const allowedSet = new Set(allowed);
+  const prevArr = (prevIds || []).map(String);
+  const mapped = new Set();
+
+  for (const id of prevArr) {
+    if (id === 'away' && showAway === false) {
+      mapped.add('online');
+      continue;
+    }
+    if (id === 'offline' && showOffline === false) {
+      mapped.add('stale');
+      continue;
+    }
+    if (allowedSet.has(id)) mapped.add(id);
+  }
+
+  // Solo estados desactivados quedaban → no dejar el mapa en blanco.
+  // Selección vacía a propósito (Desmarcar) se respeta.
+  if (mapped.size === 0) {
+    if (prevArr.length === 0) return prevArr;
+    return allowed;
+  }
+
+  const next = allowed.filter((id) => mapped.has(id));
+  if (
+    next.length === prevArr.length &&
+    next.every((id, i) => id === prevArr[i]) &&
+    next.every((id) => allowedSet.has(id))
+  ) {
+    return prevArr;
+  }
+  return next.length ? next : allowed;
+}
+
 /**
  * Normaliza clave de presencia (paridad APK inbox_tab_order).
  * @param {string|null|undefined} presence

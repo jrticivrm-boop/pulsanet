@@ -1,35 +1,70 @@
-import { Outlet, Navigate, useLocation } from 'react-router-dom';
+import { useEffect, useMemo } from 'react';
+import { Outlet, Navigate, useLocation, useOutletContext } from 'react-router-dom';
 import ReorderableCatalogTabs from './ReorderableCatalogTabs.jsx';
+import {
+  matchTabPath,
+  readRememberedTab,
+  writeRememberedTab,
+} from './rememberModuleTab.js';
+import { canViewModule, filterTabsByPermission } from './modulePermissions.js';
 
-const TABS = [
-  { to: '/despacho/catalogos/jerarquias', label: 'Jerarquías' },
-  { to: '/despacho/catalogos/grados', label: 'Grados' },
-  { to: '/despacho/catalogos/empleos', label: 'Empleos' },
-  { to: '/despacho/catalogos/dependencias', label: 'Dependencias' },
+const MODULE_ID = 'catalogs';
+const BASE = '/despacho/catalogos';
+
+const ALL_TABS = [
+  { to: `${BASE}/jerarquias`, label: 'Jerarquías', permKey: 'jerarquias' },
+  { to: `${BASE}/grados`, label: 'Grados', permKey: 'grados' },
+  { to: `${BASE}/empleos`, label: 'Empleos', permKey: 'empleos' },
+  { to: `${BASE}/dependencias`, label: 'Dependencias', permKey: 'dependencias' },
 ];
 
 export default function CatalogsLayout() {
   const { pathname } = useLocation();
-  if (pathname === '/despacho/catalogos' || pathname === '/despacho/catalogos/') {
-    return <Navigate to="/despacho/catalogos/jerarquias" replace />;
-  }
-  if (pathname.startsWith('/despacho/catalogos/geocercas')) {
+  const parentCtx = useOutletContext();
+  const session = parentCtx?.session;
+
+  const tabs = useMemo(
+    () => filterTabsByPermission(session?.user, 'catalogos', ALL_TABS),
+    [session?.user]
+  );
+  const tabPaths = useMemo(() => tabs.map((t) => t.to), [tabs]);
+  const fallback = tabs[0]?.to || `${BASE}/jerarquias`;
+
+  useEffect(() => {
+    const matched = matchTabPath(pathname, tabs);
+    if (matched) writeRememberedTab(MODULE_ID, matched);
+  }, [pathname, tabs]);
+
+  if (session?.user && !canViewModule(session.user, 'catalogos')) {
     return <Navigate to="/despacho" replace />;
   }
-  if (pathname.startsWith('/despacho/catalogos/unidades')) {
-    return <Navigate to="/despacho/catalogos/dependencias" replace />;
+
+  if (pathname === BASE || pathname === `${BASE}/`) {
+    const to = readRememberedTab(MODULE_ID, tabPaths, fallback);
+    return <Navigate to={to} replace />;
   }
-  if (pathname.startsWith('/despacho/catalogos/grados-empleos')) {
-    return <Navigate to="/despacho/catalogos/grados" replace />;
+  if (pathname.startsWith(`${BASE}/geocercas`)) {
+    return <Navigate to="/despacho" replace />;
   }
-  if (pathname.startsWith('/despacho/catalogos/usuarios')) {
+  if (pathname.startsWith(`${BASE}/unidades`)) {
+    return <Navigate to={BASE + '/dependencias'} replace />;
+  }
+  if (pathname.startsWith(`${BASE}/grados-empleos`)) {
+    return <Navigate to={BASE + '/grados'} replace />;
+  }
+  if (pathname.startsWith(`${BASE}/usuarios`)) {
     return <Navigate to="/despacho/administracion/usuarios" replace />;
   }
-  if (pathname.startsWith('/despacho/catalogos/grupos')) {
+  if (pathname.startsWith(`${BASE}/grupos`)) {
     return <Navigate to="/despacho/administracion/grupos" replace />;
   }
-  if (pathname.startsWith('/despacho/catalogos/sitios-tacticos')) {
+  if (pathname.startsWith(`${BASE}/sitios-tacticos`)) {
     return <Navigate to="/despacho/administracion/sitios-tacticos" replace />;
+  }
+
+  if (tabs.length) {
+    const allowed = tabPaths.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+    if (!allowed) return <Navigate to={fallback} replace />;
   }
 
   return (
@@ -39,7 +74,7 @@ export default function CatalogsLayout() {
           <h1>Catálogos</h1>
         </div>
         <ReorderableCatalogTabs
-          tabs={TABS}
+          tabs={tabs}
           storageKey="tacticalptx_catalog_tabs_order"
           ariaLabel="Catálogos"
         />

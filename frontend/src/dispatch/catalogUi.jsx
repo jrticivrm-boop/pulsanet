@@ -40,6 +40,7 @@ export function CatItem({
   abbr,
   inUse,
   canEdit,
+  canDelete,
   onRename,
   onDelete,
   className = '',
@@ -50,6 +51,7 @@ export function CatItem({
   onDragEnd,
   title,
 }) {
+  const allowDelete = canDelete != null ? canDelete : canEdit;
   return (
     <div
       className={`cc-cat-item${className ? ` ${className}` : ''}`}
@@ -78,7 +80,7 @@ export function CatItem({
           🔒
         </span>
       ) : (
-        canEdit && (
+        allowDelete && (
           <button
             type="button"
             className="cc-cat-rm"

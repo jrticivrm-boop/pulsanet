@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeToggle, useTheme } from '../theme';
-import { fetchGroups, fetchAuthMe, persistSession, canManageUsers } from '../api';
+import { fetchGroups, fetchAuthMe, persistSession, canManageUsers, isRootUser } from '../api';
+import {
+  canViewModule,
+  canViewAdminRail,
+  filterTabsByPermission,
+  firstAllowedPath,
+} from './modulePermissions.js';
 import { usePtt } from '../usePtt';
 import PttModeSegment from '../PttModeSegment.jsx';
 import { useGpsReporter } from '../useGpsReporter';
@@ -11,23 +17,29 @@ import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../background
 import { esMsg } from '../esMsg';
 import DispatchPanicHost from './DispatchPanicHost.jsx';
 import DispatchGeofenceToastHost from './DispatchGeofenceToastHost.jsx';
-import DispatchChatsPage from './DispatchChatsPage.jsx';
 import RadioPage from '../pages/RadioPage.jsx';
+import { RESERVED_TAB_PATHS } from './ReservedLayout.jsx';
 import { PEER_EVENTS, openPeoplePalette } from '../peerActions';
 import { CHATS_EVENTS, openChatsPanel } from '../chatsPanel';
 import { useIsPhone, useIsCoarsePointer } from '../useMediaQuery.js';
 import { radioSpeakerStatusLabel } from '../radioSpeakerLabel';
 import { SICOM_FULL_NAME } from '../BrandName.jsx';
+import { readRememberedTab } from './rememberModuleTab.js';
 import './command-center.css';
 import '../institutional.css';
 import '../theme-contrast.css';
+
+/** Destino del rail: última pestaña visitada del módulo (o fallback). */
+function moduleEntryPath(moduleId, allowedPaths, fallback) {
+  return readRememberedTab(moduleId, allowedPaths, fallback);
+}
 
 /** Segmento de módulo del rail (no sub-rutas internas). */
 function dispatchModuleSegment(pathname) {
   const p = pathname || '';
   if (p.startsWith('/despacho/radio')) return 'radio';
-  if (p.startsWith('/despacho/chats')) return 'chats';
   if (p.startsWith('/despacho/seguimiento')) return 'track';
+  if (p.startsWith('/despacho/chats')) return 'chats';
   if (p.startsWith('/despacho/video')) return 'video';
   if (p.startsWith('/despacho/catalogos')) return 'catalogs';
   if (
@@ -130,8 +142,9 @@ function ModIcon({ name }) {
     case 'video':
       return (
         <svg {...common}>
-          <rect x="3" y="7" width="12" height="10" rx="1.5" />
-          <path d="M15 10.5 21 7v10l-6-3.5Z" />
+          <path d="M12 3 4 6.5v5.8c0 4.6 3.2 8.9 8 10.2 4.8-1.3 8-5.6 8-10.2V6.5L12 3Z" />
+          <rect x="9.25" y="10.5" width="5.5" height="4.5" rx="1" />
+          <path d="M10.25 10.5V9.25a1.75 1.75 0 0 1 3.5 0V10.5" />
         </svg>
       );
     case 'catalog':
@@ -202,13 +215,12 @@ const NAV = [
     icon: 'ops',
   },
   { id: 'track', to: '/despacho/seguimiento', label: 'Seguimiento', hint: 'Ubicación en vivo', icon: 'track' },
-  { id: 'video', to: '/despacho/video', label: 'Video', hint: 'Cámara y transmisiones', icon: 'video' },
+  { id: 'video', to: '/despacho/video', label: 'RESERVADO', hint: 'Confidencial', icon: 'video' },
   { id: 'radio', to: '/despacho/radio', label: 'Radio PTT', hint: 'Hablar y canales', icon: 'radio' },
-  { id: 'chats', to: '/despacho/chats', label: 'Chats', hint: 'Mensajes y respuestas', icon: 'chat' },
 ];
 
 const NAV_ORDER_KEY = 'tacticalptx_mod_nav_order';
-const DEFAULT_NAV_ORDER = ['ops', 'track', 'video', 'radio', 'chats', 'catalogs', 'admin', 'config'];
+const DEFAULT_NAV_ORDER = ['ops', 'track', 'video', 'radio', 'catalogs', 'admin', 'config'];
 
 function loadNavOrder() {
   try {
@@ -411,7 +423,12 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     location.pathname.startsWith('/despacho/usuarios') ||
     location.pathname.startsWith('/despacho/grupos');
   const configOpen = location.pathname.startsWith('/despacho/configuracion');
-  const showConfig = true;
+  const reservedOpen = location.pathname.startsWith('/despacho/video');
+  const showReserved = canViewModule(session.user, 'video');
+  const showConfig = canViewModule(session.user, 'configuracion');
+  const showCatalogs = canViewModule(session.user, 'catalogos');
+  const showAdmin = canViewAdminRail(session.user);
+  const showTrack = canViewModule(session.user, 'mapa');
 
   function toggleRail() {
     setRailMini((prev) => {
@@ -512,10 +529,24 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     );
 
     if (id === 'catalogs') {
+      if (!showCatalogs) return null;
+      const catalogTabDefs = [
+        { to: '/despacho/catalogos/jerarquias', permKey: 'jerarquias' },
+        { to: '/despacho/catalogos/grados', permKey: 'grados' },
+        { to: '/despacho/catalogos/empleos', permKey: 'empleos' },
+        { to: '/despacho/catalogos/dependencias', permKey: 'dependencias' },
+      ];
+      const allowed = filterTabsByPermission(session.user, 'catalogos', catalogTabDefs).map(
+        (t) => t.to
+      );
+      const catalogsTo = firstAllowedPath(
+        [moduleEntryPath('catalogs', allowed, allowed[0] || '/despacho/catalogos/jerarquias')],
+        '/despacho/catalogos/jerarquias'
+      );
       return (
         <div key={id} className={navSlotClass(id)} {...dragProps}>
           <NavLink
-            to="/despacho/catalogos"
+            to={catalogsTo}
             title="Catálogos"
             className={() => `cc-mod-link${catalogsOpen ? ' active' : ''}`}
           >
@@ -533,10 +564,25 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
     }
 
     if (id === 'admin') {
+      if (!showAdmin) return null;
+      const adminPaths = [
+        ...(canViewModule(session.user, 'usuarios')
+          ? ['/despacho/administracion/usuarios']
+          : []),
+        ...(isRootUser(session?.user) ? ['/despacho/administracion/perfiles'] : []),
+        ...(canViewModule(session.user, 'avisos') ? ['/despacho/administracion/avisos'] : []),
+        ...(canViewModule(session.user, 'grupos') ? ['/despacho/administracion/grupos'] : []),
+        '/despacho/administracion/sitios-tacticos',
+      ];
+      const adminTo = moduleEntryPath(
+        'admin',
+        adminPaths,
+        adminPaths[0] || '/despacho/administracion/usuarios'
+      );
       return (
         <div key={id} className={navSlotClass(id)} {...dragProps}>
           <NavLink
-            to="/despacho/administracion"
+            to={adminTo}
             title="Administración"
             className={() => `cc-mod-link${adminOpen ? ' active' : ''}`}
           >
@@ -553,12 +599,63 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       );
     }
 
-    if (id === 'config') {
-      if (!showConfig) return null;
+    if (id === 'video') {
+      if (!showReserved) return null;
+      const reservedDefs = [
+        { to: '/despacho/video', permKey: 'video', end: true },
+        { to: '/despacho/video/grabaciones', permKey: 'grabaciones' },
+        { to: '/despacho/video/chats', permKey: 'chats' },
+      ];
+      const allowedReserved = filterTabsByPermission(session.user, 'video', reservedDefs).map(
+        (t) => t.to
+      );
+      const videoTo = moduleEntryPath(
+        'video',
+        allowedReserved.length ? allowedReserved : RESERVED_TAB_PATHS,
+        allowedReserved[0] || '/despacho/video'
+      );
       return (
         <div key={id} className={navSlotClass(id)} {...dragProps}>
           <NavLink
-            to="/despacho/configuracion"
+            to={videoTo}
+            title="RESERVADO"
+            className={() => `cc-mod-link${reservedOpen ? ' active' : ''}`}
+          >
+            {handle}
+            <span className="cc-mod-link-icon">
+              <ModIcon name="video" />
+            </span>
+            <span className="cc-mod-link-text">
+              <span className="cc-mod-link-title">RESERVADO</span>
+              <span className="cc-mod-link-hint">Confidencial</span>
+            </span>
+          </NavLink>
+        </div>
+      );
+    }
+
+    if (id === 'config') {
+      if (!showConfig) return null;
+      const configDefs = [
+        { to: '/despacho/configuracion/canales', permKey: 'canales' },
+        { to: '/despacho/configuracion/estados', permKey: 'estados' },
+        { to: '/despacho/configuracion/respaldos', permKey: 'respaldos' },
+        { to: '/despacho/configuracion/presencia', permKey: 'presencia' },
+        { to: '/despacho/configuracion/eventos', permKey: 'eventos' },
+        { to: '/despacho/configuracion/auditoria', permKey: 'auditoria' },
+      ];
+      const allowedConfig = filterTabsByPermission(session.user, 'configuracion', configDefs).map(
+        (t) => t.to
+      );
+      const configTo = moduleEntryPath(
+        'config',
+        allowedConfig,
+        allowedConfig[0] || '/despacho/configuracion/canales'
+      );
+      return (
+        <div key={id} className={navSlotClass(id)} {...dragProps}>
+          <NavLink
+            to={configTo}
             title="Configuración"
             className={() => `cc-mod-link${configOpen ? ' active' : ''}`}
           >
@@ -574,6 +671,8 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
         </div>
       );
     }
+
+    if (id === 'track' && !showTrack) return null;
 
     const item = NAV.find((n) => n.id === id);
     if (!item) return null;
@@ -977,8 +1076,8 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
 
   const path = location.pathname;
   const tabRadio = path.startsWith('/despacho/radio');
-  const tabChats = path.startsWith('/despacho/chats');
-  const keepaliveMain = onRadioPage || onChatsPage;
+  const tabChats = onChatsPage;
+  const keepaliveMain = onRadioPage;
   const tabMore =
     !tabRadio &&
     !tabChats &&
@@ -1227,27 +1326,12 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
               />
             </div>
             <div
-              className={`cc-chats-keepalive${onChatsPage ? '' : ' is-parked'}`}
-              aria-hidden={!onChatsPage}
-            >
-              <DispatchChatsPage
-                session={session}
-                groups={groups}
-                group={group}
-                onSelectGroup={onGroupChange}
-                ptt={ptt}
-                visible={onChatsPage}
-              />
-            </div>
-            <div
               className={`cc-outlet-panel${keepaliveMain ? ' is-parked' : ''}`}
               aria-hidden={keepaliveMain}
             >
-              {/* Remount al cambiar de módulo (F5 de datos). Radio/Chats viven fuera en keepalive. */}
+              {/* Remount al cambiar de módulo (F5 de datos). Radio vive fuera en keepalive. */}
               <Outlet
-                key={
-                  moduleSeg === 'radio' || moduleSeg === 'chats' ? 'outlet-parked' : moduleSeg
-                }
+                key={moduleSeg === 'radio' ? 'outlet-parked' : moduleSeg}
                 context={outletContext}
               />
             </div>
@@ -1279,7 +1363,11 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
               </button>
             </div>
             <nav className="cc-phone-more-nav" aria-label="Módulos">
-              {NAV.map((item) => (
+              {NAV.filter((item) => {
+                if (item.id === 'video') return showReserved;
+                if (item.id === 'track') return showTrack;
+                return true;
+              }).map((item) => (
                 <NavLink
                   key={item.id}
                   to={item.to}
@@ -1296,35 +1384,117 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                   </span>
                 </NavLink>
               ))}
-              <NavLink
-                to="/despacho/catalogos"
-                className={() => `cc-phone-more-link${catalogsOpen ? ' active' : ''}`}
-                onClick={() => setMoreOpen(false)}
-              >
-                <span className="cc-mod-link-icon">
-                  <ModIcon name="catalog" />
-                </span>
-                <span>
-                  <strong>Catálogos</strong>
-                  <small>Jerarquías, grados y más</small>
-                </span>
-              </NavLink>
-              <NavLink
-                to="/despacho/administracion"
-                className={() => `cc-phone-more-link${adminOpen ? ' active' : ''}`}
-                onClick={() => setMoreOpen(false)}
-              >
-                <span className="cc-mod-link-icon">
-                  <ModIcon name="users" />
-                </span>
-                <span>
-                  <strong>Administración</strong>
-                  <small>Usuarios, grupos y sitios</small>
-                </span>
-              </NavLink>
+              {showCatalogs ? (
+                <NavLink
+                  to={moduleEntryPath(
+                    'catalogs',
+                    filterTabsByPermission(session.user, 'catalogos', [
+                      { to: '/despacho/catalogos/jerarquias', permKey: 'jerarquias' },
+                      { to: '/despacho/catalogos/grados', permKey: 'grados' },
+                      { to: '/despacho/catalogos/empleos', permKey: 'empleos' },
+                      { to: '/despacho/catalogos/dependencias', permKey: 'dependencias' },
+                    ]).map((t) => t.to),
+                    '/despacho/catalogos/jerarquias'
+                  )}
+                  className={() => `cc-phone-more-link${catalogsOpen ? ' active' : ''}`}
+                  onClick={() => setMoreOpen(false)}
+                >
+                  <span className="cc-mod-link-icon">
+                    <ModIcon name="catalog" />
+                  </span>
+                  <span>
+                    <strong>Catálogos</strong>
+                    <small>Jerarquías, grados y más</small>
+                  </span>
+                </NavLink>
+              ) : null}
+              {showAdmin ? (
+                <div className="cc-phone-more-group" role="group" aria-label="Administración">
+                  <p className="cc-phone-more-group-label">Administración</p>
+                  {canViewModule(session.user, 'usuarios') ? (
+                    <NavLink
+                      to="/despacho/administracion/usuarios"
+                      className={({ isActive }) =>
+                        `cc-phone-more-link cc-phone-more-sub${isActive ? ' active' : ''}`
+                      }
+                      onClick={() => setMoreOpen(false)}
+                    >
+                      <span>
+                        <strong>Usuarios</strong>
+                        <small>Altas y alcance</small>
+                      </span>
+                    </NavLink>
+                  ) : null}
+                  {isRootUser(session.user) ? (
+                    <NavLink
+                      to="/despacho/administracion/perfiles"
+                      className={({ isActive }) =>
+                        `cc-phone-more-link cc-phone-more-sub${isActive ? ' active' : ''}`
+                      }
+                      onClick={() => setMoreOpen(false)}
+                    >
+                      <span>
+                        <strong>Perfiles</strong>
+                        <small>Permisos y módulos</small>
+                      </span>
+                    </NavLink>
+                  ) : null}
+                  {canViewModule(session.user, 'avisos') ? (
+                    <NavLink
+                      to="/despacho/administracion/avisos"
+                      className={({ isActive }) =>
+                        `cc-phone-more-link cc-phone-more-sub${isActive ? ' active' : ''}`
+                      }
+                      onClick={() => setMoreOpen(false)}
+                    >
+                      <span>
+                        <strong>Avisos</strong>
+                        <small>Alertas globales</small>
+                      </span>
+                    </NavLink>
+                  ) : null}
+                  {canViewModule(session.user, 'grupos') ? (
+                    <NavLink
+                      to="/despacho/administracion/grupos"
+                      className={({ isActive }) =>
+                        `cc-phone-more-link cc-phone-more-sub${isActive ? ' active' : ''}`
+                      }
+                      onClick={() => setMoreOpen(false)}
+                    >
+                      <span>
+                        <strong>Grupos</strong>
+                        <small>Canales PTT</small>
+                      </span>
+                    </NavLink>
+                  ) : null}
+                  <NavLink
+                    to="/despacho/administracion/sitios-tacticos"
+                    className={({ isActive }) =>
+                      `cc-phone-more-link cc-phone-more-sub${isActive ? ' active' : ''}`
+                    }
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    <span>
+                      <strong>Sitios</strong>
+                      <small>Sitios tácticos</small>
+                    </span>
+                  </NavLink>
+                </div>
+              ) : null}
               {showConfig && (
                 <NavLink
-                  to="/despacho/configuracion"
+                  to={moduleEntryPath(
+                    'config',
+                    filterTabsByPermission(session.user, 'configuracion', [
+                      { to: '/despacho/configuracion/canales', permKey: 'canales' },
+                      { to: '/despacho/configuracion/estados', permKey: 'estados' },
+                      { to: '/despacho/configuracion/respaldos', permKey: 'respaldos' },
+                      { to: '/despacho/configuracion/presencia', permKey: 'presencia' },
+                      { to: '/despacho/configuracion/eventos', permKey: 'eventos' },
+                      { to: '/despacho/configuracion/auditoria', permKey: 'auditoria' },
+                    ]).map((t) => t.to),
+                    '/despacho/configuracion/canales'
+                  )}
                   className={() => `cc-phone-more-link${configOpen ? ' active' : ''}`}
                   onClick={() => setMoreOpen(false)}
                 >

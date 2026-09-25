@@ -116,16 +116,28 @@ app.use(
     skip: (req) => {
       const p = req.path || '';
       // Salud/OTA: cupo propio. GPS poll (auth en la ruta): no gastar el global.
-      return (
+      if (
         p === '/api/health' ||
         p.startsWith('/api/health/') ||
         p === '/api/app' ||
-        p.startsWith('/api/app/') ||
-        (req.method === 'GET' &&
-          (p === '/api/locations' ||
-            p.startsWith('/api/locations/') ||
-            p === '/api/admin/overview'))
-      );
+        p.startsWith('/api/app/')
+      ) {
+        return true;
+      }
+      if (req.method !== 'GET') return false;
+      if (
+        p === '/api/locations' ||
+        p.startsWith('/api/locations/') ||
+        p === '/api/admin/overview'
+      ) {
+        return true;
+      }
+      // RESERVADO (grabaciones + conversaciones): lecturas admin en 1–3 requests, no ráfagas.
+      if (p === '/api/recordings' || p.startsWith('/api/recordings/')) return true;
+      if (p === '/api/admin/chat-audio') return true;
+      if (p === '/api/admin/users') return true;
+      if (/^\/api\/admin\/users\/[^/]+\/(groups|dm\/conversations)$/.test(p)) return true;
+      return false;
     },
   })
 );

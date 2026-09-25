@@ -49,11 +49,13 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
   const [cameraOn, setCameraOn] = useState(false);
   const [facingMode, setFacingMode] = useState('user');
   const [muted, setMuted] = useState(false);
+  const [canPublishAudio, setCanPublishAudio] = useState(true);
   const [tiles, setTiles] = useState([]);
   const roomRef = useRef(null);
   const micRef = useRef(null);
   const camRef = useRef(null);
   const facingModeRef = useRef('user');
+  const canPublishAudioRef = useRef(true);
   const audioEls = useRef([]);
   const closingRef = useRef(false);
   const pingRef = useRef(null);
@@ -220,23 +222,33 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
       await room.connect(publicLiveKitUrl(data.url), data.token);
       assertMediaDevices();
 
+      // Solo escucha: imagen sí, micrófono no (token LiveKit solo CAMERA).
+      const audioAllowed = data.canPublishAudio !== false && data.memberRole !== 'listen_only';
+      canPublishAudioRef.current = audioAllowed;
+      setCanPublishAudio(audioAllowed);
+
       let micOk = false;
-      try {
-        const mic = await createLocalAudioTrack({
-          echoCancellation: true,
-          noiseSuppression: false,
-          autoGainControl: true,
-        });
-        micRef.current = mic;
-        await room.localParticipant.publishTrack(mic, {
-          source: Track.Source.Microphone,
-          audioPreset: AudioPresets.speech,
-          dtx: false,
-          red: false,
-        });
-        micOk = true;
-        setMuted(false);
-      } catch {
+      if (audioAllowed) {
+        try {
+          const mic = await createLocalAudioTrack({
+            echoCancellation: true,
+            noiseSuppression: false,
+            autoGainControl: true,
+          });
+          micRef.current = mic;
+          await room.localParticipant.publishTrack(mic, {
+            source: Track.Source.Microphone,
+            audioPreset: AudioPresets.speech,
+            dtx: false,
+            red: false,
+          });
+          micOk = true;
+          setMuted(false);
+        } catch {
+          micRef.current = null;
+          setMuted(true);
+        }
+      } else {
         micRef.current = null;
         setMuted(true);
       }
@@ -249,7 +261,11 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
         setCameraOn(true);
       } catch (e) {
         setCameraOn(false);
-        if (!micOk) {
+        if (!audioAllowed) {
+          setStatus(
+            esMsg(e, 'Conectado sin cámara — pulsa el botón de cámara (solo imagen; sin micrófono)')
+          );
+        } else if (!micOk) {
           setStatus(
             'Conectado sin micrófono ni cámara — usa Mic / Cámara cuando el navegador lo permita'
           );
@@ -260,12 +276,13 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
 
       setActive(true);
       setParticipantCount(data.session?.participantCount || 1);
+      const baseName = data.session?.groupName || groupName || 'Grupo';
       if (cam && micOk) {
-        setStatus(`Transmisión · ${data.session?.groupName || groupName || 'Grupo'}`);
+        setStatus(`Transmisión · ${baseName}`);
+      } else if (cam && !audioAllowed) {
+        setStatus(`Transmisión · ${baseName} · solo imagen (sin micrófono)`);
       } else if (cam && !micOk) {
-        setStatus(
-          `Transmisión · ${data.session?.groupName || groupName || 'Grupo'} · sin micrófono`
-        );
+        setStatus(`Transmisión · ${baseName} · sin micrófono`);
       }
 
       pingRef.current = setInterval(() => {
@@ -357,6 +374,17 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
     const room = roomRef.current;
     let mic = micRef.current;
     if (!room) return;
+
+    // Solo escucha / sin permiso de audio: no se puede activar el mic.
+    if (!canPublishAudioRef.current) {
+      setMuted(true);
+      setStatus((s) =>
+        s?.includes('solo imagen')
+          ? s
+          : `Transmisión · ${groupName || 'Grupo'} · solo imagen (sin micrófono)`
+      );
+      return;
+    }
 
     // Si nunca hubo mic (permiso bloqueado al conectar), intentar crearlo al activar.
     if (!mic && muted) {
@@ -458,6 +486,7 @@ export function useGroupVideo({ token, groupId, groupIds, groupName, enabled, on
     participantCount,
     cameraOn,
     muted,
+    canPublishAudio,
     tiles: displayTiles,
     facingMode,
     connect,

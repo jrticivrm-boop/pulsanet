@@ -19,8 +19,8 @@ livekitRouter.get('/status', (req, res) => {
 });
 
 /**
- * Token para unirse a la room LiveKit de un grupo.
- * Solo miembros del grupo. listen_only → canPublish false.
+ * Token para la room LiveKit de radio PTT del grupo.
+ * Solo miembros. listen_only (o listenOnly de despacho) → sin publicar audio.
  */
 livekitRouter.post('/token', async (req, res) => {
   const { groupId } = req.body || {};
@@ -58,18 +58,20 @@ livekitRouter.post('/token', async (req, res) => {
     return res.status(403).json({ ok: false, error: 'No eres miembro de este grupo' });
   }
 
-  const listenOnly = Boolean(req.body?.listenOnly) && isDispatch(req.user.role);
-  const canPublish = listenOnly ? false : group.member_role !== 'listen_only';
-  const identity = listenOnly
+  const dispatchListen = Boolean(req.body?.listenOnly) && isDispatch(req.user.role);
+  const memberListenOnly = group.member_role === 'listen_only';
+  const noPublish = dispatchListen || memberListenOnly;
+  const identity = dispatchListen
     ? `${req.user.sub}:listen:${group.livekit_room}`
     : req.user.sub;
   const token = await createRoomToken({
     identity,
-    displayName: listenOnly
+    displayName: dispatchListen
       ? `${req.user.displayName || 'Despacho'} (escucha)`
       : req.user.displayName,
     roomName: group.livekit_room,
-    canPublish,
+    canPublish: !noPublish,
+    publishMode: noPublish ? 'none' : 'all',
   });
 
   res.json({
@@ -79,7 +81,7 @@ livekitRouter.post('/token', async (req, res) => {
     room: group.livekit_room,
     groupId: group.id,
     groupName: group.name,
-    canPublish,
+    canPublish: !noPublish,
     e2eeKey: voiceE2eeKeyForRoom(group.livekit_room),
     e2ee: Boolean(voiceE2eeKeyForRoom(group.livekit_room)),
   });

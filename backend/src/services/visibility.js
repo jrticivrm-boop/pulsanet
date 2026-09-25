@@ -1,9 +1,9 @@
 /**
- * Visibilidad en mapa / listados.
- * Perfil (matriz) define la base; ocultar y nivel de share la ajustan en vivo.
- * Administrador (root) ve siempre a todos.
+ * Visibilidad en mapa / listados (Alcance 3).
+ * Solo jerarquía + matriz: nadie «oculta» ubicación.
+ * Abajo no ve arriba; región ve hacia abajo en su territorio (filtro geo aparte).
  */
-import { normalizeRole, isRoot, isUserProfile } from './roles.js';
+import { normalizeRole, isRoot } from './roles.js';
 
 export const RANK = {
   root: 100,
@@ -15,11 +15,20 @@ export const RANK = {
   unit_user: 30,
 };
 
-/** Matriz por defecto: viewerRole → targetRoles visibles (antes de ocultar/share/territorio). */
+/** Matriz por defecto: viewerRole → targetRoles visibles. */
 export const DEFAULT_SEE = {
   root: ['root', 'region_admin', 'region_user', 'zone_admin', 'zone_user', 'unit_admin', 'unit_user'],
   region_admin: ['region_admin', 'region_user', 'zone_admin', 'zone_user', 'unit_admin', 'unit_user'],
-  region_user: ['region_admin', 'region_user'],
+  // Alcance 3: usuario de región ve toda su región (zonas y unidades) en matriz;
+  // el territorio concreto lo recorta loadTrackScope.
+  region_user: [
+    'region_admin',
+    'region_user',
+    'zone_admin',
+    'zone_user',
+    'unit_admin',
+    'unit_user',
+  ],
   zone_admin: ['zone_admin', 'zone_user', 'unit_admin', 'unit_user'],
   zone_user: ['zone_user'],
   unit_admin: ['unit_admin', 'unit_user'],
@@ -41,23 +50,8 @@ export function matrixAllows(viewerRole, targetRole, matrix) {
 }
 
 /**
- * Share del objetivo: ¿el observador (no superior estricto) alcanza ese nivel?
- * Superiores se evalúan aparte.
- */
-function shareReachesViewer(share, viewerRole) {
-  const s = share || 'peers';
-  const vr = normalizeRole(viewerRole);
-  if (s === 'hidden') return false;
-  if (s === 'peers') return true;
-  if (s === 'region') return true;
-  if (s === 'zone') return vr !== 'region_admin' && vr !== 'region_user' && vr !== 'root';
-  if (s === 'unit') return vr === 'unit_admin' || vr === 'unit_user';
-  return true;
-}
-
-/**
  * @param {object} viewer { id, role, profileVisibility? }
- * @param {object} target { id, role, locationShare }
+ * @param {object} target { id, role, locationShare? } — locationShare se ignora (Alcance 3)
  */
 export function canSeePerson(viewer, target) {
   if (!viewer || !target) return false;
@@ -68,19 +62,11 @@ export function canSeePerson(viewer, target) {
 
   if (!matrixAllows(vr, tr, viewer.profileVisibility)) return false;
 
-  const share = target.locationShare || (isUserProfile(tr) ? 'peers' : 'region');
-  const hidden = share === 'hidden';
-  const viewerRank = rankOf(vr);
-  const targetRank = rankOf(tr);
-  const superior = viewerRank > targetRank;
+  // Solo matriz + jerarquía. location_share / «ocultar» ya no aplican.
+  return true;
+}
 
-  if (hidden) {
-    if (!superior) return false;
-    // Usuario de región no ve admin de zona oculto (aunque su rango sea mayor).
-    if (vr === 'region_user' && tr === 'zone_admin') return false;
-    return true;
-  }
-
-  if (superior) return true;
-  return shareReachesViewer(share, vr);
+/** @deprecated Alcance 3 — conservado por si algún test importa RANK vía side-effect */
+export function rankOfRole(role) {
+  return rankOf(role);
 }

@@ -129,7 +129,22 @@ export default function CommandCenter({ session }) {
   const [groupVideo, setGroupVideo] = useState(null);
   const [groupVideoLive, setGroupVideoLive] = useState({});
   /** Tablet/phone: una superficie primaria (mapa | actividad). */
-  const [ccSurface, setCcSurface] = useState('map');
+  const [ccSurface, setCcSurface] = useState(() => {
+    try {
+      const v = localStorage.getItem('tacticalptx_cc_surface');
+      if (v === 'activity' || v === 'map') return v;
+    } catch {
+      /* ignore */
+    }
+    return 'map';
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('tacticalptx_cc_surface', ccSurface);
+    } catch {
+      /* ignore */
+    }
+  }, [ccSurface]);
   const [mapLayer] = useState(() => loadStoredMapLayer());
   const mapTile = MAP_TILE_LAYERS[mapLayer] || MAP_TILE_LAYERS.natural;
   const { sites: tacticalSites, visibleGroupIds, iconBlobs, layerBar: tacticalLayerBar } = useTacticalSites(

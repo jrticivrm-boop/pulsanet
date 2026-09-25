@@ -15,32 +15,23 @@ import {
   reorderJerarquias,
   reorderGrades,
 } from '../services/catalogs.js';
-import { isAdmin, canManageUsers } from '../services/roles.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { requireModuleAction } from '../services/moduleAccess.js';
 
 export const catalogsRouter = Router();
 catalogsRouter.use(authMiddleware);
 
-function requireCatalogView(req, res, next) {
-  if (!canManageUsers(req.user.role) && req.user.role !== 'dispatcher') {
-    return res.status(403).json({ ok: false, error: 'Sin permiso' });
-  }
-  next();
-}
-
-function requireCatalogEdit(req, res, next) {
-  if (!isAdmin(req.user.role)) {
-    return res.status(403).json({ ok: false, error: 'Solo root o admin pueden editar catálogos' });
-  }
-  next();
-}
+const requireView = requireModuleAction('catalogos', 'ver');
+const requireAdd = requireModuleAction('catalogos', 'agregar');
+const requireEdit = requireModuleAction('catalogos', 'editar');
+const requireDelete = requireModuleAction('catalogos', 'eliminar');
 
 function sendErr(res, err) {
   const status = err.status || 500;
   res.status(status).json({ ok: false, error: err.message || 'Error' });
 }
 
-catalogsRouter.get('/grades-empleos', requireCatalogView, async (req, res) => {
+catalogsRouter.get('/grades-empleos', requireView, async (req, res) => {
   try {
     const [grades, empleos, jerarquias] = await Promise.all([
       listGrades(req.user.orgId),
@@ -53,7 +44,7 @@ catalogsRouter.get('/grades-empleos', requireCatalogView, async (req, res) => {
   }
 });
 
-catalogsRouter.get('/jerarquias', requireCatalogView, async (req, res) => {
+catalogsRouter.get('/jerarquias', requireView, async (req, res) => {
   try {
     const jerarquias = await listJerarquias(req.user.orgId);
     res.json({ ok: true, jerarquias });
@@ -62,7 +53,7 @@ catalogsRouter.get('/jerarquias', requireCatalogView, async (req, res) => {
   }
 });
 
-catalogsRouter.post('/jerarquias', requireCatalogEdit, async (req, res) => {
+catalogsRouter.post('/jerarquias', requireAdd, async (req, res) => {
   try {
     const row = await createJerarquia(req.user.orgId, req.body || {});
     res.status(201).json({ ok: true, jerarquia: row });
@@ -71,7 +62,7 @@ catalogsRouter.post('/jerarquias', requireCatalogEdit, async (req, res) => {
   }
 });
 
-catalogsRouter.put('/jerarquias/reorder', requireCatalogEdit, async (req, res) => {
+catalogsRouter.put('/jerarquias/reorder', requireEdit, async (req, res) => {
   try {
     const jerarquias = await reorderJerarquias(req.user.orgId, req.body?.ids);
     res.json({ ok: true, jerarquias });
@@ -80,16 +71,7 @@ catalogsRouter.put('/jerarquias/reorder', requireCatalogEdit, async (req, res) =
   }
 });
 
-catalogsRouter.post('/jerarquias/reorder', requireCatalogEdit, async (req, res) => {
-  try {
-    const jerarquias = await reorderJerarquias(req.user.orgId, req.body?.ids);
-    res.json({ ok: true, jerarquias });
-  } catch (err) {
-    sendErr(res, err);
-  }
-});
-
-catalogsRouter.patch('/jerarquias/:id', requireCatalogEdit, async (req, res) => {
+catalogsRouter.patch('/jerarquias/:id', requireEdit, async (req, res) => {
   try {
     const row = await renameJerarquia(req.user.orgId, req.params.id, req.body || {});
     res.json({ ok: true, jerarquia: row });
@@ -98,7 +80,7 @@ catalogsRouter.patch('/jerarquias/:id', requireCatalogEdit, async (req, res) => 
   }
 });
 
-catalogsRouter.delete('/jerarquias/:id', requireCatalogEdit, async (req, res) => {
+catalogsRouter.delete('/jerarquias/:id', requireDelete, async (req, res) => {
   try {
     await deleteJerarquia(req.user.orgId, req.params.id);
     res.json({ ok: true });
@@ -107,7 +89,7 @@ catalogsRouter.delete('/jerarquias/:id', requireCatalogEdit, async (req, res) =>
   }
 });
 
-catalogsRouter.post('/grades', requireCatalogEdit, async (req, res) => {
+catalogsRouter.post('/grades', requireAdd, async (req, res) => {
   try {
     const row = await createGrade(req.user.orgId, req.body || {});
     res.status(201).json({ ok: true, grade: row });
@@ -116,7 +98,7 @@ catalogsRouter.post('/grades', requireCatalogEdit, async (req, res) => {
   }
 });
 
-catalogsRouter.post('/grades/reorder', requireCatalogEdit, async (req, res) => {
+catalogsRouter.post('/grades/reorder', requireEdit, async (req, res) => {
   try {
     const grades = await reorderGrades(req.user.orgId, req.body?.ids);
     res.json({ ok: true, grades });
@@ -125,7 +107,7 @@ catalogsRouter.post('/grades/reorder', requireCatalogEdit, async (req, res) => {
   }
 });
 
-catalogsRouter.patch('/grades/:id', requireCatalogEdit, async (req, res) => {
+catalogsRouter.patch('/grades/:id', requireEdit, async (req, res) => {
   try {
     const row = await renameGrade(req.user.orgId, req.params.id, req.body || {});
     res.json({ ok: true, grade: row });
@@ -134,7 +116,7 @@ catalogsRouter.patch('/grades/:id', requireCatalogEdit, async (req, res) => {
   }
 });
 
-catalogsRouter.delete('/grades/:id', requireCatalogEdit, async (req, res) => {
+catalogsRouter.delete('/grades/:id', requireDelete, async (req, res) => {
   try {
     await deleteGrade(req.user.orgId, req.params.id);
     res.json({ ok: true });
@@ -143,7 +125,7 @@ catalogsRouter.delete('/grades/:id', requireCatalogEdit, async (req, res) => {
   }
 });
 
-catalogsRouter.post('/empleos', requireCatalogEdit, async (req, res) => {
+catalogsRouter.post('/empleos', requireAdd, async (req, res) => {
   try {
     const row = await createEmpleo(req.user.orgId, req.body || {});
     res.status(201).json({ ok: true, empleo: row });
@@ -152,7 +134,7 @@ catalogsRouter.post('/empleos', requireCatalogEdit, async (req, res) => {
   }
 });
 
-catalogsRouter.patch('/empleos/:id', requireCatalogEdit, async (req, res) => {
+catalogsRouter.patch('/empleos/:id', requireEdit, async (req, res) => {
   try {
     const row = await renameEmpleo(req.user.orgId, req.params.id, req.body || {});
     res.json({ ok: true, empleo: row });
@@ -161,7 +143,7 @@ catalogsRouter.patch('/empleos/:id', requireCatalogEdit, async (req, res) => {
   }
 });
 
-catalogsRouter.delete('/empleos/:id', requireCatalogEdit, async (req, res) => {
+catalogsRouter.delete('/empleos/:id', requireDelete, async (req, res) => {
   try {
     await deleteEmpleo(req.user.orgId, req.params.id);
     res.json({ ok: true });

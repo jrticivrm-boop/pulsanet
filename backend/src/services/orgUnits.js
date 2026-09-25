@@ -156,7 +156,15 @@ export async function loadTrackScope(user) {
     return { orgWide: true, unitIds: [], level: 'region' };
   }
   if (role === 'region_user') {
-    return { orgWide: true, unitIds: [], level: 'region' };
+    // Alcance 3: territorio = región de adscripción (unit_id), no orgWide ciego.
+    const anchor = me.unit_id || me.admin_scope_unit_id;
+    if (anchor) {
+      const unitIds = await listScopeUnitIds(user.orgId, anchor);
+      if (unitIds.length) {
+        return { orgWide: false, unitIds, regionId: anchor, level: 'region' };
+      }
+    }
+    return { orgWide: false, unitIds: [], level: 'region' };
   }
   if (role === 'unit_user') {
     const unitId = me.unit_id || me.admin_scope_unit_id;

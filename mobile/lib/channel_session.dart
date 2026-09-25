@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:livekit_client/livekit_client.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
@@ -253,6 +257,12 @@ class ChannelSession extends ChangeNotifier {
   AudioPlayer? _panicPlayer;
   EventsListener<RoomEvent>? _roomEvents;
   final List<EventsListener<RoomEvent>> _extraRoomEvents = [];
+
+  /// Copia local del PTT para RESERVADO (misma API que la consola web).
+  final AudioRecorder _pttArchive = AudioRecorder();
+  String? _pttArchivePath;
+  DateTime? _pttArchiveStartedAt;
+  String? _pttArchiveGroupId;
 
   bool connected = false;
   bool livekitReady = false;
@@ -759,6 +769,8 @@ class ChannelSession extends ChangeNotifier {
         error = null;
         notifyListeners();
         try {
+          // Archivo primero (mismo micrófono / sesión de voz); luego LiveKit al aire.
+          await _startPttArchive(talkGroupId);
           await _publishMic();
           // Race tardía: soltó mientras publicábamos.
           if (!_pttWantTransmit && holding) {
@@ -770,6 +782,7 @@ class ChannelSession extends ChangeNotifier {
           holding = false;
           _pttWantTransmit = false;
           notifyListeners();
+          await _discardPttArchive();
           await _restoreRadioAudio();
         }
       })
@@ -805,6 +818,7 @@ class ChannelSession extends ChangeNotifier {
           holding = false;
           _pttWantTransmit = false;
           await _muteMic();
+          unawaited(_finishPttArchive(upload: true));
           final reason = m['reason']?.toString();
           pttTakenNotice = reason == 'same_user_other_client'
               ? 'Micrófono pasado a otra sesión tuya'
@@ -1450,6 +1464,9 @@ class ChannelSession extends ChangeNotifier {
     }
     if (wasHolding) {
       await _muteMic();
+      unawaited(_finishPttArchive(upload: true));
+    } else {
+      await _discardPttArchive();
     }
     _socket?.emit('ptt:release', {'groupId': talkGroupId});
     await _restoreRadioAudio();
@@ -1551,6 +1568,131 @@ class ChannelSession extends ChangeNotifier {
         await _micPub?.unmute();
       } catch (_) {}
     }
+  }
+
+  /// Empieza a grabar el PTT local para subirlo a RESERVADO al soltar.
+  Future<void> _startPttArchive(String groupId) async {
+    await _discardPttArchive();
+    if (groupId.isEmpty) return;
+    try {
+      final ok = await _pttArchive.hasPermission();
+      if (!ok) return;
+      final dir = await getTemporaryDirectory();
+      final path = p.join(
+        dir.path,
+        'ptt-${DateTime.now().millisecondsSinceEpoch}.m4a',
+      );
+      await _pttArchive.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 64000,
+          sampleRate: 16000,
+          numChannels: 1,
+          audioInterruption: AudioInterruptionMode.none,
+          androidConfig: AndroidRecordConfig(
+            audioSource: AndroidAudioSource.voiceCommunication,
+            manageBluetooth: false,
+            audioManagerMode: AudioManagerMode.modeInCommunication,
+          ),
+        ),
+        path: path,
+      );
+      _pttArchivePath = path;
+      _pttArchiveStartedAt = DateTime.now();
+      _pttArchiveGroupId = groupId;
+    } catch (e) {
+      debugPrint('PTT archive start: $e');
+      _pttArchivePath = null;
+      _pttArchiveStartedAt = null;
+      _pttArchiveGroupId = null;
+    }
+  }
+
+  Future<void> _discardPttArchive() async {
+    try {
+      if (await _pttArchive.isRecording()) {
+        final path = await _pttArchive.stop();
+        if (path != null) {
+          try {
+            await File(path).delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    final leftover = _pttArchivePath;
+    _pttArchivePath = null;
+    _pttArchiveStartedAt = null;
+    _pttArchiveGroupId = null;
+    if (leftover != null) {
+      try {
+        await File(leftover).delete();
+      } catch (_) {}
+    }
+  }
+
+  /// Detiene la grabación local y la sube (fire-and-forget).
+  Future<void> _finishPttArchive({required bool upload}) async {
+    final groupId = _pttArchiveGroupId;
+    final started = _pttArchiveStartedAt;
+    String? path = _pttArchivePath;
+    _pttArchivePath = null;
+    _pttArchiveStartedAt = null;
+    _pttArchiveGroupId = null;
+
+    try {
+      if (await _pttArchive.isRecording()) {
+        path = await _pttArchive.stop() ?? path;
+      }
+    } catch (e) {
+      debugPrint('PTT archive stop: $e');
+    }
+
+    if (!upload || path == null || groupId == null || groupId.isEmpty) {
+      if (path != null) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+      return;
+    }
+
+    final durationMs =
+        started != null ? DateTime.now().difference(started).inMilliseconds : 0;
+    // Misma ventana mínima que la consola web (usePtt).
+    if (durationMs < 450) {
+      try {
+        await File(path).delete();
+      } catch (_) {}
+      return;
+    }
+
+    final file = File(path);
+    try {
+      if (!await file.exists() || await file.length() < 800) {
+        try {
+          await file.delete();
+        } catch (_) {}
+        return;
+      }
+    } catch (_) {
+      return;
+    }
+
+    unawaited(() async {
+      try {
+        await api.uploadPttRecording(
+          groupId,
+          filePath: path!,
+          durationMs: durationMs,
+        );
+      } catch (e) {
+        debugPrint('PTT archive upload: $e');
+      } finally {
+        try {
+          await File(path!).delete();
+        } catch (_) {}
+      }
+    }());
   }
 
   Future<void> _stopMic() async {
@@ -2077,6 +2219,10 @@ class ChannelSession extends ChangeNotifier {
     _stopPanicAlarmLoop();
     announcementActive = false;
     await _stopAnnouncementAlarm();
+    await _discardPttArchive();
+    try {
+      await _pttArchive.dispose();
+    } catch (_) {}
     await _stopMic();
     for (final gid in listenGroupIds) {
       _socket?.emit('ptt:leave', {'groupId': gid});

@@ -56,7 +56,7 @@ import { mapAvatarIcon } from './mapAvatarIcon.js';
 import PresenceMapLegend, { countPresenceLegend } from './PresenceMapLegend.jsx';
 import { MapMaximizeNearZoom } from './MapMaximizeButton.jsx';
 import { useMapViewportMaximize } from './useMapViewportMaximize.js';
-import { PRESENCE_LABELS, resolvePresenceStatus, visiblePresenceStatusIds } from './presenceStatus.js';
+import { PRESENCE_LABELS, reconcilePresenceFilterIds, resolvePresenceStatus, visiblePresenceStatusIds } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import {
   CursorZoom,
@@ -1780,9 +1780,10 @@ export default function DispatchMap({ session }) {
       list = list.filter((loc) => allow.has(String(loc.userId)));
     }
     const allowed = visiblePresenceStatusIds({ showAway, showOffline });
-    const statusSet = new Set(
-      (presenceStatusIds || []).map(String).filter((id) => allowed.includes(id))
-    );
+    // Remapeo en caliente: si la org apagó amarillo/gris, away→online y offline→stale
+    // (evita un frame o filtro guardado que esconda a quien sigue en verde).
+    const reconciled = reconcilePresenceFilterIds(presenceStatusIds, { showAway, showOffline });
+    const statusSet = new Set(reconciled.map(String).filter((id) => allowed.includes(id)));
     if (statusSet.size === 0) return [];
     if (statusSet.size < allowed.length) {
       const now = Date.now();
@@ -1883,13 +1884,17 @@ export default function DispatchMap({ session }) {
     trackTo,
   ]);
 
-  // Si la org apaga amarillo/gris, quitar esos ids del filtro guardado.
+  // Si la org apaga amarillo/gris: remapar filtro (away→online, offline→stale), no borrar en silencio.
   useEffect(() => {
-    const allowed = new Set(visiblePresenceStatusIds({ showAway, showOffline }));
     setPresenceStatusIds((prev) => {
-      const next = prev.filter((id) => allowed.has(String(id)));
-      if (next.length === prev.length) return prev;
-      return next.length ? next : [...allowed];
+      const next = reconcilePresenceFilterIds(prev, { showAway, showOffline });
+      if (
+        next.length === (prev || []).length &&
+        next.every((id, i) => id === String(prev[i]))
+      ) {
+        return prev;
+      }
+      return next;
     });
   }, [showAway, showOffline]);
 

@@ -353,6 +353,124 @@ export async function buildUserTimeline({
 }
 
 /**
+ * Pares DM con historial para un operador (solo lectura admin).
+ */
+export async function listAuditDmConversations(orgId, subjectUserId) {
+  const { rows: check } = await query(
+    `SELECT id FROM users WHERE id = $1 AND organization_id = $2`,
+    [subjectUserId, orgId]
+  );
+  if (!check[0]) return { conversations: [] };
+
+  const { rows } = await query(
+    `WITH latest AS (
+       SELECT DISTINCT ON (pair)
+         id, sender_id, recipient_id, type, body, media_name, created_at, deleted_at,
+         CASE WHEN sender_id = $1 THEN recipient_id ELSE sender_id END AS peer_id
+       FROM (
+         SELECT m.*,
+           LEAST(m.sender_id::text, m.recipient_id::text) || '_' ||
+           GREATEST(m.sender_id::text, m.recipient_id::text) AS pair
+         FROM messages m
+         JOIN users u ON u.id = CASE WHEN m.sender_id = $1 THEN m.recipient_id ELSE m.sender_id END
+         WHERE m.group_id IS NULL
+           AND m.recipient_id IS NOT NULL
+           AND (m.sender_id = $1 OR m.recipient_id = $1)
+           AND u.organization_id = $2
+       ) t
+       ORDER BY pair, created_at DESC
+     )
+     SELECT l.*, u.display_name AS peer_name, u.username AS peer_username,
+            u.is_active AS peer_active, u.avatar_url AS peer_avatar_url
+     FROM latest l
+     JOIN users u ON u.id = l.peer_id
+     ORDER BY l.created_at DESC
+     LIMIT 100`,
+    [subjectUserId, orgId]
+  );
+
+  return {
+    conversations: rows.map((r) => ({
+      peerId: r.peer_id,
+      peerName: r.peer_name,
+      peerUsername: r.peer_username,
+      peerActive: r.peer_active,
+      peerAvatarUrl: r.peer_avatar_url
+        ? `/api/avatars/file/${encodeURIComponent(r.peer_avatar_url)}`
+        : null,
+      lastMessage: {
+        id: r.id,
+        type: r.deleted_at ? 'text' : r.type,
+        body: r.deleted_at
+          ? null
+          : r.type === 'sticker'
+            ? null
+            : r.type === 'nudge'
+              ? '¡Zumbido!'
+              : openMessageBody(r.type, r.body),
+        mediaName: r.deleted_at ? null : r.media_name,
+        createdAt: r.created_at,
+        isDeleted: Boolean(r.deleted_at),
+        mine: String(r.sender_id) === String(subjectUserId),
+      },
+    })),
+  };
+}
+
+/**
+ * Notas de voz recientes en la org (una consulta; auditoría admin).
+ */
+export async function listAuditChatAudio(orgId, { hours = 24, limit = 80 } = {}) {
+  const hrs = Math.min(Math.max(Number(hours) || 24, 1), 168);
+  const lim = Math.min(Math.max(Number(limit) || 80, 1), 200);
+
+  const { rows } = await query(
+    `SELECT m.id, m.group_id, m.sender_id, m.recipient_id, m.type, m.media_mime, m.media_name,
+            m.created_at,
+            u.display_name AS sender_name,
+            g.name AS group_name
+     FROM messages m
+     INNER JOIN users u ON u.id = m.sender_id AND u.organization_id = $1
+     LEFT JOIN groups g ON g.id = m.group_id AND g.organization_id = $1
+     WHERE m.type = 'audio'
+       AND m.deleted_at IS NULL
+       AND m.media_url IS NOT NULL
+       AND m.created_at >= NOW() - ($2::double precision * INTERVAL '1 hour')
+       AND (
+         (m.group_id IS NOT NULL AND g.id IS NOT NULL)
+         OR (
+           m.group_id IS NULL
+           AND m.recipient_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM users ur
+             WHERE ur.id = m.recipient_id AND ur.organization_id = $1
+           )
+         )
+       )
+     ORDER BY m.created_at DESC
+     LIMIT $3`,
+    [orgId, String(hrs), lim]
+  );
+
+  return {
+    items: rows.map((r) => ({
+      id: r.id,
+      type: 'audio',
+      mediaUrl: `/api/media/${r.id}`,
+      mediaMime: r.media_mime || null,
+      mediaName: r.media_name || null,
+      displayName: r.sender_name || 'Usuario',
+      createdAt: r.created_at,
+      context: r.group_id
+        ? r.group_name || 'Grupo'
+        : 'Chat directo',
+      groupId: r.group_id || null,
+      senderId: r.sender_id,
+    })),
+  };
+}
+
+/**
  * Hilo DM entre subject y peer (solo lectura admin).
  */
 export async function listAuditDmMessages(orgId, subjectUserId, peerId, { limit = 120, aroundId = null } = {}) {

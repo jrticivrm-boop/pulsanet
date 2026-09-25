@@ -15,15 +15,22 @@ import { logActivity } from '../services/activity.js';
 import { logUserEvent } from '../services/userEvents.js';
 import {
   buildUserTimeline,
+  listAuditChatAudio,
+  listAuditDmConversations,
   listAuditDmMessages,
   listAuditGroupMessages,
 } from '../services/userEventsTimeline.js';
-import { isAdmin, isDispatch, isRoot, isZoneAdmin, isUnitAdmin, canManageUsers, canAssignRole, ORG_ROLES, defaultVisibilityFlags, normalizeRole, defaultLocationShare, isUserProfile } from '../services/roles.js';
+import { isAdmin, isDispatch, isRoot, isZoneAdmin, isUnitAdmin, isRegionAdmin, canManageUsers, canAssignRole, ORG_ROLES, defaultVisibilityFlags, normalizeRole, defaultLocationShare, isUserProfile } from '../services/roles.js';
 import { canSeePerson } from '../services/visibility.js';
 import { canLeaveGroup, actorAssignRejectReason, memberFitsGroupGeo, groupGeoRejectReason } from '../services/groupPolicy.js';
 import { buildUsername, buildCallSign, buildDisplayName } from '../services/rfcUsername.js';
 import { generateTemporaryPassword } from '../services/tempPassword.js';
 import { invalidateUserProfile } from '../services/userProfile.js';
+import { getProfileById, roleFromProfile, systemProfileIdByRole } from '../services/profiles.js';
+import {
+  requireModuleAction,
+  userHasModuleAction,
+} from '../services/moduleAccess.js';
 import { clipOrgTreeToScope, fetchOrgUnitTree, fetchDependenciasTree, loadAdminScope, mapUnitBrief, createOrgRegion, createOrgZone, createOrgUnit, renameOrgUnit, deleteOrgUnitNode } from '../services/orgUnits.js';
 import {
   mapAvatarUrl,
@@ -66,8 +73,97 @@ function requireUserManager(req, res, next) {
 function groupInAdminScope(scope, unitId) {
   if (!scope) return false;
   if (scope.orgWide) return true;
-  if (!unitId) return false;
+  // Canales sin ancla: solo gestores globales (root) los ven/editan para poder corregirlos.
+  if (!unitId) return Boolean(scope.orgWide);
   return Array.isArray(scope.unitIds) && scope.unitIds.includes(unitId);
+}
+
+/**
+ * Resuelve unit_id + scope_level al crear/editar canal (misma regla que POST /api/groups).
+ * @returns {Promise<{ unitId: string|null, scopeLevel: string } | { error: string, status?: number }>}
+ */
+async function resolveGroupScopeForWrite(reqUser, scope, unitIdIn, scopeLevelIn) {
+  let unitId = unitIdIn != null && unitIdIn !== '' ? String(unitIdIn).trim() : null;
+  const requestedScope = ['region', 'zone', 'unit'].includes(scopeLevelIn) ? scopeLevelIn : null;
+
+  async function orgUnitKind(id) {
+    if (!id) return null;
+    const { rows } = await query(
+      `SELECT id, kind FROM org_units
+       WHERE id = $1 AND organization_id = $2 AND is_active`,
+      [id, reqUser.orgId]
+    );
+    return rows[0] || null;
+  }
+
+  let scopeLevel = 'unit';
+
+  if (isUnitAdmin(reqUser.role)) {
+    unitId = scope.unitId || null;
+    if (!unitId) {
+      return { error: 'Admin de unidad sin unidad asignada', status: 403 };
+    }
+    scopeLevel = 'unit';
+  } else if (isZoneAdmin(reqUser.role)) {
+    if (!unitId || !scope.unitIds?.includes(unitId)) {
+      const zoneOk = scope.zoneId && unitId === scope.zoneId;
+      if (!zoneOk) {
+        return {
+          error: 'Admin de zona: elige toda tu zona o una unidad de tu zona',
+          status: 400,
+        };
+      }
+    }
+    const node = await orgUnitKind(unitId);
+    if (!node || (node.kind !== 'unit' && node.kind !== 'zone')) {
+      return { error: 'Admin de zona: el canal debe ser de zona o de una unidad', status: 400 };
+    }
+    if (node.kind === 'zone' && scope.zoneId && node.id !== scope.zoneId) {
+      return { error: 'Zona fuera de tu alcance', status: 403 };
+    }
+    scopeLevel = node.kind === 'zone' ? 'zone' : 'unit';
+    unitId = node.id;
+  } else if (isRegionAdmin(reqUser.role) || isRoot(reqUser.role)) {
+    const level = requestedScope || (unitId ? 'unit' : 'region');
+    if (level === 'region') {
+      if (unitId) {
+        const node = await orgUnitKind(unitId);
+        if (!node || node.kind !== 'region') {
+          return { error: 'Canal de región: el ancla debe ser una región', status: 400 };
+        }
+        unitId = node.id;
+      } else if (!isRoot(reqUser.role)) {
+        return { error: 'Canal de región: selecciona la región', status: 400 };
+      } else {
+        unitId = null;
+      }
+      scopeLevel = 'region';
+    } else if (level === 'zone') {
+      const node = await orgUnitKind(unitId);
+      if (!node || node.kind !== 'zone') {
+        return { error: 'Canal de zona: el ancla debe ser una zona / C.G.', status: 400 };
+      }
+      if (!scope.orgWide && scope.unitIds && !scope.unitIds.includes(node.id)) {
+        return { error: 'Zona fuera de tu alcance', status: 403 };
+      }
+      scopeLevel = 'zone';
+      unitId = node.id;
+    } else {
+      const node = await orgUnitKind(unitId);
+      if (!node || node.kind !== 'unit') {
+        return { error: 'Canal de unidad: elige una unidad válida', status: 400 };
+      }
+      if (!scope.orgWide && scope.unitIds && !scope.unitIds.includes(node.id)) {
+        return { error: 'Unidad fuera de tu alcance', status: 403 };
+      }
+      scopeLevel = 'unit';
+      unitId = node.id;
+    }
+  } else {
+    return { error: 'Sin permiso para crear/editar canales', status: 403 };
+  }
+
+  return { unitId: unitId || null, scopeLevel };
 }
 
 async function loadGroupInOrg(orgId, groupId) {
@@ -107,6 +203,8 @@ function mapUser(u) {
       .filter(Boolean)
       .join(' ') || u.display_name,
     role: u.role,
+    profileId: u.profile_id || null,
+    profileName: u.profile_name || null,
     isActive: u.is_active,
     canReceivePanic: u.can_receive_panic,
     mustChangePassword: Boolean(u.must_change_password),
@@ -256,7 +354,7 @@ adminRouter.get('/overview', async (req, res) => {
 });
 
 /** Preferencias de org: presencia + GPS. */
-adminRouter.get('/org-settings', requireAdmin, async (req, res) => {
+adminRouter.get('/org-settings', requireModuleAction('configuracion', 'ver'), async (req, res) => {
   const { rows } = await query(
     `SELECT presence_offline_red_minutes, presence_absence_minutes,
             presence_show_away, presence_show_offline,
@@ -280,7 +378,7 @@ adminRouter.get('/org-settings', requireAdmin, async (req, res) => {
   });
 });
 
-adminRouter.patch('/org-settings', requireAdmin, async (req, res) => {
+adminRouter.patch('/org-settings', requireModuleAction('configuracion', 'editar'), async (req, res) => {
   const body = req.body || {};
   const updates = [];
   const params = [req.user.orgId];
@@ -429,17 +527,22 @@ adminRouter.get('/org-units', async (req, res) => {
 });
 
 /** Árbol Región → Zona → Unidad con flags en_uso (catálogo Dependencias). */
-adminRouter.get('/dependencias', async (req, res) => {
+adminRouter.get('/dependencias', requireModuleAction('catalogos', 'ver'), async (req, res) => {
   const tree = await fetchDependenciasTree(req.user.orgId);
   const scope = await loadAdminScope(req.user);
   res.json({
     ok: true,
     tree: clipOrgTreeToScope(tree, scope),
-    canEdit: isAdmin(req.user.role),
+    canEdit: userHasModuleAction(req.user, 'catalogos', 'editar'),
+    canAdd: userHasModuleAction(req.user, 'catalogos', 'agregar'),
+    canDelete: userHasModuleAction(req.user, 'catalogos', 'eliminar'),
   });
 });
 
-adminRouter.post('/dependencias/region', requireAdmin, async (req, res) => {
+adminRouter.post(
+  '/dependencias/region',
+  requireModuleAction('catalogos', 'agregar'),
+  async (req, res) => {
   try {
     const row = await createOrgRegion(req.user.orgId, req.body || {});
     res.status(201).json({ ok: true, unit: row });
@@ -448,7 +551,10 @@ adminRouter.post('/dependencias/region', requireAdmin, async (req, res) => {
   }
 });
 
-adminRouter.post('/dependencias/region/:regionId/zona', requireAdmin, async (req, res) => {
+adminRouter.post(
+  '/dependencias/region/:regionId/zona',
+  requireModuleAction('catalogos', 'agregar'),
+  async (req, res) => {
   try {
     const row = await createOrgZone(req.user.orgId, req.params.regionId, req.body || {});
     res.status(201).json({ ok: true, unit: row });
@@ -457,7 +563,10 @@ adminRouter.post('/dependencias/region/:regionId/zona', requireAdmin, async (req
   }
 });
 
-adminRouter.post('/dependencias/zona/:zoneId/unidad', requireAdmin, async (req, res) => {
+adminRouter.post(
+  '/dependencias/zona/:zoneId/unidad',
+  requireModuleAction('catalogos', 'agregar'),
+  async (req, res) => {
   try {
     const row = await createOrgUnit(req.user.orgId, req.params.zoneId, req.body || {});
     res.status(201).json({ ok: true, unit: row });
@@ -466,7 +575,10 @@ adminRouter.post('/dependencias/zona/:zoneId/unidad', requireAdmin, async (req, 
   }
 });
 
-adminRouter.patch('/dependencias/:id', requireAdmin, async (req, res) => {
+adminRouter.patch(
+  '/dependencias/:id',
+  requireModuleAction('catalogos', 'editar'),
+  async (req, res) => {
   try {
     const row = await renameOrgUnit(req.user.orgId, req.params.id, req.body || {});
     res.json({ ok: true, unit: row });
@@ -475,7 +587,10 @@ adminRouter.patch('/dependencias/:id', requireAdmin, async (req, res) => {
   }
 });
 
-adminRouter.delete('/dependencias/:id', requireAdmin, async (req, res) => {
+adminRouter.delete(
+  '/dependencias/:id',
+  requireModuleAction('catalogos', 'eliminar'),
+  async (req, res) => {
   try {
     await deleteOrgUnitNode(req.user.orgId, req.params.id);
     res.json({ ok: true });
@@ -501,8 +616,9 @@ adminRouter.get('/users', async (req, res) => {
             u.must_change_password, u.last_seen_at, u.created_at,
             u.login_fail_count, u.login_locked_at, u.login_locked_reason,
             u.grade, u.specialty, u.cargo, u.given_names, u.paternal_surname, u.maternal_surname, u.matricula,
-            u.unit_id, u.admin_scope_unit_id,
+            u.unit_id, u.admin_scope_unit_id, u.profile_id,
             u.can_see_region, u.can_see_zones, u.can_see_units, u.location_share,
+            ap.name AS profile_name,
             ou.name AS unit_name,
             COALESCE(
               z.name,
@@ -515,6 +631,7 @@ adminRouter.get('/users', async (req, res) => {
      LEFT JOIN org_units ou ON ou.id = u.unit_id
      LEFT JOIN org_units z ON z.id = ou.parent_id AND z.kind = 'zone'
      LEFT JOIN org_units asu ON asu.id = u.admin_scope_unit_id
+     LEFT JOIN access_profiles ap ON ap.id = u.profile_id
      WHERE u.organization_id = $1${scopeSql}
      ORDER BY
        CASE u.role
@@ -639,8 +756,21 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
     matricula,
     unitId: unitIdIn,
     adminScopeUnitId: adminScopeIn,
+    profileId: profileIdIn,
   } = req.body || {};
-  const role = normalizeRole(req.body?.role || 'unit_user');
+
+  let profileId = profileIdIn ? String(profileIdIn).trim() : null;
+  let role = normalizeRole(req.body?.role || 'unit_user');
+
+  if (profileId) {
+    const profile = await getProfileById(req.user.orgId, profileId);
+    if (!profile) {
+      return res.status(400).json({ ok: false, error: 'Perfil de acceso inválido' });
+    }
+    role = roleFromProfile(profile);
+  } else {
+    profileId = await systemProfileIdByRole(req.user.orgId, role);
+  }
 
   if (!canAssignRole(req.user.role, role)) {
     return res.status(403).json({ ok: false, error: 'No puedes asignar ese perfil desde tu alcance' });
@@ -828,13 +958,13 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
       `INSERT INTO users (
          organization_id, username, email, password_hash, display_name, role, must_change_password,
          grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula,
-         unit_id, admin_scope_unit_id, can_see_region, can_see_zones, can_see_units, can_receive_panic
+         unit_id, admin_scope_unit_id, profile_id, can_see_region, can_see_zones, can_see_units, can_receive_panic
        )
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
        RETURNING id, username, email, display_name, role, is_active, can_receive_panic,
                  must_change_password, last_seen_at,
                  grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula,
-                 unit_id, admin_scope_unit_id, can_see_region, can_see_zones, can_see_units`,
+                 unit_id, admin_scope_unit_id, profile_id, can_see_region, can_see_zones, can_see_units`,
       [
         req.user.orgId,
         username,
@@ -851,6 +981,7 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
         matriculaTrim,
         unitId,
         adminScopeUnitId,
+        profileId,
         canSeeRegion,
         canSeeZones,
         canSeeUnits,
@@ -1063,12 +1194,28 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     paternalSurname: paternalSurnameIn,
     maternalSurname: maternalSurnameIn,
     matricula: matriculaIn,
+    profileId: profileIdIn,
   } = req.body || {};
 
-  const role =
+  let profileId =
+    profileIdIn === undefined
+      ? undefined
+      : profileIdIn
+        ? String(profileIdIn).trim()
+        : null;
+
+  let role =
     roleIn === undefined || roleIn === null || String(roleIn).trim() === ''
       ? undefined
       : normalizeRole(roleIn);
+
+  if (profileId) {
+    const profile = await getProfileById(req.user.orgId, profileId);
+    if (!profile) {
+      return res.status(400).json({ ok: false, error: 'Perfil de acceso inválido' });
+    }
+    role = roleFromProfile(profile);
+  }
 
   const { rows: existing } = await query(
     `SELECT id, role, unit_id, admin_scope_unit_id, grade, specialty, cargo,
@@ -1336,6 +1483,12 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
 
   const visFlags = defaultVisibilityFlags(effectiveRole);
 
+  // Si cambia el rol sin profileId explícito, alinear al perfil de sistema de ese rol.
+  let nextProfileId = profileId;
+  if (nextProfileId === undefined && role) {
+    nextProfileId = await systemProfileIdByRole(req.user.orgId, effectiveRole);
+  }
+
   const { rows } = await query(
     `UPDATE users SET
        is_active = COALESCE($2, is_active),
@@ -1356,10 +1509,11 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
        paternal_surname = CASE WHEN $16::boolean THEN $21 ELSE paternal_surname END,
        maternal_surname = CASE WHEN $16::boolean THEN $22 ELSE maternal_surname END,
        matricula = CASE WHEN $16::boolean THEN $23 ELSE matricula END,
+       profile_id = CASE WHEN $24::boolean THEN $25 ELSE profile_id END,
        updated_at = NOW()
      WHERE id = $1 AND organization_id = $7
      RETURNING id, username, email, display_name, role, is_active, can_receive_panic,
-               must_change_password, last_seen_at, unit_id, admin_scope_unit_id,
+               must_change_password, last_seen_at, unit_id, admin_scope_unit_id, profile_id,
                can_see_region, can_see_zones, can_see_units,
                grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula`,
     [
@@ -1386,6 +1540,8 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
       nextPaternal,
       nextMaternal,
       nextMatricula,
+      nextProfileId !== undefined,
+      nextProfileId ?? null,
     ]
   );
   const u = rows[0];
@@ -1503,7 +1659,7 @@ adminRouter.delete('/users/:id', requireUserManager, async (req, res) => {
 });
 
 /** Exportación CSV de usuarios — solo root/admin (PII). */
-adminRouter.get('/users.csv', requireAdmin, async (req, res) => {
+adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req, res) => {
   const { rows } = await query(
     `SELECT username, matricula, grade, specialty, cargo, given_names, paternal_surname, maternal_surname,
             display_name, role, is_active, last_seen_at, created_at
@@ -1603,6 +1759,21 @@ adminRouter.get('/user-events', requireAdmin, async (req, res) => {
     },
     events,
   });
+});
+
+/** Notas de voz recientes en chat (auditoría RESERVADO · Grabaciones). */
+adminRouter.get('/chat-audio', requireAdmin, async (req, res) => {
+  const hours = Math.min(parseInt(req.query.hours || '24', 10) || 24, 168);
+  const limit = Math.min(parseInt(req.query.limit || '80', 10) || 80, 200);
+  const data = await listAuditChatAudio(req.user.orgId, { hours, limit });
+  res.json({ ok: true, readOnly: true, ...data });
+});
+
+/** Hilos DM de un operador (solo lectura admin). */
+adminRouter.get('/users/:userId/dm/conversations', requireAdmin, async (req, res) => {
+  const subjectId = String(req.params.userId || '').trim();
+  const data = await listAuditDmConversations(req.user.orgId, subjectId);
+  res.json({ ok: true, readOnly: true, ...data });
 });
 
 /** Chat DM solo lectura (auditoría Eventos). */
@@ -1746,14 +1917,8 @@ adminRouter.get('/groups', async (req, res) => {
     ok: true,
     groups: rows.map((g) => {
       const level = g.scope_level || (g.unit_id ? 'unit' : 'region');
-      let scopeLabel = 'Región';
-      if (level === 'region') {
-        scopeLabel = g.unit_name ? `Región · ${g.unit_name}` : 'Región';
-      } else if (level === 'zone') {
-        scopeLabel = g.unit_name ? `Zona · ${g.unit_name}` : 'Zona';
-      } else if (level === 'unit') {
-        scopeLabel = g.unit_name ? `Unidad · ${g.unit_name}` : 'Unidad';
-      }
+      // Solo el nombre (sin prefijo Región/Zona/Unidad); el nivel va en scopeLevel.
+      const scopeLabel = g.unit_name || '—';
       return {
         id: g.id,
         name: g.name,
@@ -1931,10 +2096,23 @@ adminRouter.patch('/groups/:id', requireUserManager, async (req, res) => {
     return res.status(403).json({ ok: false, error: 'Grupo fuera de tu alcance' });
   }
 
-  const { name, description, isActive, unitId: unitIdIn } = req.body || {};
+  const { name, description, isActive, unitId: unitIdIn, scopeLevel: scopeLevelIn } = req.body || {};
   let nextUnitId = prev.unit_id;
-  if (unitIdIn !== undefined && scope.orgWide) {
-    nextUnitId = unitIdIn ? String(unitIdIn).trim() : null;
+  let nextScopeLevel = prev.scope_level || null;
+
+  const wantsScopeChange = unitIdIn !== undefined || scopeLevelIn !== undefined;
+  if (wantsScopeChange) {
+    const resolved = await resolveGroupScopeForWrite(
+      req.user,
+      scope,
+      unitIdIn !== undefined ? unitIdIn : prev.unit_id,
+      scopeLevelIn !== undefined ? scopeLevelIn : prev.scope_level
+    );
+    if (resolved.error) {
+      return res.status(resolved.status || 400).json({ ok: false, error: resolved.error });
+    }
+    nextUnitId = resolved.unitId;
+    nextScopeLevel = resolved.scopeLevel;
   }
 
   const { rows } = await query(
@@ -1943,15 +2121,17 @@ adminRouter.patch('/groups/:id', requireUserManager, async (req, res) => {
        description = COALESCE($3, description),
        is_active = COALESCE($4, is_active),
        unit_id = $5,
+       scope_level = COALESCE($6, scope_level),
        updated_at = NOW()
-     WHERE id = $1 AND organization_id = $6
-     RETURNING id, name, description, livekit_room, is_active, unit_id`,
+     WHERE id = $1 AND organization_id = $7
+     RETURNING id, name, description, livekit_room, is_active, unit_id, scope_level`,
     [
       req.params.id,
       name?.trim() || null,
       description !== undefined ? description : null,
       typeof isActive === 'boolean' ? isActive : null,
       nextUnitId,
+      nextScopeLevel,
       req.user.orgId,
     ]
   );
@@ -1962,9 +2142,21 @@ adminRouter.patch('/groups/:id', requireUserManager, async (req, res) => {
     action: 'group.update',
     entityType: 'group',
     entityId: rows[0].id,
-    meta: { name: rows[0].name, isActive: rows[0].is_active, unitId: rows[0].unit_id },
+    meta: {
+      name: rows[0].name,
+      isActive: rows[0].is_active,
+      unitId: rows[0].unit_id,
+      scopeLevel: rows[0].scope_level,
+    },
   });
-  res.json({ ok: true, group: { ...rows[0], unitId: rows[0].unit_id || null } });
+  res.json({
+    ok: true,
+    group: {
+      ...rows[0],
+      unitId: rows[0].unit_id || null,
+      scopeLevel: rows[0].scope_level || null,
+    },
+  });
 });
 
 /** Soft-delete (desactivar) o hard delete (root + ?hard=1) */
@@ -2118,6 +2310,64 @@ adminRouter.delete('/groups/:id/members/:userId', requireUserManager, async (req
   res.json({ ok: true });
 });
 
+const GROUP_MEMBER_ROLES = new Set(['member', 'leader', 'listen_only']);
+
+adminRouter.patch('/groups/:id/members/:userId', requireUserManager, async (req, res) => {
+  const role = String(req.body?.role || '').trim();
+  if (!GROUP_MEMBER_ROLES.has(role)) {
+    return res.status(400).json({ ok: false, error: 'Rol inválido (member, leader, listen_only)' });
+  }
+
+  const g = await loadGroupInOrg(req.user.orgId, req.params.id);
+  if (!g) return res.status(404).json({ ok: false, error: 'Grupo no encontrado' });
+  const scope = await loadAdminScope(req.user);
+  if (!groupInAdminScope(scope, g.unit_id)) {
+    return res.status(403).json({ ok: false, error: 'Grupo fuera de tu alcance' });
+  }
+
+  const userId = req.params.userId;
+  if (!scope.orgWide) {
+    const { rows: target } = await query(
+      `SELECT role, unit_id, admin_scope_unit_id FROM users
+       WHERE id = $1 AND organization_id = $2`,
+      [userId, req.user.orgId]
+    );
+    if (!target[0]) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    const actorWhy = actorAssignRejectReason(req.user.role, target[0].role);
+    if (actorWhy) return res.status(403).json({ ok: false, error: actorWhy });
+    const inScope =
+      (target[0].unit_id && scope.unitIds.includes(target[0].unit_id)) ||
+      (target[0].admin_scope_unit_id && scope.unitIds.includes(target[0].admin_scope_unit_id));
+    if (!inScope && !['region_admin', 'region_user', 'root'].includes(String(target[0].role || ''))) {
+      return res.status(403).json({ ok: false, error: 'Usuario fuera de tu alcance' });
+    }
+  } else {
+    const { rows: target } = await query(
+      `SELECT role FROM users WHERE id = $1 AND organization_id = $2`,
+      [userId, req.user.orgId]
+    );
+    if (!target[0]) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    const actorWhy = actorAssignRejectReason(req.user.role, target[0].role);
+    if (actorWhy) return res.status(403).json({ ok: false, error: actorWhy });
+  }
+
+  const { rowCount } = await query(
+    `UPDATE group_members SET role = $3 WHERE group_id = $1 AND user_id = $2`,
+    [req.params.id, userId, role]
+  );
+  if (!rowCount) return res.status(404).json({ ok: false, error: 'Miembro no encontrado' });
+
+  await logActivity({
+    organizationId: req.user.orgId,
+    actorId: req.user.sub,
+    action: 'group.member_role',
+    entityType: 'group',
+    entityId: req.params.id,
+    meta: { userId, role },
+  });
+  res.json({ ok: true, role });
+});
+
 adminRouter.get('/groups/:id/members', async (req, res) => {
   const g = await loadGroupInOrg(req.user.orgId, req.params.id);
   if (!g) return res.status(404).json({ ok: false, error: 'Grupo no encontrado' });
@@ -2148,7 +2398,7 @@ adminRouter.get('/groups/:id/members', async (req, res) => {
 });
 
 /** Vaciar chat del grupo (hard purge mensajes). Root o admin. */
-adminRouter.post('/groups/:id/messages/purge', requireAdmin, async (req, res) => {
+adminRouter.post('/groups/:id/messages/purge', requireModuleAction('grupos', 'eliminar'), async (req, res) => {
   const { rows: g } = await query(
     `SELECT id, name FROM groups WHERE id = $1 AND organization_id = $2`,
     [req.params.id, req.user.orgId]

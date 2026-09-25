@@ -429,7 +429,7 @@ select {
 
 .login-hero-mark {
   width: min(92vw, 32rem);
-  aspect-ratio: 971 / 390;
+  aspect-ratio: 1003 / 396;
   height: auto;
   border-radius: 0;
   object-fit: contain;
@@ -3050,8 +3050,10 @@ select:focus {
 .wa-voice-wave {
   display: flex;
   align-items: center;
-  gap: 2px;
+  justify-content: space-between;
+  gap: 1.5px;
   height: 100%;
+  width: 100%;
   pointer-events: none;
 }
 
@@ -3075,14 +3077,15 @@ select:focus {
 .wa-voice-thumb {
   position: absolute;
   top: 50%;
+  left: 0;
   width: 0.55rem;
   height: 0.55rem;
-  margin-left: -0.28rem;
+  margin-left: 0;
   border-radius: 50%;
   background: var(--accent-deep);
   border: 2px solid var(--surface-solid);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-deep) 35%, transparent);
-  transform: translateY(-50%);
+  transform: translate(-50%, -50%);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s ease;
@@ -8359,6 +8362,8 @@ html[data-layout='phone'] .incoming-call-banner-btn {
   background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
   scrollbar-gutter: stable;
 }
+
+/* Radio: columnas a pantalla completa — la lista crece con el alto disponible */
 .channel-dual-row {
   display: flex;
   align-items: center;

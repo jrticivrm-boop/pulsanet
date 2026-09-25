@@ -631,6 +631,84 @@ class ApiClient {
     );
   }
 
+  /// Archivo de PTT para RESERVADO / Grabaciones (misma API que la consola web).
+  Future<Map<String, dynamic>> uploadPttRecording(
+    String groupId, {
+    required String filePath,
+    required int durationMs,
+    String filename = 'ptt.m4a',
+    String mime = 'audio/mp4',
+    bool hairpinRetried = false,
+  }) async {
+    MediaType? contentType;
+    try {
+      contentType = MediaType.parse(mime.split(';').first.trim());
+    } catch (_) {
+      contentType = MediaType('audio', 'mp4');
+    }
+
+    Future<http.MultipartRequest> build() async {
+      final uri = Uri.parse(
+        '${AppConfig.apiBaseUrl}/api/recordings/groups/${Uri.encodeComponent(groupId)}',
+      );
+      final request = http.MultipartRequest('POST', uri);
+      request.headers.addAll(_ua());
+      if (_token != null) {
+        request.headers['Authorization'] = 'Bearer $_token';
+      }
+      request.fields['durationMs'] = '$durationMs';
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'audio',
+          filePath,
+          filename: filename,
+          contentType: contentType,
+        ),
+      );
+      return request;
+    }
+
+    const uploadTimeout = Duration(seconds: 45);
+    try {
+      var request = await build();
+      var streamed = await request.send().timeout(uploadTimeout);
+      if (streamed.statusCode == 401) {
+        if (await tryRefresh()) {
+          request = await build();
+          streamed = await request.send().timeout(uploadTimeout);
+        }
+      }
+      final res = await http.Response.fromStream(streamed);
+      return _parse(
+        res,
+        path: '/api/recordings',
+        onNonJson: hairpinRetried
+            ? null
+            : () => uploadPttRecording(
+                  groupId,
+                  filePath: filePath,
+                  durationMs: durationMs,
+                  filename: filename,
+                  mime: mime,
+                  hairpinRetried: true,
+                ),
+      );
+    } catch (e) {
+      if (hairpinRetried || !DuckDnsHairpin.looksLikeTransportFail(e)) {
+        rethrow;
+      }
+      await DuckDnsHairpin.failoverAfterTransportFail();
+      return uploadPttRecording(
+        groupId,
+        filePath: filePath,
+        durationMs: durationMs,
+        filename: filename,
+        mime: mime,
+        hairpinRetried: true,
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> _uploadChatMedia(
     Uri Function() uriBuilder, {
     required String filePath,

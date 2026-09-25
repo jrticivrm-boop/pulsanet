@@ -18,6 +18,7 @@ import {
   MAX_BODY,
 } from '../socket/chat.js';
 import { openMessageBody } from '../services/contentCrypto.js';
+import { isAdmin } from '../services/roles.js';
 import {
   uploadMedia,
   classifyMedia,
@@ -338,15 +339,18 @@ export function createMessagesRouter(io) {
   return router;
 }
 
-/** GET /api/media/:messageId â€” miembro del grupo o participante DM */
+/** GET /api/media/:messageId — miembro del grupo, participante DM o admin (auditoría) */
 export function createMediaRouter() {
   const router = Router();
   router.use(authMiddleware);
 
   router.get('/:messageId', async (req, res) => {
     const { rows } = await query(
-      `SELECT id, group_id, sender_id, recipient_id, media_url, media_mime, media_name, deleted_at
-       FROM messages WHERE id = $1 AND media_url IS NOT NULL`,
+      `SELECT m.id, m.group_id, m.sender_id, m.recipient_id, m.media_url, m.media_mime,
+              m.media_name, m.deleted_at, u.organization_id AS sender_org_id
+       FROM messages m
+       LEFT JOIN users u ON u.id = m.sender_id
+       WHERE m.id = $1 AND m.media_url IS NOT NULL`,
       [req.params.messageId]
     );
     const row = rows[0];
@@ -360,6 +364,15 @@ export function createMediaRouter() {
       allowed = await assertGroupMember(row.group_id, req.user.sub);
     } else if (row.recipient_id) {
       allowed = row.sender_id === req.user.sub || row.recipient_id === req.user.sub;
+    }
+    // RESERVADO / Eventos: admin de la misma org puede oír/ver media ajena (solo lectura).
+    if (
+      !allowed &&
+      isAdmin(req.user.role) &&
+      row.sender_org_id &&
+      String(row.sender_org_id) === String(req.user.orgId)
+    ) {
+      allowed = true;
     }
     if (!allowed) return res.status(403).json({ ok: false, error: 'Sin acceso' });
 

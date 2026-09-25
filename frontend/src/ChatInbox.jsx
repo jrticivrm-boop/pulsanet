@@ -17,6 +17,8 @@ import {
   compareByLastMessage,
   compareContactRows,
   loadInboxTabOrder,
+  loadInboxActiveTab,
+  saveInboxActiveTab,
   moveInboxTab,
   normalizeInboxTabOrder,
   saveInboxTabOrder,
@@ -99,7 +101,7 @@ export default function ChatInbox({
 }) {
   // scopeGroupIds: reservado (antes filtraba por canales de radio). Inbox WA = todos los grupos miembro + DM.
   const userId = session?.user?.id;
-  const [tab, setTab] = useState('contacts');
+  const [tab, setTab] = useState(() => loadInboxActiveTab(userId));
   const [tabOrder, setTabOrder] = useState(() => loadInboxTabOrder(userId));
   const [favorites, setFavorites] = useState(loadFavorites);
   const [unread, setUnread] = useState({});
@@ -116,7 +118,12 @@ export default function ChatInbox({
 
   useEffect(() => {
     setTabOrder(loadInboxTabOrder(userId));
+    setTab(loadInboxActiveTab(userId));
   }, [userId]);
+
+  useEffect(() => {
+    saveInboxActiveTab(userId, tab);
+  }, [tab, userId]);
 
   useEffect(() => {
     selectedRef.current = selected;

@@ -17,7 +17,7 @@ const SOCKET_URL = socketUrl();
 const POLL_MS = 12000;
 
 /**
- * Consola de Video (módulo Despacho): transmisiones de canal + videollamadas 1:1
+ * Consola de Video (módulo Despacho): operadores en línea (Ver cámara / Videollamada)
  * y activación explícita de la cámara web del puesto.
  */
 export default function DispatchVideo({ session }) {
@@ -206,16 +206,6 @@ export default function DispatchVideo({ session }) {
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
   }, [channels, session.user?.id]);
 
-  const liveCount = useMemo(
-    () => Object.values(groupVideoLive).filter(Boolean).length,
-    [groupVideoLive]
-  );
-
-  function openGroupVideo(groupId, groupName) {
-    stopPreview();
-    setGroupVideo({ groupId, groupName: groupName || 'Grupo' });
-  }
-
   function startVideoCall(person) {
     if (!person?.userId) return;
     if (remoteMonitors.some((m) => m.peerId === person.userId)) {
@@ -288,9 +278,8 @@ export default function DispatchVideo({ session }) {
         <div>
           <h1>Video</h1>
           <p className="dv-hint">
-            Transmisiones de canal, videollamadas y cámara remota de dispositivos ·{' '}
+            Videollamadas y cámara remota de dispositivos ·{' '}
             <span className={live ? 'dv-live-on' : ''}>{live ? 'Tiempo real' : 'Reconectando'}</span>
-            {liveCount > 0 ? ` · ${liveCount} canal${liveCount === 1 ? '' : 'es'} en vivo` : ''}
           </p>
         </div>
         <div className="dv-head-actions">
@@ -362,44 +351,6 @@ export default function DispatchVideo({ session }) {
       )}
 
       <div className="dv-grid">
-        <section className="cc-panel dv-panel">
-          <div className="cc-panel-head">
-            <div>
-              <h2>Canales</h2>
-              <p className="cc-hint">Inicia o únete a la transmisión de video del canal (PTT sigue activo)</p>
-            </div>
-          </div>
-          <div className="dv-channel-list">
-            {channels.length === 0 && <p className="cc-empty">No hay canales disponibles.</p>}
-            {channels.map((ch) => {
-              const isLive = Boolean(groupVideoLive[ch.id]);
-              const isOpen = groupVideo?.groupId === ch.id;
-              return (
-                <article key={ch.id} className={`dv-channel${isLive ? ' live' : ''}${isOpen ? ' open' : ''}`}>
-                  <div className="dv-channel-meta">
-                    <h3>{ch.name}</h3>
-                    <span className={isLive ? 'cc-badge air' : 'cc-badge idle'}>
-                      {isLive ? 'Video en vivo' : 'Sin transmisión'}
-                    </span>
-                  </div>
-                  <p className="dv-channel-online">
-                    {(ch.online || []).length} en línea
-                    {ch.speaker ? ` · al aire: ${ch.speaker.displayName}` : ''}
-                  </p>
-                  <button
-                    type="button"
-                    className={`cc-btn${isOpen ? '' : ' primary'} cc-group-video-btn${isLive ? ' live' : ''}`}
-                    onClick={() => openGroupVideo(ch.id, ch.name)}
-                    disabled={isOpen}
-                  >
-                    {isOpen ? 'En esta transmisión' : isLive ? 'Unirse al video' : 'Iniciar video'}
-                  </button>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-
         <section className="cc-panel dv-panel">
           <div className="cc-panel-head">
             <div>

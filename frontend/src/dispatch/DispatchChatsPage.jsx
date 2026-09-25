@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import ChatInbox from '../ChatInbox';
 
 /**
@@ -12,6 +12,8 @@ export default function DispatchChatsPage({
   onSelectGroup,
   ptt,
   visible = true,
+  /** Oculta cabecera de página cuando va dentro de ReservedLayout. */
+  embedded = false,
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -39,13 +41,15 @@ export default function DispatchChatsPage({
   }, [focusPeerId, focusGroupId]);
 
   return (
-    <div className="cc-chats-page">
-      <header className="cc-chats-page-head">
-        <div className="cc-chats-page-titles">
-          <h1>Chats</h1>
-          <p>Mensajes directos y de canal · responde aquí sin mezclar con Radio PTT</p>
-        </div>
-      </header>
+    <div className={`cc-chats-page${embedded ? ' is-embedded' : ''}`}>
+      {!embedded && (
+        <header className="cc-chats-page-head">
+          <div className="cc-chats-page-titles">
+            <h1>Chats</h1>
+            <p>Mensajes directos y de canal · responde aquí sin mezclar con Radio PTT</p>
+          </div>
+        </header>
+      )}
       <div className="cc-chats-page-body">
         <ChatInbox
           session={session}
@@ -59,5 +63,20 @@ export default function DispatchChatsPage({
         />
       </div>
     </div>
+  );
+}
+
+/** Ruta /despacho/chats — mensajería operativa (ChatInbox). */
+export function DispatchChatsRoute() {
+  const ctx = useOutletContext() || {};
+  return (
+    <DispatchChatsPage
+      session={ctx.session}
+      groups={ctx.groups}
+      group={ctx.group}
+      onSelectGroup={ctx.onGroupChange}
+      ptt={ctx.ptt}
+      visible
+    />
   );
 }

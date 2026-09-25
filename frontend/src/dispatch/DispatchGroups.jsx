@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   addGroupMember,
   canManageUsers,
@@ -9,22 +10,366 @@ import {
   fetchAdminGroups,
   fetchAdminUsers,
   fetchOrgUnits,
-  isAdminUser,
   isRootUser,
   patchAdminGroup,
+  patchGroupMember,
   purgeGroupMessages,
   removeGroupMember,
   uploadGroupAvatar,
 } from '../api';
+import { canModuleAction, canViewModule } from './modulePermissions.js';
 import AppDialog from '../AppDialog';
 import PersonAvatar from '../PersonAvatar';
-import { invalidateGroupAvatarBlob } from '../avatarBlobCache.js';
+import { invalidateGroupAvatarBlob, peekGroupAvatarBlobUrl } from '../avatarBlobCache.js';
+import ThFilterMulti, {
+  colFilterIsActive,
+  colFilterIsNone,
+  COLS_BTN_SVG,
+  FILTER_BTN_SVG,
+  NEW_CHANNEL_BTN_SVG,
+} from './ThFilterMulti.jsx';
+import useAdminStickyToolbarHeight from './useAdminStickyToolbarHeight.js';
 
 const MEMBER_ROLES = [
   { value: 'member', label: 'Miembro' },
   { value: 'leader', label: 'Líder' },
   { value: 'listen_only', label: 'Solo escucha' },
 ];
+
+/** Mismo tamaño de página que Usuarios (`USERS_PAGE_SIZE`). */
+const GROUPS_PAGE_SIZE = 15;
+
+function groupsPagerPages(current, totalPages) {
+  const pags = Math.max(1, totalPages);
+  const cur = Math.max(1, Math.min(current, pags));
+  let start = Math.max(1, cur - 2);
+  let end = Math.min(pags, start + 4);
+  if (end - start < 4) start = Math.max(1, end - 4);
+  const pages = [];
+  for (let i = start; i <= end; i += 1) pages.push(i);
+  return pages;
+}
+
+/** Columnas ocultables/reordenables. Clic en fila abre el panel (sin columna Acciones). */
+const GROUP_TABLE_COLS = [
+  { key: 'canal', label: 'Canal' },
+  { key: 'desc', label: 'Descripción' },
+  { key: 'scope', label: 'Alcance' },
+  { key: 'members', label: 'Miembros' },
+  { key: 'status', label: 'Estado' },
+];
+
+const GROUP_COL_CLASS = {
+  canal: 'cc-gt-col-canal',
+  desc: 'cc-gt-col-desc',
+  scope: 'cc-gt-col-scope',
+  members: 'cc-gt-col-n',
+  status: 'cc-gt-col-state',
+};
+
+const GROUPS_COL_CONFIG_STORAGE_KEY = 'tacticalptx.groups.colConfig.v1';
+
+function defaultGroupColConfig() {
+  return GROUP_TABLE_COLS.map((c) => ({ ...c, visible: true }));
+}
+
+function loadGroupColConfig() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(GROUPS_COL_CONFIG_STORAGE_KEY) || 'null');
+    if (!saved || !Array.isArray(saved)) return defaultGroupColConfig();
+    const validKeys = new Set(GROUP_TABLE_COLS.map((c) => c.key));
+    const ordered = [];
+    const seen = new Set();
+    for (const s of saved) {
+      if (!validKeys.has(s.key) || seen.has(s.key)) continue;
+      seen.add(s.key);
+      const base = GROUP_TABLE_COLS.find((d) => d.key === s.key);
+      ordered.push({ ...base, visible: s.visible !== false });
+    }
+    for (const d of GROUP_TABLE_COLS) {
+      if (!seen.has(d.key)) ordered.push({ ...d, visible: true });
+    }
+    return ordered.length ? ordered : defaultGroupColConfig();
+  } catch {
+    return defaultGroupColConfig();
+  }
+}
+
+function saveGroupColConfig(config) {
+  try {
+    localStorage.setItem(
+      GROUPS_COL_CONFIG_STORAGE_KEY,
+      JSON.stringify(config.map((c) => ({ key: c.key, visible: c.visible !== false })))
+    );
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+/** Vacío para ordenar (estilo Parque Vehicular). */
+function isSortEmpty(val) {
+  if (val === null || val === undefined) return true;
+  if (typeof val === 'string' && val.trim() === '') return true;
+  return false;
+}
+
+/**
+ * Compara valores de columna. Vacío siempre es el menor:
+ * ▲ asc → vacíos arriba; ▼ desc → vacíos abajo.
+ */
+function compareSortValues(va, vb, dir) {
+  const aEmpty = isSortEmpty(va);
+  const bEmpty = isSortEmpty(vb);
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return -1 * dir;
+  if (bEmpty) return 1 * dir;
+  if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+  return (
+    String(va).localeCompare(String(vb), 'es', { sensitivity: 'base', numeric: true }) * dir
+  );
+}
+
+function getGroupSortValue(g, key) {
+  switch (key) {
+    case 'canal':
+      return g.name || '';
+    case 'desc':
+      return g.description || '';
+    case 'scope':
+      return scopeNameOnly(g);
+    case 'members': {
+      const n = Number(g.member_count);
+      return Number.isFinite(n) ? n : 0;
+    }
+    case 'status':
+      return g.is_active ? 1 : 0;
+    default:
+      return '';
+  }
+}
+
+/** Valor canónico para filtro de columna. Alcance: `level::unitId` (árbol orgánico). */
+function getGroupColFilterVal(g, key) {
+  switch (key) {
+    case 'canal':
+      return g.name || '';
+    case 'desc':
+      return g.description || '—';
+    case 'scope': {
+      const level = g.scopeLevel || g.scope_level || 'unit';
+      const id = g.unitId || g.unit_id || '';
+      if (id) return `${level}::${id}`;
+      return `${level}::__${scopeNameOnly(g)}`;
+    }
+    case 'members':
+      return String(g.member_count ?? 0);
+    case 'status':
+      return g.is_active ? 'active' : 'inactive';
+    default:
+      return '';
+  }
+}
+
+/** Nombre de alcance sin prefijo Región/Zona/Unidad. */
+function scopeNameOnly(group) {
+  if (!group) return '—';
+  const raw = group.unitName || group.unit_name || '';
+  if (raw && String(raw).trim()) return String(raw).trim();
+  const label = group.scopeLabel || '';
+  if (label) {
+    const stripped = String(label)
+      .replace(/^(Región|Region|Zona|Unidad)\s*[·:\-–—]\s*/i, '')
+      .trim();
+    if (stripped) return stripped;
+  }
+  return '—';
+}
+
+function groupColFilterOptionLabel(key, value, scopeNameByValue) {
+  if (key === 'status') {
+    if (value === 'active') return 'Activo';
+    if (value === 'inactive') return 'Inactivo';
+  }
+  if (key === 'scope') {
+    if (scopeNameByValue && scopeNameByValue[value]) return scopeNameByValue[value];
+    const s = String(value || '');
+    const i = s.indexOf('::');
+    const rest = i >= 0 ? s.slice(i + 2) : s;
+    return rest.startsWith('__') ? rest.slice(2) : rest;
+  }
+  return value;
+}
+
+/**
+ * Árbol de filtro Alcance (por región):
+ *   Región
+ *     ☐ Grupos (de todas las zonas y unidades)   ← canal región
+ *     ▼ Zona
+ *         ☐ Grupos (de todas las unidades)       ← canal zona
+ *         ☐ Unidad                               ← canal unidad
+ * Solo aparecen filas si hay canales de ese tipo. Check = alcance (level::id).
+ */
+function buildScopeFilterTree(orgTree, filterValues) {
+  const present = new Set(filterValues || []);
+  const nameByValue = {};
+
+  function sortKids(list) {
+    return [...list].sort((a, b) =>
+      String(a.label).localeCompare(String(b.label), 'es', {
+        sensitivity: 'base',
+        numeric: true,
+      })
+    );
+  }
+
+  const tree = [];
+  const placed = new Set();
+
+  for (const region of orgTree || []) {
+    const rName = region.name || '—';
+    const regionGroupNodes = [];
+    const zoneFolders = [];
+    const rv = `region::${region.id}`;
+    if (present.has(rv)) {
+      nameByValue[rv] = `${rName} · Grupos (de todas las zonas y unidades)`;
+      regionGroupNodes.push({
+        id: `${region.id}__region_groups`,
+        value: rv,
+        label: 'Grupos (de todas las zonas y unidades)',
+        level: 'region',
+        selectable: true,
+        children: [],
+      });
+      placed.add(rv);
+    }
+
+    for (const zone of region.children || []) {
+      const zName = zone.name || '—';
+      const zoneChildren = [];
+      const zv = `zone::${zone.id}`;
+      if (present.has(zv)) {
+        nameByValue[zv] = `${zName} · Grupos (de todas las unidades)`;
+        zoneChildren.push({
+          id: `${zone.id}__zone_groups`,
+          value: zv,
+          label: 'Grupos (de todas las unidades)',
+          level: 'zone',
+          selectable: true,
+          children: [],
+        });
+        placed.add(zv);
+      }
+      const unitNodes = [];
+      for (const unit of zone.children || []) {
+        const uv = `unit::${unit.id}`;
+        if (!present.has(uv)) continue;
+        const uName = unit.name || '—';
+        nameByValue[uv] = `${uName} · ${zName}`;
+        unitNodes.push({
+          id: unit.id,
+          value: uv,
+          label: uName,
+          level: 'unit',
+          selectable: true,
+          children: [],
+        });
+        placed.add(uv);
+      }
+      /* Primero «Grupos (de todas las unidades)», luego unidades ordenadas */
+      const zoneKids = [...zoneChildren, ...sortKids(unitNodes)];
+      if (zoneKids.length === 0) continue;
+      zoneFolders.push({
+        id: zone.id,
+        value: '',
+        label: zName,
+        level: 'zone-folder',
+        selectable: false,
+        children: zoneKids,
+      });
+    }
+
+    const regionChildren = [...regionGroupNodes, ...sortKids(zoneFolders)];
+    if (regionChildren.length === 0) continue;
+    tree.push({
+      id: region.id,
+      value: '',
+      label: rName,
+      level: 'region-folder',
+      selectable: false,
+      children: regionChildren,
+    });
+  }
+
+  const orphans = [];
+  for (const v of present) {
+    if (placed.has(v)) continue;
+    const i = String(v).indexOf('::');
+    const level = i >= 0 ? v.slice(0, i) : '';
+    const rest = i >= 0 ? v.slice(i + 2) : v;
+    const base = rest.startsWith('__') ? rest.slice(2) : rest;
+    let label = base;
+    if (level === 'region') label = `${base} · Grupos (de todas las zonas y unidades)`;
+    else if (level === 'zone') label = `${base} · Grupos (de todas las unidades)`;
+    nameByValue[v] = label;
+    orphans.push({
+      id: `orphan-${v}`,
+      value: v,
+      label,
+      level: level || 'unit',
+      selectable: true,
+      children: [],
+    });
+  }
+  if (orphans.length) {
+    tree.push({
+      id: '__otros__',
+      value: '',
+      label: 'Otros',
+      level: 'region-folder',
+      selectable: false,
+      children: sortKids(orphans),
+    });
+  }
+
+  return { tree: sortKids(tree), nameByValue };
+}
+
+function groupTableCell(g, key, session) {
+  switch (key) {
+    case 'canal':
+      return (
+        <span className="cc-gt-canal-cell">
+          <PersonAvatar
+            groupId={g.id}
+            avatarUrl={g.avatarUrl}
+            name={g.name}
+            token={session.token}
+            group
+            className="cc-group-avatar cc-group-avatar--table"
+          />
+          <strong>{g.name}</strong>
+        </span>
+      );
+    case 'desc':
+      return (
+        <span className="cc-gt-desc" title={g.description || ''}>
+          {g.description || '—'}
+        </span>
+      );
+    case 'scope':
+      return <span className="cc-gt-scope">{scopeNameOnly(g)}</span>;
+    case 'members':
+      return g.member_count ?? 0;
+    case 'status':
+      return (
+        <span className={`status-pill ${g.is_active ? 'on' : 'off'}`}>
+          {g.is_active ? 'Activo' : 'Inactivo'}
+        </span>
+      );
+    default:
+      return '—';
+  }
+}
 
 const ALC_ALL_ZONES = '__all__';
 const ALC_ALL_UNITS = '__all__';
@@ -44,6 +389,9 @@ function findOrgPath(tree, unitId, adminScopeUnitId) {
   const targets = [unitId, adminScopeUnitId].filter(Boolean);
   if (!targets.length) return { regionId: '', zoneId: '', unitId: '' };
   for (const region of tree || []) {
+    if (targets.includes(region.id)) {
+      return { regionId: region.id, zoneId: '', unitId: '' };
+    }
     for (const zone of region.children || []) {
       if (targets.includes(zone.id)) {
         return {
@@ -62,12 +410,67 @@ function findOrgPath(tree, unitId, adminScopeUnitId) {
   return { regionId: '', zoneId: '', unitId: unitId || '' };
 }
 
+/** Etiqueta legible del alcance guardado (no del formulario). Solo el nombre. */
+function formatStoredGroupScope(group) {
+  if (!group) return '—';
+  const level = group.scopeLevel || group.scope_level || '';
+  const anchor = group.unitId || group.unit_id;
+  if (!anchor) {
+    if (level === 'unit') return '(unidad sin ancla)';
+    if (level === 'zone') return '(zona sin ancla)';
+    if (level === 'region') return '—';
+    return 'Sin alcance definido';
+  }
+  return scopeNameOnly(group);
+}
+
+function groupScopeNeedsFix(group) {
+  if (!group) return false;
+  const level = group.scopeLevel || group.scope_level || '';
+  const anchor = group.unitId || group.unit_id;
+  if (!anchor && level && level !== 'region') return true;
+  if (!anchor && !level) return true;
+  return false;
+}
+
+/** Rehidrata cascada de edición desde un grupo existente (scope_level + unit_id). */
+function hydrateGroupScopeChoices(group, tree) {
+  const level = group?.scopeLevel || group?.scope_level || '';
+  const anchor = group?.unitId || group?.unit_id || null;
+  if (!anchor) {
+    return { regionId: '', zoneChoice: '', unitChoice: '' };
+  }
+  const path = findOrgPath(tree, anchor, anchor);
+  if (level === 'region' || (!level && path.regionId === anchor)) {
+    return { regionId: path.regionId || anchor, zoneChoice: ALC_ALL_ZONES, unitChoice: '' };
+  }
+  if (level === 'zone' || (!path.unitId && path.zoneId)) {
+    return {
+      regionId: path.regionId || '',
+      zoneChoice: path.zoneId || anchor,
+      unitChoice: ALC_ALL_UNITS,
+    };
+  }
+  return {
+    regionId: path.regionId || '',
+    zoneChoice: path.zoneId || '',
+    unitChoice: path.unitId || anchor,
+  };
+}
+
 /**
- * Cascada estilo Usuarios / PV → scope_level + ancla unit_id del canal.
- * - root / region_admin: región → todas zonas (canal región) | zona → todos org (canal zona) | unidad
- * - zone_admin: solo canal de una unidad de su zona (no región)
- * - unit_admin: canal fijo a su unidad
- * `hint` = guía del siguiente paso (no es error); `error` = bloqueo real.
+ * Cascada de alcance → scope_level + ancla unit_id del canal.
+ *
+ * Administrador / admin de región:
+ *   - Región obligatoria.
+ *   - Zona opcional: vacía o «Todas las zonas y unidades» → canal de región.
+ *   - Con zona concreta, Unidad opcional: vacía o «Todas las unidades» → canal de zona;
+ *     unidad concreta → canal de unidad.
+ *
+ * Admin de zona: canal de su zona (unidad vacía/«Todos») o de una unidad de su zona.
+ * Admin de unidad: canal fijo a su unidad.
+ *
+ * `hint` = falta un dato para poder guardar (bloquea); `error` = estado inválido.
  */
 function resolveGroupScope({
   role,
@@ -97,59 +500,33 @@ function resolveGroupScope({
         error: null,
       };
     }
-    if (!unitChoice) {
-      return {
-        scopeLevel: 'zone',
-        unitId: null,
-        hint: 'Siguiente paso: todos los organismos de la zona, o una unidad concreta.',
-        error: null,
-      };
-    }
-    if (unitChoice === ALC_ALL_UNITS) {
+    // Unidad opcional: vacía / «Todos» = canal de toda la zona.
+    if (!unitChoice || unitChoice === ALC_ALL_UNITS) {
       return { scopeLevel: 'zone', unitId: zoneId, hint: null, error: null };
     }
     return { scopeLevel: 'unit', unitId: unitChoice, hint: null, error: null };
   }
 
-  // region_admin / root
-  if (!regionId && r !== 'root') {
+  // region_admin / root — región obligatoria; zona y unidad opcionales.
+  if (!regionId) {
     return {
       scopeLevel: 'region',
       unitId: null,
-      hint: 'Siguiente paso: selecciona la región del canal.',
+      hint: 'Selecciona la región del canal.',
       error: null,
     };
   }
-  if (!zoneChoice) {
-    if (r === 'root' && !regionId) {
-      return { scopeLevel: 'region', unitId: null, hint: null, error: null };
-    }
-    return {
-      scopeLevel: 'region',
-      unitId: null,
-      hint: 'Siguiente paso: elige todas las zonas de la región, o una zona concreta.',
-      error: null,
-    };
+
+  // Sin zona (o «Todas») → canal de región anclado a regionId.
+  if (!zoneChoice || zoneChoice === ALC_ALL_ZONES) {
+    return { scopeLevel: 'region', unitId: regionId, hint: null, error: null };
   }
-  if (zoneChoice === ALC_ALL_ZONES) {
-    return {
-      scopeLevel: 'region',
-      unitId: regionId || null,
-      hint: null,
-      error: regionId || r === 'root' ? null : 'Selecciona la región del canal.',
-    };
-  }
-  if (!unitChoice) {
-    return {
-      scopeLevel: 'zone',
-      unitId: null,
-      hint: 'Siguiente paso: elige todos los organismos de la zona, o una unidad concreta.',
-      error: null,
-    };
-  }
-  if (unitChoice === ALC_ALL_UNITS) {
+
+  // Zona concreta; sin unidad (o «Todos») → canal de zona.
+  if (!unitChoice || unitChoice === ALC_ALL_UNITS) {
     return { scopeLevel: 'zone', unitId: zoneChoice, hint: null, error: null };
   }
+
   return { scopeLevel: 'unit', unitId: unitChoice, hint: null, error: null };
 }
 
@@ -159,10 +536,10 @@ function groupScopeHelp(actorRole) {
     return 'Creas un canal solo para tu unidad. Al asignar miembros solo verás gente de esa unidad.';
   }
   if (r === 'zone_admin') {
-    return 'Puedes crear un canal de toda tu zona (todas las unidades) o de una sola unidad. No puedes agregar usuarios ni administradores de región.';
+    return 'Puedes crear un canal de toda tu zona (deja Unidad en —) o de una sola unidad. No puedes agregar usuarios ni administradores de región.';
   }
   if (r === 'region_admin' || r === 'root') {
-    return 'Elige hasta dónde llega el canal: toda la región, toda una zona, o una unidad. Al asignar verás a la gente de ese alcance (tú puedes meter también perfiles de región).';
+    return 'Elige la región. Zona y unidad opcionales: «Todas las zonas y unidades» = canal de región; zona + «Todas las unidades» = canal de zona; zona + unidad = canal de unidad.';
   }
   return 'El alcance del canal define quién puede entrar.';
 }
@@ -221,8 +598,8 @@ function findNodeInTree(tree, id) {
 /**
  * Membresía geográfica (cliente), alineada con groupPolicy.memberFitsGroupGeo:
  * - region_* / root: siempre
- * - zone_admin / zone_user: canal cuyo ancla cae bajo su zona (incluye vínculos Coord.)
- * - unit_*: su unidad (o ancla = su unidad)
+ * - canal región/zona: adscripción (unit_id / admin_scope) bajo el ancla
+ * - canal unidad: misma unidad, o zone_admin cuya zona contiene esa unidad
  */
 function memberFitsGroupGeoClient(u, group, orgTree) {
   const role = normalizeClientRole(u?.role);
@@ -234,7 +611,19 @@ function memberFitsGroupGeoClient(u, group, orgTree) {
 
   if (u.unitId === anchor || u.adminScopeUnitId === anchor) return true;
 
-  if (role === 'zone_admin' || role === 'zone_user') {
+  if (level === 'region' || level === 'zone') {
+    const node = findNodeInTree(orgTree, anchor);
+    const ids = collectDescendantIds(node);
+    ids.add(anchor);
+    return (
+      (u.unitId && ids.has(u.unitId)) ||
+      (u.adminScopeUnitId && ids.has(u.adminScopeUnitId))
+    );
+  }
+
+  // unit: misma unidad, o admin de zona cuya zona contiene esa unidad
+  // (no zone_user: alineado con groupPolicy.memberFitsGroupGeo / memberFitsGroup)
+  if (role === 'zone_admin') {
     const zoneRootId = u.adminScopeUnitId || u.unitId;
     if (!zoneRootId) return false;
     const zoneNode = findNodeInTree(orgTree, zoneRootId);
@@ -243,14 +632,7 @@ function memberFitsGroupGeoClient(u, group, orgTree) {
     return ids.has(anchor);
   }
 
-  if (role === 'unit_admin' || role === 'unit_user') {
-    return u.unitId === anchor || u.adminScopeUnitId === anchor;
-  }
-
-  const node = findNodeInTree(orgTree, anchor);
-  const ids = collectDescendantIds(node);
-  ids.add(anchor);
-  return (u.unitId && ids.has(u.unitId)) || (u.adminScopeUnitId && ids.has(u.adminScopeUnitId));
+  return u.unitId === anchor || u.adminScopeUnitId === anchor;
 }
 
 function roleTypeLabel(role) {
@@ -287,14 +669,49 @@ export default function DispatchGroups({ session }) {
   const [regionId, setRegionId] = useState('');
   const [zoneChoice, setZoneChoice] = useState('');
   const [unitChoice, setUnitChoice] = useState('');
+  const [editRegionId, setEditRegionId] = useState('');
+  const [editZoneChoice, setEditZoneChoice] = useState('');
+  const [editUnitChoice, setEditUnitChoice] = useState('');
+  const [scopeBusy, setScopeBusy] = useState(false);
+  const [scopeEditOpen, setScopeEditOpen] = useState(false);
+  const [membersSectionOpen, setMembersSectionOpen] = useState(true);
   const [selectedGroupId, setSelectedGroupId] = useState('');
-  const [assign, setAssign] = useState({ groupId: '', userId: '', role: 'member' });
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [detailsBusy, setDetailsBusy] = useState(false);
+  const [assignUserId, setAssignUserId] = useState('');
+  const [assignRole, setAssignRole] = useState('member');
+  const [roleBusyId, setRoleBusyId] = useState('');
+  const [filterQuery, setFilterQuery] = useState('');
+  /** Filtros por columna (undefined = todos; [] = ninguno; string[] = parcial). Estilo PV / Usuarios. */
+  const [colFilters, setColFilters] = useState({});
+  const [filtersVisible, setFiltersVisible] = useState(false);
+  const [openFilterKey, setOpenFilterKey] = useState(null);
+  /** Columna de orden (null = sin ordenar); sortDir 1=▲ asc, -1=▼ desc. */
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDir, setSortDir] = useState(1);
+  /** Tras un drag de columna, el click de cierre no debe ordenar (estilo PV). */
+  const thDidDragRef = useRef(false);
+  const [colsOpen, setColsOpen] = useState(false);
+  const [colConfig, setColConfig] = useState(loadGroupColConfig);
+  const colsWrapRef = useRef(null);
+  const { toolbarRef, stickyPageStyle } = useAdminStickyToolbarHeight();
+  const [colDragIdx, setColDragIdx] = useState(null);
+  const [thDragKey, setThDragKey] = useState(null);
+  const [thDragOverKey, setThDragOverKey] = useState(null);
+  const thDragKeyRef = useRef(null);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
-  const canManage = canManageUsers(session.user);
-  const canPurge = isAdminUser(session.user);
+  const [photoPreviewOpen, setPhotoPreviewOpen] = useState(false);
+  const canManage =
+    canManageUsers(session.user) && canViewModule(session.user, 'grupos');
+  const canAddGroup = canManage && canModuleAction(session.user, 'grupos', 'agregar');
+  const canDeleteGroup = canManage && canModuleAction(session.user, 'grupos', 'eliminar');
+  const canPurge = canModuleAction(session.user, 'grupos', 'eliminar');
   const isRoot = isRootUser(session.user);
   const isUnitAdmin = session.user?.role === 'unit_admin';
   const isZoneAdmin = session.user?.role === 'zone_admin';
@@ -318,16 +735,48 @@ export default function DispatchGroups({ session }) {
     return zone?.children || [];
   }, [orgZones, selectedZoneId]);
 
+  const editOrgZones = useMemo(() => {
+    if (!editRegionId) return [];
+    const region = orgRegions.find((r) => r.id === editRegionId);
+    return region?.children || [];
+  }, [orgRegions, editRegionId]);
+  const editSelectedZoneId =
+    editZoneChoice && editZoneChoice !== ALC_ALL_ZONES ? editZoneChoice : '';
+  const editOrgUnits = useMemo(() => {
+    if (!editSelectedZoneId) return [];
+    const zone = editOrgZones.find((z) => z.id === editSelectedZoneId);
+    return zone?.children || [];
+  }, [editOrgZones, editSelectedZoneId]);
+
   const regionName = orgRegions.find((r) => r.id === regionId)?.name || 'la región';
   const zoneName = orgZones.find((z) => z.id === selectedZoneId)?.name || 'la zona';
   const allowAllZones = isRegionScopeActor;
+  /** Zona visible tras elegir región (opcional) o fijada por zone/unit admin. */
   const showZoneStep = Boolean(regionId) || isUnitAdmin || isZoneAdmin;
+  /** Unidad visible solo con zona concreta (opcional) o fijada por unit admin. */
   const showUnitStep =
     isUnitAdmin ||
     isZoneAdmin ||
     (Boolean(zoneChoice) && zoneChoice !== ALC_ALL_ZONES);
-  /** Zona admin y región pueden elegir «todos los organismos» de la zona. */
+  /** Atajo «Todos» en unidad; también basta dejar Unidad en —. */
   const allowAllUnits = isRegionScopeActor || isZoneAdmin;
+
+  const editShowZoneStep = Boolean(editRegionId) || isUnitAdmin || isZoneAdmin;
+  const editShowUnitStep =
+    isUnitAdmin ||
+    isZoneAdmin ||
+    (Boolean(editZoneChoice) && editZoneChoice !== ALC_ALL_ZONES);
+  const editPreviewScope = useMemo(
+    () =>
+      resolveGroupScope({
+        role: session.user?.role,
+        regionId: editRegionId,
+        zoneChoice: editZoneChoice,
+        unitChoice: editUnitChoice,
+        lockedUnitId,
+      }),
+    [session.user?.role, editRegionId, editZoneChoice, editUnitChoice, lockedUnitId]
+  );
 
   const previewScope = useMemo(
     () =>
@@ -343,13 +792,273 @@ export default function DispatchGroups({ session }) {
 
   const assignableUsers = useMemo(() => {
     const actorRole = session.user?.role;
-    const g = groups.find((x) => x.id === assign.groupId);
+    const g = groups.find((x) => x.id === selectedGroupId);
+    const already = new Set((members || []).map((m) => String(m.id)));
     return (users || []).filter((u) => {
+      if (already.has(String(u.id))) return false;
       if (!actorCanPickMember(actorRole, u.role)) return false;
-      if (assign.groupId && !memberFitsGroupGeoClient(u, g, orgTree)) return false;
+      if (selectedGroupId && !memberFitsGroupGeoClient(u, g, orgTree)) return false;
       return true;
     });
-  }, [users, session.user?.role, assign.groupId, groups, orgTree]);
+  }, [users, members, session.user?.role, selectedGroupId, groups, orgTree]);
+
+  const detailsDirty = useMemo(() => {
+    if (!selectedGroup) return false;
+    return (
+      editName.trim() !== (selectedGroup.name || '').trim() ||
+      editDescription.trim() !== (selectedGroup.description || '').trim()
+    );
+  }, [selectedGroup, editName, editDescription]);
+
+  const colFilterOptions = useMemo(() => {
+    const map = {};
+    for (const col of GROUP_TABLE_COLS) {
+      const set = new Set();
+      for (const g of groups) {
+        const v = getGroupColFilterVal(g, col.key);
+        if (v != null && String(v).trim() !== '') set.add(v);
+      }
+      map[col.key] = [...set].sort((a, b) =>
+        String(groupColFilterOptionLabel(col.key, a)).localeCompare(
+          String(groupColFilterOptionLabel(col.key, b)),
+          'es',
+          { sensitivity: 'base', numeric: true }
+        )
+      );
+    }
+    return map;
+  }, [groups]);
+
+  const scopeFilterBuilt = useMemo(() => {
+    const vals = colFilterOptions.scope || [];
+    return buildScopeFilterTree(orgTree, vals);
+  }, [orgTree, colFilterOptions.scope]);
+
+  const scopeFilterTree = scopeFilterBuilt.tree;
+  const scopeNameByValue = scopeFilterBuilt.nameByValue;
+
+  const scopeOptionLabel = useMemo(
+    () => (key, value) => groupColFilterOptionLabel(key, value, scopeNameByValue),
+    [scopeNameByValue]
+  );
+
+  const filteredGroups = useMemo(() => {
+    let list = groups;
+    const q = filterQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((g) => {
+        const hay = [
+          g.name,
+          g.description,
+          g.scopeLabel,
+          g.unitName,
+          formatStoredGroupScope(g),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    for (const [key, selected] of Object.entries(colFilters)) {
+      if (!colFilterIsActive(selected)) continue;
+      if (colFilterIsNone(selected)) {
+        list = [];
+        break;
+      }
+      const allow = new Set(selected);
+      list = list.filter((g) => allow.has(getGroupColFilterVal(g, key)));
+    }
+    if (sortCol) {
+      list = [...list].sort((a, b) =>
+        compareSortValues(getGroupSortValue(a, sortCol), getGroupSortValue(b, sortCol), sortDir)
+      );
+    }
+    return list;
+  }, [groups, filterQuery, colFilters, sortCol, sortDir]);
+
+  function toggleColSort(key) {
+    /* Un solo setState: no anidar setSortDir dentro de setSortCol
+       (Strict Mode ejecuta el updater 2× y el ×-1×-1 deja el mismo sentido). */
+    if (sortCol === key) {
+      setSortDir((d) => (d === 1 ? -1 : 1));
+    } else {
+      setSortCol(key);
+      setSortDir(1);
+    }
+    setPage(1);
+  }
+
+  /** Clic en título → ordenar. No usa bandera de drag (el ⠿ es lo único arrastrable). */
+  function onThTitleSortClick(e, key) {
+    if (e.target.closest('.th-drag-icon')) return;
+    e.stopPropagation();
+    toggleColSort(key);
+  }
+
+  const activeColFilterCount = useMemo(
+    () => Object.values(colFilters).filter((v) => colFilterIsActive(v)).length,
+    [colFilters]
+  );
+
+  function setColFilter(key, selected) {
+    setColFilters((prev) => {
+      if (!colFilterIsActive(selected)) {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: selected };
+    });
+  }
+
+  useEffect(() => {
+    if (!filtersVisible) setOpenFilterKey(null);
+  }, [filtersVisible]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredGroups.length / GROUPS_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageGroups = filteredGroups.slice(
+    (safePage - 1) * GROUPS_PAGE_SIZE,
+    safePage * GROUPS_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterQuery, colFilters]);
+
+  const visibleOrderedCols = useMemo(
+    () => colConfig.filter((c) => c.visible !== false),
+    [colConfig]
+  );
+
+  useEffect(() => {
+    if (!colsOpen) return undefined;
+    function onDocClick(e) {
+      if (colsWrapRef.current && !colsWrapRef.current.contains(e.target)) {
+        setColsOpen(false);
+      }
+    }
+    document.addEventListener('click', onDocClick);
+    return () => document.removeEventListener('click', onDocClick);
+  }, [colsOpen]);
+
+  function commitColConfig(next) {
+    setColConfig(next);
+    saveGroupColConfig(next);
+  }
+
+  function toggleColVisible(key) {
+    commitColConfig(
+      colConfig.map((c) => (c.key === key ? { ...c, visible: !c.visible } : c))
+    );
+  }
+
+  function moveCol(idx, dir) {
+    const n = idx + dir;
+    if (n < 0 || n >= colConfig.length) return;
+    const next = colConfig.slice();
+    [next[idx], next[n]] = [next[n], next[idx]];
+    commitColConfig(next);
+  }
+
+  function resetColConfig() {
+    commitColConfig(defaultGroupColConfig());
+  }
+
+  function onColDragStart(idx) {
+    setColDragIdx(idx);
+  }
+
+  function onColDragOver(e) {
+    e.preventDefault();
+    e.currentTarget.classList.add('drag-over');
+  }
+
+  function onColDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+
+  function onColDrop(e, idx) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    if (colDragIdx === null || colDragIdx === idx) {
+      setColDragIdx(null);
+      return;
+    }
+    const next = colConfig.slice();
+    const [moved] = next.splice(colDragIdx, 1);
+    next.splice(idx, 0, moved);
+    setColDragIdx(null);
+    commitColConfig(next);
+  }
+
+  function onColDragEnd() {
+    setColDragIdx(null);
+  }
+
+  function onThDragStart(e, key) {
+    /* Como Parque Vehicular: dragstart solo al arrastrar de verdad; el clic limpio ordena. */
+    thDidDragRef.current = true;
+    thDragKeyRef.current = key;
+    setThDragKey(key);
+    setThDragOverKey(null);
+    e.dataTransfer.effectAllowed = 'move';
+    try {
+      e.dataTransfer.setData('text/plain', key);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onThDragEnd() {
+    thDragKeyRef.current = null;
+    setThDragKey(null);
+    setThDragOverKey(null);
+    /* PV: liberar bandera tras el click sintético post-drag */
+    window.setTimeout(() => {
+      thDidDragRef.current = false;
+    }, 80);
+  }
+
+  function onThDragOver(e, key) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setThDragOverKey((prev) => (prev === key ? prev : key));
+  }
+
+  function onThDragLeave(key) {
+    setThDragOverKey((prev) => (prev === key ? null : prev));
+  }
+
+  function onThDrop(e, dstKey) {
+    e.preventDefault();
+    const srcKey = thDragKeyRef.current || thDragKey;
+    thDragKeyRef.current = null;
+    setThDragKey(null);
+    setThDragOverKey(null);
+    if (!srcKey || srcKey === dstKey) return;
+    const si = colConfig.findIndex((c) => c.key === srcKey);
+    const di = colConfig.findIndex((c) => c.key === dstKey);
+    if (si < 0 || di < 0) return;
+    const next = colConfig.slice();
+    const [moved] = next.splice(si, 1);
+    next.splice(di, 0, moved);
+    commitColConfig(next);
+  }
+
+  function closeDrawer() {
+    setPhotoPreviewOpen(false);
+    setSelectedGroupId('');
+    setScopeEditOpen(false);
+    setError('');
+  }
+
+  function openGroup(id) {
+    setSelectedGroupId(id);
+    setScopeEditOpen(false);
+  }
 
   function applyOrgLocks(tree) {
     if (isUnitAdmin && lockedUnitId) {
@@ -397,6 +1106,138 @@ export default function DispatchGroups({ session }) {
     loadMembers(selectedGroupId).catch((e) => setError(e.message));
   }, [selectedGroupId, session.token]);
 
+  useEffect(() => {
+    if (!selectedGroup) {
+      setEditName('');
+      setEditDescription('');
+      setAssignUserId('');
+      setAssignRole('member');
+      return;
+    }
+    setEditName(selectedGroup.name || '');
+    setEditDescription(selectedGroup.description || '');
+    setAssignUserId('');
+    setAssignRole('member');
+  }, [selectedGroupId, selectedGroup?.id, selectedGroup?.name, selectedGroup?.description]);
+
+  useEffect(() => {
+    if (!selectedGroupId || !orgTree?.length) {
+      setEditRegionId('');
+      setEditZoneChoice('');
+      setEditUnitChoice('');
+      setScopeEditOpen(false);
+      return;
+    }
+    const g = groups.find((x) => x.id === selectedGroupId);
+    if (!g) return;
+    setScopeEditOpen(groupScopeNeedsFix(g));
+    if (isUnitAdmin && lockedUnitId) {
+      const path = findOrgPath(orgTree, lockedUnitId, lockedUnitId);
+      setEditRegionId(path.regionId || '');
+      setEditZoneChoice(path.zoneId || '');
+      setEditUnitChoice(path.unitId || lockedUnitId);
+      return;
+    }
+    if (isZoneAdmin && lockedUnitId) {
+      const path = findOrgPath(orgTree, lockedUnitId, lockedUnitId);
+      const hydrated = hydrateGroupScopeChoices(g, orgTree);
+      setEditRegionId(path.regionId || hydrated.regionId || '');
+      setEditZoneChoice(path.zoneId || hydrated.zoneChoice || '');
+      setEditUnitChoice(hydrated.unitChoice || '');
+      return;
+    }
+    const hydrated = hydrateGroupScopeChoices(g, orgTree);
+    setEditRegionId(hydrated.regionId);
+    setEditZoneChoice(hydrated.zoneChoice);
+    setEditUnitChoice(hydrated.unitChoice);
+  }, [selectedGroupId, groups, orgTree, isUnitAdmin, isZoneAdmin, lockedUnitId]);
+
+  useEffect(() => {
+    if (!selectedGroupId) return undefined;
+
+    function isTypingTarget(el) {
+      if (!el || !(el instanceof Element)) return false;
+      const tag = el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (el.isContentEditable) return true;
+      return Boolean(el.closest('input, textarea, select, [contenteditable="true"]'));
+    }
+
+    function onKey(e) {
+      if (createOpen || dialog) return;
+      if (photoPreviewOpen) {
+        if (e.key === 'Escape') setPhotoPreviewOpen(false);
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        closeDrawer();
+        return;
+      }
+
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      if (isTypingTarget(e.target)) return;
+
+      const list = filteredGroups;
+      if (!list.length) return;
+      const idx = list.findIndex((g) => g.id === selectedGroupId);
+      if (idx < 0) return;
+      const nextIdx = e.key === 'ArrowDown' ? idx + 1 : idx - 1;
+      if (nextIdx < 0 || nextIdx >= list.length) return;
+
+      e.preventDefault();
+      const nextId = list[nextIdx].id;
+      openGroup(nextId);
+      setPage(Math.floor(nextIdx / GROUPS_PAGE_SIZE) + 1);
+      requestAnimationFrame(() => {
+        document
+          .querySelector('.cc-groups-table-row.is-selected')
+          ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    }
+
+    function onDocDown(e) {
+      if (createOpen || dialog || photoPreviewOpen) return;
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      if (t.closest('.cc-groups-drawer')) return;
+      /* Tabla + scrollbar del body de admin: no cerrar */
+      if (t.closest('.cc-catalogs-body, .cc-groups-page, .cc-groups-table-wrap')) return;
+      if (t.closest('.usr-th-filter-multi-menu')) return;
+      if (t.closest('.sys-modal, .sys-modal-backdrop')) return;
+      if (t.closest('.cc-group-photo-lightbox')) return;
+      /* Rail de módulos: no cerrar (Contraer menú sigue ok). */
+      if (t.closest('#cc-mod-rail, .cc-mod-rail')) return;
+      closeDrawer();
+    }
+
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDocDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDocDown);
+    };
+  }, [
+    selectedGroupId,
+    createOpen,
+    dialog,
+    photoPreviewOpen,
+    filteredGroups,
+  ]);
+
+  useEffect(() => {
+    setPhotoPreviewOpen(false);
+  }, [selectedGroupId]);
+
+  /* Empuja topbar + radio + contenido: el drawer es fixed y tapa la derecha del shell */
+  useEffect(() => {
+    const shell = document.querySelector('.cc-shell');
+    if (!shell) return undefined;
+    if (selectedGroupId) shell.classList.add('cc-groups-drawer-open');
+    else shell.classList.remove('cc-groups-drawer-open');
+    return () => shell.classList.remove('cc-groups-drawer-open');
+  }, [selectedGroupId]);
+
   function resetCreateCascade() {
     if (isUnitAdmin) {
       applyOrgLocks(orgTree);
@@ -429,9 +1270,9 @@ export default function DispatchGroups({ session }) {
         setError(resolved.hint);
         return;
       }
-      await createGroup(session.token, {
+      const created = await createGroup(session.token, {
         name,
-        description,
+        description: description.trim() || undefined,
         unitId: resolved.unitId,
         scopeLevel: resolved.scopeLevel,
       });
@@ -439,25 +1280,101 @@ export default function DispatchGroups({ session }) {
       setDescription('');
       resetCreateCascade();
       await reload();
+      const newId = created?.group?.id;
+      if (newId) {
+        setSelectedGroupId(newId);
+        setCreateOpen(false);
+      }
       setError('');
     } catch (err) {
       setError(err.message);
     }
   }
 
-  async function onAssign(e) {
-    e.preventDefault();
+  async function onSaveGroupScope(e) {
+    e?.preventDefault?.();
+    if (!selectedGroupId) return;
+    const resolved = resolveGroupScope({
+      role: session.user?.role,
+      regionId: editRegionId,
+      zoneChoice: editZoneChoice,
+      unitChoice: editUnitChoice,
+      lockedUnitId,
+    });
+    if (resolved.error) {
+      setError(resolved.error);
+      return;
+    }
+    if (resolved.hint) {
+      setError(resolved.hint);
+      return;
+    }
+    setScopeBusy(true);
     try {
-      await addGroupMember(session.token, assign.groupId, assign.userId, assign.role);
-      const gid = assign.groupId;
-      setAssign({ groupId: '', userId: '', role: 'member' });
+      await patchAdminGroup(session.token, selectedGroupId, {
+        unitId: resolved.unitId,
+        scopeLevel: resolved.scopeLevel,
+      });
       await reload();
-      if (selectedGroupId === gid || selectedGroupId) {
-        await loadMembers(selectedGroupId || gid);
-      }
+      setScopeEditOpen(false);
       setError('');
     } catch (err) {
       setError(err.message);
+    } finally {
+      setScopeBusy(false);
+    }
+  }
+
+  async function onSaveGroupDetails(e) {
+    e?.preventDefault?.();
+    if (!selectedGroupId || !editName.trim()) {
+      setError('El nombre del canal es obligatorio.');
+      return;
+    }
+    setDetailsBusy(true);
+    try {
+      await patchAdminGroup(session.token, selectedGroupId, {
+        name: editName.trim(),
+        description: editDescription.trim(),
+      });
+      await reload();
+      setError('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDetailsBusy(false);
+    }
+  }
+
+  async function onAssignMember(e) {
+    e.preventDefault();
+    if (!selectedGroupId || !assignUserId) return;
+    try {
+      await addGroupMember(session.token, selectedGroupId, assignUserId, assignRole);
+      setAssignUserId('');
+      setAssignRole('member');
+      await reload();
+      await loadMembers(selectedGroupId);
+      setError('');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function onChangeMemberRole(userId, nextRole) {
+    if (!selectedGroupId || !userId || !nextRole) return;
+    const prev = members.find((m) => m.id === userId)?.role;
+    if (prev === nextRole) return;
+    setRoleBusyId(userId);
+    setMembers((list) => list.map((m) => (m.id === userId ? { ...m, role: nextRole } : m)));
+    try {
+      await patchGroupMember(session.token, selectedGroupId, userId, nextRole);
+      setError('');
+    } catch (err) {
+      setMembers((list) => list.map((m) => (m.id === userId ? { ...m, role: prev } : m)));
+      setError(err.message);
+    } finally {
+      setRoleBusyId('');
     }
   }
 
@@ -607,52 +1524,70 @@ export default function DispatchGroups({ session }) {
     });
   }
 
-  return (
-    <div className="dispatch-page cc-groups-page cc-cat-compact">
-      <header className="dispatch-header cc-cat-compact-head">
-        <div>
-          <h1>Grupos y canales</h1>
-          <p className="cc-page-sub">
-            {isUnitAdmin
-              ? 'Canales de tu unidad. Solo agregas operadores de esa unidad.'
-              : isZoneAdmin
-                ? 'Canales de toda tu zona o de una unidad. No agregas perfiles de región.'
-                : 'Canales por región, zona o unidad. Al asignar ves a la gente de ese alcance.'}
-          </p>
+  function renderScopeEditor() {
+    if (!canManage || !selectedGroup) return null;
+    const g = selectedGroup;
+    return (
+      <section
+        className={`cc-group-detail-section cc-group-detail-section--scope cc-group-scope-panel${groupScopeNeedsFix(g) ? ' is-warn' : ''}${scopeEditOpen ? ' is-editing' : ''}`}
+      >
+        <div className="cc-group-detail-section-head">
+          <h3>Alcance territorial</h3>
+          {!scopeEditOpen ? (
+            <button type="button" className="cc-btn ghost cc-btn-sm" onClick={() => setScopeEditOpen(true)}>
+              Cambiar
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="cc-btn ghost cc-btn-sm"
+              disabled={scopeBusy}
+              onClick={() => {
+                const hydrated = hydrateGroupScopeChoices(g, orgTree);
+                if (isUnitAdmin && lockedUnitId) {
+                  const path = findOrgPath(orgTree, lockedUnitId, lockedUnitId);
+                  setEditRegionId(path.regionId || '');
+                  setEditZoneChoice(path.zoneId || '');
+                  setEditUnitChoice(path.unitId || lockedUnitId);
+                } else if (isZoneAdmin && lockedUnitId) {
+                  const path = findOrgPath(orgTree, lockedUnitId, lockedUnitId);
+                  setEditRegionId(path.regionId || hydrated.regionId || '');
+                  setEditZoneChoice(path.zoneId || hydrated.zoneChoice || '');
+                  setEditUnitChoice(hydrated.unitChoice || '');
+                } else {
+                  setEditRegionId(hydrated.regionId);
+                  setEditZoneChoice(hydrated.zoneChoice);
+                  setEditUnitChoice(hydrated.unitChoice);
+                }
+                setScopeEditOpen(groupScopeNeedsFix(g));
+                setError('');
+              }}
+            >
+              Cerrar
+            </button>
+          )}
         </div>
-        <p className="cc-units-summary">{groups.length} grupo(s)</p>
-      </header>
-      {error && <p className="error">{error}</p>}
-
-      {canManage && (
-      <div className="cc-groups-forms">
-        <form className="cc-groups-form" onSubmit={onCreate}>
-          <h2>Nuevo grupo</h2>
-          <label className="cc-groups-field">
-            <span>Nombre</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} required />
-          </label>
-          <label className="cc-groups-field">
-            <span>Descripción</span>
-            <input value={description} onChange={(e) => setDescription(e.target.value)} />
-          </label>
-          <div className="cc-groups-field cc-groups-scope">
-            <span className="cc-groups-scope-title">Alcance del canal</span>
-            <p className="cc-hint cc-groups-scope-hint">{groupScopeHelp(session.user?.role)}</p>
-            <div className="cc-form-grid cc-form-grid--3">
-              <label className="field">
-                <span>Región{isRegionScopeActor || isZoneAdmin || isUnitAdmin ? ' *' : ''}</span>
+        <p className="cc-group-scope-value">{formatStoredGroupScope(g)}</p>
+        {groupScopeNeedsFix(g) ? (
+          <p className="cc-group-scope-now-note">Incompleto: falta región, zona o unidad ancla.</p>
+        ) : null}
+        {scopeEditOpen && (
+          <form className="cc-group-scope-edit" onSubmit={onSaveGroupScope}>
+            <p className="cc-group-scope-edit-lead">Nuevo alcance (sustituye el actual al guardar)</p>
+            <div className="cc-group-scope-fields">
+              <label className="cc-group-scope-field">
+                <span>Región</span>
                 <select
-                  value={regionId}
-                  disabled={isUnitAdmin || isZoneAdmin}
-                  required={isRegionScopeActor || isZoneAdmin || isUnitAdmin}
+                  value={editRegionId}
+                  disabled={isUnitAdmin || isZoneAdmin || scopeBusy}
+                  required
                   onChange={(e) => {
-                    setRegionId(e.target.value);
-                    setZoneChoice('');
-                    setUnitChoice('');
+                    setEditRegionId(e.target.value);
+                    setEditZoneChoice('');
+                    setEditUnitChoice('');
                   }}
                 >
-                  <option value="">— Selecciona —</option>
+                  <option value="">—</option>
                   {orgRegions.map((region) => (
                     <option key={region.id} value={region.id}>
                       {region.name}
@@ -660,312 +1595,910 @@ export default function DispatchGroups({ session }) {
                   ))}
                 </select>
               </label>
-              {showZoneStep && (
-                <label className="field">
-                  <span>Zona / C.G. *</span>
+              {editShowZoneStep && (
+                <label className="cc-group-scope-field">
+                  <span>Zona / C.G.{isUnitAdmin || isZoneAdmin ? '' : ' (opc.)'}</span>
                   <select
-                    value={zoneChoice}
-                    disabled={isUnitAdmin || isZoneAdmin || !regionId}
-                    required
+                    value={editZoneChoice}
+                    disabled={isUnitAdmin || isZoneAdmin || !editRegionId || scopeBusy}
                     onChange={(e) => {
-                      setZoneChoice(e.target.value);
-                      setUnitChoice('');
+                      setEditZoneChoice(e.target.value);
+                      setEditUnitChoice('');
                     }}
                   >
-                    <option value="">— Selecciona —</option>
+                    <option value="">—</option>
                     {allowAllZones ? (
-                      <option value={ALC_ALL_ZONES}>
-                        Todas las zonas de {regionName} (canal de región)
-                      </option>
+                  <option value={ALC_ALL_ZONES}>Todas las zonas y unidades (toda la región)</option>
                     ) : null}
-                    {orgZones.map((zone) => (
-                      <option key={zone.id} value={zone.id}>
-                        {zone.name}
+                    {editOrgZones.map((z) => (
+                      <option key={z.id} value={z.id}>
+                        {z.name}
                       </option>
                     ))}
                   </select>
                 </label>
               )}
-              {showUnitStep && (
-                <label className="field">
-                  <span>
-                    Unidad
-                    {isUnitAdmin || isZoneAdmin ? ' *' : ''}
-                  </span>
+              {editShowUnitStep && (
+                <label className="cc-group-scope-field">
+                  <span>Unidad{isUnitAdmin ? ' *' : ' (opc.)'}</span>
                   <select
-                    value={unitChoice}
-                    disabled={isUnitAdmin || !selectedZoneId}
-                    required={isUnitAdmin || isZoneAdmin || Boolean(zoneChoice)}
-                    onChange={(e) => setUnitChoice(e.target.value)}
+                    value={editUnitChoice}
+                    disabled={isUnitAdmin || !editSelectedZoneId || scopeBusy}
+                    required={isUnitAdmin}
+                    onChange={(e) => setEditUnitChoice(e.target.value)}
                   >
-                    <option value="">— Selecciona —</option>
-                    {allowAllUnits && !isUnitAdmin ? (
-                      <option value={ALC_ALL_UNITS}>
-                        Todos los organismos de {zoneName} (canal de zona)
-                      </option>
+                    <option value="">—</option>
+                    {allowAllUnits ? (
+                      <option value={ALC_ALL_UNITS}>Todas las unidades (toda la zona)</option>
                     ) : null}
-                    {orgUnits.map((unit) => (
-                      <option key={unit.id} value={unit.id}>
-                        {unit.name}
+                    {editOrgUnits.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
                       </option>
                     ))}
                   </select>
                 </label>
               )}
             </div>
-            <p className="cc-hint cc-groups-scope-preview">
-              {previewScope.error ? (
-                <span className="error">{previewScope.error}</span>
-              ) : previewScope.hint ? (
-                <span>{previewScope.hint}</span>
-              ) : (
-                <>
-                  Se creará como canal de{' '}
-                  <strong>
-                    {previewScope.scopeLevel === 'region'
-                      ? 'región'
-                      : previewScope.scopeLevel === 'zone'
-                        ? 'zona'
-                        : 'unidad'}
-                  </strong>
-                  . {groupScopeLevelExplain(previewScope.scopeLevel)}
-                </>
-              )}
-            </p>
-          </div>
-          <div className="cc-groups-form-actions">
-            <button type="submit" className="cc-btn primary">
-              Crear grupo
-            </button>
-          </div>
-        </form>
-
-        <form className="cc-groups-form" onSubmit={onAssign}>
-          <h2>Asignar miembro</h2>
-          <p className="cc-hint">Primero el grupo, luego la persona y al final el rol en el canal.</p>
-          <label className="cc-groups-field">
-            <span>Grupo</span>
-            <select
-              value={assign.groupId}
-              onChange={(e) =>
-                setAssign({
-                  groupId: e.target.value,
-                  userId: '',
-                  role: 'member',
-                })
-              }
-              required
-            >
-              <option value="">Seleccionar…</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                  {g.unitName ? ` · ${g.unitName}` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          {assign.groupId ? (
-            <label className="cc-groups-field">
-              <span>Usuario</span>
-              <select
-                value={assign.userId}
-                onChange={(e) =>
-                  setAssign({
-                    ...assign,
-                    userId: e.target.value,
-                    role: 'member',
-                  })
-                }
-                required
+            {editPreviewScope?.error ? (
+              <p className="cc-group-scope-msg is-err">{editPreviewScope.error}</p>
+            ) : editPreviewScope?.hint ? (
+              <p className="cc-group-scope-msg">{editPreviewScope.hint}</p>
+            ) : (
+              <p className="cc-group-scope-msg is-ok">
+                Quedará:{' '}
+                {editPreviewScope.scopeLevel === 'region'
+                  ? 'canal de región'
+                  : editPreviewScope.scopeLevel === 'zone'
+                    ? 'canal de zona'
+                    : 'canal de unidad'}
+              </p>
+            )}
+            <div className="cc-group-scope-actions">
+              <button
+                type="submit"
+                className="cc-btn primary cc-btn-sm"
+                disabled={scopeBusy || Boolean(editPreviewScope?.error || editPreviewScope?.hint)}
               >
-                <option value="">Seleccionar…</option>
-                {assignableUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {memberAssignLabel(u)}
-                  </option>
-                ))}
-              </select>
-              {isZoneAdmin ? (
-                <span className="cc-hint">
-                  No aparecen usuarios ni administradores de región: no puedes agregarlos a tus
-                  canales.
-                </span>
-              ) : isUnitAdmin ? (
-                <span className="cc-hint">
-                  Solo personas de tu unidad (operadores / admin de unidad).
-                </span>
-              ) : (
-                <span className="cc-hint">
-                  La lista se filtra según el nivel del canal (región / zona / unidad).
-                </span>
-              )}
-            </label>
-          ) : null}
-          {assign.groupId && assign.userId ? (
-            <label className="cc-groups-field">
-              <span>Rol en canal</span>
-              <select
-                value={assign.role}
-                onChange={(e) => setAssign({ ...assign, role: e.target.value })}
-              >
-                {MEMBER_ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {assign.groupId && assign.userId ? (
-            <div className="cc-groups-form-actions">
-              <button type="submit" className="cc-btn primary">
-                Asignar
+                {scopeBusy ? 'Guardando…' : 'Guardar alcance'}
               </button>
             </div>
-          ) : null}
-        </form>
-      </div>
-      )}
+          </form>
+        )}
+      </section>
+    );
+  }
 
-      <div className="cc-groups-list-wrap">
-        <ul className="cc-groups-list">
-          {groups.map((g) => {
-            const isOpen = selectedGroupId === g.id;
-            return (
-              <li key={g.id} className={`cc-group-card${isOpen ? ' is-selected' : ''}`}>
-                <div className="cc-group-card-main">
-                  <div className="cc-group-card-head">
-                    <PersonAvatar
-                      groupId={g.id}
-                      avatarUrl={g.avatarUrl}
-                      name={g.name}
-                      token={session.token}
-                      group
-                      className="cc-group-avatar"
-                    />
-                    <strong>{g.name}</strong>
-                    <span className={`status-pill ${g.is_active ? 'on' : 'off'}`}>
-                      {g.is_active ? 'Activo' : 'Inactivo'}
-                    </span>
-                  </div>
-                  <code className="cc-group-room">{g.livekit_room}</code>
-                  <span className="cc-group-meta">
-                    {g.member_count} miembro(s)
-                    {g.scopeLabel
-                      ? ` · ${g.scopeLabel}`
-                      : g.unitName
-                        ? ` · ${g.unitName}`
-                        : g.unitId
-                          ? ''
-                          : ' · Región'}
+  function renderNewChannelFields() {
+    return (
+      <>
+        <label className="cc-groups-field">
+          <span>Nombre</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+        </label>
+        <label className="cc-groups-field">
+          <span>Descripción</span>
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Opcional — visible en el listado"
+          />
+        </label>
+        <div className="cc-groups-field cc-groups-scope">
+          <span className="cc-groups-scope-title">Alcance</span>
+          <p className="cc-hint" style={{ margin: '0 0 0.65rem' }}>
+            {groupScopeHelp(session.user?.role)}
+          </p>
+          <div className="cc-form-grid cc-form-grid--3">
+            <label className="field">
+              <span>Región{isRegionScopeActor || isZoneAdmin || isUnitAdmin ? ' *' : ''}</span>
+              <select
+                value={regionId}
+                disabled={isUnitAdmin || isZoneAdmin}
+                required={isRegionScopeActor || isZoneAdmin || isUnitAdmin}
+                onChange={(e) => {
+                  setRegionId(e.target.value);
+                  setZoneChoice('');
+                  setUnitChoice('');
+                }}
+              >
+                <option value="">—</option>
+                {orgRegions.map((region) => (
+                  <option key={region.id} value={region.id}>
+                    {region.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {showZoneStep && (
+              <label className="field">
+                <span>Zona / C.G.{isUnitAdmin || isZoneAdmin ? '' : ' (opc.)'}</span>
+                <select
+                  value={zoneChoice}
+                  disabled={isUnitAdmin || isZoneAdmin || !regionId}
+                  onChange={(e) => {
+                    setZoneChoice(e.target.value);
+                    setUnitChoice('');
+                  }}
+                >
+                  <option value="">—</option>
+                  {allowAllZones ? (
+                    <option value={ALC_ALL_ZONES}>Todas las zonas y unidades ({regionName})</option>
+                  ) : null}
+                  {orgZones.map((zone) => (
+                    <option key={zone.id} value={zone.id}>
+                      {zone.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {showUnitStep && (
+              <label className="field">
+                <span>Unidad{isUnitAdmin ? ' *' : ' (opc.)'}</span>
+                <select
+                  value={unitChoice}
+                  disabled={isUnitAdmin || !selectedZoneId}
+                  required={isUnitAdmin}
+                  onChange={(e) => setUnitChoice(e.target.value)}
+                >
+                  <option value="">—</option>
+                  {allowAllUnits && !isUnitAdmin ? (
+                    <option value={ALC_ALL_UNITS}>Todas las unidades ({zoneName})</option>
+                  ) : null}
+                  {orgUnits.map((unit) => (
+                    <option key={unit.id} value={unit.id}>
+                      {unit.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          <p className="cc-hint cc-groups-scope-preview">
+            {previewScope.error ? (
+              <span className="error">{previewScope.error}</span>
+            ) : previewScope.hint ? (
+              <span>{previewScope.hint}</span>
+            ) : (
+              <>
+                Canal de{' '}
+                <strong>
+                  {previewScope.scopeLevel === 'region'
+                    ? 'región'
+                    : previewScope.scopeLevel === 'zone'
+                      ? 'zona'
+                      : 'unidad'}
+                </strong>
+                . {groupScopeLevelExplain(previewScope.scopeLevel)}
+              </>
+            )}
+          </p>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="dispatch-page cc-groups-page" style={stickyPageStyle}>
+      <header ref={toolbarRef} className="cc-groups-toolbar">
+        <div className="cc-groups-toolbar-start">
+          <h1>Grupos y canales</h1>
+          <span className="cc-groups-toolbar-count">{filteredGroups.length} de {groups.length}</span>
+        </div>
+        <div className="cc-groups-toolbar-end">
+          <label className="cc-groups-search">
+            <span className="visually-hidden">Buscar</span>
+            <input
+              type="search"
+              value={filterQuery}
+              onChange={(e) => setFilterQuery(e.target.value)}
+              placeholder="Buscar…"
+            />
+          </label>
+          <div className="cc-groups-toolbar-actions">
+            <div className="usr-table-tools">
+              <button
+                type="button"
+                className={`usr-btn-filters${filtersVisible ? ' active' : ''}`}
+                title={filtersVisible ? 'Quitar filtros' : 'Mostrar filtros'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFiltersVisible((v) => {
+                    if (v) {
+                      setColFilters({});
+                      setOpenFilterKey(null);
+                      return false;
+                    }
+                    return true;
+                  });
+                }}
+              >
+                {FILTER_BTN_SVG}
+                Filtros
+                {activeColFilterCount > 0 && (
+                  <span className="usr-btn-filters-badge" aria-hidden="true">
+                    {activeColFilterCount}
                   </span>
-                </div>
-                <div className="cc-group-card-actions">
+                )}
+              </button>
+              <div className="usr-col-panel-wrap" ref={colsWrapRef}>
+                <button
+                  type="button"
+                  className={`usr-btn-cols${colsOpen ? ' active' : ''}`}
+                  title="Mostrar/ocultar columnas"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setColsOpen((v) => !v);
+                  }}
+                >
+                  {COLS_BTN_SVG}
+                  Columnas
+                </button>
+                {colsOpen && (
+                  <div className="usr-col-panel open" role="dialog" aria-label="Columnas visibles">
+                    <div className="usr-col-panel-header">
+                      <span>Columnas</span>
+                      <button type="button" className="usr-col-panel-reset" onClick={resetColConfig}>
+                        ↺ Restablecer
+                      </button>
+                    </div>
+                    <div className="usr-col-panel-list">
+                      {colConfig.map((col, idx) => (
+                        <div
+                          key={col.key}
+                          className={`usr-col-panel-item${colDragIdx === idx ? ' dragging' : ''}`}
+                          draggable
+                          onDragStart={() => onColDragStart(idx)}
+                          onDragEnd={onColDragEnd}
+                          onDragOver={onColDragOver}
+                          onDragLeave={onColDragLeave}
+                          onDrop={(e) => onColDrop(e, idx)}
+                        >
+                          <span className="usr-col-drag-handle" title="Arrastra para reordenar">⠿</span>
+                          <label className="usr-col-panel-label" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={col.visible !== false}
+                              onChange={() => toggleColVisible(col.key)}
+                            />
+                            <span>{col.label}</span>
+                          </label>
+                          <div className="usr-col-panel-arrows">
+                            <button
+                              type="button"
+                              title="Subir"
+                              disabled={idx === 0}
+                              onClick={(e) => { e.stopPropagation(); moveCol(idx, -1); }}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              title="Bajar"
+                              disabled={idx === colConfig.length - 1}
+                              onClick={(e) => { e.stopPropagation(); moveCol(idx, 1); }}
+                            >
+                              ↓
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            {canAddGroup ? (
+              <span className="cc-groups-new-channel-wrap">
+                <svg
+                  className="cc-groups-new-channel-beam"
+                  viewBox="0 0 100 36"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <rect
+                    className="cc-groups-new-channel-beam-base"
+                    x="1.25"
+                    y="1.25"
+                    width="97.5"
+                    height="33.5"
+                    rx="16.75"
+                    ry="16.75"
+                    pathLength="100"
+                  />
+                  {/* Cola → medio → punta: difuminado por partes a lo largo de cada luz */}
+                  <rect
+                    className="cc-groups-new-channel-beam-run cc-groups-new-channel-beam-run--tail"
+                    x="1.25"
+                    y="1.25"
+                    width="97.5"
+                    height="33.5"
+                    rx="16.75"
+                    ry="16.75"
+                    pathLength="100"
+                  />
+                  <rect
+                    className="cc-groups-new-channel-beam-run cc-groups-new-channel-beam-run--mid"
+                    x="1.25"
+                    y="1.25"
+                    width="97.5"
+                    height="33.5"
+                    rx="16.75"
+                    ry="16.75"
+                    pathLength="100"
+                  />
+                  <rect
+                    className="cc-groups-new-channel-beam-run cc-groups-new-channel-beam-run--tip"
+                    x="1.25"
+                    y="1.25"
+                    width="97.5"
+                    height="33.5"
+                    rx="16.75"
+                    ry="16.75"
+                    pathLength="100"
+                  />
+                </svg>
+                <button
+                  type="button"
+                  className="cc-btn primary cc-btn-sm cc-groups-new-channel-btn"
+                  onClick={() => setCreateOpen(true)}
+                >
+                  {NEW_CHANNEL_BTN_SVG}
+                  Nuevo canal
+                </button>
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </header>
+
+      {error && !selectedGroupId ? <p className="error cc-groups-page-error">{error}</p> : null}
+
+      <div className="usr-table-wrap cc-groups-table-wrap">
+        <table className="usr-users-table cc-groups-table">
+          <thead>
+            <tr>
+              {visibleOrderedCols.map((c) => (
+                <th
+                  key={c.key}
+                  className={[
+                    GROUP_COL_CLASS[c.key] || '',
+                    'th-draggable',
+                    'th-sortable',
+                    thDragKey === c.key ? 'th-dragging' : '',
+                    thDragOverKey === c.key ? 'th-drag-over' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  data-col-key={c.key}
+                  data-sort-title="Arrastra para mover · Clic para ordenar"
+                  title="Arrastra para mover · Clic para ordenar"
+                  onDragOver={(e) => onThDragOver(e, c.key)}
+                  onDragLeave={() => onThDragLeave(c.key)}
+                  onDrop={(e) => onThDrop(e, c.key)}
+                >
+                  <div className={`usr-th-stack${filtersVisible ? '' : ' filters-hidden'}`}>
+                    <div
+                      className="usr-th-title-row usr-th-title-row--sortable"
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => onThTitleSortClick(e, c.key)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onThTitleSortClick(e, c.key);
+                        }
+                      }}
+                    >
+                      <span
+                        className="th-drag-icon"
+                        draggable
+                        title="Arrastra para mover la columna"
+                        aria-label="Arrastra para mover la columna"
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onDragStart={(e) => {
+                          e.stopPropagation();
+                          onThDragStart(e, c.key);
+                        }}
+                        onDragEnd={(e) => {
+                          e.stopPropagation();
+                          onThDragEnd();
+                        }}
+                      >
+                        ⠿
+                      </span>
+                      <span className="th-col-label">{c.label}</span>
+                      {sortCol === c.key ? (
+                        <span className="th-sort-indicator" aria-hidden="true">
+                          {sortDir === 1 ? '▲' : '▼'}
+                        </span>
+                      ) : null}
+                    </div>
+                    {filtersVisible && (
+                      <ThFilterMulti
+                        colKey={c.key}
+                        colLabel={c.label}
+                        options={colFilterOptions[c.key] || []}
+                        optionTree={c.key === 'scope' ? scopeFilterTree : null}
+                        selected={colFilters[c.key]}
+                        open={openFilterKey === c.key}
+                        onOpenChange={(next) =>
+                          setOpenFilterKey(next ? c.key : null)
+                        }
+                        onChange={(sel) => setColFilter(c.key, sel)}
+                        optionLabel={c.key === 'scope' ? scopeOptionLabel : groupColFilterOptionLabel}
+                      />
+                    )}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filteredGroups.length === 0 ? (
+              <tr>
+                <td colSpan={Math.max(1, visibleOrderedCols.length)} className="muted cc-groups-table-empty">
+                  {groups.length === 0
+                    ? 'Sin canales. Crea uno con «Nuevo canal».'
+                    : 'Ningún canal coincide con la búsqueda o filtros.'}
+                </td>
+              </tr>
+            ) : (
+              pageGroups.map((g) => {
+                const isSelected = selectedGroupId === g.id;
+                return (
+                  <tr
+                    key={g.id}
+                    className={`cc-groups-table-row${isSelected ? ' is-selected' : ''}${!g.is_active ? ' is-inactive' : ''}`}
+                    onClick={() => openGroup(g.id)}
+                  >
+                    {visibleOrderedCols.map((c) => (
+                      <td key={c.key} className={GROUP_COL_CLASS[c.key] || undefined}>
+                        {groupTableCell(g, c.key, session)}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+        {filteredGroups.length > 0 ? (
+          <div className="usr-pager">
+            <span className="usr-pager-info">
+              Mostrando {pageGroups.length} de {filteredGroups.length} canales · Página {safePage} de{' '}
+              {pageCount}
+            </span>
+            <div className="usr-pager-btns">
+              <button
+                type="button"
+                className="usr-pg-btn usr-pg-btn-edge"
+                title="Primera página"
+                disabled={safePage <= 1}
+                onClick={() => setPage(1)}
+              >
+                «
+              </button>
+              <button
+                type="button"
+                className="usr-pg-btn"
+                title="Página anterior"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ‹
+              </button>
+              {groupsPagerPages(safePage, pageCount).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`usr-pg-btn${n === safePage ? ' active' : ''}`}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="usr-pg-btn"
+                title="Página siguiente"
+                disabled={safePage >= pageCount}
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              >
+                ›
+              </button>
+              <button
+                type="button"
+                className="usr-pg-btn usr-pg-btn-edge"
+                title="Última página"
+                disabled={safePage >= pageCount}
+                onClick={() => setPage(pageCount)}
+              >
+                »
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {canAddGroup && createOpen
+        ? createPortal(
+            <div
+              className="sys-modal-backdrop"
+              role="presentation"
+              onClick={() => setCreateOpen(false)}
+            >
+              <div
+                className="sys-modal sys-modal--lg cc-groups-create-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="cc-groups-create-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <header className="sys-modal-head">
+                  <h2 id="cc-groups-create-title">Nuevo canal</h2>
                   <button
                     type="button"
-                    className={`cc-btn ghost cc-btn-sm${isOpen ? ' is-active' : ''}`}
-                    aria-expanded={isOpen}
-                    onClick={() => setSelectedGroupId(isOpen ? '' : g.id)}
+                    className="sys-modal-x"
+                    aria-label="Cerrar"
+                    onClick={() => setCreateOpen(false)}
                   >
-                    Miembros
+                    ×
                   </button>
-                  {canPurge && g.is_active && (
-                    <button type="button" className="cc-btn ghost cc-btn-sm" onClick={() => purgeChat(g)}>
-                      Vaciar
+                </header>
+                <form
+                  className="sys-modal-body cc-groups-create-form"
+                  onSubmit={(e) => {
+                    onCreate(e);
+                  }}
+                >
+                  {error ? <p className="error">{error}</p> : null}
+                  {renderNewChannelFields()}
+                  <footer className="sys-modal-actions">
+                    <button type="button" className="cc-btn ghost" onClick={() => setCreateOpen(false)}>
+                      Cancelar
                     </button>
-                  )}
-                  {canManage && g.is_active && (
+                    <button
+                      type="submit"
+                      className="cc-btn primary"
+                      disabled={Boolean(previewScope?.error || previewScope?.hint)}
+                    >
+                      Crear canal
+                    </button>
+                  </footer>
+                </form>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+
+      {selectedGroup
+        ? createPortal(
+            <aside
+                className="cc-groups-drawer"
+                role="dialog"
+                aria-modal="false"
+                aria-label={`Editar ${selectedGroup.name}`}
+              >
+                <header className="cc-groups-drawer-head">
+                  <div className="cc-groups-drawer-head-avatar">
+                    {selectedGroup.avatarUrl ? (
+                      <button
+                        type="button"
+                        className="cc-groups-drawer-avatar-btn"
+                        title="Ver foto"
+                        aria-label={`Ver foto de ${selectedGroup.name}`}
+                        onClick={() => setPhotoPreviewOpen(true)}
+                      >
+                        <PersonAvatar
+                          groupId={selectedGroup.id}
+                          avatarUrl={selectedGroup.avatarUrl}
+                          name={selectedGroup.name}
+                          token={session.token}
+                          group
+                          className="cc-group-avatar cc-group-avatar--drawer"
+                        />
+                      </button>
+                    ) : (
+                      <PersonAvatar
+                        groupId={selectedGroup.id}
+                        avatarUrl={selectedGroup.avatarUrl}
+                        name={selectedGroup.name}
+                        token={session.token}
+                        group
+                        className="cc-group-avatar cc-group-avatar--drawer"
+                      />
+                    )}
+                    {canManage ? (
+                      <div className="cc-groups-drawer-photo">
+                        <label className="cc-group-avatar-link">
+                          {avatarBusy ? '…' : 'Cambiar foto'}
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                            hidden
+                            disabled={avatarBusy}
+                            onChange={onAvatarFile}
+                          />
+                        </label>
+                        {selectedGroup.avatarUrl ? (
+                          <button
+                            type="button"
+                            className="cc-group-avatar-link"
+                            disabled={avatarBusy}
+                            onClick={onRemoveAvatar}
+                          >
+                            Quitar
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="cc-groups-drawer-head-text">
+                    <strong>{selectedGroup.name}</strong>
+                    <span className="cc-group-meta">{formatStoredGroupScope(selectedGroup)}</span>
+                  </div>
+                  <span className={`status-pill ${selectedGroup.is_active ? 'on' : 'off'}`}>
+                    <span className="status-pill-dot" aria-hidden="true" />
+                    {selectedGroup.is_active ? 'Activo' : 'Inactivo'}
+                  </span>
+                  <button
+                    type="button"
+                    className="cc-groups-drawer-close"
+                    aria-label="Cerrar"
+                    onClick={closeDrawer}
+                  >
+                    ×
+                  </button>
+                </header>
+
+                <div className="cc-groups-drawer-body">
+                  {error ? <p className="error">{error}</p> : null}
+
+                  <form className="cc-groups-drawer-section" onSubmit={onSaveGroupDetails}>
+                    <div className="cc-groups-drawer-section-head">
+                      <h3>Identidad</h3>
+                    </div>
+                    <div className="cc-groups-drawer-grid">
+                      <label className="cc-groups-field">
+                        <span>Nombre</span>
+                        <input
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          disabled={!canManage || detailsBusy}
+                          required
+                        />
+                      </label>
+                      <label className="cc-groups-field cc-groups-field--wide">
+                        <span>Descripción</span>
+                        <textarea
+                          value={editDescription}
+                          onChange={(e) => setEditDescription(e.target.value)}
+                          disabled={!canManage || detailsBusy}
+                          rows={2}
+                          placeholder="Opcional"
+                        />
+                      </label>
+                    </div>
+                    {canManage ? (
+                      <div className="cc-groups-drawer-save">
+                        <button
+                          type="submit"
+                          className="cc-btn primary cc-btn-sm"
+                          disabled={detailsBusy || !editName.trim() || !detailsDirty}
+                        >
+                          {detailsBusy ? 'Guardando…' : 'Guardar'}
+                        </button>
+                        {detailsDirty ? (
+                          <button
+                            type="button"
+                            className="cc-btn ghost cc-btn-sm"
+                            disabled={detailsBusy}
+                            onClick={() => {
+                              setEditName(selectedGroup.name || '');
+                              setEditDescription(selectedGroup.description || '');
+                            }}
+                          >
+                            Descartar
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </form>
+
+                  {renderScopeEditor()}
+
+                  <section
+                    className={`cc-groups-drawer-section${membersSectionOpen ? '' : ' is-collapsed'}`}
+                  >
+                    <div className="cc-groups-drawer-section-head">
+                      <button
+                        type="button"
+                        className="cc-groups-drawer-section-toggle"
+                        aria-expanded={membersSectionOpen}
+                        aria-controls="cc-groups-members-panel"
+                        onClick={() => setMembersSectionOpen((open) => !open)}
+                      >
+                        <span className="cc-groups-drawer-section-chevron" aria-hidden>
+                          {membersSectionOpen ? '▼' : '▶'}
+                        </span>
+                        <h3>Miembros ({members.length})</h3>
+                        <span className="cc-groups-drawer-section-toggle-label">
+                          {membersSectionOpen ? 'Contraer' : 'Expandir'}
+                        </span>
+                      </button>
+                    </div>
+                    {membersSectionOpen ? (
+                      <div id="cc-groups-members-panel">
+                        {canManage ? (
+                          <form className="cc-groups-assign-inline" onSubmit={onAssignMember}>
+                            <select
+                              value={assignUserId}
+                              onChange={(e) => setAssignUserId(e.target.value)}
+                              aria-label="Usuario"
+                            >
+                              <option value="">Agregar persona…</option>
+                              {assignableUsers.map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {memberAssignLabel(u)}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              value={assignRole}
+                              onChange={(e) => setAssignRole(e.target.value)}
+                              disabled={!assignUserId}
+                              aria-label="Rol"
+                            >
+                              {MEMBER_ROLES.map((r) => (
+                                <option key={r.value} value={r.value}>
+                                  {r.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button type="submit" className="cc-btn primary cc-btn-sm" disabled={!assignUserId}>
+                              +
+                            </button>
+                          </form>
+                        ) : null}
+                        {members.length === 0 ? (
+                          <p className="cc-hint cc-groups-members-empty">Sin miembros.</p>
+                        ) : (
+                          <table className="cc-groups-members-table">
+                            <tbody>
+                              {members.map((m) => (
+                                <tr key={m.id}>
+                                  <td>{m.displayName}</td>
+                                  <td className="cc-gm-role">
+                                    {canManage ? (
+                                      <select
+                                        className="cc-gm-role-select"
+                                        value={m.role || 'member'}
+                                        disabled={roleBusyId === m.id}
+                                        aria-label={`Rol de ${m.displayName || m.username || 'miembro'}`}
+                                        onChange={(e) => onChangeMemberRole(m.id, e.target.value)}
+                                      >
+                                        {MEMBER_ROLES.map((r) => (
+                                          <option key={r.value} value={r.value}>
+                                            {r.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      MEMBER_ROLES.find((r) => r.value === m.role)?.label || m.role
+                                    )}
+                                  </td>
+                                  <td className="cc-gm-act">
+                                    {canManage ? (
+                                      <button
+                                        type="button"
+                                        className="cc-cat-rm"
+                                        title="Quitar"
+                                        onClick={() => kickMember(m.id)}
+                                      >
+                                        ×
+                                      </button>
+                                    ) : null}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    ) : null}
+                  </section>
+                </div>
+
+                <footer className="cc-groups-drawer-foot">
+                  {canPurge && selectedGroup.is_active ? (
                     <button
                       type="button"
                       className="cc-btn ghost cc-btn-sm"
-                      onClick={() => deactivateGroup(g)}
+                      onClick={() => purgeChat(selectedGroup)}
+                    >
+                      Vaciar chat
+                    </button>
+                  ) : null}
+                  {canManage && selectedGroup.is_active ? (
+                    <button
+                      type="button"
+                      className="cc-btn ghost cc-btn-sm"
+                      onClick={() => deactivateGroup(selectedGroup)}
                     >
                       Desactivar
                     </button>
-                  )}
-                  {canManage && !g.is_active && (
-                    <button type="button" className="cc-btn ghost cc-btn-sm" onClick={() => reactivateGroup(g)}>
+                  ) : null}
+                  {canManage && !selectedGroup.is_active ? (
+                    <button
+                      type="button"
+                      className="cc-btn ghost cc-btn-sm"
+                      onClick={() => reactivateGroup(selectedGroup)}
+                    >
                       Reactivar
                     </button>
-                  )}
-                  {isRoot && (
-                    <button type="button" className="cc-btn danger cc-btn-sm" onClick={() => hardDeleteGroup(g)}>
+                  ) : null}
+                  {canDeleteGroup && isRoot ? (
+                    <button
+                      type="button"
+                      className="cc-btn danger cc-btn-sm"
+                      onClick={() => hardDeleteGroup(selectedGroup)}
+                    >
                       Eliminar
                     </button>
-                  )}
-                </div>
-                {isOpen && (
-                  <section className="members-panel cc-groups-members cc-groups-members--inline">
-                    <h2>Miembros — {g.name || g.id}</h2>
+                  ) : null}
+                </footer>
+              </aside>,
+            document.body
+          )
+        : null}
 
-                    {canManage && (
-                      <div className="cc-group-avatar-edit">
-                        <PersonAvatar
-                          groupId={g.id}
-                          avatarUrl={g.avatarUrl}
-                          name={g.name}
-                          token={session.token}
-                          group
-                          className="cc-group-avatar cc-group-avatar-lg"
-                        />
-                        <div className="cc-group-avatar-actions">
-                          <p className="cc-hint">Imagen del canal (JPG, PNG o WebP, máx. 3 MB)</p>
-                          <label className="cc-btn ghost cc-btn-sm">
-                            {avatarBusy ? 'Subiendo…' : 'Cambiar imagen'}
-                            <input
-                              type="file"
-                              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                              hidden
-                              disabled={avatarBusy}
-                              onChange={onAvatarFile}
-                            />
-                          </label>
-                          {g.avatarUrl && (
-                            <button
-                              type="button"
-                              className="cc-btn ghost cc-btn-sm"
-                              disabled={avatarBusy}
-                              onClick={onRemoveAvatar}
-                            >
-                              Quitar imagen
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {members.length === 0 ? (
-                      <p className="cc-hint">Sin miembros en este canal.</p>
-                    ) : (
-                      <div className="cc-cat-chips">
-                        {members.map((m) => (
-                          <div key={m.id} className="cc-dep-org-chip cc-group-member-chip">
-                            <span className="cc-cat-item-name">{m.displayName}</span>
-                            <span className="cc-group-member-role">
-                              {MEMBER_ROLES.find((r) => r.value === m.role)?.label || m.role}
-                            </span>
-                            {canManage && (
-                              <button
-                                type="button"
-                                className="cc-cat-rm"
-                                title="Quitar"
-                                onClick={() => kickMember(m.id)}
-                              >
-                                ×
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+      {photoPreviewOpen && selectedGroup?.avatarUrl
+        ? createPortal(
+            <div
+              className="cc-group-photo-lightbox"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Foto de ${selectedGroup.name}`}
+              data-esc-close=""
+              onClick={() => setPhotoPreviewOpen(false)}
+            >
+              <button
+                type="button"
+                className="cc-group-photo-lightbox-close"
+                aria-label="Cerrar"
+                data-esc-close-btn=""
+                title="Cerrar (Esc)"
+                onClick={() => setPhotoPreviewOpen(false)}
+              >
+                ×
+              </button>
+              <figure
+                className="cc-group-photo-lightbox-frame"
+                onClick={() => setPhotoPreviewOpen(false)}
+                title="Cerrar"
+              >
+                <img
+                  src={
+                    peekGroupAvatarBlobUrl(selectedGroup.id, selectedGroup.avatarUrl || '') ||
+                    selectedGroup.avatarUrl
+                  }
+                  alt={selectedGroup.name}
+                  className="cc-group-photo-lightbox-img"
+                  draggable={false}
+                />
+                <figcaption className="cc-group-photo-lightbox-cap">
+                  <strong>{selectedGroup.name}</strong>
+                  <span>{formatStoredGroupScope(selectedGroup)}</span>
+                </figcaption>
+              </figure>
+            </div>,
+            document.body
+          )
+        : null}
 
       <AppDialog
         open={Boolean(dialog)}

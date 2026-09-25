@@ -61,6 +61,7 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
   LocalVideoTrack? _cam;
   String _status = 'Conectando…';
   bool _muted = false;
+  bool _canPublishAudio = true;
   bool _cameraOn = false;
   bool _closing = false;
   CameraPosition _cameraPosition = CameraPosition.front;
@@ -135,23 +136,29 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
         AppConfig.publicLiveKitUrl(data['url']?.toString() ?? ''),
         data['token']?.toString() ?? '',
       );
-      await AudioSessionSetup.acquireVoice();
 
-      mic = await LocalAudioTrack.create(
-        const AudioCaptureOptions(
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          stopAudioCaptureOnMute: false,
-        ),
-      );
-      await room.localParticipant?.publishAudioTrack(mic);
+      // Solo escucha: imagen sí, micrófono no.
+      final audioAllowed = data['canPublishAudio'] != false &&
+          data['memberRole']?.toString() != 'listen_only';
+
+      if (audioAllowed) {
+        await AudioSessionSetup.acquireVoice();
+        mic = await LocalAudioTrack.create(
+          const AudioCaptureOptions(
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            stopAudioCaptureOnMute: false,
+          ),
+        );
+        await room.localParticipant?.publishAudioTrack(mic);
+      }
 
       await _enableCamera(room);
 
       if (!mounted) {
         await _cam?.stop();
-        await mic.stop();
+        await mic?.stop();
         await room.disconnect();
         return;
       }
@@ -165,8 +172,12 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
       setState(() {
         _room = room;
         _mic = mic;
+        _canPublishAudio = audioAllowed;
+        _muted = !audioAllowed;
         _participantCount = session is Map ? (session['participantCount'] as int? ?? 1) : 1;
-        _status = 'Transmisión · ${widget.groupName}';
+        _status = audioAllowed
+            ? 'Transmisión · ${widget.groupName}'
+            : 'Transmisión · ${widget.groupName} · solo imagen';
       });
       _syncRemotes();
     } catch (e) {
@@ -268,6 +279,7 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
   }
 
   Future<void> _toggleMute() async {
+    if (!_canPublishAudio) return;
     final mic = _mic;
     if (mic == null) return;
     try {
@@ -474,10 +486,14 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   _ctrl(
-                    icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
-                    label: _muted ? 'Mic off' : 'Mic',
-                    onTap: _toggleMute,
-                    active: !_muted,
+                    icon: (!_canPublishAudio || _muted)
+                        ? Icons.mic_off_rounded
+                        : Icons.mic_rounded,
+                    label: !_canPublishAudio
+                        ? 'Sin mic'
+                        : (_muted ? 'Mic off' : 'Mic'),
+                    onTap: _canPublishAudio ? _toggleMute : () {},
+                    active: _canPublishAudio && !_muted,
                   ),
                   _ctrl(
                     icon: _cameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,

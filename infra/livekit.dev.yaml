@@ -10,7 +10,7 @@ rtc:
   tcp_port: 7881
   udp_port: 7882
   use_external_ip: false
-  node_ip: 189.175.60.174
+  node_ip: 189.152.245.254
   advertise_internal_ip: true
   congestion_control:
     enabled: true
@@ -18,7 +18,7 @@ rtc:
 
 turn:
   enabled: true
-  domain: 189.175.60.174
+  domain: 189.152.245.254
   udp_port: 3478
 
 logging:

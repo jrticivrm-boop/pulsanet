@@ -77,9 +77,9 @@ export function canManageProfiles(role) {
   return isRoot(role);
 }
 
-/** Puede ocultar / elegir nivel de ubicación. */
-export function canChooseLocationShare(role) {
-  return isDispatch(role) && !isRoot(role);
+/** Puede elegir nivel de ubicación. Alcance 3: nadie oculta ni ajusta share. */
+export function canChooseLocationShare(_role) {
+  return false;
 }
 
 export function isModerator(role) {
@@ -94,11 +94,11 @@ export function roleLevel(role) {
 }
 
 /**
- * Quién puede dar de alta qué rol.
- * Administrador → cualquiera.
- * Admin región → región / zona / unidad.
- * Admin zona → zona (usuarios) y unidad.
- * Admin unidad → solo usuarios de unidad.
+ * Quién puede dar de alta qué rol (solo hacia abajo, no pares ni superiores).
+ * root → cualquiera (incluido root).
+ * Admin región → region_user, zona y unidad (no otro region_admin ni root).
+ * Admin zona → zone_user y unidad (no otro zone_admin).
+ * Admin unidad → solo unit_user.
  */
 export function canAssignRole(actorRole, targetRole) {
   const a = normalizeRole(actorRole);
@@ -107,7 +107,13 @@ export function canAssignRole(actorRole, targetRole) {
   if (t === 'root') return a === 'root';
   if (a === 'root') return true;
   if (a === 'region_admin') {
-    return t !== 'root';
+    return (
+      t === 'region_user' ||
+      t === 'zone_admin' ||
+      t === 'zone_user' ||
+      t === 'unit_admin' ||
+      t === 'unit_user'
+    );
   }
   if (a === 'zone_admin') {
     return t === 'zone_user' || t === 'unit_admin' || t === 'unit_user';
@@ -125,28 +131,7 @@ export function defaultLocationShare(role) {
 }
 
 export function shareOptionsForRole(role) {
-  const r = normalizeRole(role);
-  if (r === 'region_admin') {
-    return [
-      { value: 'region', label: 'Toda la región' },
-      { value: 'zone', label: 'Zonas y hacia abajo' },
-      { value: 'unit', label: 'Solo unidades' },
-      { value: 'hidden', label: 'Ocultar ubicación' },
-    ];
-  }
-  if (r === 'zone_admin') {
-    return [
-      { value: 'zone', label: 'Toda la zona' },
-      { value: 'unit', label: 'Solo unidades' },
-      { value: 'hidden', label: 'Ocultar ubicación' },
-    ];
-  }
-  if (r === 'unit_admin') {
-    return [
-      { value: 'unit', label: 'Su unidad' },
-      { value: 'hidden', label: 'Ocultar ubicación' },
-    ];
-  }
+  // Alcance 3: sin selector de compartir / ocultar ubicación.
   return [];
 }
 

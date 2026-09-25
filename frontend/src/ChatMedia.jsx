@@ -177,7 +177,8 @@ function VoiceNotePlayer({ src, label }) {
         >
           <span className="wa-voice-wave" aria-hidden="true">
             {bars.map((h, i) => {
-              const active = progress >= ((i + 0.5) / bars.length) * 100;
+              // Misma escala que left% del thumb (inicio de cada barra).
+              const active = progress > (i / bars.length) * 100 || (i === 0 && progress > 0);
               return <i key={i} className={active ? 'on' : undefined} style={{ height: `${h}%` }} />;
             })}
           </span>

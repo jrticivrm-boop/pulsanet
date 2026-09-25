@@ -13,8 +13,10 @@ import { resolveOperatorGroupForMarker } from './mapAvatarIcon.js';
 
 /**
  * Precarga avatares para lista (full) y marcadores.
- * En «Por grupo» precarga fotos de grupo; el pin usa la del grupo
- * (fallback a la del usuario vía pickMapMarkerPhotoSrc).
+ * En «Por grupo»:
+ * - 1 grupo filtrado (o el usuario solo coincide con 1 de los filtrados) → foto del grupo
+ * - usuario en 2+ grupos filtrados a la vez → foto de perfil (sin conflicto)
+ * Fallback a foto de usuario vía pickMapMarkerPhotoSrc si no hay avatar de grupo.
  *
  * @param {Array<{ userId: string, avatarUrl?: string|null }>} people
  * @param {string} token

@@ -10,18 +10,19 @@ import {
   canManageUsers,
   unlockAdminUserLogin,
   isRootUser,
-  isAdminUser,
   patchAdminUser,
   previewAdminUsername,
   checkAdminMatricula,
   usersCsvUrl,
   fetchOrgUnits,
   fetchGradesEmpleos,
-  patchLocationShare,
 } from '../api';
+import { canModuleAction, canViewModule } from './modulePermissions.js';
 import { EJERCITO_MEXICANO_GRADE_GROUPS } from './armyGrades.js';
 import { formatMatriculaInput, isValidMatricula, matriculaDigitMax, splitMatricula } from '../matricula.js';
 import { openPeerSheet } from '../peerActions';
+import { NEW_CHANNEL_BTN_SVG } from './ThFilterMulti.jsx';
+import useAdminStickyToolbarHeight from './useAdminStickyToolbarHeight.js';
 
 const ROLE_OPTIONS = [
   { value: 'root', label: 'Administrador' },
@@ -75,10 +76,36 @@ function normalizeClientRole(role) {
   return ROLE_ALIAS[raw] || raw;
 }
 
+/** Rol ACL derivado del perfil (sistema = code; custom = level+kind). */
+function roleFromAccessProfile(p) {
+  if (!p) return 'unit_user';
+  if (p.code) return normalizeClientRole(p.code);
+  const level = String(p.level || 'unit');
+  const kind = String(p.kind || 'user');
+  if (level === 'system') return 'root';
+  if (kind === 'admin') {
+    if (level === 'region') return 'region_admin';
+    if (level === 'zone') return 'zone_admin';
+    return 'unit_admin';
+  }
+  if (level === 'region') return 'region_user';
+  if (level === 'zone') return 'zone_user';
+  return 'unit_user';
+}
+
+function profileOptionLabel(p) {
+  const role = roleFromAccessProfile(p);
+  const roleLbl = roleLabel(role);
+  const name = String(p?.name || '').trim() || roleLbl;
+  if (p?.code && name === roleLbl) return name;
+  if (p?.code) return name;
+  return `${name} · ${roleLbl}`;
+}
+
 const ROLE_HELP = {
-  region_admin: 'Administra la región: usuarios, zonas, unidades y grupos de su alcance.',
-  region_user: 'App y mapa de usuarios de región. Sin consola web.',
-  zone_admin: 'Administra su zona y las unidades. Puede ocultar ubicación.',
+  region_admin: 'Administra la región: usuarios, zonas, unidades y grupos. En el alta solo elige la región.',
+  region_user: 'App y mapa de toda su región (zonas y unidades). Sin consola web. Radio solo en canales donde es miembro.',
+  zone_admin: 'Administra su zona y las unidades. Puede crear canales de zona o de una unidad.',
   zone_user: 'App y mapa de usuarios de su zona. Sin consola web.',
   unit_admin: 'Administra solo los usuarios de su unidad.',
   unit_user: 'Servicio desplegado. App y mapa de su unidad. Sin consola web.',
@@ -95,7 +122,7 @@ function radioMapScopeHelp(role) {
     return 'Como Administrador del sistema puede oír y ver el mapa de toda la organización (todas las regiones).';
   }
   if (r === 'region_admin') {
-    return 'Como Administrador de región puede oír canales y ver en el mapa a la gente de su región (zonas y unidades incluidas). El alcance concreto lo marca la cascada de Región / Zona / Unidad de arriba.';
+    return 'Como Administrador de región ve en el mapa a toda su región (zonas y unidades). Los canales se crean aparte con su propio alcance.';
   }
   if (r === 'zone_admin') {
     return 'Como Administrador de zona puede oír y ver en el mapa a su zona y a las unidades de esa zona. No ve otras zonas ni el resto de la región.';
@@ -104,13 +131,13 @@ function radioMapScopeHelp(role) {
     return 'Como Administrador de unidad solo oye y ve en el mapa a los de su unidad (servicios desplegados). No ve otras unidades ni la zona completa.';
   }
   if (r === 'region_user') {
-    return 'Es un usuario de región (sin consola web): en la app oye y ve en el mapa según la adscripción que elegiste arriba (toda la región, una zona o una unidad). No tiene privilegios extra de administrador.';
+    return 'Usuario de región (sin consola): ve en el mapa a toda su región. En radio solo los canales donde es miembro.';
   }
   if (r === 'zone_user') {
-    return 'Es un usuario de zona (sin consola web): en la app oye y ve en el mapa según su zona (toda la zona o una unidad). No administra a otros ni ve fuera de esa adscripción.';
+    return 'Usuario de zona (sin consola): ve en el mapa a usuarios de su zona. No administra ni ve región.';
   }
   if (r === 'unit_user') {
-    return 'Es un usuario de unidad / servicio desplegado (sin consola web): en la app solo oye y ve en el mapa a su propia unidad.';
+    return 'Usuario de unidad / servicio desplegado (sin consola): solo ve en el mapa a su propia unidad.';
   }
   return 'El rol fija qué se oye en radio y qué se ve en el mapa; no se elige aparte.';
 }
@@ -163,12 +190,14 @@ function visibilityLevelsForRole(role) {
   return [];
 }
 
-/** Escalera de asignación: el actor solo ve roles ≤ su nivel (root solo si es root). */
+/** Escalera de asignación: solo hacia abajo (no pares ni superiores). root ve todos. */
 function allowedRoleOptions(sessionRole) {
   const role = normalizeClientRole(sessionRole);
   return roleCatalog().filter((r) => {
     if (role === 'root') return true;
-    if (role === 'region_admin') return r.value !== 'root';
+    if (role === 'region_admin') {
+      return ['region_user', 'zone_admin', 'zone_user', 'unit_admin', 'unit_user'].includes(r.value);
+    }
     if (role === 'zone_admin') return ['zone_user', 'unit_admin', 'unit_user'].includes(r.value);
     if (role === 'unit_admin') return r.value === 'unit_user';
     return false;
@@ -184,6 +213,7 @@ const EMPTY_FORM = {
   maternalSurname: '',
   matricula: '',
   role: '',
+  profileId: '',
   regionId: '',
   /** '' | '__all__' | uuid de zona */
   zoneChoice: '',
@@ -220,9 +250,9 @@ function findOrgNode(tree, id) {
 }
 
 /**
- * Cascada Usuarios → unit_id / admin_scope_unit_id.
+ * Cascada Usuarios → unit_id / admin_scope_unit_id (Alcance 3).
  * - root: global
- * - region_*: región + (todas las zonas | una zona). Sin unidad.
+ * - region_*: solo región (pertenencia). Zona/unidad se eligen al crear canales.
  * - zone_*: región + zona (toda la zona). Sin unidad.
  * - unit_*: región + zona + unidad concreta
  */
@@ -243,26 +273,12 @@ function orgScopeForSave(role, form, { actingUnitAdmin = false, myScopeUnitId = 
   const unitId = unitChoice && unitChoice !== ALC_ALL_UNITS ? unitChoice : null;
 
   if (r === 'region_admin' || r === 'region_user') {
-    if (!regionId) return { unitId: null, adminScopeUnitId: null, error: 'Selecciona la región.' };
-    if (!zoneChoice) {
-      return {
-        unitId: null,
-        adminScopeUnitId: null,
-        error: 'Elige todas las zonas de la región, o una zona concreta.',
-      };
+    if (!regionId) {
+      return { unitId: null, adminScopeUnitId: null, error: 'Selecciona la región.' };
     }
-    if (zoneChoice === ALC_ALL_ZONES) {
-      return r === 'region_admin'
-        ? { unitId: null, adminScopeUnitId: regionId }
-        : { unitId: regionId, adminScopeUnitId: null };
-    }
-    if (!zoneId) {
-      return { unitId: null, adminScopeUnitId: null, error: 'Selecciona una zona válida.' };
-    }
-    // Una zona = toda esa zona (sin bajar a unidad)
     return r === 'region_admin'
-      ? { unitId: null, adminScopeUnitId: zoneId }
-      : { unitId: zoneId, adminScopeUnitId: null };
+      ? { unitId: null, adminScopeUnitId: regionId }
+      : { unitId: regionId, adminScopeUnitId: null };
   }
 
   if (r === 'zone_admin' || r === 'zone_user') {
@@ -308,23 +324,15 @@ function alcanceChoicesFromUser(u, tree) {
   const path = findOrgPath(tree, unitId, scopeId);
 
   if (role === 'region_admin' || role === 'region_user') {
-    const regionId = path.regionId || (scopeNode?.kind === 'region' ? scopeId : '') || '';
-    if (scopeNode?.kind === 'region' || (unitNode?.kind === 'region' && !scopeId)) {
-      return { regionId: regionId || scopeId || unitId, zoneChoice: ALC_ALL_ZONES, unitChoice: '' };
-    }
-    // Zona (o unidad legacy): mostrar la zona, sin unidad
-    const zid =
-      path.zoneId ||
-      (scopeNode?.kind === 'zone' ? scopeId : '') ||
-      (unitNode?.kind === 'zone' ? unitId : '') ||
-      (scopeNode?.kind === 'unit' ? scopeNode.zone?.id : '') ||
-      (unitNode?.kind === 'unit' ? unitNode.zone?.id : '') ||
+    const regionId =
+      path.regionId ||
+      (scopeNode?.kind === 'region' ? scopeId : '') ||
+      (unitNode?.kind === 'region' ? unitId : '') ||
+      scopeNode?.region?.id ||
+      unitNode?.region?.id ||
       '';
-    return {
-      regionId: path.regionId || scopeNode?.region?.id || unitNode?.region?.id || regionId || '',
-      zoneChoice: zid || '',
-      unitChoice: '',
-    };
+    // Alcance 3: pertenencia solo región (no rehidratar zona en el formulario).
+    return { regionId: regionId || '', zoneChoice: '', unitChoice: '' };
   }
 
   if (role === 'zone_admin' || role === 'zone_user') {
@@ -367,14 +375,13 @@ function alcanceLabel(u) {
   return u.unitName || u.zoneName || 'Su unidad';
 }
 
-function isOrgAdminRole(role) {
-  const r = normalizeClientRole(role);
-  return r === 'region_admin' || r === 'zone_admin' || r === 'unit_admin';
-}
-
-/** Quién puede Editar/Eliminar y si el modal es solo datos básicos (sin rol/alcance). */
+/** Quién puede Editar/Eliminar.
+ * - Otro usuario (admin u operador): edición completa (rol/perfil + alcance).
+ * - Uno mismo: solo datos básicos (no auto-cambiar rol/alcance).
+ * - root ajeno: solo root lo edita.
+ */
 function userEditFlags(sessionUser, u) {
-  const canManage = canManageUsers(sessionUser);
+  const canManage = canManageUsers(sessionUser) && canViewModule(sessionUser, 'usuarios');
   if (!canManage || !u) {
     return { canEdit: false, canDelete: false, basicsOnly: false };
   }
@@ -382,12 +389,17 @@ function userEditFlags(sessionUser, u) {
   if (role === 'root' && !isRootUser(sessionUser)) {
     return { canEdit: false, canDelete: false, basicsOnly: false };
   }
+  const allowEdit = canModuleAction(sessionUser, 'usuarios', 'editar');
+  const allowDelete = canModuleAction(sessionUser, 'usuarios', 'eliminar');
   const isSelf = u.id === sessionUser.id;
-  const basicsOnly = isOrgAdminRole(role);
-  // Admins org: editable (incl. uno mismo) solo datos básicos. Operadores: no autoedición.
-  const canEdit = basicsOnly ? true : !isSelf;
-  const canDelete = !isSelf && role !== 'root';
-  return { canEdit, canDelete, basicsOnly };
+  if (isSelf) {
+    return { canEdit: allowEdit, canDelete: false, basicsOnly: true };
+  }
+  return {
+    canEdit: allowEdit,
+    canDelete: allowDelete && role !== 'root',
+    basicsOnly: false,
+  };
 }
 
 function CreateStepIndicator({ step, editMode = false, basicsOnly = false }) {
@@ -516,6 +528,58 @@ function saveUserColConfig(config) {
   }
 }
 
+/** Vacío para ordenar (estilo Parque Vehicular). */
+function isSortEmpty(val) {
+  if (val === null || val === undefined) return true;
+  if (typeof val === 'string' && val.trim() === '') return true;
+  return false;
+}
+
+/**
+ * Compara valores de columna. Vacío siempre es el menor:
+ * ▲ asc → vacíos arriba; ▼ desc → vacíos abajo.
+ */
+function compareSortValues(va, vb, dir) {
+  const aEmpty = isSortEmpty(va);
+  const bEmpty = isSortEmpty(vb);
+  if (aEmpty && bEmpty) return 0;
+  if (aEmpty) return -1 * dir;
+  if (bEmpty) return 1 * dir;
+  if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+  return (
+    String(va).localeCompare(String(vb), 'es', { sensitivity: 'base', numeric: true }) * dir
+  );
+}
+
+function sortTs(iso) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : null;
+}
+
+function getUserSortValue(u, key) {
+  switch (key) {
+    case 'grade':
+      return [u.grade, u.cargo].filter(Boolean).join(' ') || '';
+    case 'name':
+      return u.fullName || u.displayName || '';
+    case 'user':
+      return u.username || '';
+    case 'profile':
+      return roleLabel(u.role) || u.role || '';
+    case 'scope':
+      return alcanceLabel(u) || '';
+    case 'status':
+      return u.isActive ? 1 : 0;
+    case 'created':
+      return sortTs(u.createdAt);
+    case 'seen':
+      return sortTs(u.lastSeenAt);
+    default:
+      return '';
+  }
+}
+
 const USR_COLS_BTN_SVG = (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
     <circle cx="12" cy="12" r="3" />
@@ -623,15 +687,28 @@ function usrColFilterIsNone(selected) {
 function usrColFilterIsActive(selected) {
   return !usrColFilterIsAll(selected);
 }
+const USR_BTN_LABEL_MAX = 56;
+
 function usrColFilterBtnLabel(selected, options, key) {
   if (usrColFilterIsAll(selected)) return '— Todos —';
   if (usrColFilterIsNone(selected)) return 'Ninguno';
   if (selected.length === 1) {
     const t = String(colFilterOptionLabel(key, selected[0]) || '');
-    return t.length > 24 ? `${t.slice(0, 22)}…` : t;
+    /* Truncar solo etiquetas extremadamente largas; el CSS hace ellipsis por ancho de columna. */
+    return t.length > USR_BTN_LABEL_MAX ? `${t.slice(0, USR_BTN_LABEL_MAX - 1)}…` : t;
   }
   const total = Array.isArray(options) ? options.length : selected.length;
   return `${selected.length} de ${total} seleccionados`;
+}
+
+/** Texto completo para tooltip (sin truncar). */
+function usrColFilterBtnTitle(selected, key, colLabel, displayLabel) {
+  if (usrColFilterIsAll(selected)) return `Filtrar por ${colLabel}`;
+  if (usrColFilterIsNone(selected)) return 'Ninguno seleccionado';
+  if (Array.isArray(selected) && selected.length === 1) {
+    return String(colFilterOptionLabel(key, selected[0]) || displayLabel);
+  }
+  return displayLabel;
 }
 function usrColFilterVisual(selected) {
   if (usrColFilterIsAll(selected)) return '';
@@ -792,13 +869,7 @@ function UsrThFilterMulti({
         ref={btnRef}
         type="button"
         className={`usr-th-filter-multi-btn${visual === 'partial' ? ' is-filter-partial' : ''}${visual === 'none' ? ' is-filter-none' : ''}`}
-        title={
-          usrColFilterIsAll(selected)
-            ? `Filtrar por ${colLabel}`
-            : usrColFilterIsNone(selected)
-              ? 'Ninguno seleccionado'
-              : btnLabel
-        }
+        title={usrColFilterBtnTitle(selected, colKey, colLabel, btnLabel)}
         aria-label={`Filtrar por ${colLabel}`}
         aria-expanded={open}
         disabled={disabled}
@@ -823,7 +894,7 @@ function UsrThFilterMulti({
               top: menuPos.top,
               left: menuPos.left,
               minWidth: menuPos.minWidth,
-              maxWidth: 280,
+              ['--usr-th-filter-w']: `${menuPos.minWidth}px`,
               zIndex: 10050,
             }}
             onMouseDown={(e) => e.stopPropagation()}
@@ -889,7 +960,9 @@ function UsrThFilterMulti({
               )}
             </div>
           </div>,
-          document.body
+          typeof document !== 'undefined'
+            ? document.querySelector('.cc-shell') || document.body
+            : document.body
         )}
     </div>
   );
@@ -1032,40 +1105,6 @@ function UserCard({
               <span className="cc-user-field-value">{roleLabel(u.role)}</span>
             )}
           </div>
-          {['region_admin', 'zone_admin', 'unit_admin'].includes(u.role) && (
-            <div className="cc-user-field">
-              <span className="cc-user-field-label">Ubicación</span>
-              <select
-                className="cc-user-select"
-                value={u.locationShare || (u.role === 'region_admin' ? 'region' : u.role === 'zone_admin' ? 'zone' : 'unit')}
-                onChange={(e) =>
-                  patchLocationShare(session.token, u.id, e.target.value).then(() => onReload?.()).catch(() => {})
-                }
-              >
-                {u.role === 'region_admin' && (
-                  <>
-                    <option value="region">Toda la región</option>
-                    <option value="zone">Zonas y abajo</option>
-                    <option value="unit">Solo unidades</option>
-                    <option value="hidden">Ocultar</option>
-                  </>
-                )}
-                {u.role === 'zone_admin' && (
-                  <>
-                    <option value="zone">Toda la zona</option>
-                    <option value="unit">Solo unidades</option>
-                    <option value="hidden">Ocultar</option>
-                  </>
-                )}
-                {u.role === 'unit_admin' && (
-                  <>
-                    <option value="unit">Su unidad</option>
-                    <option value="hidden">Ocultar</option>
-                  </>
-                )}
-              </select>
-            </div>
-          )}
           <div className="cc-user-field">
             <span className="cc-user-field-label">Visibilidad</span>
             <div className="cc-priv-row" title="Fijada por el rol (no editable)">
@@ -1145,6 +1184,7 @@ function UserCard({
 
 export default function DispatchUsers({ session }) {
   const [users, setUsers] = useState([]);
+  const [accessProfiles, setAccessProfiles] = useState([]);
   const [groups, setGroups] = useState([]);
   const [orgTree, setOrgTree] = useState([]);
   const [gradeGroups, setGradeGroups] = useState(EJERCITO_MEXICANO_GRADE_GROUPS);
@@ -1160,7 +1200,7 @@ export default function DispatchUsers({ session }) {
   const [createOpen, setCreateOpen] = useState(false);
   /** null = alta; objeto usuario = edición */
   const [editingUser, setEditingUser] = useState(null);
-  /** Edición de admin región/zona/unidad: solo identidad (sin rol ni alcance). */
+  /** Edición de uno mismo: solo identidad (sin rol/alcance). Otros: edición completa. */
   const [editBasicsOnly, setEditBasicsOnly] = useState(false);
   const [search, setSearch] = useState('');
   /** Filtros por columna (undefined = todos; [] = ninguno; string[] = parcial). Estilo PV. */
@@ -1169,10 +1209,16 @@ export default function DispatchUsers({ session }) {
   const [filtersVisible, setFiltersVisible] = useState(false);
   /** Columna cuyo menú multi-filtro está abierto. */
   const [openFilterKey, setOpenFilterKey] = useState(null);
+  /** Columna de orden (null = sin ordenar); sortDir 1=▲ asc, -1=▼ desc. */
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDir, setSortDir] = useState(1);
+  /** Tras un drag de columna, el click de cierre no debe ordenar (estilo PV). */
+  const thDidDragRef = useRef(false);
   const [colsOpen, setColsOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [colConfig, setColConfig] = useState(loadUserColConfig);
   const colsWrapRef = useRef(null);
+  const { toolbarRef, stickyPageStyle } = useAdminStickyToolbarHeight();
   const [colDragIdx, setColDragIdx] = useState(null);
   /** Clave de columna en drag desde `<th>` (null = idle). */
   const [thDragKey, setThDragKey] = useState(null);
@@ -1191,9 +1237,11 @@ export default function DispatchUsers({ session }) {
   const [matriculaTakenBy, setMatriculaTakenBy] = useState(null);
   /** Bump al cargar perfiles: refresca labels de columna/selects tras rename en Perfiles. */
   const [roleLabelsVersion, setRoleLabelsVersion] = useState(0);
-  const canManage = canManageUsers(session.user);
+  const canManage = canManageUsers(session.user) && canViewModule(session.user, 'usuarios');
+  const canAddUser = canManage && canModuleAction(session.user, 'usuarios', 'agregar');
+  const canEditUser = canManage && canModuleAction(session.user, 'usuarios', 'editar');
   const isRoot = isRootUser(session.user);
-  const canExportCsv = isAdminUser(session.user);
+  const canExportCsv = canViewModule(session.user, 'usuarios');
   /** Admin de unidad: adscripción fijada a su unidad (no elige otra región/zona/unidad). */
   const isActingUnitAdmin = session.user?.role === 'unit_admin';
   const isActingZoneAdmin = session.user?.role === 'zone_admin';
@@ -1203,6 +1251,10 @@ export default function DispatchUsers({ session }) {
     () => allowedRoleOptions(session.user?.role),
     [session.user?.role, roleLabelsVersion]
   );
+  const profileSelectOptions = useMemo(() => {
+    const allowed = new Set(roleSelectOptions.map((r) => r.value));
+    return (accessProfiles || []).filter((p) => allowed.has(roleFromAccessProfile(p)));
+  }, [accessProfiles, roleSelectOptions]);
 
   const composedDisplayName = preview.displayName || '';
 
@@ -1233,8 +1285,11 @@ export default function DispatchUsers({ session }) {
 
   const roleNorm = normalizeClientRole(form.role);
   const showRegionAlcance = Boolean(form.role) && roleNorm !== 'root' && !isActingUnitAdmin;
-  const allowAllZones = roleNorm === 'region_admin' || roleNorm === 'region_user';
-  const showZoneStep = showRegionAlcance && Boolean(form.regionId);
+  /** Alcance 3: region_* solo elige región; zona solo para zone_* / unit_*. */
+  const regionOnlyRole = roleNorm === 'region_admin' || roleNorm === 'region_user';
+  const allowAllZones = false;
+  const showZoneStep =
+    showRegionAlcance && Boolean(form.regionId) && !regionOnlyRole;
   /** Solo perfiles de unidad bajan a organismo; region_* y zone_* se quedan en zona. */
   const showUnitStep =
     (roleNorm === 'unit_admin' || roleNorm === 'unit_user') &&
@@ -1292,8 +1347,32 @@ export default function DispatchUsers({ session }) {
       const allow = new Set(selected);
       list = list.filter((u) => allow.has(getUserColFilterVal(u, key)));
     }
+    if (sortCol) {
+      list = [...list].sort((a, b) =>
+        compareSortValues(getUserSortValue(a, sortCol), getUserSortValue(b, sortCol), sortDir)
+      );
+    }
     return list;
-  }, [users, search, colFilters, roleLabelsVersion]);
+  }, [users, search, colFilters, roleLabelsVersion, sortCol, sortDir]);
+
+  function toggleColSort(key) {
+    /* Un solo camino: no anidar setSortDir dentro de setSortCol
+       (Strict Mode ejecuta el updater 2× y el ×-1×-1 deja el mismo sentido). */
+    if (sortCol === key) {
+      setSortDir((d) => (d === 1 ? -1 : 1));
+    } else {
+      setSortCol(key);
+      setSortDir(1);
+    }
+    setPage(1);
+  }
+
+  /** Clic en título → ordenar. El ⠿ es lo único arrastrable (no bloquea el click). */
+  function onThTitleSortClick(e, key) {
+    if (e.target.closest('.th-drag-icon')) return;
+    e.stopPropagation();
+    toggleColSort(key);
+  }
 
   const activeColFilterCount = useMemo(
     () => Object.values(colFilters).filter((v) => usrColFilterIsActive(v)).length,
@@ -1395,6 +1474,7 @@ export default function DispatchUsers({ session }) {
   }
 
   function onThDragStart(e, key) {
+    thDidDragRef.current = true;
     thDragKeyRef.current = key;
     setThDragKey(key);
     setThDragOverKey(null);
@@ -1410,6 +1490,9 @@ export default function DispatchUsers({ session }) {
     thDragKeyRef.current = null;
     setThDragKey(null);
     setThDragOverKey(null);
+    window.setTimeout(() => {
+      thDidDragRef.current = false;
+    }, 80);
   }
 
   function onThDragOver(e, key) {
@@ -1464,6 +1547,7 @@ export default function DispatchUsers({ session }) {
       setGroups(groupsData.groups || []);
       if (profilesData?.profiles) {
         applyLiveRoleLabels(profilesData.profiles);
+        setAccessProfiles(profilesData.profiles);
         setRoleLabelsVersion((v) => v + 1);
       }
       if (catData?.grades?.length) {
@@ -1514,9 +1598,12 @@ export default function DispatchUsers({ session }) {
   function withUnitAdminOrgLock(base) {
     if (!isActingUnitAdmin) return base;
     const locked = unitAdminLockedPath();
+    const unitUserProfile =
+      accessProfiles.find((p) => String(p.code || '') === 'unit_user') || null;
     return {
       ...base,
       role: 'unit_user',
+      profileId: unitUserProfile?.id || base.profileId || '',
       regionId: locked.regionId,
       zoneId: locked.zoneId,
       unitId: locked.unitId,
@@ -1538,6 +1625,11 @@ export default function DispatchUsers({ session }) {
     if (!flags.canEdit) return;
     const path = findOrgPath(orgTree, u.unitId, u.adminScopeUnitId);
     const alc = alcanceChoicesFromUser(u, orgTree);
+    const role = normalizeClientRole(u.role) || 'unit_user';
+    const profileId =
+      u.profileId ||
+      accessProfiles.find((p) => String(p.code || '') === role)?.id ||
+      '';
     setEditingUser(u);
     setEditBasicsOnly(flags.basicsOnly);
     setForm(
@@ -1549,14 +1641,15 @@ export default function DispatchUsers({ session }) {
         paternalSurname: u.paternalSurname || '',
         maternalSurname: u.maternalSurname || '',
         matricula: formatMatriculaInput(u.matricula || ''),
-        role: normalizeClientRole(u.role) || 'unit_user',
+        role,
+        profileId,
         regionId: alc.regionId || path.regionId || '',
         zoneChoice: alc.zoneChoice || '',
         unitChoice: alc.unitChoice || '',
         zoneId: path.zoneId || '',
         unitId: path.unitId || u.unitId || '',
         adminScopeUnitId: u.adminScopeUnitId || '',
-        ...visibilityForRole(normalizeClientRole(u.role) || 'unit_user'),
+        ...visibilityForRole(role),
       })
     );
     setPreview({
@@ -1629,6 +1722,8 @@ export default function DispatchUsers({ session }) {
     if (!isActingUnitAdmin || !createOpen || !orgTree.length || !myScopeUnitId) return;
     const locked = unitAdminLockedPath(orgTree);
     if (!locked.regionId && !locked.unitId) return;
+    const unitUserProfileId =
+      accessProfiles.find((p) => String(p.code || '') === 'unit_user')?.id || '';
     setForm((prev) => {
       if (
         prev.regionId === locked.regionId &&
@@ -1636,13 +1731,15 @@ export default function DispatchUsers({ session }) {
         prev.unitId === locked.unitId &&
         prev.zoneChoice === locked.zoneId &&
         prev.unitChoice === locked.unitId &&
-        prev.role === 'unit_user'
+        prev.role === 'unit_user' &&
+        (!unitUserProfileId || prev.profileId === unitUserProfileId)
       ) {
         return prev;
       }
       return {
         ...prev,
         role: 'unit_user',
+        profileId: unitUserProfileId || prev.profileId,
         regionId: locked.regionId,
         zoneId: locked.zoneId,
         unitId: locked.unitId,
@@ -1650,7 +1747,7 @@ export default function DispatchUsers({ session }) {
         unitChoice: locked.unitId || '',
       };
     });
-  }, [isActingUnitAdmin, createOpen, orgTree, myScopeUnitId]);
+  }, [isActingUnitAdmin, createOpen, orgTree, myScopeUnitId, accessProfiles]);
 
   /** Edición: si el árbol llegó tarde, rehidratar cascada PV (zoneChoice/unitChoice). */
   useEffect(() => {
@@ -1761,7 +1858,11 @@ export default function DispatchUsers({ session }) {
       return;
     }
     if (!isActingUnitAdmin && !String(form.role || '').trim()) {
-      setError('Selecciona el rol / designación.');
+      setError('Selecciona el perfil de acceso.');
+      return;
+    }
+    if (!isActingUnitAdmin && !String(form.profileId || '').trim()) {
+      setError('Selecciona el perfil de acceso.');
       return;
     }
     const lockedRole = isActingUnitAdmin ? 'unit_user' : form.role;
@@ -1831,6 +1932,11 @@ export default function DispatchUsers({ session }) {
           setBusy(false);
           return;
         }
+        if (!form.profileId && !isActingUnitAdmin) {
+          setError('Selecciona el perfil de acceso.');
+          setBusy(false);
+          return;
+        }
         await patchAdminUser(session.token, editingUser.id, {
           grade: form.grade,
           specialty: form.specialty || null,
@@ -1840,6 +1946,7 @@ export default function DispatchUsers({ session }) {
           maternalSurname: form.maternalSurname || null,
           matricula: formatMatriculaInput(form.matricula),
           role: scope.role || lockedRole,
+          profileId: form.profileId || undefined,
           unitId: scope.unitId ?? null,
           adminScopeUnitId: scope.adminScopeUnitId ?? null,
           ...visibilityForRole(scope.role || lockedRole),
@@ -1872,9 +1979,15 @@ export default function DispatchUsers({ session }) {
         setBusy(false);
         return;
       }
+      if (!form.profileId && !isActingUnitAdmin) {
+        setError('Selecciona el perfil de acceso.');
+        setBusy(false);
+        return;
+      }
       const created = await createAdminUser(session.token, {
         ...form,
         role: scope.role || lockedRole,
+        profileId: form.profileId || undefined,
         matricula: formatMatriculaInput(form.matricula),
         unitId: scope.unitId || undefined,
         adminScopeUnitId: scope.adminScopeUnitId || undefined,
@@ -2099,20 +2212,26 @@ export default function DispatchUsers({ session }) {
   );
 
   const adscripcionChecklist = useMemo(() => {
-    const roleItem = { label: 'Rol / designación', ok: fieldFilled(form.role) };
+    const profileItem = {
+      label: 'Perfil de acceso',
+      ok: isActingUnitAdmin ? true : fieldFilled(form.profileId),
+    };
     if (roleNorm === 'root') {
-      return [roleItem, { label: 'Alcance: todas las regiones', ok: true }];
+      return [profileItem, { label: 'Alcance: todas las regiones', ok: true }];
     }
     if (isActingUnitAdmin) {
       return [
-        roleItem,
+        profileItem,
         { label: 'Unidad (fija)', ok: fieldFilled(form.unitChoice || form.unitId) },
       ];
     }
-    const items = [roleItem, { label: 'Región', ok: fieldFilled(form.regionId) }];
+    const items = [profileItem, { label: 'Región', ok: fieldFilled(form.regionId) }];
+    if (roleNorm === 'region_admin' || roleNorm === 'region_user') {
+      return items;
+    }
     if (showZoneStep) {
       items.push({
-        label: allowAllZones ? 'Zona / C.G. (o todas)' : 'Zona / C.G.',
+        label: 'Zona / C.G.',
         ok: fieldFilled(form.zoneChoice),
       });
     }
@@ -2129,140 +2248,183 @@ export default function DispatchUsers({ session }) {
     roleNorm,
     showZoneStep,
     showUnitStep,
-    allowAllZones,
     unitMustBeSpecific,
   ]);
 
   return (
-    <div className="dispatch-page cc-users-page cc-cat-compact">
-      <header className="dispatch-header cc-cat-compact-head">
-        <div>
+    <div className="dispatch-page cc-users-page" style={stickyPageStyle}>
+      <header ref={toolbarRef} className="cc-groups-toolbar">
+        <div className="cc-groups-toolbar-start">
           <h1>Usuarios</h1>
-          <p className="cc-page-sub">
-            {isActingUnitAdmin
-              ? 'Servicios desplegados de tu unidad. Puedes registrar operadores; no designas otros administradores.'
-              : isActingZoneAdmin
-                ? 'Usa el rol Admin de unidad para designar administradores de las unidades de tu zona.'
-                : 'Designa Admin de región, Admin de zona o Admin de unidad con su alcance (cascada Región → Zona → Unidad).'}
-          </p>
         </div>
-        <div className="cc-users-header-actions">
-          {canManage && (
-            <button type="button" className="cc-btn primary" onClick={openCreateModal}>
-              + Agregar usuario
-            </button>
-          )}
-          <button
-            type="button"
-            className="cc-btn ghost"
-            onClick={() => reload({ silent: true })}
-            disabled={loading || refreshing}
-            aria-label="Actualizar lista"
-          >
-            {refreshing ? 'Actualizando…' : 'Actualizar'}
-          </button>
+        <div className="cc-groups-toolbar-end">
+          <label className="cc-groups-search">
+            <span className="visually-hidden">Buscar usuario</span>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar…"
+              disabled={loading}
+            />
+          </label>
+          <div className="cc-groups-toolbar-actions">
+            <div className="usr-table-tools">
+              <button
+                type="button"
+                className={`usr-btn-filters${filtersVisible ? ' active' : ''}`}
+                title={filtersVisible ? 'Quitar filtros' : 'Mostrar filtros'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFiltersVisible((v) => {
+                    if (v) {
+                      setColFilters({});
+                      setOpenFilterKey(null);
+                      return false;
+                    }
+                    return true;
+                  });
+                }}
+              >
+                {USR_FILTER_BTN_SVG}
+                Filtros
+                {activeColFilterCount > 0 && (
+                  <span className="usr-btn-filters-badge" aria-hidden="true">
+                    {activeColFilterCount}
+                  </span>
+                )}
+              </button>
+              <div className="usr-col-panel-wrap" ref={colsWrapRef}>
+                <button
+                  type="button"
+                  className={`usr-btn-cols${colsOpen ? ' active' : ''}`}
+                  title="Mostrar/ocultar columnas"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setColsOpen((v) => !v);
+                  }}
+                >
+                  {USR_COLS_BTN_SVG}
+                  Columnas
+                </button>
+                {colsOpen && (
+                  <div className="usr-col-panel open" role="dialog" aria-label="Columnas visibles">
+                    <div className="usr-col-panel-header">
+                      <span>Columnas</span>
+                      <button type="button" className="usr-col-panel-reset" onClick={resetColConfig}>
+                        ↺ Restablecer
+                      </button>
+                    </div>
+                    <div className="usr-col-panel-list">
+                      {colConfig.map((col, idx) => (
+                        <div
+                          key={col.key}
+                          className={`usr-col-panel-item${colDragIdx === idx ? ' dragging' : ''}`}
+                          draggable
+                          onDragStart={() => onColDragStart(idx)}
+                          onDragEnd={onColDragEnd}
+                          onDragOver={(e) => onColDragOver(e, idx)}
+                          onDragLeave={onColDragLeave}
+                          onDrop={(e) => onColDrop(e, idx)}
+                        >
+                          <span className="usr-col-drag-handle" title="Arrastra para reordenar">⠿</span>
+                          <label className="usr-col-panel-label" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={col.visible !== false}
+                              onChange={() => toggleColVisible(col.key)}
+                            />
+                            <span>{col.label}</span>
+                          </label>
+                          <div className="usr-col-panel-arrows">
+                            <button
+                              type="button"
+                              title="Subir"
+                              disabled={idx === 0}
+                              onClick={(e) => { e.stopPropagation(); moveCol(idx, -1); }}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              title="Bajar"
+                              disabled={idx === colConfig.length - 1}
+                              onClick={(e) => { e.stopPropagation(); moveCol(idx, 1); }}
+                            >
+                              ↓
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            {canAddUser ? (
+              <span className="cc-groups-new-channel-wrap">
+                <svg
+                  className="cc-groups-new-channel-beam"
+                  viewBox="0 0 100 36"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <rect
+                    className="cc-groups-new-channel-beam-base"
+                    x="1.25"
+                    y="1.25"
+                    width="97.5"
+                    height="33.5"
+                    rx="16.75"
+                    ry="16.75"
+                    pathLength="100"
+                  />
+                  <rect
+                    className="cc-groups-new-channel-beam-run cc-groups-new-channel-beam-run--tail"
+                    x="1.25"
+                    y="1.25"
+                    width="97.5"
+                    height="33.5"
+                    rx="16.75"
+                    ry="16.75"
+                    pathLength="100"
+                  />
+                  <rect
+                    className="cc-groups-new-channel-beam-run cc-groups-new-channel-beam-run--mid"
+                    x="1.25"
+                    y="1.25"
+                    width="97.5"
+                    height="33.5"
+                    rx="16.75"
+                    ry="16.75"
+                    pathLength="100"
+                  />
+                  <rect
+                    className="cc-groups-new-channel-beam-run cc-groups-new-channel-beam-run--tip"
+                    x="1.25"
+                    y="1.25"
+                    width="97.5"
+                    height="33.5"
+                    rx="16.75"
+                    ry="16.75"
+                    pathLength="100"
+                  />
+                </svg>
+                <button
+                  type="button"
+                  className="cc-btn primary cc-btn-sm cc-groups-new-channel-btn"
+                  onClick={openCreateModal}
+                >
+                  {NEW_CHANNEL_BTN_SVG}
+                  Nuevo usuario
+                </button>
+              </span>
+            ) : null}
+          </div>
         </div>
       </header>
 
       {error && !createOpen && <p className="error">{error}</p>}
-
-      <div className="cc-users-toolbar usr-table-toolbar">
-        <label className="cc-users-search">
-          <span className="visually-hidden">Buscar usuario</span>
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar grado, empleo, nombre, usuario, perfil…"
-            disabled={loading}
-          />
-        </label>
-        <div className="usr-table-tools">
-          <button
-            type="button"
-            className={`usr-btn-filters${filtersVisible ? ' active' : ''}`}
-            title={filtersVisible ? 'Ocultar filtros' : 'Mostrar filtros'}
-            onClick={(e) => {
-              e.stopPropagation();
-              setFiltersVisible((v) => !v);
-            }}
-          >
-            {USR_FILTER_BTN_SVG}
-            Filtros
-            {activeColFilterCount > 0 && (
-              <span className="usr-btn-filters-badge" aria-hidden="true">
-                {activeColFilterCount}
-              </span>
-            )}
-          </button>
-          <div className="usr-col-panel-wrap" ref={colsWrapRef}>
-            <button
-              type="button"
-              className={`usr-btn-cols${colsOpen ? ' active' : ''}`}
-              title="Mostrar/ocultar columnas"
-              onClick={(e) => {
-                e.stopPropagation();
-                setColsOpen((v) => !v);
-              }}
-            >
-              {USR_COLS_BTN_SVG}
-              Columnas
-            </button>
-            {colsOpen && (
-              <div className="usr-col-panel open" role="dialog" aria-label="Columnas visibles">
-                <div className="usr-col-panel-header">
-                  <span>Columnas</span>
-                  <button type="button" className="usr-col-panel-reset" onClick={resetColConfig}>
-                    ↺ Restablecer
-                  </button>
-                </div>
-                <div className="usr-col-panel-list">
-                  {colConfig.map((col, idx) => (
-                    <div
-                      key={col.key}
-                      className={`usr-col-panel-item${colDragIdx === idx ? ' dragging' : ''}`}
-                      draggable
-                      onDragStart={() => onColDragStart(idx)}
-                      onDragEnd={onColDragEnd}
-                      onDragOver={(e) => onColDragOver(e, idx)}
-                      onDragLeave={onColDragLeave}
-                      onDrop={(e) => onColDrop(e, idx)}
-                    >
-                      <span className="usr-col-drag-handle" title="Arrastra para reordenar">⠿</span>
-                      <label className="usr-col-panel-label" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={col.visible !== false}
-                          onChange={() => toggleColVisible(col.key)}
-                        />
-                        <span>{col.label}</span>
-                      </label>
-                      <div className="usr-col-panel-arrows">
-                        <button
-                          type="button"
-                          title="Subir"
-                          disabled={idx === 0}
-                          onClick={(e) => { e.stopPropagation(); moveCol(idx, -1); }}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          title="Bajar"
-                          disabled={idx === colConfig.length - 1}
-                          onClick={(e) => { e.stopPropagation(); moveCol(idx, 1); }}
-                        >
-                          ↓
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       <div className={`cc-users-list-wrap${refreshing ? ' is-refreshing' : ''}`}>
         {loading ? (
@@ -2300,34 +2462,56 @@ export default function DispatchUsers({ session }) {
                       key={c.key}
                       className={[
                         'th-draggable',
+                        'th-sortable',
                         thDragKey === c.key ? 'th-dragging' : '',
                         thDragOverKey === c.key ? 'th-drag-over' : '',
                       ]
                         .filter(Boolean)
                         .join(' ')}
-                      draggable
                       data-col-key={c.key}
-                      title="Arrastra para reordenar"
-                      onDragStart={(e) => {
-                        if (e.target.closest(
-                          'select, .usr-th-filter-select, .usr-th-filter-multi, .usr-th-filter-multi-btn, .usr-th-filter-multi-menu'
-                        )) {
-                          e.preventDefault();
-                          return;
-                        }
-                        onThDragStart(e, c.key);
-                      }}
-                      onDragEnd={onThDragEnd}
+                      data-sort-title="Arrastra para mover · Clic para ordenar"
+                      title="Arrastra para mover · Clic para ordenar"
                       onDragOver={(e) => onThDragOver(e, c.key)}
                       onDragLeave={() => onThDragLeave(c.key)}
                       onDrop={(e) => onThDrop(e, c.key)}
                     >
                       <div className={`usr-th-stack${filtersVisible ? '' : ' filters-hidden'}`}>
-                        <div className="usr-th-title-row">
-                          <span className="th-drag-icon" aria-hidden="true">
+                        <div
+                          className="usr-th-title-row usr-th-title-row--sortable"
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => onThTitleSortClick(e, c.key)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onThTitleSortClick(e, c.key);
+                            }
+                          }}
+                        >
+                          <span
+                            className="th-drag-icon"
+                            draggable
+                            title="Arrastra para mover la columna"
+                            aria-label="Arrastra para mover la columna"
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              onThDragStart(e, c.key);
+                            }}
+                            onDragEnd={(e) => {
+                              e.stopPropagation();
+                              onThDragEnd();
+                            }}
+                          >
                             ⠿
                           </span>
                           <span className="th-col-label">{c.label}</span>
+                          {sortCol === c.key ? (
+                            <span className="th-sort-indicator" aria-hidden="true">
+                              {sortDir === 1 ? '▲' : '▼'}
+                            </span>
+                          ) : null}
                         </div>
                         {filtersVisible && (
                           <UsrThFilterMulti
@@ -2413,41 +2597,6 @@ export default function DispatchUsers({ session }) {
                                 {u.canReceivePanic ? 'Quitar alerta' : 'Dar alerta'}
                               </button>
                             )}
-                            {['region_admin', 'zone_admin', 'unit_admin'].includes(u.role) && canManage && (
-                              <label className="usr-share">
-                                Ubicación
-                                <select
-                                  value={u.locationShare || (u.role === 'region_admin' ? 'region' : u.role === 'zone_admin' ? 'zone' : 'unit')}
-                                  onChange={(e) =>
-                                    patchLocationShare(session.token, u.id, e.target.value)
-                                      .then(() => reload({ silent: true }))
-                                      .catch((err) => setError(err.message))
-                                  }
-                                >
-                                  {u.role === 'region_admin' && (
-                                    <>
-                                      <option value="region">Toda la región</option>
-                                      <option value="zone">Zonas y abajo</option>
-                                      <option value="unit">Solo unidades</option>
-                                      <option value="hidden">Ocultar</option>
-                                    </>
-                                  )}
-                                  {u.role === 'zone_admin' && (
-                                    <>
-                                      <option value="zone">Toda la zona</option>
-                                      <option value="unit">Solo unidades</option>
-                                      <option value="hidden">Ocultar</option>
-                                    </>
-                                  )}
-                                  {u.role === 'unit_admin' && (
-                                    <>
-                                      <option value="unit">Su unidad</option>
-                                      <option value="hidden">Ocultar</option>
-                                    </>
-                                  )}
-                                </select>
-                              </label>
-                            )}
                           </div>
                         )}
                       </td>
@@ -2513,7 +2662,7 @@ export default function DispatchUsers({ session }) {
         )}
       </div>
 
-      {createOpen && canManage && (
+      {createOpen && (editingUser ? canEditUser : canAddUser) && (
         <div
           className="sys-modal-backdrop"
           role="presentation"
@@ -2564,8 +2713,8 @@ export default function DispatchUsers({ session }) {
               ) : null}
               {editBasicsOnly && editingUser ? (
                 <p className="cc-group-pick-hint" style={{ marginTop: 0 }}>
-                  Perfil <strong>{roleLabel(editingUser.role)}</strong>: solo puedes corregir
-                  identidad (grado, nombres, matrícula, cargo). Rol y alcance no se modifican aquí.
+                  Estás editando tu propia cuenta: solo identidad (grado, nombres, matrícula,
+                  cargo). Perfil y alcance no se modifican aquí.
                 </p>
               ) : null}
           {step === 'datos' && (
@@ -2783,39 +2932,49 @@ export default function DispatchUsers({ session }) {
               </div>
               <MissingFieldsList items={adscripcionChecklist} />
               <section className="cc-form-section">
-                <h3 className="cc-form-section-title">Rol / designación</h3>
+                <h3 className="cc-form-section-title">Perfil de acceso</h3>
                 <div className="cc-form-grid">
                   <label className="field">
-                    <span>Rol / designación *</span>
+                    <span>Perfil *</span>
                     <select
-                      value={form.role}
+                      value={form.profileId}
                       disabled={isActingUnitAdmin}
-                      required
+                      required={!isActingUnitAdmin}
                       onChange={(e) => {
-                        const role = e.target.value;
+                        const profileId = e.target.value;
+                        const profile = accessProfiles.find((p) => p.id === profileId);
+                        const role = profile
+                          ? roleFromAccessProfile(profile)
+                          : '';
                         setForm({
                           ...form,
+                          profileId,
                           role,
                           zoneChoice: '',
                           unitChoice: '',
                           zoneId: '',
                           unitId: '',
-                          ...visibilityForRole(role),
+                          ...visibilityForRole(role || 'unit_user'),
                         });
                       }}
                     >
                       {!isActingUnitAdmin ? (
-                        <option value="">— Selecciona —</option>
+                        <option value="">— Selecciona perfil —</option>
                       ) : null}
-                      {roleSelectOptions.map((r) => (
-                        <option key={r.value} value={r.value}>
-                          {r.label}
+                      {profileSelectOptions.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {profileOptionLabel(p)}
                         </option>
                       ))}
                     </select>
-                    {ROLE_HELP[form.role] ? (
+                    {form.role && ROLE_HELP[form.role] ? (
                       <span className="cc-field-hint-inline">{ROLE_HELP[form.role]}</span>
-                    ) : null}
+                    ) : (
+                      <span className="cc-field-hint-inline">
+                        Define permisos (módulos) y el nivel jerárquico. Se configura en
+                        Administración → Perfiles.
+                      </span>
+                    )}
                   </label>
                 </div>
               </section>
@@ -2828,13 +2987,13 @@ export default function DispatchUsers({ session }) {
                       : 'Tu cuenta de admin de unidad no tiene unidad asignada; contacta a un administrador.'
                     : roleNorm === 'root'
                       ? 'Administrador del sistema: ve todas las regiones.'
-                      : allowAllZones
-                        ? 'Región → todas las zonas o una zona concreta (sin elegir unidad).'
-                        : roleNorm === 'zone_admin' || roleNorm === 'zone_user'
-                          ? 'Región → Zona / C.G. (alcance = toda esa zona; sin elegir unidad).'
-                          : unitMustBeSpecific
-                            ? 'Región → Zona / C.G. → Unidad (obligatoria).'
-                            : 'Elige el alcance según el rol.'}
+                      : regionOnlyRole
+                      ? 'Solo la región. Ahí termina la pertenencia (zonas y unidades se eligen al crear canales).'
+                      : roleNorm === 'zone_admin' || roleNorm === 'zone_user'
+                        ? 'Región → Zona / C.G. (alcance = toda esa zona; sin elegir unidad).'
+                        : unitMustBeSpecific
+                          ? 'Región → Zona / C.G. → Unidad (obligatoria).'
+                          : 'Elige el alcance según el rol.'}
                 </p>
                 {roleNorm === 'root' ? (
                   <p className="cc-field-hint-inline">Alcance: todas las regiones</p>

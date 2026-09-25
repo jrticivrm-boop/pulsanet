@@ -1,4 +1,4 @@
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, TrackSource } from 'livekit-server-sdk';
 import { config } from '../config.js';
 
 export function isLiveKitConfigured() {
@@ -96,14 +96,19 @@ export function resolveLiveKitUrl(req) {
 }
 
 /**
- * Token LiveKit para unirse a la room del grupo.
- * canPublish: false si el rol es listen_only (solo escucha).
+ * Token LiveKit para unirse a una room.
+ * @param {boolean} [canPublish=true]
+ * @param {'all'|'camera'|'none'} [publishMode='all']
+ *   - all: audio+video (default)
+ *   - camera: solo cámara (p. ej. listen_only en video grupal — imagen sí, mic no)
+ *   - none: no publicar (p. ej. listen_only en sala PTT de radio)
  */
 export async function createRoomToken({
   identity,
   displayName,
   roomName,
   canPublish = true,
+  publishMode = 'all',
 }) {
   if (!isLiveKitConfigured()) {
     throw new Error('LiveKit no configurado (LIVEKIT_URL / API_KEY / API_SECRET)');
@@ -116,13 +121,25 @@ export async function createRoomToken({
     ttl: '1h',
   });
 
-  at.addGrant({
+  const mode = publishMode === 'camera' || publishMode === 'none' ? publishMode : 'all';
+  const grant = {
     roomJoin: true,
     room: roomName,
-    canPublish,
     canSubscribe: true,
     canPublishData: true,
-  });
+  };
+
+  if (mode === 'none' || canPublish === false) {
+    grant.canPublish = false;
+  } else if (mode === 'camera') {
+    // canPublishSources sustituye a canPublish: solo CAMERA (sin MICROPHONE).
+    grant.canPublish = true;
+    grant.canPublishSources = [TrackSource.CAMERA];
+  } else {
+    grant.canPublish = true;
+  }
+
+  at.addGrant(grant);
 
   return at.toJwt();
 }

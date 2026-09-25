@@ -1,3 +1,1201 @@
+## 2026-09-25 — FORMATO_CAMBIOS_25_09_2026 (Word)
+
+- **Tipo:** docs
+- **Área:** docs
+- **Qué:** Registro de control de cambios del 22–25/09 (12 ítems). Desarrollador: Sld. Inftca. Miguel Zeferino Pérez Hernández. Word en Escritorio y `pulsanet_soporte\Documentos`.
+- **Archivos / refs:** `infra/_gen_formato_cambios_25.py`, `FORMATO_CAMBIOS_25_09_2026.docx`
+
+## 2026-09-25 — Radio: restaurar layout clásico (barra de voz archivada)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Radio vuelve al layout anterior (controles clásicos 4+PTT; sin barra de voz montada).
+  - `PttVoiceBar.jsx` + `PttVoiceBar.css` quedan guardados sin importar, listos para reactivar.
+- **Por qué / notas:** Pedido explícito de revertir el rediseño; conservar la barra por si se pide después.
+- **Archivos / refs:** pages/RadioPage.jsx, styles.css, PttVoiceBar.jsx, PttVoiceBar.css
+
+## 2026-09-25 — Radio: botones izq, PTT centrado
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Enviar alerta / Audio / Videollamada apilados a la izquierda; botón PTT centrado; estado del canal a la derecha.
+- **Archivos / refs:** styles.css
+
+## 2026-09-25 — Radio: estilo visual de la barra de voz
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Neón más limpio (más barras, segmentos finos, halo/eje con gradiente, fade en extremos, sin shadowBlur por segmento). Colores por tema afinados.
+- **Archivos / refs:** PttVoiceBar.jsx, styles.css
+
+## 2026-09-25 — Radio: barra de voz reacciona al mic
+
+- **Tipo:** mejora
+- **Área:** web
+- **Qué:** Al transmitir (PTT), la onda lee el nivel real del micrófono (AnalyserNode sobre el track LiveKit). Ya no es solo animación fija.
+- **Archivos / refs:** PttVoiceBar.jsx, usePtt.js, RadioPage.jsx
+
+## 2026-09-25 — Radio: onda a ancho completo arriba
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** La barra de voz queda en el borde superior del panel Radio, de extremo a extremo (sin caja), solo al transmitir.
+- **Archivos / refs:** RadioPage.jsx, styles.css
+
+## 2026-09-25 — Radio: ondas sin caja, solo al transmitir
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Barra de voz sin contenedor ni fondo negro; solo las ondas neón y únicamente visible al transmitir (PTT / al aire).
+- **Archivos / refs:** PttVoiceBar.jsx, styles.css
+
+## 2026-09-25 — Radio: neón por tema en barra de voz
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:** La barra PTT ya no usa --accent oscuro (parecía negra). Neón explícito por tema: Claro verde/teal/oro; Verde oro/lima/cian; Obscuro magenta/cian/azul + glow.
+- **Archivos / refs:** PttVoiceBar.jsx, styles.css
+
+## 2026-09-25 — Radio: barra de voz sobre PTT
+
+- **Tipo:** ux | feature
+- **Área:** web
+- **Qué:** Ecualizador simétrico encima de los controles PTT; se anima al hablar (holding/speaking). Colores desde variables del tema (Claro/Verde/Obscuro).
+- **Archivos / refs:** PttVoiceBar.jsx, RadioPage.jsx, styles.css
+
+## 2026-09-25 — Radio: columnas solo mitad inferior
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Las 4 columnas Escuchar/Hablar/Video/Alerta ocupan solo la mitad de abajo; controles PTT en la mitad de arriba.
+- **Archivos / refs:** styles.css
+
+## 2026-09-25 — Radio: controles arriba, columnas abajo
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En Radio PTT, barra de controles (alerta/audio/video/PTT) arriba; Escuchar/Hablar/Video/Alerta ocupan el resto del alto. Se quitó el hueco «Mensajes / Ir a Chats».
+- **Archivos / refs:** RadioPage.jsx, styles.css
+
+## 2026-09-25 — Solo escucha: video con imagen, sin micrófono
+
+- **Tipo:** mejora
+- **Área:** backend | web | mobile
+- **Qué:** Rol listen_only puede iniciar/unirse a video de grupo y publicar cámara; LiveKit solo permite fuente CAMERA (sin mic). PTT radio sigue sin publicar. UI mic bloqueada.
+- **Archivos / refs:** livekit.js, groupVideo.js, useGroupVideo.js, GroupVideoPanel.jsx, group_video_screen.dart
+
+## 2026-09-24 — Configuración: sin pestaña Grabaciones
+
+- **Tipo:** ux
+- **Área:** web | backend
+- **Qué:** Se quitó la pestaña Grabaciones de Configuración (ya está en RESERVADO). URL antigua `/despacho/configuracion/grabaciones` redirige a RESERVADO. Se eliminó la pestaña del catálogo de permisos de perfil.
+- **Archivos / refs:** `ConfigLayout.jsx`, `App.jsx`, `DispatchLayout.jsx`, `profiles.js`
+
+## 2026-09-24 — Grupos: sin pastillas Región/Zona/Unidad en Alcance
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Columna Alcance vuelve a mostrar solo el nombre (sin pastilla de nivel).
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: scrollbar no cierra el drawer
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:** Clic en la scrollbar (tabla / body de admin) ya no cierra el panel lateral del grupo.
+- **Archivos / refs:** `DispatchGroups.jsx`
+
+## 2026-09-24 — Grupos: clic en rail no cierra el drawer
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Clic en el menú lateral de módulos (incl. Contraer/Expandir) ya no cierra el panel del grupo; solo cierra fuera de filas/rail.
+- **Archivos / refs:** `DispatchGroups.jsx`
+
+## 2026-09-24 — Grupos: drawer empuja topbar y radio PTT
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Al abrir el panel de grupo, `.cc-shell-main` cede el ancho del drawer (topbar, franja PTT y contenido), no solo la tabla.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: tabla cede espacio al drawer
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Con el panel lateral abierto, la página de Grupos añade `padding-right` del ancho del drawer para que las columnas no queden tapadas.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: sin columna Acciones; Eliminar en drawer
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Quitados Editar/Eliminar de la tabla y la columna Acciones. Clic en fila abre el panel; Eliminar permanente (root) va en el pie del drawer.
+- **Archivos / refs:** `DispatchGroups.jsx`
+
+## 2026-09-24 — Grupos: flechas teclado + clic fuera cierra drawer
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Con el panel lateral abierto: ↑/↓ del teclado recorre grupos (lista filtrada) y actualiza el drawer; clic fuera de las filas de la tabla (rail, cabecera, etc.) cierra el panel. Escape sigue cerrando.
+- **Archivos / refs:** `DispatchGroups.jsx`
+
+## 2026-09-24 — Filtro Alcance: sin texto de ayuda del árbol
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Quitado el párrafo de ayuda del menú filtro Alcance («Check = tipo de canal…»).
+- **Archivos / refs:** `ThFilterMulti.jsx`
+
+## 2026-09-24 — Filtros columna: etiqueta completa (1 selección)
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Botón de filtro multi (Grupos/Usuarios): al seleccionar una sola opción ya no se corta a 24 caracteres; truncado solo si >56 y `title` siempre con el texto completo.
+  - CSS: el botón puede envolver hasta 2 líneas y `min-width` un poco mayor.
+- **Archivos / refs:** `ThFilterMulti.jsx`, `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-24 — Filtros columna: resize esquina (Grupos/Usuarios)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Menú de filtro multi redimensionable (`resize: both`) como los multi-select del mapa; aplica a Grupos (`ThFilterMulti`) y Usuarios (`UsrThFilterMulti`).
+- **Archivos / refs:** `command-center.css`, `ThFilterMulti.jsx`, `DispatchUsers.jsx`
+
+## 2026-09-24 — Grupos: filtro Alcance en árbol + pastillas + textos
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Filtro Alcance por región: carpeta región → «Grupos (de todas las zonas y unidades)» → zonas → «Grupos (de todas las unidades)» + unidades (solo si hay canales).
+  - Columna Alcance con pastilla Región/Zona/Unidad + nombre.
+  - Alta/edición: opción «Todas las zonas y unidades…».
+- **Archivos / refs:** `DispatchGroups.jsx`, `ThFilterMulti.jsx`, `command-center.css`
+
+## 2026-09-24 — Filtro Alcance: 3 listas (Regiones/Zonas/Unidades)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Sustituido el árbol por tres secciones planas (tipo de canal). Etiquetas con padre (`zona · región`, `unidad · zona`) y «toda la región/zona».
+- **Archivos / refs:** `DispatchGroups.jsx`, `ThFilterMulti.jsx`
+
+## 2026-09-24 — Filtros: al ocultar se limpian (Grupos/Usuarios)
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** Segundo clic en «Filtros» quita también el estado de filtrado (antes solo ocultaba la UI y la lista seguía filtrada).
+- **Archivos / refs:** `DispatchGroups.jsx`, `DispatchUsers.jsx`
+
+## 2026-09-24 — Filtro/alta Alcance: «toda la región/zona»
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En el filtro, regiones/zonas se etiquetan como al crear (`… (toda la región/zona)`). Ayuda en el menú: el check no arrastra hijas. Opciones «Todas las zonas/unidades» alineadas en el alta/edición.
+- **Archivos / refs:** `DispatchGroups.jsx`, `ThFilterMulti.jsx`, `command-center.css`
+
+## 2026-09-24 — Filtro Alcance: etiquetas Región / Zonas / Unidades
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Barras de nivel (Región, Zonas, Unidades) sobre el desglose expandible; el check sigue siendo solo del nodo.
+- **Archivos / refs:** `ThFilterMulti.jsx`, `command-center.css`
+
+## 2026-09-24 — Filtro Alcance: check solo del nodo
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:** En el árbol Región→Zona→Unidad, marcar «IV R.M.» (u otra región/zona) selecciona solo ese alcance, no todas las zonas/unidades hijas.
+- **Archivos / refs:** `ThFilterMulti.jsx`
+
+## 2026-09-24 — Perfiles: nombres de módulos como en el rail
+
+- **Tipo:** ux
+- **Área:** backend | web
+- **Qué:** Labels del editor de permisos alineados al menú (Seguimiento, Grupos, Usuarios, Avisos, Catálogos, Configuración) con el mismo hint del rail.
+- **Archivos / refs:** `profiles.js` (MODULES), `DispatchProfiles.jsx`
+
+## 2026-09-24 — RESERVADO solo Administrador (sin opción en perfiles)
+
+- **Tipo:** security | ux
+- **Área:** backend | web
+- **Qué:** Quitado RESERVADO del editor de módulos en Perfiles. El módulo solo es visible para rol Administrador (`root`); admins de región/zona/unidad no lo ven aunque el JSON viejo tuviera `video.ver`.
+- **Archivos / refs:** `profiles.js` (MODULES), `modulePermissions.js`, `moduleAccess.js`
+
+## 2026-09-24 — Menú filtro multi: cabecera estilo Parque Vehicular
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Contador «N de N» en color accent; filas Ascendente/Marcar y meta con separadores; paddings y `?` alineados a PV.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Filtro Alcance: Expandir/Contraer 2 en 1
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Un solo enlace que alterna Expandir ↔ Contraer (igual que Marcar ↔ Desmarcar).
+- **Archivos / refs:** `ThFilterMulti.jsx`
+
+## 2026-09-24 — Filtro Alcance: quitar botón Contraer
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Eliminado el enlace global «Contraer» del menú árbol (basta ▶/▼ por nodo). Quedan Expandir y Marcar/Desmarcar.
+- **Archivos / refs:** `ThFilterMulti.jsx`
+
+## 2026-09-24 — Filtro Alcance en árbol Región→Zona→Unidad
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:** El filtro de Alcance en Grupos es árbol orgánico (región con sus zonas y cada zona con sus unidades), con ▶/▼ expandir-contraer, Expandir/Contraer todo, y check en padre que marca el subárbol.
+- **Archivos / refs:** `ThFilterMulti.jsx` (`optionTree`), `DispatchGroups.jsx` (`buildScopeFilterTree`), `command-center.css`
+
+## 2026-09-24 — Sin caja en fila de título sortable
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Quitado fondo/borde/sombra rectangular al pasar o enfocar el título de columna (estilo limpio como Parque Vehicular).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Indicador orden ▲/▼ estilo Parque Vehicular
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Flecha de orden pegada al nombre de columna, mismo color del título (sin accent azul). Antes quedaba grande y azul al borde derecho.
+- **Archivos / refs:** `command-center.css`, `DispatchGroups.jsx`, `DispatchUsers.jsx`
+
+## 2026-09-24 — Fix orden ▲/▼ solo funcionaba una vez
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** El segundo clic no invertía el orden: `setSortDir` iba dentro del updater de `setSortCol` y Strict Mode lo ejecutaba 2× (−1×−1). Ahora el toggle es directo.
+- **Archivos / refs:** `DispatchGroups.jsx`, `DispatchUsers.jsx`
+
+## 2026-09-24 — Fix ordenar por clic en encabezado (Grupos/Usuarios)
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:** El orden ▲/▼ queda en la fila del título (clic fiable). Solo el ⠿ es `draggable` (como separación clara respecto a PV, donde el th entero es draggable pero los filtros van en otra fila).
+- **Archivos / refs:** `DispatchGroups.jsx`, `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-24 — Filtros de columna: colores según tema Claro/Verde
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:** El menú multi-filtro (portal) hereda vars de `.cc-shell` (antes iba a `body` y quedaba oscuro en Claro/Verde). Botones parcial/ninguno y secciones Región/Zona/Unidad usan `--cc-accent` del tema.
+- **Archivos / refs:** `ThFilterMulti.jsx`, `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: filtro Alcance + ordenar columnas (fix)
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - Encabezados Región/Zona/Unidad del filtro Alcance como barra de sección (fondo, borde, contador) para no confundirlos con nombres.
+  - Ordenar por clic: solo el ⠿ es arrastrable; clic en el título ordena ▲/▼ (el `draggable` del th bloqueaba el click).
+- **Archivos / refs:** `ThFilterMulti.jsx`, `DispatchGroups.jsx`, `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos/Usuarios: clic en encabezado ordena (▲/▼)
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:** Además de arrastrar columnas, un clic en el encabezado ordena asc/desc (estilo Parque Vehicular). Tooltip «Arrastra para mover · Clic para ordenar»; el drag no dispara orden.
+- **Archivos / refs:** `DispatchGroups.jsx`, `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: Alcance sin prefijo + filtro Región/Zona/Unidad
+
+- **Tipo:** ux | mejora
+- **Área:** web | backend
+- **Qué:**
+  - Columna Alcance muestra solo el nombre (sin `Región ·` / `Zona ·` / `Unidad ·`).
+  - Filtro de Alcance agrupado en 3 secciones (Región → Zona → Unidad), con marcar/desmarcar por sección.
+- **Archivos / refs:** `DispatchGroups.jsx`, `ThFilterMulti.jsx`, `command-center.css`, `admin.js` (`scopeLabel`)
+
+## 2026-09-24 — Alcance 5 (doc usuarios / grupos / mapa)
+
+- **Tipo:** docs
+- **Área:** docs
+- **Qué:** Documento de referencia del estado vigente: alta de usuarios (pertenencia), creación de grupos/canales (jerarquía + geo) y visualización en mapa (matriz + territorio). Word en Escritorio y `pulsanet_soporte\Documentos`; Markdown en `docs/ALCANCE_5.md`.
+- **Archivos / refs:** `infra/_gen_alcance5.py`, `docs/ALCANCE_5.md`, `Alcance 5.docx`
+
+## 2026-09-24 — Grupos: usuario de zona no en canal de unidad (selector)
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** En canales de unidad, «Agregar persona…» ya no lista usuarios de zona (solo admin de zona si su zona contiene la unidad), alineado con la API.
+- **Archivos / refs:** `DispatchGroups.jsx` (`memberFitsGroupGeoClient`)
+
+## 2026-09-24 — Grupos: no listar miembros ya asignados al agregar
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** En «Agregar persona…» del drawer de canal se ocultan usuarios que ya son miembros del grupo.
+- **Archivos / refs:** `DispatchGroups.jsx` (`assignableUsers`)
+
+## 2026-09-24 — Fix pantalla en blanco (CatalogsLayout sintaxis)
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** Template string roto en `CatalogsLayout.jsx` impedía compilar el frontend (pantalla blanca). Corregido y rebuild.
+- **Archivos / refs:** `CatalogsLayout.jsx`, `frontend/dist`
+
+## 2026-09-24 — Permisos: Catálogos/Avisos/Config alineados a perfil (UI + API)
+
+- **Tipo:** feature | security
+- **Área:** backend | web
+- **Qué:**
+  - Helper `moduleAccess.js` (`requireModuleAction` / `userHasModuleAction`).
+  - Catálogos y Dependencias: UI con agregar/editar/eliminar del perfil; API deja de usar solo `isAdmin`.
+  - Avisos: listar=`ver`, enviar=`agregar` (UI + API). Config org-settings=`ver`/`editar`. CSV usuarios=`usuarios.ver`. Purge grupos=`grupos.eliminar`.
+- **Archivos / refs:** `moduleAccess.js`, `catalogs.js`, `admin.js`, `announcements.js`, catálogos UI, `DispatchAnnouncements.jsx`
+
+## 2026-09-24 — Perfiles: permisos por módulo, pestaña y acción
+
+- **Tipo:** feature
+- **Área:** backend | web
+- **Qué:**
+  - Editor de perfiles con tarjetas: Visible → Pestañas → Agregar/Editar/Eliminar; modal más ancho; labels alineados al rail (p. ej. RESERVADO).
+  - Catálogo `MODULES` con `tabs`/`actions`/`group`; JSON normalizado; sesión lleva `user.modules` (login/me/refresh).
+  - Enforcement: rail, pestañas (RESERVADO/Catálogos/Config/Admin), rutas App, botones Usuarios/Grupos.
+- **Por qué / notas:** Sin enforcement el UI no servía. Root sigue con acceso total. Perfiles viejos sin `tabs`: si el módulo está visible, se asumen todas las pestañas.
+- **Archivos / refs:** `profiles.js`, `userProfile.js`, `auth.js`, `modulePermissions.js`, `DispatchProfiles.jsx`, layouts, `DispatchLayout.jsx`, `App.jsx`
+
+## 2026-09-24 — Grupos/Usuarios: encabezados opacos al scrollear
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** Al bajar el scroll, pastillas/botones de las filas ya no se ven detrás de ESTADO/ACCIONES (y resto de columnas). Fondo opaco en `thead th` sticky + z-index por encima del tbody.
+- **Archivos / refs:** `command-center.css` (sticky thead Grupos/Usuarios)
+
+## 2026-09-24 — Rail: logo SICOM no se desborda al achicar ventana
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** En viewport ≤960px el rail ya forzaba ancho mini, pero el PNG expandido (casco + tipografía «SICOM») podía seguir viéndose y salirse. Ahora se oculta con `!important`, solo el emblema circular, y el brand tiene `overflow: hidden`.
+- **Por qué / notas:** Las letras «SICOM» van dibujadas en el asset expandido; no es un texto HTML aparte.
+- **Archivos / refs:** `institutional.css` (`.cc-mod-rail-brand`, media `max-width: 960px`)
+
+## 2026-09-24 — Grupos/Usuarios: toolbar sticky sin contraerse
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** La barra (título + Buscar/Filtros/Columnas/Nuevo) ya no pierde aire ni se encoge al scrollear: `flex-shrink: 0` y el padding vertical va en el sticky (no en el `gap` del page).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos/Usuarios: quitar línea bajo toolbar
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Eliminada la línea clara bajo la barra sticky (título + Buscar/Filtros/Columnas) en Grupos y Usuarios (`box-shadow` del toolbar).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: zona/unidad opcionales según rol
+
+- **Tipo:** fix | mejora
+- **Área:** web
+- **Qué:**
+  - **Administrador / admin de región:** Región obligatoria; **Zona** y **Unidad** opcionales.
+    - Solo región → canal de región (todos los usuarios de esa región).
+    - Región + zona → canal de zona (unidad puede quedar en —).
+    - Región + zona + unidad → canal de unidad.
+  - **Admin de zona:** unidad opcional (— = toda su zona).
+  - Corregido filtro de «Asignar miembro»: usuarios de unidad bajo una región/zona sí aparecen (alineado a `memberFitsGroupGeo`).
+- **Por qué / notas:** El formulario HTML forzaba zona/unidad (`required`) aunque el modelo de alcance ya soportaba región/zona/unidad.
+- **Archivos / refs:** `DispatchGroups.jsx` (`resolveGroupScope`, formularios create/edit, `memberFitsGroupGeoClient`)
+
+## 2026-09-24 — Nota de voz: bolita alineada con la onda
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** La bolita de progreso ya no va desfasada respecto a las barras azules (onda a ancho completo + thumb centrado con `translate(-50%)`).
+- **Archivos / refs:** `styles.css` (`.wa-voice-*`), `ChatMedia.jsx`, `command-center.css` / `RecordingPlayer.jsx`
+
+## 2026-09-24 — App: guardar PTT en RESERVADO / Grabaciones
+
+- **Tipo:** feature
+- **Área:** mobile, web
+- **Qué:**
+  - Al soltar PTT en la **app**, se graba y sube a `/api/recordings` (igual que la consola web) → aparece en RESERVADO → Grabaciones → Radio.
+  - Notas de voz de chat (app/web) ya van por mensajes y se listan en «Chat (notas de voz)».
+  - Textos de UI: «app y consola web».
+- **Archivos / refs:** `mobile/lib/channel_session.dart`, `mobile/lib/api_client.dart`, `ReservedGrabaciones.jsx`, `ConfigRecordings.jsx`
+
+## 2026-09-24 — Grabaciones RESERVADO en dos columnas
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Radio (PTT) y Chat (notas de voz) lado a lado en dos columnas (apiladas en pantallas angostas).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — RESERVADO: auto-actualización sin botón
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Quitados botones «Actualizar» en Grabaciones y Conversaciones.
+  - Listas se refrescan solas cada ~12 s (y al volver a la pestaña / module-refresh); radio PTT sigue por socket + poll de respaldo.
+- **Archivos / refs:** `ReservedGrabaciones.jsx`, `ReservedChats.jsx`
+
+## 2026-09-24 — Grabaciones chat: admin puede oír notas de voz ajenas
+
+- **Tipo:** fix
+- **Área:** backend, web
+- **Qué:**
+  - `/api/media/:id` permite a **admin** de la misma org (auditoría RESERVADO) descargar media aunque no sea participante del chat.
+  - Mensaje de error genérico: «Sin permiso para ver el archivo» (antes decía «imagen» también en audios).
+- **Por qué / notas:** En Grabaciones aparecía «Sin permiso para ver la imagen» en notas de voz de chats ajenos.
+- **Archivos / refs:** `backend/src/routes/messages.js`, `frontend/src/api.js`
+
+## 2026-09-24 — RESERVADO: subtítulo «Confidencial»
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En el rail, la etiqueta bajo RESERVADO pasa de «Video, grabaciones y conversaciones» a **Confidencial**.
+- **Archivos / refs:** `DispatchLayout.jsx`
+
+## 2026-09-24 — RESERVADO solo rol Administrador (root)
+
+- **Tipo:** security | ux
+- **Área:** web
+- **Qué:**
+  - Módulo RESERVADO (`/despacho/video` y pestañas) visible y accesible **solo** con rol/perfil **Administrador** (`root`).
+  - Rail y menú móvil «Más» ocultan el ítem; ruta redirige a `/despacho` si no es root.
+- **Por qué / notas:** Contenido confidencial (video, grabaciones, conversaciones auditables).
+- **Archivos / refs:** `DispatchLayout.jsx`, `App.jsx`
+
+## 2026-09-24 — Fix 429 en RESERVADO (Grabaciones / Conversaciones)
+
+- **Tipo:** fix
+- **Área:** web, backend
+- **Qué:**
+  - Grabaciones de chat: de ~45 peticiones paralelas (escaneo por grupo/DM) a **una** consulta admin `GET /api/admin/chat-audio`.
+  - Rate-limit global: skip en GET de grabaciones PTT, listado admin de usuarios, grupos/DM auditables y chat-audio (evita 429 con `RATE_LIMIT_MAX` bajo).
+  - Conversaciones: sin recarga en bucle al terminar de cargar la lista de operadores.
+- **Por qué / notas:** Usuario veía «Demasiadas solicitudes» al abrir pestañas de RESERVADO.
+- **Archivos / refs:** `ReservedGrabaciones.jsx`, `ReservedChats.jsx`, `userEventsTimeline.js`, `admin.js`, `server.js`, `api.js`
+
+## 2026-09-24 — RESERVADO: icono escudo + candado
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Icono del módulo RESERVADO en el rail: de cámara de video a **escudo con candado** (privado / confidencial).
+- **Archivos / refs:** `DispatchLayout.jsx` (`ModIcon` case `video`)
+
+## 2026-09-24 — RESERVADO: nombre y conversaciones solo lectura
+
+- **Tipo:** ux
+- **Área:** web, backend
+- **Qué:**
+  - Módulo del rail renombrado a **RESERVADO** (sin «Confidencial»).
+  - Pestaña **Conversaciones**: selector de operador → hilos DM + grupos → modal solo lectura (auditoría); ya no integra ChatInbox.
+  - `/despacho/chats` vuelve a ser la mensajería operativa (ChatInbox); tab bar móvil apunta ahí.
+  - API admin `GET /api/admin/users/:userId/dm/conversations` para listar pares DM auditables.
+- **Por qué / notas:** Aclaración del usuario: «Chats» en Reservado = ver conversaciones, no chatear.
+- **Archivos / refs:** `ReservedLayout.jsx`, `ReservedChats.jsx`, `AuditConversationPeek.jsx`, `DispatchLayout.jsx`, `App.jsx`, `DispatchChatsPage.jsx`, `ConfigEvents.jsx`, `userEventsTimeline.js`, `admin.js`, `api.js`, `command-center.css`
+
+## 2026-09-24 — Módulo «Reservado o Confidencial» (Video + Grabaciones + Chats)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Rail renombrado de «Video» a **Reservado o Confidencial** (`/despacho/video` conservado).
+  - Tres pestañas reordenables (patrón Admin): **Video** (DispatchVideo intacto), **Grabaciones** (radio PTT + audios de chat), **Chats** (ChatInbox 1:1 y grupos).
+  - `/despacho/chats` redirige a `/despacho/video/chats`; ítem Chats retirado del rail (sigue en tab bar móvil).
+- **Por qué / notas:** Reestructuración solicitada; sin tocar mosaic / cámara remota / keepalive de Radio.
+- **Archivos / refs:** `ReservedLayout.jsx`, `ReservedGrabaciones.jsx`, `ReservedChats.jsx`, `DispatchLayout.jsx`, `App.jsx`, `DispatchChatsPage.jsx`, `command-center.css`
+
+## 2026-09-24 — Video: quitar panel Canales
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Retirada la columna «Canales» (Iniciar video / Sin transmisión) del módulo Video.
+  - «Operadores en línea» (Ver cámara / Videollamada) queda a ancho completo; subtítulo sin “Transmisiones de canal”.
+- **Por qué / notas:** Petición explícita; stack de cámara remota / mosaic / GroupVideoPanel intacto.
+- **Archivos / refs:** `DispatchVideo.jsx`, `command-center.css`
+
+## 2026-09-24 — Sticky toolbar + thead (Grupos / Usuarios)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Al hacer scroll en Administración, la barra (título + Buscar/Filtros/Columnas/Nuevo) y los encabezados de columna quedan fijos.
+  - Scroll en `.cc-catalogs-body`; `overflow: visible` en el wrap de tabla para que el thead pegue al viewport del body.
+- **Archivos / refs:** `command-center.css`, `useAdminStickyToolbarHeight.js`, `DispatchGroups.jsx`, `DispatchUsers.jsx`
+
+## 2026-09-24 — Pastillas Activo/Inactivo ancho más justado
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - `min-width` de pastillas Activo/Inactivo bajado de `6.25rem` a `5.25rem` (mismo ancho para ambos, centrado).
+- **Archivos / refs:** `command-center.css` (`.status-pill`, `.usr-status`, drawer-head `.status-pill`)
+
+## 2026-09-24 — Pastillas Activo/Inactivo mismo ancho
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - `min-width: 6.25rem` + centrado en pastillas Activo/Inactivo (tablas Grupos/Usuarios y drawer).
+- **Archivos / refs:** `command-center.css` (`.status-pill`, `.usr-status`, drawer-head `.status-pill`)
+
+## 2026-09-24 — Pastilla Inactivo en rojo (Grupos/Usuarios)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Pastilla «Inactivo» con texto, borde y fondo suave en `--cc-danger` (mismo patrón que Activo con `--cc-ok`).
+- **Archivos / refs:** `command-center.css` (`.status-pill.off`, `.usr-status.off`, `.cc-user-status.off`)
+
+## 2026-09-24 — Grupos/Usuarios: aire igual arriba y abajo de la toolbar
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Ritmo vertical unificado: `gap: 1rem` en `.cc-groups-page` y `.cc-users-page` (= `padding-top` de catálogos).
+  - Quitado `margin-bottom` de `.cc-groups-toolbar` que duplicaba el gap bajo Buscar/Filtros/Columnas/Nuevo.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Usuarios: mismo espacio toolbar→tabla que Grupos
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - `.cc-users-page` con `gap: 0.65rem` como `.cc-groups-page` (aire entre barra de búsqueda/botones y la tabla).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Usuarios: barra Buscar/Filtros/Columnas/Nuevo como Grupos
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Misma barra que Grupos: Buscar + Filtros + Columnas + «Nuevo usuario» (icono + / contorno neón); sin panel envolvente ni botón «Agregar» suelto en el título.
+- **Archivos / refs:** `DispatchUsers.jsx`, `command-center.css`
+
+## 2026-09-24 — Mapa: foto de grupo vs perfil si filtra varios grupos
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - En «Por grupo»: si el operador pertenece a exactamente 1 de los grupos filtrados → foto de ese grupo; si pertenece a 2+ de los filtrados → foto de perfil (evita el “último grupo”).
+- **Archivos / refs:** `mapAvatarIcon.js` (`resolveOperatorGroupForMarker`), `useMapAvatarPhotos.js`
+
+## 2026-09-24 — Grupos: contorno neón según tema (claro / verde / obscuro)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Contorno y luces de «Nuevo canal» con tokens por tema: azul (obscuro), oliva/verde (verde), verde oscuro (claro).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: difuminado por tramos en cada luz
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Cada luz del contorno = punta + medio + cola (degradado espacial); el difuminado temporal apaga primero la cola, luego el medio y después la punta.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: prueba difuminado en luces del borde
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Difuminado de las luces del contorno más lento (`3.6s`).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: dos luces opuestas en el contorno
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Dos destellos blancos enfrentados (encontrados) que recorren el borde de «Nuevo canal» en el mismo sentido.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: borde neón un poco más fino
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Contorno de «Nuevo canal» con stroke más delgado (base ~1.15, luz ~1.55).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: neón fuera del relleno del botón
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - SVG del contorno neón detrás del botón (wrapper); el relleno opaco tapa el centro — la luz solo se ve en el contorno exterior.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: contorno neón tipo referencia en Nuevo canal
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - «Nuevo canal» con borde neón azul (SVG stroke) y segmento brillante que recorre solo el contorno, como la imagen de referencia.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: luz solo en contorno exterior del botón
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - La luz de «Nuevo canal» queda detrás y un poco más grande que el botón; el relleno tapa el centro y solo se ve el puntito en el contorno exterior.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: luz puntual recorriendo el contorno
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Efecto de «Nuevo canal»: punto de luz pequeño (~15°) que rodea el borde; ya no un abanico/glow amplio.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: icono limpio y haz solo en contorno
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Icono de «Nuevo canal» = círculo con + (mismo estilo que Filtros/Columnas).
+  - Haz de luz sutil solo en el anillo del contorno (`mask-composite`), sin glow sobre el botón.
+- **Archivos / refs:** `ThFilterMulti.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: icono y haz de luz en Nuevo canal
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Botón «Nuevo canal» con icono de ondas de radio + «+».
+  - Haz de luz animado (conic-gradient giratorio + glow) alrededor del botón.
+- **Archivos / refs:** `DispatchGroups.jsx`, `ThFilterMulti.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: buscador ancho = 3 botones
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - El cuadro «Buscar…» tiene el mismo ancho que abarcan Filtros + Columnas + Nuevo canal (grid 1fr/1fr).
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: toolbar controles misma altura
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Buscar, Filtros, Columnas y Nuevo canal con altura fija común (`2.15rem`, +1pt) y contenido centrado en vertical.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: celdas centradas en vertical
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Contenido de filas de la tabla Grupos con `vertical-align: middle` (no pegado arriba); sin centrar texto en horizontal.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: buscador misma altura que botones
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Cuadro «Buscar…» con la misma altura/padding que Filtros, Columnas y Nuevo canal.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: Filtros/Columnas mismo tamaño que Nuevo canal
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Botones Filtros y Columnas en la barra de Grupos con el mismo padding/altura tipográfica que «Nuevo canal» (`cc-btn-sm`).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: título mismo tamaño/estilo que Usuarios
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - «Grupos y canales» alineado a Usuarios: `1.35rem`, peso 700 y `text-transform: uppercase`.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Usuarios: quitar subtítulo de alcance
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Eliminado el texto bajo el título («Designa Admin de región…» / variantes por rol).
+- **Archivos / refs:** `DispatchUsers.jsx`
+
+## 2026-09-24 — Grupos: encabezados de tabla como Usuarios
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Tabla de Grupos usa `usr-table-wrap` / `usr-users-table` y los mismos estilos de `th` que Usuarios.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: buscador/Filtros/Columnas junto a Nuevo canal
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Buscador, Filtros y Columnas en la misma fila del título, a la izquierda de «Nuevo canal» (sin panel envolvente).
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-24 — Grupos: buscador/Filtros/Columnas a la derecha sin panel
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Buscador + Filtros + Columnas juntos alineados a la derecha; sin caja/panel envolvente.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: cerrar lightbox con clic en la foto
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Clic en la imagen (o el marco) del visor ampliado también cierra el lightbox (`zoom-out`), igual que clic fuera.
+- **Archivos / refs:** `DispatchGroups.jsx`
+
+## 2026-09-24 — Grupos: buscador + Filtros/Columnas juntos
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Barra de búsqueda con Filtros y Columnas juntos (mismo panel que Usuarios); sin empujar los botones al extremo derecho.
+  - Se mantiene el ancho del cuadro de búsqueda (`min(16rem, 42vw)`).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: lightbox de foto semitransparente
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Fondo del visor de foto del canal: negro semitransparente (se ve el UI detrás); sin blur opaco.
+  - Cursor lupa: `zoom-in` en el avatar del drawer, `zoom-out` en el overlay / imagen.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: Filtros / Columnas + persistencia
+
+- **Tipo:** mejora | ux
+- **Área:** web
+- **Qué:**
+  - En Grupos: botones Filtros y Columnas (patrón Usuarios / Parque Vehicular), filtros por encabezado (`ThFilterMulti`) y persistencia de columnas en `localStorage`.
+  - Acciones siempre fija (no ocultable); «Nuevo canal» en la fila del título.
+- **Por qué / notas:** Alinear catálogo de canales con Usuarios.
+- **Archivos / refs:** `DispatchGroups.jsx`, `ThFilterMulti.jsx`, `command-center.css`; key `tacticalptx.groups.colConfig.v1`
+
+## 2026-09-24 — Usuarios: quitar botón Actualizar
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Eliminado el botón «Actualizar» del encabezado; alta/edición/baja ya refrescan la lista con `reload({ silent: true })`.
+- **Archivos / refs:** `DispatchUsers.jsx`
+
+## 2026-09-24 — Usuarios: pastilla Activo como en Grupos
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - `.usr-status` (tabla Usuarios) alineado al `status-pill` de Grupos: borde + fondo suave + texto con `--cc-ok` / muted.
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-24 — Grupos: vista ampliada de foto del canal
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Clic en la foto del drawer abre lightbox elegante (blur, marco redondeado, nombre y alcance).
+  - Cerrar con ×, Esc o clic fuera; sin foto no es clicable.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Obscuro: tonos Editar/Eliminar en Usuarios y Grupos
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Tema obscuro: botones Editar (azul navy) y Eliminar (rojo apagado) con los tonos de la referencia, en tablas Usuarios (`.usr-actions`) y Grupos (`.cc-gt-act-btns`).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-23 — Grupos: «Cambiar foto» un poco más abajo del avatar
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Más aire entre avatar y «Cambiar foto» sin crecer el header (gap + padding/avatar compensados).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-23 — Grupos: alinear bolita Activo/Inactivo en cabecera
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Bolita y texto centrados en la pill (dot explícito + `align-items: center` / `line-height: 1`).
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Grupos: Activo/Inactivo verde·rojo en cabecera del drawer
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - El drawer (portal a `body`) no heredaba `--cc-ok`; Activo salía en color de texto.
+  - Tokens `--cc-ok` en el drawer + pill con bolita y texto/fondo verde (Activo) o rojo (Inactivo).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-23 — Grupos: panel lateral sin backdrop (clic en otro canal)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Quitado el bloqueo/overlay negro del drawer de edición; la tabla queda usable con el panel abierto.
+  - Un clic en otro canal cambia el contenido del panel; cerrar con × o Escape.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Grupos: quitar Eliminar del footer del drawer
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Quitado el botón **Eliminar** del footer del drawer de edición (`cc-groups-drawer-foot`).
+  - Se mantienen Vaciar chat / Desactivar / Reactivar; **Eliminar** solo en la tabla (`.cc-gt-col-act`).
+- **Archivos / refs:** `DispatchGroups.jsx`
+
+## 2026-09-23 — Grupos: ESTADO y Acciones sin solape
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Columna Acciones ampliada (14%→23%, `min-width: 13.5rem`); desc/alcance reducidos; total 100%.
+  - Quitado `display:flex` del `<td>` (rompía celdas); botones en `.cc-gt-act-btns` (inline-flex).
+  - Pill Activo solo en Estado; Editar/Eliminar solo en Acciones, sin solape.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Grupos: Acciones Editar/Eliminar alineados
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Orden en columna Acciones: **Editar** izquierda, **Eliminar** derecha (solo `root`).
+  - Mismo ancho/alto via flex + `min-width`/`height` en `.cc-gt-col-act .cc-btn`.
+  - Colores con tokens de tema (`--cc-danger`, `--cc-border`, `--cc-text`) para claro/verde/obscuro.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Grupos: Eliminar en columna Acciones
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - En la tabla de Grupos, botón **Eliminar** a la izquierda de **Editar** (solo `root`, mismo `hardDeleteGroup` + confirmación del drawer).
+  - Columna `.cc-gt-col-act` ampliada ligeramente para caber ambos botones.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Grupos: contraer sección Miembros en drawer
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - En el drawer de edición de Grupos, la sección Miembros se puede contraer/expandir (chevron + Contraer/Expandir; `aria-expanded`).
+  - Al contraer se ocultan formulario de alta y tabla; queda visible «MIEMBROS (N)». Abierto por defecto; estado en memoria de sesión.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Grupos: Activo/Inactivo en cabecera del drawer
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - En el header del drawer de edición, el `status-pill` muestra bolita + texto verde (`--cc-ok`) si Activo, o rojo (`--cc-danger`) si Inactivo.
+  - Estilos acotados a `.cc-groups-drawer-head` (tabla sin cambio).
+- **Archivos / refs:** `command-center.css`
+
+## 2026-09-23 — Corrección: tipografía título Grupos (= Canales de radio)
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - «Grupos y canales» solo toma `font-family: var(--cc-font)` como el h2 «Canales de radio» (`.cc-units-head h2`).
+  - Revertidos color acento, mayúsculas, letter-spacing y el tamaño 1.15rem del estilo ADMINISTRACIÓN; tamaño normal `1.05rem`, color `var(--cc-text)`.
+  - Quitado `.cc-groups-toolbar-start h1` del bloque institucional de títulos ADMIN.
+- **Por qué / notas:** el cambio previo aplicó por error el look de ADMINISTRACIÓN; el pedido era solo la cara tipográfica de Configuración → Canales.
+- **Archivos / refs:** `command-center.css`, `institutional.css`
+
+## 2026-09-23 — Fix: tip recortado del logo SICOM (login obscuro)
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - `tactical_login_obscuro.png` ampliado a 1003×396 con padding transparente; reconstruido el chaflán metálico/azul superior-derecho (antes cortado en x=970).
+  - Script reproducible `infra/_fix_login_obscuro_corner.py`; `sicom.png` paddeado a la misma caja; `aspect-ratio` 1003/396; cache `?v=9` / `sicom?v=5`.
+- **Por qué / notas:** el recorte venía del arte RGB fuente, no del flood-fill de transparencia.
+- **Archivos / refs:** `tactical_login_obscuro.png`, `sicom.png`, `_fix_login_obscuro_corner.py`, `App.jsx`, `institutional.css`, `styles.css`
+
+## 2026-09-23 — Grupos: rol de miembro editable en drawer
+
+- **Tipo:** feature
+- **Área:** web | backend
+- **Qué:**
+  - En el panel Editar de Grupos, la columna de rol deja de ser texto fijo: `<select>` (Miembro / Líder / Solo escucha) si `canManage`.
+  - Nuevo `PATCH /api/admin/groups/:id/members/:userId` (mismo alcance que alta/baja) + helper `patchGroupMember`.
+- **Archivos / refs:** `admin.js`, `api.js`, `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Grupos: «Cambiar foto» en cabecera del drawer
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Control de foto del canal movido de Identidad a la cabecera del panel (bajo el avatar): «Cambiar foto» / «Quitar».
+  - Quitado el enlace «Foto» del encabezado de Identidad (redundante).
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Grupos: paginación del listado (usr-pager)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Listado de canales en Administración → Grupos con paginación cliente (mismo patrón que Usuarios: `usr-pager`, 15 por página).
+  - Al cambiar la búsqueda se vuelve a la página 1.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchGroups.jsx`
+
+## 2026-09-23 — Fix: Grupos drawer transparente + inputs + UTF-8
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Panel lateral «Editar» (portal a `body`) con fondo opaco y tokens CC por tema (incl. obscuro).
+  - Inputs/selects del modal «Nuevo canal» y del drawer con borde, fondo contrastado y texto legible.
+  - Reparados caracteres españoles corruptos (mojibake) en `DispatchGroups.jsx` (—, →, ×, …, etc.); sin BOM.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Fix: login en blanco (BOM en DispatchGroups.jsx)
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Carácter BOM/corrupto al inicio de `DispatchGroups.jsx` rompía el bundle Vite → pantalla blanca en `/login`.
+  - Archivo reparado; `npm run build` OK.
+- **Archivos / refs:** `DispatchGroups.jsx`
+
+## 2026-09-23 — Grupos: tabla densa + panel lateral (v2)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Listado tipo catálogo (tabla a ancho completo, búsqueda, sin panel vacío).
+  - Edición en panel lateral deslizante (identidad, alcance, miembros, acciones).
+  - Alta en modal; miembros en tabla compacta con fila de asignación inline.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Grupos: descripción visible bajo el nombre
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - La descripción del canal se muestra en la tarjeta del listado, justo debajo del nombre (alta sin cambios).
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Login obscuro: restaurar arte original + transparencia (v8)
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Se descartó el recolor sobre `sicom.png` (artefactos, texto duplicado, colores falsos).
+  - Restaurado el PNG azul original del repo (971×390) con fondo negro → transparente por flood-fill (`threshold=8`, ~22.8% alpha ≈ `sicom.png`).
+  - Script correcto: `infra/_make_login_obscuro_transparent.py`; cache `?v=8`.
+- **Archivos / refs:** `tactical_login_obscuro.png`, `_make_login_obscuro_transparent.py`, `App.jsx`
+
+## 2026-09-23 — Login obscuro: colores exactos del PNG/JPG de referencia (v7)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Recolor desde la imagen de referencia del usuario (cian eléctrico, plata/cromo, azul marino): muestreo directo + curvas por luminancia; misma transparencia de `sicom.png`.
+  - Ref guardada en `infra/_ref_login_obscuro_target.png`; cache `?v=7`.
+- **Archivos / refs:** `infra/_recolor_login_obscuro.py`, `tactical_login_obscuro.png`, `App.jsx`
+
+## 2026-09-23 — Login obscuro: más plata/blanco en logo (v6)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Segundo pase de recolor: highlights más plateados/blancos sin quemar; respaldo v5 en `_tactical_login_obscuro_v5_backup.png`.
+  - Cache bust `?v=6`.
+- **Archivos / refs:** `infra/_recolor_login_obscuro.py`, `tactical_login_obscuro.png`, `App.jsx`
+
+## 2026-09-23 — Grupos: tarjeta de canal más clara (UX)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Tarjeta de grupo reorganizada: identidad + acciones en fila superior; foto del canal bajo el avatar (Cambiar / Quitar); alcance y miembros en secciones separadas con encabezados.
+  - Botón «Miembros» pasa a «Ocultar» al expandir.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Login obscuro: paleta alineada al logo de referencia
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Recolor de `tactical_login_obscuro.png` con curvas extraídas del PNG obscuro anterior (azul marino, plateado, hielo); misma composición/transparencia de `sicom.png`.
+  - Cache bust `?v=5`.
+- **Archivos / refs:** `infra/_recolor_login_obscuro.py`, `infra/_ref_login_obscuro_old.png`, `tactical_login_obscuro.png`, `App.jsx`
+
+## 2026-09-23 — Grupos: ocultar ID técnico de sala LiveKit
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - En el catálogo de Grupos ya no se muestra `livekit_room` (`grp_…`); solo nombre, estado, miembros y alcance.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Login obscuro: logo azul con fondo transparente
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - `tactical_login_obscuro.png` se regeneró desde `sicom.png` (971×390) con paleta azul/blanco/plateado; misma composición y transparencia que el logo verde (sin cuadro negro).
+  - Cache bust `?v=4` en login tema Obscuro.
+- **Archivos / refs:** `infra/_recolor_login_obscuro.py`, `frontend/public/brand/tactical_login_obscuro.png`, `App.jsx`
+
+## 2026-09-23 — Administrador (root) exento de bloqueo por intentos
+
+- **Tipo:** security | fix
+- **Área:** backend
+- **Qué:**
+  - Perfil **Administrador** (`role=root`) ya no se bloquea por intentos fallidos de login (temporal). Si estaba bloqueado, se libera al intentar entrar.
+- **Archivos / refs:** `intrusion.js` (`isLoginLockExempt`), `auth.js`
+
+## 2026-09-23 — Login obscuro: ENTRAR sin verde oliva al hover
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - En tema Obscuro, `.btn.primary` / ENTRAR usan azul del tema también en hover/active (antes el hover volvía al verde institucional).
+- **Archivos / refs:** `institutional.css`, `theme-contrast.css`
+
+## 2026-09-23 — UX: editar alcance de grupo más claro y compacto
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - En Grupos, el panel muestra **Alcance actual** (lo guardado) y solo al pulsar «Cambiar» abre selects compactos; si está incompleto, avisa y abre la edición.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-23 — Perfiles asignados en lote + editar alcance de grupos
+
+- **Tipo:** fix | feature
+- **Área:** backend | web | ops
+- **Qué:**
+  - Asignados 25 `profile_id` vacíos (alcance ya completo) vía `_assign_missing_profiles.js` (p. ej. mperezh3 → Administrador de zona).
+  - Grupos: se puede **editar el alcance** (región/zona/unidad) después de creado; PATCH admin acepta `unitId` + `scopeLevel`.
+- **Archivos / refs:** `_assign_missing_profiles.js`, `admin.js`, `DispatchGroups.jsx`
+
+## 2026-09-23 — Alcance 4 ajustes: solo perfil vacío u org faltante
+
+- **Tipo:** docs
+- **Área:** docs
+- **Qué:**
+  - Word regenerado: lista solo pendientes reales (perfil vacío con alcance OK; región/zona/unidad faltante; canales sin ancla). Sin el texto confuso de «pertenencia vacía» en admin de zona.
+- **Archivos / refs:** `Desktop\Alcance 4 — ajustes manuales.docx`, `_alcance4_manual_dump.js`, `_gen_alcance4_manuales.py`
+
+## 2026-09-23 — Alcance 4 ajustes manuales: más claro (cómo está vs debe)
+
+- **Tipo:** docs
+- **Área:** docs
+- **Qué:**
+  - Reescrito el Word de ajustes manuales: explica que Rol/Adscripción ≠ Perfil; tablas «CÓMO ESTÁ» / «CÓMO DEBE»; datos vivos (25 sin perfil, 2 canales sin ancla, región OK).
+- **Archivos / refs:** `Desktop\Alcance 4 — ajustes manuales.docx`, `_gen_alcance4_manuales.py`, `_alcance4_manual_dump.js`
+
+## 2026-09-23 — Pestañas: recordar la última al F5 / cambiar de módulo
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Admin, Configuración y Catálogos vuelven a la última pestaña (no siempre la primera) al F5 o al reentrar desde el rail.
+  - Chats: recuerda filtro Contactos/Grupos/No leídos/Favoritos; tablet Command Center recuerda Mapa/Actividad.
+  - Mapa ops y panel de canales ya persistían; sin cambios ahí.
+- **Archivos / refs:** `rememberModuleTab.js`, `AdminLayout.jsx`, `ConfigLayout.jsx`, `CatalogsLayout.jsx`, `DispatchLayout.jsx`, `ChatInbox.jsx`, `inboxTabOrder.js`, `CommandCenter.jsx`
+
+## 2026-09-23 — Alcance 4 ajustes manuales como Word (.docx)
+
+- **Tipo:** docs | fix
+- **Área:** docs
+- **Qué:**
+  - El listado «Alcance 4 — ajustes manuales» estaba en Markdown (`.md`); Word no lo abría bien.
+  - Ahora hay `.docx` en Escritorio y `pulsanet_soporte\Documentos`; generador `infra/_gen_alcance4_manuales.py`; el audit JS también dispara el Word.
+- **Archivos / refs:** `Desktop\Alcance 4 — ajustes manuales.docx`, `_gen_alcance4_manuales.py`, `_alcance3_manual_audit.js`
+
+## 2026-09-23 — Fix: apagar amarillo ya no esconde el verde en el mapa
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Al desactivar «Ausente (amarillo)» el filtro ESTADO remapea `away` → `online` (y `offline` → `stale` si se apaga el gris), en lugar de borrar el estado y dejar pines verdes fuera del mapa.
+- **Archivos / refs:** `presenceStatus.js` (`reconcilePresenceFilterIds`), `DispatchMap.jsx`
+
+## 2026-09-23 — Implementación Alcance 3 + documento Alcance 4
+
+- **Tipo:** feature | fix | docs
+- **Área:** backend | web | docs
+- **Qué:**
+  - Sin ocultar ubicación (API/UI); mapa solo por jerarquía.
+  - Alta region_*: pertenencia solo región; track de region_user acotado a su región; matriz mapa ve zona/unidad.
+  - Textos grupos admin región (misma lógica de niveles). Documentos: `Alcance 4.docx` + listado ajustes manuales.
+- **Archivos / refs:** `visibility.js`, `orgUnits.js`, `DispatchUsers.jsx`, `Desktop\Alcance 4.docx`
+
+## 2026-09-23 — Documento Alcance 3 (Reglas de pertenencia y canales)
+
+- **Tipo:** docs
+- **Área:** docs
+- **Qué:**
+  - Nuevo `Alcance 3.docx`: sin ocultar ubicación; Punto 1 (alta admin región = solo región) y Punto 2 (canales región = misma lógica que zona) integrados; nombre oficial propuesto «Reglas de pertenencia y canales».
+- **Archivos / refs:** `Desktop\Alcance 3.docx`, `pulsanet_soporte\Documentos\Alcance 3.docx`
+
+## 2026-09-23 — Documento Alcance 2 (guía roles vs sistema)
+
+- **Tipo:** docs
+- **Área:** docs
+- **Qué:**
+  - Nuevo `Alcance 2.docx` en Escritorio y `pulsanet_soporte\Documentos`: versión clara del Alcance original, con verde/rojo según cumplimiento del código.
+- **Archivos / refs:** `Desktop\Alcance 2.docx`, `pulsanet_soporte\Documentos\Alcance 2.docx`
+
+## 2026-09-23 — Usuarios: editar alcance de admins + perfil en el alta
+
+- **Tipo:** feature | fix
+- **Área:** backend | web
+- **Qué:**
+  - Editar a otro admin (región/zona/unidad) ya permite corregir **perfil y alcance** (antes solo datos básicos). Uno mismo sigue en solo identidad.
+  - Alta/edición asigna `profile_id` (selector Perfil de acceso); el rol ACL se deriva del perfil. Sin perfil explícito se usa el de sistema del rol.
+- **Pendiente (recordar):** visibilidad `can_see_*` decorativa en el alta; `region_user` GPS orgWide vs cascada UI; radio de `region_user` solo por membresía.
+- **Archivos / refs:** `DispatchUsers.jsx`, `admin.js`, `profiles.js`
+
+## 2026-09-23 — region_admin solo asigna roles hacia abajo
+
+- **Tipo:** fix | security
+- **Área:** backend | web
+- **Qué:**
+  - `region_admin` ya no puede crear/asignar otro `region_admin` (ni `root`); solo `region_user`, zona y unidad.
+  - Misma regla en UI (selector de rol) y backend (`canAssignRole`).
+- **Por qué / notas:** Escalera consistente con zone_admin (no designa pares).
+- **Archivos / refs:** `roles.js`, `DispatchUsers.jsx`, `_test_visibility.js`
+
+## 2026-09-23 — Admin: pestañas usables en móvil
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Pestañas Administración/Catálogos/Config: scroll horizontal táctil en pantallas estrechas.
+  - Menú **Más** (teléfono): accesos directos a Usuarios, Perfiles, Avisos, Grupos y Sitios.
+- **Archivos / refs:** `command-center.css`, `DispatchLayout.jsx`, `institutional.css`
+
+## 2026-09-23 — Avisos: usuarios específicos y canales/grupos
+
+- **Tipo:** feature
+- **Área:** backend | web | database
+- **Qué:**
+  - Destinatarios nuevos: **Usuario(s) específico(s)** y **Canal(es) / grupo(s)** (con búsqueda), además de subordinados/zona/unidad/admins.
+  - Migración `038_announcement_users_groups.sql` (`target_ids` + audience `users`/`groups`).
+- **Archivos / refs:** `announcements.js`, `DispatchAnnouncements.jsx`, `038_*.sql`
+
 ## 2026-09-22 — Fix duro: vibración aviso no para tras Enterado
 
 - **Tipo:** fix

@@ -56,6 +56,31 @@ export function saveInboxTabOrder(userId, order) {
   }
 }
 
+export function inboxActiveTabStorageKey(userId) {
+  return `tacticalptx_chat_active_tab_${userId || 'anon'}`;
+}
+
+export function loadInboxActiveTab(userId) {
+  try {
+    const v = localStorage.getItem(inboxActiveTabStorageKey(userId));
+    const mapped = LEGACY_MAP[String(v || '')] || null;
+    if (mapped && INBOX_TAB_IDS.includes(mapped)) return mapped;
+  } catch {
+    /* ignore */
+  }
+  return 'contacts';
+}
+
+export function saveInboxActiveTab(userId, tabId) {
+  const mapped = LEGACY_MAP[String(tabId || '')] || null;
+  if (!mapped || !INBOX_TAB_IDS.includes(mapped)) return;
+  try {
+    localStorage.setItem(inboxActiveTabStorageKey(userId), mapped);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function moveInboxTab(order, fromId, toId) {
   const next = normalizeInboxTabOrder(order);
   const from = next.indexOf(fromId);

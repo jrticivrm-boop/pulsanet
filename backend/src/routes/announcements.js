@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { isDispatch } from '../services/roles.js';
 import {
   canPublishAnnouncements,
+  canViewAnnouncements,
   createAnnouncement,
   listAnnouncements,
   listPendingAnnouncements,
@@ -29,14 +30,13 @@ export function createAnnouncementsRouter(io) {
     }
   });
 
-  /** Listado / envío: solo consola con permiso. */
+  /** Listado: consola con permiso ver. */
   router.get('/', async (req, res) => {
     if (!isDispatch(req.user.role)) {
       return res.status(403).json({ ok: false, error: 'Sin permiso' });
     }
-    const allowed = await canPublishAnnouncements(req.user);
-    if (!allowed) {
-      return res.status(403).json({ ok: false, error: 'Sin permiso para avisos' });
+    if (!canViewAnnouncements(req.user)) {
+      return res.status(403).json({ ok: false, error: 'Sin permiso para ver avisos' });
     }
     const announcements = await listAnnouncements(req.user.orgId);
     res.json({ ok: true, announcements });
@@ -46,6 +46,10 @@ export function createAnnouncementsRouter(io) {
     if (!isDispatch(req.user.role)) {
       return res.status(403).json({ ok: false, error: 'Sin permiso' });
     }
+    const allowed = await canPublishAnnouncements(req.user);
+    if (!allowed) {
+      return res.status(403).json({ ok: false, error: 'Sin permiso para enviar avisos' });
+    }
     try {
       const result = await createAnnouncement({
         orgId: req.user.orgId,
@@ -53,6 +57,7 @@ export function createAnnouncementsRouter(io) {
         body: req.body?.body,
         audience: req.body?.audience,
         scopeUnitIds: req.body?.scopeUnitIds,
+        targetIds: req.body?.targetIds,
         includeAdmins: req.body?.includeAdmins,
         io,
       });
