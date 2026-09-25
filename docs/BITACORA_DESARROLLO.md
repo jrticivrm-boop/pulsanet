@@ -1,3 +1,55 @@
+## 2026-09-25 — Grupos: modal Agregar canal más compacto
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Modal desde árbol más chico: contexto en una línea; integrantes con select + chips (sin lista grande).
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-25 — Grupos: alta corta desde árbol (sin selector de alcance)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Desde «+ Agregar canal» en carpeta: modal corto (contexto fijo + nombre + descripción + integrantes opcionales).
+  - El alcance se toma de la carpeta; no se muestran Región/Zona/Unidad.
+  - «Nuevo canal» del toolbar conserva el formulario completo con Alcance.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-25 — Grupos: árbol cerrado + Agregar canal por nivel
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Árbol cerrado al cargar; nodos Región/C.G./Zona/Organismo visibles aunque no tengan canales.
+  - Botón «+ Agregar canal» en cada carpeta (precarga alcance y abre el alta).
+  - Presentación de filas carpeta (badge, contador, botón a la derecha).
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-25 — Grupos: zonas/unidades por número (7/a, 8/a… / 8/o, 16/o…)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Orden natural militar: zonas 7/a → 8/a → 12/a…; dentro, unidades 8/o → 16/o → 19/o… (C.G. sigue primero).
+- **Archivos / refs:** `DispatchGroups.jsx`
+
+## 2026-09-25 — Grupos: orden del árbol Región → C.G. → Zonas
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Bajo cada región: canales de región, luego C.G., luego Zonas (Z.M.), y dentro organismos/canales (`sort_order` + nombre).
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-25 — Grupos: vista en árbol Región → Zona → Organismo
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Listado de Grupos/canales en árbol (Región → Zona → Organismo) con los canales ya creados; carpeta expandible.
+  - Columnas por defecto: Alcance · Canal · Descripción · Miembros · Estado (`colConfig` v2).
+  - Permisos/API sin cambio (sigue filtrando por tipo de admin).
+  - Respaldo previo: `pulsanet_soporte\Respaldos\grupos_arbol_20260925_111754\` (+ `RESTORE.txt`).
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
 ## 2026-09-25 — FORMATO_CAMBIOS_25_09_2026 (Word)
 
 - **Tipo:** docs

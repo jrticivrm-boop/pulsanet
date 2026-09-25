@@ -36,25 +36,11 @@ const MEMBER_ROLES = [
   { value: 'listen_only', label: 'Solo escucha' },
 ];
 
-/** Mismo tamaño de página que Usuarios (`USERS_PAGE_SIZE`). */
-const GROUPS_PAGE_SIZE = 15;
-
-function groupsPagerPages(current, totalPages) {
-  const pags = Math.max(1, totalPages);
-  const cur = Math.max(1, Math.min(current, pags));
-  let start = Math.max(1, cur - 2);
-  let end = Math.min(pags, start + 4);
-  if (end - start < 4) start = Math.max(1, end - 4);
-  const pages = [];
-  for (let i = start; i <= end; i += 1) pages.push(i);
-  return pages;
-}
-
-/** Columnas ocultables/reordenables. Clic en fila abre el panel (sin columna Acciones). */
+/** Columnas ocultables/reordenables. Orden por defecto: Alcance → Canal → … */
 const GROUP_TABLE_COLS = [
+  { key: 'scope', label: 'Alcance' },
   { key: 'canal', label: 'Canal' },
   { key: 'desc', label: 'Descripción' },
-  { key: 'scope', label: 'Alcance' },
   { key: 'members', label: 'Miembros' },
   { key: 'status', label: 'Estado' },
 ];
@@ -67,7 +53,8 @@ const GROUP_COL_CLASS = {
   status: 'cc-gt-col-state',
 };
 
-const GROUPS_COL_CONFIG_STORAGE_KEY = 'tacticalptx.groups.colConfig.v1';
+/** v2: orden Alcance primero + vista árbol. */
+const GROUPS_COL_CONFIG_STORAGE_KEY = 'tacticalptx.groups.colConfig.v2';
 
 function defaultGroupColConfig() {
   return GROUP_TABLE_COLS.map((c) => ({ ...c, visible: true }));
@@ -332,6 +319,239 @@ function buildScopeFilterTree(orgTree, filterValues) {
   }
 
   return { tree: sortKids(tree), nameByValue };
+}
+
+/**
+ * Filas de tabla en árbol: Región → C.G. → Zonas → Organismos → canales.
+ * Incluye nodos del orgTree aunque no tengan canales (para «Agregar canal»).
+ * @returns {{ type: 'folder'|'channel', id: string, depth: number, label?: string, kind?: string, channelCount?: number, group?: object, regionId?: string, zoneId?: string, unitId?: string }[]}
+ */
+function orgNodeSortKey(node) {
+  const so = Number(node?.sortOrder ?? node?.sort_order ?? 0) || 0;
+  const name = String(node?.name || '');
+  return { so, name };
+}
+
+/**
+ * Extrae el número de orden militar al inicio del nombre:
+ * «7/a. Z.M.», «8/a. Zona», «12/a. Zona», «16/o. R.C.», «200/a. Cia.» → 7, 8, 12, 16, 200.
+ */
+function militaryOrdinal(name) {
+  const s = String(name || '').trim();
+  const m = s.match(/^(\d+)\s*\/\s*[ao]\.?/i);
+  if (m) return Number(m[1]);
+  const m2 = s.match(/^(\d+)\b/);
+  if (m2) return Number(m2[1]);
+  return null;
+}
+
+/** Prioridad de zona bajo una región: C.G. primero, luego Z.M., apoyo, resto. */
+function zoneTypeRank(zone) {
+  const t = String(zone?.zoneType || zone?.zone_type || '').toLowerCase();
+  if (t === 'cg') return 0;
+  const n = String(zone?.name || '');
+  if (/\bc\.?\s*g\.?\b/i.test(n) || /^cg\b/i.test(n.trim())) return 0;
+  if (t === 'zm') return 1;
+  if (t === 'support') return 2;
+  return 3;
+}
+
+function compareOrgSiblings(a, b) {
+  const ra = zoneTypeRank(a);
+  const rb = zoneTypeRank(b);
+  if (ra !== rb) return ra - rb;
+
+  const oa = militaryOrdinal(a?.name);
+  const ob = militaryOrdinal(b?.name);
+  if (oa != null && ob != null && oa !== ob) return oa - ob;
+  if (oa != null && ob == null) return -1;
+  if (oa == null && ob != null) return 1;
+
+  const ka = orgNodeSortKey(a);
+  const kb = orgNodeSortKey(b);
+  if (ka.so !== kb.so) return ka.so - kb.so;
+  return ka.name.localeCompare(kb.name, 'es', { sensitivity: 'base', numeric: true });
+}
+
+function buildGroupsTreeRows(orgTree, groups) {
+  const list = Array.isArray(groups) ? groups : [];
+  const byAnchor = new Map();
+  const unanchored = [];
+
+  for (const g of list) {
+    const aid = g.unitId || g.unit_id || null;
+    if (!aid) {
+      unanchored.push(g);
+      continue;
+    }
+    if (!byAnchor.has(aid)) byAnchor.set(aid, []);
+    byAnchor.get(aid).push(g);
+  }
+
+  const sortGroups = (arr) =>
+    [...arr].sort((a, b) =>
+      String(a.name || '').localeCompare(String(b.name || ''), 'es', {
+        sensitivity: 'base',
+        numeric: true,
+      })
+    );
+
+  const rows = [];
+  const seenAnchors = new Set();
+
+  function take(anchorId) {
+    const got = byAnchor.get(anchorId) || [];
+    if (got.length) seenAnchors.add(anchorId);
+    return sortGroups(got);
+  }
+
+  function peek(anchorId) {
+    return byAnchor.get(anchorId)?.length || 0;
+  }
+
+  function peekUnit(unit) {
+    return peek(unit.id);
+  }
+
+  function peekZone(zone) {
+    let n = peek(zone.id);
+    for (const unit of zone.children || []) n += peekUnit(unit);
+    return n;
+  }
+
+  function peekRegion(region) {
+    let n = peek(region.id);
+    for (const zone of region.children || []) n += peekZone(zone);
+    return n;
+  }
+
+  const regions = [...(orgTree || [])].sort(compareOrgSiblings);
+
+  for (const region of regions) {
+    const rTotal = peekRegion(region);
+    const rOwn = peek(region.id);
+
+    rows.push({
+      type: 'folder',
+      id: `folder-region-${region.id}`,
+      depth: 0,
+      label: region.name || 'Región',
+      kind: 'region',
+      channelCount: rTotal,
+      ownChannelCount: rOwn,
+      nodeId: region.id,
+      regionId: region.id,
+      zoneId: '',
+      unitId: '',
+    });
+
+    for (const g of take(region.id)) {
+      rows.push({ type: 'channel', id: `ch-${g.id}`, depth: 1, group: g });
+    }
+
+    const zones = [...(region.children || [])].sort(compareOrgSiblings);
+
+    for (const zone of zones) {
+      const zTotal = peekZone(zone);
+      const zOwn = peek(zone.id);
+      const isCg = zoneTypeRank(zone) === 0;
+
+      rows.push({
+        type: 'folder',
+        id: `folder-zone-${zone.id}`,
+        depth: 1,
+        label: zone.name || (isCg ? 'C.G.' : 'Zona'),
+        kind: isCg ? 'cg' : 'zone',
+        channelCount: zTotal,
+        ownChannelCount: zOwn,
+        nodeId: zone.id,
+        regionId: region.id,
+        zoneId: zone.id,
+        unitId: '',
+      });
+
+      for (const g of take(zone.id)) {
+        rows.push({ type: 'channel', id: `ch-${g.id}`, depth: 2, group: g });
+      }
+
+      const units = [...(zone.children || [])].sort(compareOrgSiblings);
+      for (const unit of units) {
+        const uGroups = take(unit.id);
+
+        rows.push({
+          type: 'folder',
+          id: `folder-unit-${unit.id}`,
+          depth: 2,
+          label: unit.name || 'Organismo',
+          kind: 'unit',
+          channelCount: uGroups.length,
+          ownChannelCount: uGroups.length,
+          nodeId: unit.id,
+          regionId: region.id,
+          zoneId: zone.id,
+          unitId: unit.id,
+        });
+
+        for (const g of uGroups) {
+          rows.push({ type: 'channel', id: `ch-${g.id}`, depth: 3, group: g });
+        }
+      }
+    }
+  }
+
+  for (const [aid, arr] of byAnchor) {
+    if (seenAnchors.has(aid) || !arr.length) continue;
+    unanchored.push(...arr);
+  }
+
+  if (unanchored.length) {
+    const sorted = sortGroups(unanchored);
+    rows.push({
+      type: 'folder',
+      id: 'folder-otros',
+      depth: 0,
+      label: 'Sin ubicación en el árbol',
+      kind: 'other',
+      channelCount: sorted.length,
+      ownChannelCount: sorted.length,
+      nodeId: '__otros__',
+      regionId: '',
+      zoneId: '',
+      unitId: '',
+    });
+    for (const g of sorted) {
+      rows.push({ type: 'channel', id: `ch-${g.id}`, depth: 1, group: g });
+    }
+  }
+
+  if ((!orgTree || !orgTree.length) && list.length && !rows.length) {
+    for (const g of sortGroups(list)) {
+      rows.push({ type: 'channel', id: `ch-${g.id}`, depth: 0, group: g });
+    }
+  }
+
+  return rows;
+}
+
+/**
+ * Árbol cerrado por defecto: solo se muestran carpetas raíz y
+ * descendientes bajo carpetas en `expanded` (Set de folder ids).
+ */
+function filterExpandedTreeRows(rows, expanded) {
+  const exp = expanded || new Set();
+  const out = [];
+  let skipUntilDepth = null;
+  for (const row of rows) {
+    if (skipUntilDepth != null) {
+      if (row.depth > skipUntilDepth) continue;
+      skipUntilDepth = null;
+    }
+    out.push(row);
+    if (row.type === 'folder' && !exp.has(row.id)) {
+      skipUntilDepth = row.depth;
+    }
+  }
+  return out;
 }
 
 function groupTableCell(g, key, session) {
@@ -677,6 +897,13 @@ export default function DispatchGroups({ session }) {
   const [membersSectionOpen, setMembersSectionOpen] = useState(true);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  /** true = alta desde carpeta del árbol (modal corto, alcance fijado). */
+  const [createFromTree, setCreateFromTree] = useState(false);
+  const [createTreeContext, setCreateTreeContext] = useState(null);
+  /** Ids de usuarios a agregar al crear desde el árbol (opcional). */
+  const [createMemberIds, setCreateMemberIds] = useState([]);
+  const [createMemberRole, setCreateMemberRole] = useState('member');
+  const [createBusy, setCreateBusy] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [detailsBusy, setDetailsBusy] = useState(false);
@@ -701,7 +928,8 @@ export default function DispatchGroups({ session }) {
   const [thDragKey, setThDragKey] = useState(null);
   const [thDragOverKey, setThDragOverKey] = useState(null);
   const thDragKeyRef = useRef(null);
-  const [page, setPage] = useState(1);
+  /** Carpetas del árbol expandidas (vacío = todo cerrado salvo raíces visibles). */
+  const [expandedTreeFolders, setExpandedTreeFolders] = useState(() => new Set());
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState(null);
   const [dialogBusy, setDialogBusy] = useState(false);
@@ -802,6 +1030,31 @@ export default function DispatchGroups({ session }) {
     });
   }, [users, members, session.user?.role, selectedGroupId, groups, orgTree]);
 
+  /** Candidatos a integrantes en el alta corta (alcance del árbol, sin grupo aún). */
+  const createAssignableUsers = useMemo(() => {
+    if (!createFromTree || !createOpen) return [];
+    const draft = {
+      scopeLevel: previewScope?.scopeLevel || 'unit',
+      unitId: previewScope?.unitId || null,
+    };
+    if (previewScope?.error || previewScope?.hint) return [];
+    const actorRole = session.user?.role;
+    return (users || []).filter((u) => {
+      if (!actorCanPickMember(actorRole, u.role)) return false;
+      return memberFitsGroupGeoClient(u, draft, orgTree);
+    });
+  }, [
+    createFromTree,
+    createOpen,
+    users,
+    session.user?.role,
+    orgTree,
+    previewScope?.scopeLevel,
+    previewScope?.unitId,
+    previewScope?.error,
+    previewScope?.hint,
+  ]);
+
   const detailsDirty = useMemo(() => {
     if (!selectedGroup) return false;
     return (
@@ -877,6 +1130,131 @@ export default function DispatchGroups({ session }) {
     return list;
   }, [groups, filterQuery, colFilters, sortCol, sortDir]);
 
+  const groupsTreeRows = useMemo(
+    () => buildGroupsTreeRows(orgTree, filteredGroups),
+    [orgTree, filteredGroups]
+  );
+
+  const visibleTreeRows = useMemo(
+    () => filterExpandedTreeRows(groupsTreeRows, expandedTreeFolders),
+    [groupsTreeRows, expandedTreeFolders]
+  );
+
+  function toggleTreeFolder(folderId) {
+    setExpandedTreeFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }
+
+  /** Abre el alta de canal con alcance precargado en esa carpeta (modal corto). */
+  function openCreateAtFolder(row) {
+    if (!canAddGroup || !row || row.kind === 'other') return;
+    if (row.kind === 'region') {
+      setRegionId(row.regionId || row.nodeId);
+      setZoneChoice(ALC_ALL_ZONES);
+      setUnitChoice('');
+    } else if (row.kind === 'zone' || row.kind === 'cg') {
+      setRegionId(row.regionId || '');
+      setZoneChoice(row.zoneId || row.nodeId);
+      setUnitChoice(ALC_ALL_UNITS);
+    } else if (row.kind === 'unit') {
+      setRegionId(row.regionId || '');
+      setZoneChoice(row.zoneId || '');
+      setUnitChoice(row.unitId || row.nodeId);
+    } else {
+      return;
+    }
+    const kindLabel =
+      row.kind === 'region'
+        ? 'Región'
+        : row.kind === 'cg'
+          ? 'C.G.'
+          : row.kind === 'zone'
+            ? 'Zona'
+            : row.kind === 'unit'
+              ? 'Organismo'
+              : '';
+    setCreateTreeContext({
+      kind: row.kind,
+      kindLabel,
+      label: row.label || '',
+      nodeId: row.nodeId,
+    });
+    setCreateFromTree(true);
+    setName('');
+    setDescription('');
+    setCreateMemberIds([]);
+    setCreateMemberRole('member');
+    setError('');
+    setCreateOpen(true);
+  }
+
+  function openCreateFromToolbar() {
+    setCreateFromTree(false);
+    setCreateTreeContext(null);
+    setName('');
+    setDescription('');
+    setCreateMemberIds([]);
+    setCreateMemberRole('member');
+    resetCreateCascade();
+    setError('');
+    setCreateOpen(true);
+  }
+
+  function closeCreateModal() {
+    if (createBusy) return;
+    setCreateOpen(false);
+    setCreateFromTree(false);
+    setCreateTreeContext(null);
+    setName('');
+    setDescription('');
+    setCreateMemberIds([]);
+    setCreateMemberRole('member');
+    if (!isUnitAdmin && !isZoneAdmin) {
+      setRegionId('');
+      setZoneChoice('');
+      setUnitChoice('');
+    } else {
+      applyOrgLocks(orgTree);
+    }
+    setError('');
+  }
+
+  function addCreateMemberFromSelect(userId) {
+    const id = String(userId || '').trim();
+    if (!id) return;
+    setCreateMemberIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  }
+
+  function removeCreateMember(userId) {
+    const id = String(userId);
+    setCreateMemberIds((prev) => prev.filter((x) => x !== id));
+  }
+
+  function canAddChannelAtFolder(row) {
+    if (!canAddGroup || !row || row.type !== 'folder') return false;
+    if (row.kind === 'other') return false;
+    const role = session.user?.role;
+    if (role === 'root' || role === 'region_admin') return true;
+    if (role === 'zone_admin') {
+      if (row.kind === 'region') return false;
+      if (row.kind === 'zone' || row.kind === 'cg') {
+        return Boolean(lockedUnitId) && row.nodeId === lockedUnitId;
+      }
+      if (row.kind === 'unit') {
+        return Boolean(lockedUnitId) && row.zoneId === lockedUnitId;
+      }
+      return false;
+    }
+    if (role === 'unit_admin') {
+      return row.kind === 'unit' && Boolean(lockedUnitId) && row.nodeId === lockedUnitId;
+    }
+    return false;
+  }
+
   function toggleColSort(key) {
     /* Un solo setState: no anidar setSortDir dentro de setSortCol
        (Strict Mode ejecuta el updater 2× y el ×-1×-1 deja el mismo sentido). */
@@ -886,7 +1264,6 @@ export default function DispatchGroups({ session }) {
       setSortCol(key);
       setSortDir(1);
     }
-    setPage(1);
   }
 
   /** Clic en título → ordenar. No usa bandera de drag (el ⠿ es lo único arrastrable). */
@@ -916,17 +1293,6 @@ export default function DispatchGroups({ session }) {
   useEffect(() => {
     if (!filtersVisible) setOpenFilterKey(null);
   }, [filtersVisible]);
-
-  const pageCount = Math.max(1, Math.ceil(filteredGroups.length / GROUPS_PAGE_SIZE));
-  const safePage = Math.min(page, pageCount);
-  const pageGroups = filteredGroups.slice(
-    (safePage - 1) * GROUPS_PAGE_SIZE,
-    safePage * GROUPS_PAGE_SIZE
-  );
-
-  useEffect(() => {
-    setPage(1);
-  }, [filterQuery, colFilters]);
 
   const visibleOrderedCols = useMemo(
     () => colConfig.filter((c) => c.visible !== false),
@@ -1164,7 +1530,14 @@ export default function DispatchGroups({ session }) {
     }
 
     function onKey(e) {
-      if (createOpen || dialog) return;
+      if (dialog) return;
+      if (createOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeCreateModal();
+        }
+        return;
+      }
       if (photoPreviewOpen) {
         if (e.key === 'Escape') setPhotoPreviewOpen(false);
         return;
@@ -1188,7 +1561,6 @@ export default function DispatchGroups({ session }) {
       e.preventDefault();
       const nextId = list[nextIdx].id;
       openGroup(nextId);
-      setPage(Math.floor(nextIdx / GROUPS_PAGE_SIZE) + 1);
       requestAnimationFrame(() => {
         document
           .querySelector('.cc-groups-table-row.is-selected')
@@ -1254,6 +1626,12 @@ export default function DispatchGroups({ session }) {
 
   async function onCreate(e) {
     e.preventDefault();
+    if (createBusy) return;
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError('El nombre del canal es obligatorio.');
+      return;
+    }
     try {
       const resolved = resolveGroupScope({
         role: session.user?.role,
@@ -1270,24 +1648,47 @@ export default function DispatchGroups({ session }) {
         setError(resolved.hint);
         return;
       }
+      setCreateBusy(true);
       const created = await createGroup(session.token, {
-        name,
+        name: trimmedName,
         description: description.trim() || undefined,
         unitId: resolved.unitId,
         scopeLevel: resolved.scopeLevel,
       });
+      const newId = created?.group?.id;
+
+      let memberWarn = '';
+      if (newId && createFromTree && createMemberIds.length) {
+        const fails = [];
+        for (const uid of createMemberIds) {
+          try {
+            await addGroupMember(session.token, newId, uid, createMemberRole || 'member');
+          } catch (err) {
+            fails.push(err?.message || String(uid));
+          }
+        }
+        if (fails.length) {
+          memberWarn = `Canal creado; ${fails.length} integrante(s) no se pudieron agregar.`;
+        }
+      }
+
       setName('');
       setDescription('');
+      setCreateMemberIds([]);
+      setCreateMemberRole('member');
+      setCreateFromTree(false);
+      setCreateTreeContext(null);
       resetCreateCascade();
       await reload();
-      const newId = created?.group?.id;
       if (newId) {
         setSelectedGroupId(newId);
         setCreateOpen(false);
       }
-      setError('');
+      setError(memberWarn || '');
     } catch (err) {
       setError(err.message);
+    } finally {
+      setCreateBusy(false);
     }
   }
 
@@ -1670,17 +2071,134 @@ export default function DispatchGroups({ session }) {
   }
 
   function renderNewChannelFields() {
+    if (createFromTree) {
+      const ctx = createTreeContext;
+      const scopeOk = !previewScope?.error && !previewScope?.hint;
+      const levelWord =
+        previewScope?.scopeLevel === 'region'
+          ? 'región'
+          : previewScope?.scopeLevel === 'zone'
+            ? 'zona'
+            : 'organismo';
+      return (
+        <>
+          <p className="cc-groups-create-context-line" role="status">
+            <span className="muted">En</span>{' '}
+            <strong>
+              {ctx?.kindLabel ? `${ctx.kindLabel} · ` : ''}
+              {ctx?.label || '—'}
+            </strong>
+            {scopeOk ? (
+              <span className="muted"> · canal de {levelWord}</span>
+            ) : (
+              <span className="error"> · {previewScope?.error || previewScope?.hint || 'alcance no válido'}</span>
+            )}
+          </p>
+          <label className="cc-groups-field">
+            <span>Nombre</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              autoFocus
+              disabled={createBusy}
+              placeholder="Nombre del canal"
+            />
+          </label>
+          <label className="cc-groups-field">
+            <span>Descripción</span>
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              disabled={createBusy}
+              placeholder="Opcional"
+            />
+          </label>
+          <div className="cc-groups-field cc-groups-create-members cc-groups-create-members--compact">
+            <span className="cc-groups-create-members-title">Integrantes (opcional)</span>
+            <div className="cc-groups-create-members-add">
+              <select
+                value=""
+                disabled={createBusy || !scopeOk || createAssignableUsers.length === 0}
+                aria-label="Agregar persona"
+                onChange={(e) => {
+                  addCreateMemberFromSelect(e.target.value);
+                  e.target.value = '';
+                }}
+              >
+                <option value="">
+                  {!scopeOk
+                    ? 'Alcance no válido'
+                    : createAssignableUsers.length === 0
+                      ? 'Sin personas elegibles'
+                      : 'Agregar persona…'}
+                </option>
+                {createAssignableUsers
+                  .filter((u) => !createMemberIds.includes(String(u.id)))
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {memberAssignLabel(u)}
+                    </option>
+                  ))}
+              </select>
+              <select
+                value={createMemberRole}
+                onChange={(e) => setCreateMemberRole(e.target.value)}
+                disabled={createBusy || createMemberIds.length === 0}
+                aria-label="Rol"
+              >
+                {MEMBER_ROLES.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {createMemberIds.length > 0 ? (
+              <ul className="cc-groups-create-member-chips">
+                {createMemberIds.map((id) => {
+                  const u = users.find((x) => String(x.id) === id);
+                  const label = u
+                    ? u.displayName || u.fullName || u.username || id
+                    : id;
+                  return (
+                    <li key={id}>
+                      <span>{label}</span>
+                      <button
+                        type="button"
+                        className="cc-groups-create-member-chip-x"
+                        disabled={createBusy}
+                        aria-label={`Quitar ${label}`}
+                        onClick={() => removeCreateMember(id)}
+                      >
+                        ×
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="cc-hint cc-groups-create-members-hint">
+                Opcional — también puedes agregarlos después en el panel.
+              </p>
+            )}
+          </div>
+        </>
+      );
+    }
+
     return (
       <>
         <label className="cc-groups-field">
           <span>Nombre</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+          <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus disabled={createBusy} />
         </label>
         <label className="cc-groups-field">
           <span>Descripción</span>
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            disabled={createBusy}
             placeholder="Opcional — visible en el listado"
           />
         </label>
@@ -1694,7 +2212,7 @@ export default function DispatchGroups({ session }) {
               <span>Región{isRegionScopeActor || isZoneAdmin || isUnitAdmin ? ' *' : ''}</span>
               <select
                 value={regionId}
-                disabled={isUnitAdmin || isZoneAdmin}
+                disabled={createBusy || isUnitAdmin || isZoneAdmin}
                 required={isRegionScopeActor || isZoneAdmin || isUnitAdmin}
                 onChange={(e) => {
                   setRegionId(e.target.value);
@@ -1715,7 +2233,7 @@ export default function DispatchGroups({ session }) {
                 <span>Zona / C.G.{isUnitAdmin || isZoneAdmin ? '' : ' (opc.)'}</span>
                 <select
                   value={zoneChoice}
-                  disabled={isUnitAdmin || isZoneAdmin || !regionId}
+                  disabled={createBusy || isUnitAdmin || isZoneAdmin || !regionId}
                   onChange={(e) => {
                     setZoneChoice(e.target.value);
                     setUnitChoice('');
@@ -1738,7 +2256,7 @@ export default function DispatchGroups({ session }) {
                 <span>Unidad{isUnitAdmin ? ' *' : ' (opc.)'}</span>
                 <select
                   value={unitChoice}
-                  disabled={isUnitAdmin || !selectedZoneId}
+                  disabled={createBusy || isUnitAdmin || !selectedZoneId}
                   required={isUnitAdmin}
                   onChange={(e) => setUnitChoice(e.target.value)}
                 >
@@ -1942,7 +2460,7 @@ export default function DispatchGroups({ session }) {
                 <button
                   type="button"
                   className="cc-btn primary cc-btn-sm cc-groups-new-channel-btn"
-                  onClick={() => setCreateOpen(true)}
+                  onClick={openCreateFromToolbar}
                 >
                   {NEW_CHANNEL_BTN_SVG}
                   Nuevo canal
@@ -2037,25 +2555,103 @@ export default function DispatchGroups({ session }) {
             </tr>
           </thead>
           <tbody>
-            {filteredGroups.length === 0 ? (
+            {groupsTreeRows.length === 0 ? (
               <tr>
                 <td colSpan={Math.max(1, visibleOrderedCols.length)} className="muted cc-groups-table-empty">
-                  {groups.length === 0
-                    ? 'Sin canales. Crea uno con «Nuevo canal».'
-                    : 'Ningún canal coincide con la búsqueda o filtros.'}
+                  {groups.length === 0 && !(orgTree || []).length
+                    ? 'Sin estructura orgánica ni canales. Crea dependencias o un canal con «Nuevo canal».'
+                    : groups.length === 0
+                      ? 'Sin canales. Usa «+ Agregar canal» en una carpeta o «Nuevo canal».'
+                      : 'Ningún canal coincide con la búsqueda o filtros.'}
                 </td>
               </tr>
             ) : (
-              pageGroups.map((g) => {
+              visibleTreeRows.map((row) => {
+                if (row.type === 'folder') {
+                  const expanded = expandedTreeFolders.has(row.id);
+                  const kindLabel =
+                    row.kind === 'region'
+                      ? 'Región'
+                      : row.kind === 'cg'
+                        ? 'C.G.'
+                        : row.kind === 'zone'
+                          ? 'Zona'
+                          : row.kind === 'unit'
+                            ? 'Organismo'
+                            : '';
+                  const showAdd = canAddChannelAtFolder(row);
+                  return (
+                    <tr
+                      key={row.id}
+                      className={`cc-groups-tree-folder cc-groups-tree-folder--${row.kind || 'other'}`}
+                      data-depth={row.depth}
+                    >
+                      <td colSpan={Math.max(1, visibleOrderedCols.length)}>
+                        <div
+                          className="cc-groups-tree-folder-bar"
+                          style={{ paddingLeft: `${0.25 + row.depth * 1.05}rem` }}
+                        >
+                          <button
+                            type="button"
+                            className="cc-groups-tree-toggle"
+                            aria-expanded={expanded}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleTreeFolder(row.id);
+                            }}
+                          >
+                            <span className="cc-groups-tree-chevron" aria-hidden="true">
+                              {expanded ? '▼' : '▶'}
+                            </span>
+                            {kindLabel ? (
+                              <span className="cc-groups-tree-kind">{kindLabel}</span>
+                            ) : null}
+                            <strong className="cc-groups-tree-label">{row.label}</strong>
+                            <span className="cc-groups-tree-count">
+                              {row.channelCount} canal{row.channelCount === 1 ? '' : 'es'}
+                            </span>
+                          </button>
+                          {showAdd ? (
+                            <button
+                              type="button"
+                              className="cc-groups-tree-add"
+                              title={`Agregar canal en ${row.label}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openCreateAtFolder(row);
+                              }}
+                            >
+                              <span className="cc-groups-tree-add-ico" aria-hidden="true">
+                                +
+                              </span>
+                              Agregar canal
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                const g = row.group;
                 const isSelected = selectedGroupId === g.id;
                 return (
                   <tr
-                    key={g.id}
-                    className={`cc-groups-table-row${isSelected ? ' is-selected' : ''}${!g.is_active ? ' is-inactive' : ''}`}
+                    key={row.id}
+                    className={`cc-groups-table-row cc-groups-tree-channel${isSelected ? ' is-selected' : ''}${!g.is_active ? ' is-inactive' : ''}`}
+                    data-depth={row.depth}
                     onClick={() => openGroup(g.id)}
                   >
-                    {visibleOrderedCols.map((c) => (
-                      <td key={c.key} className={GROUP_COL_CLASS[c.key] || undefined}>
+                    {visibleOrderedCols.map((c, colIdx) => (
+                      <td
+                        key={c.key}
+                        className={GROUP_COL_CLASS[c.key] || undefined}
+                        style={
+                          colIdx === 0
+                            ? { paddingLeft: `${0.75 + row.depth * 1.05}rem` }
+                            : undefined
+                        }
+                      >
                         {groupTableCell(g, c.key, session)}
                       </td>
                     ))}
@@ -2068,57 +2664,11 @@ export default function DispatchGroups({ session }) {
         {filteredGroups.length > 0 ? (
           <div className="usr-pager">
             <span className="usr-pager-info">
-              Mostrando {pageGroups.length} de {filteredGroups.length} canales · Página {safePage} de{' '}
-              {pageCount}
+              {filteredGroups.length} canal{filteredGroups.length === 1 ? '' : 'es'} en el árbol
+              {filteredGroups.length !== groups.length
+                ? ` · ${groups.length} en total`
+                : ''}
             </span>
-            <div className="usr-pager-btns">
-              <button
-                type="button"
-                className="usr-pg-btn usr-pg-btn-edge"
-                title="Primera página"
-                disabled={safePage <= 1}
-                onClick={() => setPage(1)}
-              >
-                «
-              </button>
-              <button
-                type="button"
-                className="usr-pg-btn"
-                title="Página anterior"
-                disabled={safePage <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                ‹
-              </button>
-              {groupsPagerPages(safePage, pageCount).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`usr-pg-btn${n === safePage ? ' active' : ''}`}
-                  onClick={() => setPage(n)}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="usr-pg-btn"
-                title="Página siguiente"
-                disabled={safePage >= pageCount}
-                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-              >
-                ›
-              </button>
-              <button
-                type="button"
-                className="usr-pg-btn usr-pg-btn-edge"
-                title="Última página"
-                disabled={safePage >= pageCount}
-                onClick={() => setPage(pageCount)}
-              >
-                »
-              </button>
-            </div>
           </div>
         ) : null}
       </div>
@@ -2128,22 +2678,25 @@ export default function DispatchGroups({ session }) {
             <div
               className="sys-modal-backdrop"
               role="presentation"
-              onClick={() => setCreateOpen(false)}
+              onClick={closeCreateModal}
             >
               <div
-                className="sys-modal sys-modal--lg cc-groups-create-modal"
+                className={`sys-modal ${createFromTree ? 'sys-modal--sm' : 'sys-modal--lg'} cc-groups-create-modal${createFromTree ? ' cc-groups-create-modal--tree' : ''}`}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="cc-groups-create-title"
                 onClick={(e) => e.stopPropagation()}
               >
                 <header className="sys-modal-head">
-                  <h2 id="cc-groups-create-title">Nuevo canal</h2>
+                  <h2 id="cc-groups-create-title">
+                    {createFromTree ? 'Agregar canal' : 'Nuevo canal'}
+                  </h2>
                   <button
                     type="button"
                     className="sys-modal-x"
                     aria-label="Cerrar"
-                    onClick={() => setCreateOpen(false)}
+                    disabled={createBusy}
+                    onClick={closeCreateModal}
                   >
                     ×
                   </button>
@@ -2157,15 +2710,28 @@ export default function DispatchGroups({ session }) {
                   {error ? <p className="error">{error}</p> : null}
                   {renderNewChannelFields()}
                   <footer className="sys-modal-actions">
-                    <button type="button" className="cc-btn ghost" onClick={() => setCreateOpen(false)}>
+                    <button
+                      type="button"
+                      className="cc-btn ghost"
+                      disabled={createBusy}
+                      onClick={closeCreateModal}
+                    >
                       Cancelar
                     </button>
                     <button
                       type="submit"
                       className="cc-btn primary"
-                      disabled={Boolean(previewScope?.error || previewScope?.hint)}
+                      disabled={
+                        createBusy ||
+                        !name.trim() ||
+                        Boolean(previewScope?.error || previewScope?.hint)
+                      }
                     >
-                      Crear canal
+                      {createBusy
+                        ? 'Creando…'
+                        : createFromTree && createMemberIds.length
+                          ? `Crear canal (+${createMemberIds.length})`
+                          : 'Crear canal'}
                     </button>
                   </footer>
                 </form>
