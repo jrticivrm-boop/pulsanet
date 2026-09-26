@@ -155,12 +155,12 @@ try {
   $stamp = 'node_modules\.pruebas-lock'
   if (-not (Test-Path $stamp) -or (Get-Content $stamp) -ne $lockHash) {
     Write-Host 'npm ci (backend)...' -ForegroundColor Cyan
-    npm ci --omit=dev --no-audit --no-fund | Out-Null
+    cmd /c "npm ci --omit=dev --no-audit --no-fund --loglevel=error 2>&1" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'npm ci backend fallo' }
     Set-Content $stamp $lockHash
   }
   Write-Host 'Aplicando migraciones sobre la copia...' -ForegroundColor Cyan
-  node src/scripts/apply-all-migrations.js | Select-String -Pattern 'ERROR|RESUMEN|Migraciones' | ForEach-Object { Write-Host "  $_" }
+  cmd /c "node src/scripts/apply-all-migrations.js 2>&1" | Select-String -Pattern 'ERROR|RESUMEN|Migraciones' | ForEach-Object { Write-Host "  $_" }
   if ($LASTEXITCODE -ne 0) { throw 'Las migraciones fallaron en pruebas: NO promover a produccion.' }
 } finally { Pop-Location }
 
@@ -171,14 +171,17 @@ try {
   $stamp = 'node_modules\.pruebas-lock'
   if (-not (Test-Path $stamp) -or (Get-Content $stamp) -ne $lockHash) {
     Write-Host 'npm ci (frontend)...' -ForegroundColor Cyan
-    npm ci --no-audit --no-fund | Out-Null
+    cmd /c "npm ci --no-audit --no-fund --loglevel=error 2>&1" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'npm ci frontend fallo' }
     Set-Content $stamp $lockHash
   }
   Write-Host 'Compilando frontend...' -ForegroundColor Cyan
   $env:VITE_API_URL = ''; $env:VITE_SOCKET_URL = ''
-  npm run build 2>&1 | Select-String -Pattern 'error|built in' | ForEach-Object { Write-Host "  $_" }
-  if ($LASTEXITCODE -ne 0) { throw 'El build del frontend fallo: NO promover a produccion.' }
+  # cmd.exe: en PowerShell 5 el stderr de npm con ErrorAction Stop aborta el script.
+  $buildOut = cmd /c "npm run build 2>&1"
+  $buildCode = $LASTEXITCODE
+  $buildOut | Select-String -Pattern 'error|built in' | ForEach-Object { Write-Host "  $_" }
+  if ($buildCode -ne 0) { throw 'El build del frontend fallo: NO promover a produccion.' }
 } finally { Pop-Location }
 
 # 6) Levantar API + web (ventanas propias)

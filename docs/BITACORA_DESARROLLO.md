@@ -1,3 +1,14 @@
+## 2026-09-26 — Flujo en 3 fases: desarrollo → pruebas → producción
+
+- **Tipo:** infra
+- **Área:** ops
+- **Qué:**
+  - Ramas `desarrollo` (PC `C:\pulsanet`), `pruebas` (worktree `C:\pulsanet-pruebas`) y `main` (VM SICOM). La VM pasó de copia de carpetas a checkout git de `main` (respaldo previo `/opt/respaldos/pre_git_align_20260926_234403.tar.gz`; config y secretos intactos).
+  - `infra/PROMOVER.ps1` (avanza ramas fast-forward y push), `infra/PRUEBAS.ps1` (ambiente de pruebas en la PC: API :4200, web :5180 con build real, BD `tacticalptx_pruebas` copiada de prod, sin FCM ni respaldos automáticos), `infra/DEPLOY-SICOM.ps1` + `infra/sicom-deploy.sh` (reconstruye solo lo cambiado, migraciones con `pg_dump` previo, health check, log en `/opt/respaldos/deploys.log`).
+  - Deploy de validación OK (api + web reconstruidos desde git, `/api/health` 200). Guía: `docs/FLUJO_DESPLIEGUE.md`.
+- **Por qué / notas:** Acceso público por `pulsanet.duckdns.org` caído al cierre: ya no existe el puente `netsh` de la PC y el router aún no reenvía 80/443/7881 TCP y 7882/3478 UDP a `192.168.1.150`. El `hosts` de la PC sigue apuntando el dominio a `192.168.1.77` (debe ir a `.150` o quitarse). `C:\pulsanet-dev` (rama `develop`, 6-sep, 339 cambios sin commit) queda sin tocar y fuera del flujo.
+- **Archivos / refs:** `infra/PROMOVER.ps1`, `infra/PRUEBAS.ps1`, `infra/DEPLOY-SICOM.ps1`, `infra/sicom-deploy.sh`, `.gitattributes`, `docs/FLUJO_DESPLIEGUE.md`
+
 ## 2026-09-26 — Proxmox: respaldo nocturno de la VM SICOM en disco dedicado
 
 - **Tipo:** infra
