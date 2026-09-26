@@ -2,6 +2,9 @@
 **/.env
 **/.env.local
 **/.env.prod
+infra/.env.sicom
+infra/livekit.sicom.yaml
+infra/.livekit_secret_sicom
 **/.env.*.local
 !.env.example
 !**/.env.example

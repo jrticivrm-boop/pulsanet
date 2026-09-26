@@ -10,6 +10,8 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Infra — despliegue SICOM (VM Proxmox):** `infra/docker-compose.sicom.yml` (PostgreSQL 18, LiveKit 1.13.3 en red host, volúmenes persistentes `uploads`/`data`/`secrets`), `Caddyfile.sicom` (dominio LE + IP LAN con `tls internal`), `gen-sicom-env.py` (genera `.env.sicom` y `livekit.sicom.yaml` desde `backend/.env` conservando llaves) y `sicom-edge-keepalive.sh` (DuckDNS + UPnP por cron).
+- **API Docker:** imagen incluye `postgresql18-client` y `bsdtar` para que los respaldos `.zip` funcionen en Linux; `.dockerignore` excluye `data/` y `uploads/` del contexto.
 - **Perfiles — enforcement Catálogos/Avisos/Config:** UI y API usan `modules.*.agregar|editar|eliminar` (no solo el rol). Helper `requireModuleAction` en backend.
 - **Perfiles — permisos granulares:** Visible (menú) + pestañas (RESERVADO, Catálogos, Configuración) + Agregar/Editar/Eliminar. La sesión incluye `modules`; el rail y las rutas respetan esos permisos.
 - **App — grabaciones PTT:** al soltar el PTT en la app móvil se sube el audio a `/api/recordings` y aparece en RESERVADO → Grabaciones (Radio), junto con las de la consola web. Las notas de voz de chat siguen listándose en la columna Chat.

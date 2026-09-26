@@ -1,0 +1,2 @@
+# Scripts que corren en la VM Linux: siempre LF aunque se editen en Windows.
+*.sh text eol=lf

@@ -1,0 +1,45 @@
+# TacticalPtx / SICOM — borde HTTPS en la VM (docker-compose.sicom.yml)
+# pulsanet.duckdns.org: Let's Encrypt (requiere 80/443 del router hacia 192.168.1.150).
+# IP LAN: certificado interno (aceptar aviso del navegador).
+
+{
+	# Clientes que entran por IP no envían SNI; sin esto Caddy no elige certificado.
+	default_sni 192.168.1.150
+	servers {
+		protocols h1
+	}
+}
+
+(tpx_routes) {
+	encode gzip
+
+	# /api* y /socket.io* SIEMPRE al API; si caen al SPA el móvil recibe HTML en vez de JSON.
+	handle /api* {
+		reverse_proxy api:4000
+	}
+
+	handle /socket.io* {
+		reverse_proxy api:4000
+	}
+
+	handle /rtc* {
+		reverse_proxy host.docker.internal:7880 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle {
+		reverse_proxy web:80
+	}
+}
+
+pulsanet.duckdns.org {
+	import tpx_routes
+}
+
+192.168.1.150 {
+	tls internal
+	import tpx_routes
+}

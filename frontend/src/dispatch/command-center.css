@@ -9077,6 +9077,39 @@ html.cc-cat-dragging .cc-cat-item {
   align-items: baseline;
   gap: 0.65rem;
   min-width: 0;
+  flex-wrap: wrap;
+}
+.cc-groups-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.35rem;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--cc-border, #334155);
+  background: color-mix(in srgb, var(--cc-panel-2, #0f172a) 80%, transparent);
+  vertical-align: middle;
+}
+.cc-groups-view-btn {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0.28rem 0.7rem;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cc-muted, #94a3b8);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.cc-groups-view-btn:hover {
+  color: var(--cc-text, #e2e8f0);
+}
+.cc-groups-view-btn.is-active {
+  background: color-mix(in srgb, var(--cc-accent, #9a7b2f) 28%, transparent);
+  color: var(--cc-text, #e2e8f0);
 }
 /* Mismo título que Usuarios (.dispatch-header h1 + institutional uppercase) */
 .cc-groups-toolbar-start h1 {

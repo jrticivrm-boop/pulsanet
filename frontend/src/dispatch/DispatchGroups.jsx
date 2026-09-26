@@ -36,13 +36,44 @@ const MEMBER_ROLES = [
   { value: 'listen_only', label: 'Solo escucha' },
 ];
 
-/** Columnas ocultables/reordenables. Orden por defecto: Alcance → Canal → … */
+const GROUPS_PAGE_SIZE = 15;
+const GROUPS_VIEW_STORAGE_KEY = 'tacticalptx.groups.viewMode.v1';
+
+function loadGroupsViewMode() {
+  try {
+    const v = localStorage.getItem(GROUPS_VIEW_STORAGE_KEY);
+    return v === 'list' ? 'list' : 'tree';
+  } catch {
+    return 'tree';
+  }
+}
+
+function saveGroupsViewMode(mode) {
+  try {
+    localStorage.setItem(GROUPS_VIEW_STORAGE_KEY, mode === 'list' ? 'list' : 'tree');
+  } catch {
+    /* ignore */
+  }
+}
+
+function groupsPagerPages(current, totalPages) {
+  const pags = Math.max(1, totalPages);
+  const cur = Math.max(1, Math.min(current, pags));
+  let start = Math.max(1, cur - 2);
+  let end = Math.min(pags, start + 4);
+  if (end - start < 4) start = Math.max(1, end - 4);
+  const pages = [];
+  for (let i = start; i <= end; i += 1) pages.push(i);
+  return pages;
+}
+
+/** Columnas: el árbol ya expresa el alcance; Alcance queda oculta por defecto. */
 const GROUP_TABLE_COLS = [
-  { key: 'scope', label: 'Alcance' },
   { key: 'canal', label: 'Canal' },
   { key: 'desc', label: 'Descripción' },
   { key: 'members', label: 'Miembros' },
   { key: 'status', label: 'Estado' },
+  { key: 'scope', label: 'Alcance' },
 ];
 
 const GROUP_COL_CLASS = {
@@ -53,11 +84,11 @@ const GROUP_COL_CLASS = {
   status: 'cc-gt-col-state',
 };
 
-/** v2: orden Alcance primero + vista árbol. */
-const GROUPS_COL_CONFIG_STORAGE_KEY = 'tacticalptx.groups.colConfig.v2';
+/** v3: sin Alcance visible (redundante con el árbol Región/Zona/Organismo). */
+const GROUPS_COL_CONFIG_STORAGE_KEY = 'tacticalptx.groups.colConfig.v3';
 
 function defaultGroupColConfig() {
-  return GROUP_TABLE_COLS.map((c) => ({ ...c, visible: true }));
+  return GROUP_TABLE_COLS.map((c) => ({ ...c, visible: c.key !== 'scope' }));
 }
 
 function loadGroupColConfig() {
@@ -74,7 +105,7 @@ function loadGroupColConfig() {
       ordered.push({ ...base, visible: s.visible !== false });
     }
     for (const d of GROUP_TABLE_COLS) {
-      if (!seen.has(d.key)) ordered.push({ ...d, visible: true });
+      if (!seen.has(d.key)) ordered.push({ ...d, visible: d.key !== 'scope' });
     }
     return ordered.length ? ordered : defaultGroupColConfig();
   } catch {
@@ -930,6 +961,9 @@ export default function DispatchGroups({ session }) {
   const thDragKeyRef = useRef(null);
   /** Carpetas del árbol expandidas (vacío = todo cerrado salvo raíces visibles). */
   const [expandedTreeFolders, setExpandedTreeFolders] = useState(() => new Set());
+  /** 'tree' | 'list' — lista = tabla plana del diseño anterior. */
+  const [viewMode, setViewMode] = useState(loadGroupsViewMode);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState('');
   const [dialog, setDialog] = useState(null);
   const [dialogBusy, setDialogBusy] = useState(false);
@@ -1299,6 +1333,31 @@ export default function DispatchGroups({ session }) {
     [colConfig]
   );
 
+  /** En lista plana mostramos Alcance aunque esté oculta en config del árbol. */
+  const tableCols = useMemo(() => {
+    if (viewMode !== 'list') return visibleOrderedCols;
+    if (visibleOrderedCols.some((c) => c.key === 'scope')) return visibleOrderedCols;
+    const scopeDef = GROUP_TABLE_COLS.find((c) => c.key === 'scope');
+    return scopeDef ? [{ ...scopeDef, visible: true }, ...visibleOrderedCols] : visibleOrderedCols;
+  }, [viewMode, visibleOrderedCols]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredGroups.length / GROUPS_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageGroups = filteredGroups.slice(
+    (safePage - 1) * GROUPS_PAGE_SIZE,
+    safePage * GROUPS_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterQuery, colFilters, viewMode]);
+
+  function setGroupsViewMode(mode) {
+    const next = mode === 'list' ? 'list' : 'tree';
+    setViewMode(next);
+    saveGroupsViewMode(next);
+  }
+
   useEffect(() => {
     if (!colsOpen) return undefined;
     function onDocClick(e) {
@@ -1561,6 +1620,9 @@ export default function DispatchGroups({ session }) {
       e.preventDefault();
       const nextId = list[nextIdx].id;
       openGroup(nextId);
+      if (viewMode === 'list') {
+        setPage(Math.floor(nextIdx / GROUPS_PAGE_SIZE) + 1);
+      }
       requestAnimationFrame(() => {
         document
           .querySelector('.cc-groups-table-row.is-selected')
@@ -1595,6 +1657,7 @@ export default function DispatchGroups({ session }) {
     dialog,
     photoPreviewOpen,
     filteredGroups,
+    viewMode,
   ]);
 
   useEffect(() => {
@@ -2303,6 +2366,26 @@ export default function DispatchGroups({ session }) {
         <div className="cc-groups-toolbar-start">
           <h1>Grupos y canales</h1>
           <span className="cc-groups-toolbar-count">{filteredGroups.length} de {groups.length}</span>
+          <div className="cc-groups-view-toggle" role="group" aria-label="Vista de grupos">
+            <button
+              type="button"
+              className={`cc-groups-view-btn${viewMode === 'tree' ? ' is-active' : ''}`}
+              aria-pressed={viewMode === 'tree'}
+              title="Vista en árbol (Región → Zona → Organismo)"
+              onClick={() => setGroupsViewMode('tree')}
+            >
+              Árbol
+            </button>
+            <button
+              type="button"
+              className={`cc-groups-view-btn${viewMode === 'list' ? ' is-active' : ''}`}
+              aria-pressed={viewMode === 'list'}
+              title="Vista en lista (tabla plana)"
+              onClick={() => setGroupsViewMode('list')}
+            >
+              Lista
+            </button>
+          </div>
         </div>
         <div className="cc-groups-toolbar-end">
           <label className="cc-groups-search">
@@ -2477,7 +2560,7 @@ export default function DispatchGroups({ session }) {
         <table className="usr-users-table cc-groups-table">
           <thead>
             <tr>
-              {visibleOrderedCols.map((c) => (
+              {tableCols.map((c) => (
                 <th
                   key={c.key}
                   className={[
@@ -2555,9 +2638,36 @@ export default function DispatchGroups({ session }) {
             </tr>
           </thead>
           <tbody>
-            {groupsTreeRows.length === 0 ? (
+            {viewMode === 'list' ? (
+              filteredGroups.length === 0 ? (
+                <tr>
+                  <td colSpan={Math.max(1, tableCols.length)} className="muted cc-groups-table-empty">
+                    {groups.length === 0
+                      ? 'Sin canales. Crea uno con «Nuevo canal».'
+                      : 'Ningún canal coincide con la búsqueda o filtros.'}
+                  </td>
+                </tr>
+              ) : (
+                pageGroups.map((g) => {
+                  const isSelected = selectedGroupId === g.id;
+                  return (
+                    <tr
+                      key={g.id}
+                      className={`cc-groups-table-row${isSelected ? ' is-selected' : ''}${!g.is_active ? ' is-inactive' : ''}`}
+                      onClick={() => openGroup(g.id)}
+                    >
+                      {tableCols.map((c) => (
+                        <td key={c.key} className={GROUP_COL_CLASS[c.key] || undefined}>
+                          {groupTableCell(g, c.key, session)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })
+              )
+            ) : groupsTreeRows.length === 0 ? (
               <tr>
-                <td colSpan={Math.max(1, visibleOrderedCols.length)} className="muted cc-groups-table-empty">
+                <td colSpan={Math.max(1, tableCols.length)} className="muted cc-groups-table-empty">
                   {groups.length === 0 && !(orgTree || []).length
                     ? 'Sin estructura orgánica ni canales. Crea dependencias o un canal con «Nuevo canal».'
                     : groups.length === 0
@@ -2586,7 +2696,7 @@ export default function DispatchGroups({ session }) {
                       className={`cc-groups-tree-folder cc-groups-tree-folder--${row.kind || 'other'}`}
                       data-depth={row.depth}
                     >
-                      <td colSpan={Math.max(1, visibleOrderedCols.length)}>
+                      <td colSpan={Math.max(1, tableCols.length)}>
                         <div
                           className="cc-groups-tree-folder-bar"
                           style={{ paddingLeft: `${0.25 + row.depth * 1.05}rem` }}
@@ -2642,7 +2752,7 @@ export default function DispatchGroups({ session }) {
                     data-depth={row.depth}
                     onClick={() => openGroup(g.id)}
                   >
-                    {visibleOrderedCols.map((c, colIdx) => (
+                    {tableCols.map((c, colIdx) => (
                       <td
                         key={c.key}
                         className={GROUP_COL_CLASS[c.key] || undefined}
@@ -2652,7 +2762,13 @@ export default function DispatchGroups({ session }) {
                             : undefined
                         }
                       >
-                        {groupTableCell(g, c.key, session)}
+                        {c.key === 'scope' ? (
+                          <span className="cc-gt-scope muted" title="El alcance lo indica la carpeta del árbol">
+                            —
+                          </span>
+                        ) : (
+                          groupTableCell(g, c.key, session)
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -2661,7 +2777,63 @@ export default function DispatchGroups({ session }) {
             )}
           </tbody>
         </table>
-        {filteredGroups.length > 0 ? (
+        {viewMode === 'list' && filteredGroups.length > 0 ? (
+          <div className="usr-pager">
+            <span className="usr-pager-info">
+              Mostrando {pageGroups.length} de {filteredGroups.length} canales · Página {safePage} de{' '}
+              {pageCount}
+            </span>
+            <div className="usr-pager-btns">
+              <button
+                type="button"
+                className="usr-pg-btn usr-pg-btn-edge"
+                title="Primera página"
+                disabled={safePage <= 1}
+                onClick={() => setPage(1)}
+              >
+                «
+              </button>
+              <button
+                type="button"
+                className="usr-pg-btn"
+                title="Página anterior"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ‹
+              </button>
+              {groupsPagerPages(safePage, pageCount).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={`usr-pg-btn${n === safePage ? ' active' : ''}`}
+                  onClick={() => setPage(n)}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="usr-pg-btn"
+                title="Página siguiente"
+                disabled={safePage >= pageCount}
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              >
+                ›
+              </button>
+              <button
+                type="button"
+                className="usr-pg-btn usr-pg-btn-edge"
+                title="Última página"
+                disabled={safePage >= pageCount}
+                onClick={() => setPage(pageCount)}
+              >
+                »
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {viewMode === 'tree' && filteredGroups.length > 0 ? (
           <div className="usr-pager">
             <span className="usr-pager-info">
               {filteredGroups.length} canal{filteredGroups.length === 1 ? '' : 'es'} en el árbol

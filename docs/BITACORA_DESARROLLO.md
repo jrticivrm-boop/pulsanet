@@ -1,3 +1,57 @@
+## 2026-09-26 — Proxmox: respaldo nocturno de la VM SICOM en disco dedicado
+
+- **Tipo:** infra
+- **Área:** ops
+- **Qué:**
+  - Disco `/dev/sdc` (2.4 TB, sin uso) formateado ext4 y agregado como almacén `respaldos` (`/mnt/pve/respaldos`, solo contenido backup, retención últimos 3).
+  - Trabajo vzdump diario 02:00 (hora local) de la VM 103, modo snapshot, zstd, conserva 3.
+  - Primer respaldo post-migración OK: 23.65 GB en 5 min 36 s.
+- **Por qué / notas:** Antes no había ningún respaldo programado y los ZIP de la app viven en el mismo disco que la BD. `local` (disco del sistema Proxmox) no tenía espacio para 3 copias. Pendiente: copia fuera del servidor. `/dev/sdb` (4.8 TB) sigue sin uso.
+- **Archivos / refs:** API Proxmox `nodes/proxmox/disks/directory`, `cluster/backup`
+
+## 2026-09-26 — SICOM: firewall de la VM abre UDP de LiveKit
+
+- **Tipo:** fix
+- **Área:** infra
+- **Qué:** `ufw` en la VM solo permitía `50000:50100/udp` (config vieja); se abren `7882/udp` (media) y `3478/udp` (TURN) y se quita el rango viejo. Sin esto la voz por UDP no pasaba aunque el router reenviara.
+- **Por qué / notas:** Revisión previa a lanzamiento público. Pendientes: reenvío en router, respaldos Proxmox/externos, rotación de logs Docker, rotar credenciales compartidas.
+
+## 2026-09-26 — Migración completa de PulsaNet a la VM SICOM (producción)
+
+- **Tipo:** infra
+- **Área:** ops | database | infra
+- **Qué:**
+  - Copiados `C:\pulsanet` → `/opt/pulsanet` y `C:\pulsanet_soporte` → `/opt/pulsanet_soporte` en la VM SICOM (`192.168.1.150`), 34.3 GB verificados por bloque (archivos + bytes).
+  - BD local (PG18) restaurada en contenedor `postgres:18-alpine`: 31 tablas, 87 usuarios, 2208 mensajes, 11 grupos. Llaves de `backend/.env` conservadas: 200/200 mensajes cifrados descifran OK. Multimedia (1353 archivos) y respaldos ZIP en volúmenes persistentes.
+  - Stack nuevo `infra/docker-compose.sicom.yml` (API, web `frontend/`, Caddy con cert LE de `pulsanet.duckdns.org` traído de la PC, LiveKit 1.13.3 red host, Redis). Cron `sicom-edge-keepalive.sh` cada 10 min (DuckDNS OK; el router no ofrece UPnP a la VM).
+  - Sistema local detenido (API, Caddy, LiveKit) y tarea `TacticalPtx-EdgeKeepalive` deshabilitada. `ParqueVehicular`, PostgreSQL y Redis locales intactos.
+  - **Puente temporal** en la PC: `netsh portproxy` 80/443/7881 TCP → `192.168.1.150` + regla firewall `SICOM-Puente-Temporal-TCP`, para que el dominio público siga funcionando hasta cambiar el reenvío del router.
+- **Por qué / notas:** Pendiente en el módem `192.168.1.254`: reenviar TCP 80, 443, 7881 y UDP 7882, 3478 a `192.168.1.150`; después quitar el puente (`netsh interface portproxy reset` y borrar la regla). LiveKit en servidor usa llave/secreto propios (`tacticalptxkey`, `.livekit_secret_sicom`): el `devkey/secret` local no es válido fuera de `--dev`.
+- **Respaldos:** VM `/opt/respaldos/pre_migracion_20260926_161124/` (BD de prueba PG17, config y código viejo, volcado final); PC `C:\pulsanet_soporte\Respaldos\migracion_sicom_20260926_161142\`. Volumen viejo `tacticalptx_pgdata` (PG17) conservado.
+- **Archivos / refs:** `infra/docker-compose.sicom.yml`, `infra/Caddyfile.sicom`, `infra/gen-sicom-env.py`, `infra/sicom-edge-keepalive.sh`, `backend/Dockerfile`, `backend/.dockerignore`, `.gitignore`
+
+## 2026-09-26 — Proxmox: VM 103 renombrada a SICOM
+
+- **Tipo:** infra
+- **Área:** ops
+- **Qué:** VM 103 en Proxmox (ProLiant, `192.168.1.67`) renombrada de `pulsanet` a `SICOM`. Sin reinicio; IP `192.168.1.150`, contenedores y hostname interno sin cambios.
+- **Por qué / notas:** Auditoría previa de la BD prod (`tacticalptx_db`): llega hasta la migración 018; faltan 019–038 y algunos índices de 005/006/009/010/015 (pendiente de aplicar con respaldo).
+- **Archivos / refs:** API Proxmox `nodes/proxmox/qemu/103/config`
+
+## 2026-09-25 — Grupos: interruptor de vista Árbol / Lista
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Botones Árbol | Lista junto al título. Árbol = jerarquía; Lista = tabla plana con paginación (como el respaldo). Preferencia en `localStorage`.
+- **Archivos / refs:** `DispatchGroups.jsx`, `command-center.css`
+
+## 2026-09-25 — Grupos: Alcance oculto (ya está en el árbol)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Columna Alcance oculta por defecto (`colConfig` v3); en filas de canal no se repite el organismo (el árbol ya lo muestra). Se puede reactivar en «Columnas».
+- **Archivos / refs:** `DispatchGroups.jsx`
+
 ## 2026-09-25 — Grupos: modal Agregar canal más compacto
 
 - **Tipo:** ux

@@ -1,0 +1,119 @@
+# TacticalPtx / SICOM — stack en VM Proxmox "SICOM" (Ubuntu, /opt/pulsanet)
+# Uso (en la VM):
+#   cd /opt/pulsanet/infra
+#   python3 gen-sicom-env.py          # genera .env.sicom y livekit.sicom.yaml desde backend/.env
+#   docker compose -f docker-compose.sicom.yml --env-file .env.prod up -d --build
+#
+# .env.prod solo aporta POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB.
+# El resto de la config del API sale de .env.sicom (mismas llaves que backend/.env: sin ellas
+# el chat cifrado existente queda ilegible).
+
+name: tacticalptx
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tacticalptx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-tacticalptx_db}
+    volumes:
+      # postgres:18 guarda PGDATA en /var/lib/postgresql/18/docker; montar el padre.
+      - pgdata18:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tacticalptx} -d ${POSTGRES_DB:-tacticalptx_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  livekit:
+    # Misma versión que infra/livekit/livekit-server.exe (advertise_internal_ip requiere >1.8).
+    image: livekit/livekit-server:v1.13.3
+    restart: unless-stopped
+    # WebRTC: red del host para exponer el rango UDP completo sin NAT de Docker.
+    network_mode: host
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./livekit.sicom.yaml:/etc/livekit.yaml:ro
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.sicom
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tacticalptx}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tacticalptx_db}
+      REDIS_URL: redis://redis:6379
+      LIVEKIT_URL: ws://host.docker.internal:7880
+      # En production config.js fuerza 127.0.0.1; dentro del contenedor Caddy necesita alcanzarlo.
+      LISTEN_HOST: 0.0.0.0
+      TPX_LISTEN_UNSAFE: "1"
+      TLS_CERT: ""
+      TLS_KEY: ""
+      FIREBASE_SERVICE_ACCOUNT: /app/secrets/tacticalptx-firebase-adminsdk.json
+      PG_DUMP_BIN: pg_dump
+      PSQL_BIN: psql
+      # El bloqueo de host usa powershell/netsh (solo Windows).
+      ALLOW_HOST_LOCKDOWN: "0"
+      TRUST_PROXY: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../backend/uploads:/app/uploads
+      - ../backend/data:/app/data
+      - ./secrets:/app/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+        VITE_SOCKET_URL: ""
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./Caddyfile.sicom:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+
+volumes:
+  pgdata18:
+  redisdata:
+  caddy_data:
+  caddy_config:
