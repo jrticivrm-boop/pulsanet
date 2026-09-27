@@ -437,7 +437,9 @@ async function packBackupZip(zipPath, sqlPath) {
       }
       entries.push(ZIP_UPLOADS_ENTRY);
     }
-    await runTar(['-a', '-cf', zipPath, '--exclude=_tmp*', '-C', staging, ...entries]);
+    // Fuera de Windows el enlace es un symlink normal: sin -L bsdtar guarda el enlace, no la multimedia.
+    const followLinks = process.platform === 'win32' ? [] : ['-L'];
+    await runTar(['-a', '-cf', zipPath, ...followLinks, '--exclude=_tmp*', '-C', staging, ...entries]);
   } finally {
     try {
       fs.rmSync(staging, { recursive: true, force: true });
