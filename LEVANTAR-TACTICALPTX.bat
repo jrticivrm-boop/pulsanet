@@ -10,12 +10,18 @@ REM + Supervisor (autorearranque, sin CMD extra) + Caddy/UPnP
 REM Uso: LEVANTAR-TACTICALPTX.bat
 REM      LEVANTAR-TACTICALPTX.bat /nopause
 REM      LEVANTAR-TACTICALPTX.bat /strict   (exit 1 si API o Web fallan)
-REM      LEVANTAR-TACTICALPTX.bat /noedge   (solo LAN, sin Caddy/UPnP)
+REM      LEVANTAR-TACTICALPTX.bat /noedge   (solo LAN, sin Caddy/UPnP) - POR DEFECTO
+REM      LEVANTAR-TACTICALPTX.bat /edge     (borde publico en esta PC: SOLO si deja de haber VM)
+REM Produccion vive en la VM SICOM: el borde en la PC robaria 80/443 (UPnP) y
+REM atraeria a los telefonos del Wi-Fi (la APK prueba 192.168.1.77:443) al entorno de desarrollo.
 REM =============================================================================
 
 set "NO_PAUSE="
 set "STRICT="
-set "NO_EDGE="
+set "NO_EDGE=1"
+if /I "%~1"=="/edge" set "NO_EDGE="
+if /I "%~2"=="/edge" set "NO_EDGE="
+if /I "%~3"=="/edge" set "NO_EDGE="
 if /I "%~1"=="/nopause" set "NO_PAUSE=1"
 if /I "%~1"=="-nopause" set "NO_PAUSE=1"
 if /I "%~2"=="/nopause" set "NO_PAUSE=1"

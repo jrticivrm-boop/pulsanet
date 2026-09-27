@@ -1,3 +1,13 @@
+## 2026-09-26 — Auditoría de seguridad ProLiant + cambio de contraseña del módem
+
+- **Tipo:** security
+- **Área:** ops
+- **Qué:**
+  - Auditoría solo lectura: desde Internet solo abren 80/443/7881 TCP (+ UDP LiveKit); Proxmox 9.2.20 y VM Ubuntu 24.04 sin actualizaciones pendientes; SSH de la VM solo por llave; ufw activo; respaldo nocturno activo.
+  - Riesgos detectados (sin corregir, a decisión del usuario): red plana (Proxmox 8006/22 e iLO `.66` visibles para toda la LAN, firewall PVE apagado), `root@pam` sin 2FA y token `cursor-sicom` con privilegios completos sin caducidad, apagado del host a las 17:55 sin autor identificado, respaldos solo en el mismo servidor, `infra/secrets` con `Usuario-y-contra.txt` y llave Firebase duplicada (664), sudo sin contraseña, sin HSTS en web.
+  - Contraseña del usuario `TELMEX` del módem cambiada (la anterior pasó por chat); verificada entrando con la nueva. Valor solo en `C:\pulsanet_soporte\Secrets\router.txt`.
+- **Archivos / refs:** módem `192.168.1.254` → Herramientas → Modificar contraseña
+
 ## 2026-09-26 — SICOM público directo por el módem; puente de la PC retirado
 
 - **Tipo:** infra
@@ -19,6 +29,18 @@
   - Prueba externa (check-host) aún falla: el ProLiant ML350 Gen10 no está en red (Proxmox `.67` y VM `.150` Offline en LAN3; el iLO `192.168.1.66` sí responde y reporta las NIC del sistema sin IP → host apagado o sin arrancar).
 - **Por qué / notas:** El DHCP del módem tiene prestada `192.168.1.150` a otro equipo (`INFORMATICA`, Wi-Fi, desconectado): riesgo de conflicto con la IP fija de la VM; conviene reservarla o sacar `.150` del pool. Puente `netsh` de la PC sigue activo (no tiene efecto sin el servidor). `hosts` de la PC aún apunta el dominio a `.77`.
 - **Archivos / refs:** módem `192.168.1.254` (sin cambios en repo)
+
+## 2026-09-26 — Desarrollo vacío y aislado de los usuarios reales
+
+- **Tipo:** infra
+- **Área:** database | ops
+- **Qué:**
+  - BD dev `tacticalptx_db` vaciada: sin usuarios, grupos/canales, mensajes, ubicaciones, dispositivos, avisos, sitios ni bitácoras. Se conservan organización, estructura Región/Zona/Unidad (154), perfiles de acceso (7) y catálogos (grados, empleos, jerarquías). Solo 1 root de desarrollo (`atacticalptxr2`, contraseña temporal a cambiar en el primer ingreso).
+  - Multimedia dev movida (no borrada) y respaldo previo en `C:\pulsanet_soporte\Respaldos\dev_vaciado_20260926_202326\` (`tacticalptx_db.dump`, `uploads\`, `backend.env.bak`).
+  - Dev sin FCM (`FIREBASE_*` comentadas en `backend/.env`): no notifica teléfonos.
+  - `LEVANTAR-TACTICALPTX.bat`: `/noedge` por defecto (`/edge` explícito). Sin borde, la PC no abre 80/443 ni toca UPnP/hosts, y la APK (que prueba `192.168.1.77:443` en Wi-Fi) no cae en desarrollo.
+- **Por qué / notas:** Producción vive en el ProLiant; desarrollo no debe tener datos reales ni recibir usuarios. Pendiente APK: `SERVER_LAN_IP` por defecto `192.168.1.77` (esta PC) → cambiar a la VM `192.168.1.150` (con su cert interno en `lan_tls.dart`) para que los teléfonos en el Wi-Fi de la oficina lleguen a producción sin depender del hairpin del router.
+- **Archivos / refs:** `LEVANTAR-TACTICALPTX.bat`, `backend/.env` (local, fuera de git)
 
 ## 2026-09-26 — SICOM: respaldos con multimedia en Linux + copia diaria a la PC
 
