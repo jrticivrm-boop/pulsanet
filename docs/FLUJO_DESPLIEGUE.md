@@ -36,6 +36,11 @@ Apagar pruebas: `.\infra\PRUEBAS.ps1 -Detener`.
   - Verifica `/api/health` y registra en `/opt/respaldos/deploys.log`.
   - Opciones: `-Target api|web|all`, `-DryRun`.
 
+## Respaldos
+
+- **Dentro del ProLiant:** Proxmox respalda la VM completa cada noche (02:00, conserva 3) y la app genera un ZIP diario (BD + multimedia, conserva 14) en `/opt/pulsanet/backend/data/backups`.
+- **Fuera del ProLiant:** la tarea `SICOM-Respaldo-a-PC` (03:30 y al iniciar sesión) copia esos ZIP a `C:\pulsanet_soporte\Respaldos\SICOM` con `infra\RESPALDO-SICOM-A-PC.ps1`. Revisar `respaldo.log` ahí mismo.
+
 ## Reglas
 
 - En la VM **no se edita código**: el deploy se niega si hay cambios locales en archivos versionados.

@@ -20,6 +20,17 @@
 - **Por qué / notas:** El DHCP del módem tiene prestada `192.168.1.150` a otro equipo (`INFORMATICA`, Wi-Fi, desconectado): riesgo de conflicto con la IP fija de la VM; conviene reservarla o sacar `.150` del pool. Puente `netsh` de la PC sigue activo (no tiene efecto sin el servidor). `hosts` de la PC aún apunta el dominio a `.77`.
 - **Archivos / refs:** módem `192.168.1.254` (sin cambios en repo)
 
+## 2026-09-26 — SICOM: respaldos con multimedia en Linux + copia diaria a la PC
+
+- **Tipo:** fix
+- **Área:** backend | ops
+- **Qué:**
+  - `backup.js`: en Linux el enlace `uploads` del staging es symlink y bsdtar guardaba el enlace, no los archivos (ZIP de 30 MB sin multimedia; restaurarlo dejaría `uploads` roto). Ahora `tar -L` fuera de Windows. Verificado en prod: ZIP 254 MB, `database.sql` + 1392 archivos. Se borró el único ZIP defectuoso (`20260927_002759`).
+  - `infra/RESPALDO-SICOM-A-PC.ps1`: trae los ZIP diarios de la VM a `C:\pulsanet_soporte\Respaldos\SICOM` (conserva 14, log `respaldo.log`). Tarea programada `SICOM-Respaldo-a-PC` 03:30 diario + al iniciar sesión (recupera si la PC estaba apagada). Primera copia: 14 ZIP.
+  - Logs de Docker acotados ya publicados en prod (10 MB × 5 por contenedor).
+- **Por qué / notas:** Los reinicios del ProLiant de hoy (17:55, 18:21, 18:28) los ordenó `root` por SSH desde `192.168.1.70` (`systemd-run … systemctl reboot`), no fallas; el kernel arrancó con un parámetro suelto `60` en la línea de GRUB (`ro 60 quiet`). El stack volvió solo en cada arranque.
+- **Archivos / refs:** `backend/src/services/backup.js`, `infra/RESPALDO-SICOM-A-PC.ps1`
+
 ## 2026-09-26 — SICOM: logs de Docker acotados
 
 - **Tipo:** infra
