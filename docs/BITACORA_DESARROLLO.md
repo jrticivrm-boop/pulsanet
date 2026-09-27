@@ -1,3 +1,35 @@
+## 2026-09-26 — SICOM público directo por el módem; puente de la PC retirado
+
+- **Tipo:** infra
+- **Área:** ops
+- **Qué:**
+  - El host Proxmox se apagó completo a las 17:55 (`stopall`) y volvió a las 18:08; la VM 103 arrancó sola con el stack completo. BD intacta (87 usuarios, 2208 mensajes, 11 grupos).
+  - Verificado desde Internet (check-host): TCP 80/443/7881 abiertos y `https://pulsanet.duckdns.org/api/health` 200 directo al módem → VM. Puente `netsh portproxy` y regla `SICOM-Puente-Temporal-TCP` eliminados.
+  - DHCP del módem: reservas `bc:24:11:6b:6a:63 → 192.168.1.150` (VM) y `b4:7a:f1:4f:5c:b4 → 192.168.1.67` (Proxmox) para evitar choques de IP.
+  - `hosts` de la PC: dominio ahora a `192.168.1.150` (respaldo en `C:\pulsanet_soporte\Respaldos\hosts_*.bak`).
+- **Por qué / notas:** Tras el cambio de nombre a SICOM, cloud-init trató el arranque como instancia nueva y regeneró las llaves SSH del host (huella validada por el agente de Proxmox antes de aceptarla). UDP 7882/3478 no se puede probar desde fuera sin la app: pendiente llamada PTT real en datos móviles.
+- **Archivos / refs:** módem `192.168.1.254`, `C:\Windows\System32\drivers\etc\hosts`
+
+## 2026-09-26 — Módem Telmex: reenvío de puertos a SICOM (servidor fuera de línea)
+
+- **Tipo:** infra
+- **Área:** ops
+- **Qué:**
+  - En el módem HG8145V5V3 (`192.168.1.254`) → Reglas de desvío → Port Forwarding: regla **SICOM** habilitada hacia `192.168.1.150` (TCP 80, 443, 7881; UDP 7882, 3478). DMZ vacía; no había reglas previas.
+  - Prueba externa (check-host) aún falla: el ProLiant ML350 Gen10 no está en red (Proxmox `.67` y VM `.150` Offline en LAN3; el iLO `192.168.1.66` sí responde y reporta las NIC del sistema sin IP → host apagado o sin arrancar).
+- **Por qué / notas:** El DHCP del módem tiene prestada `192.168.1.150` a otro equipo (`INFORMATICA`, Wi-Fi, desconectado): riesgo de conflicto con la IP fija de la VM; conviene reservarla o sacar `.150` del pool. Puente `netsh` de la PC sigue activo (no tiene efecto sin el servidor). `hosts` de la PC aún apunta el dominio a `.77`.
+- **Archivos / refs:** módem `192.168.1.254` (sin cambios en repo)
+
+## 2026-09-26 — SICOM: logs de Docker acotados
+
+- **Tipo:** infra
+- **Área:** infra
+- **Qué:**
+  - `docker-compose.sicom.yml`: todos los servicios con `json-file` máx. 10 MB × 5 archivos (antes sin límite).
+  - `sicom-deploy.sh`: si cambia el compose, recrea todo el stack (no solo api/web) para aplicar la config.
+- **Por qué / notas:** Commiteado en `desarrollo`/`pruebas`; pendiente `PROMOVER -A produccion` (la PC perdió la LAN: Ethernet desconectado, Proxmox `.67` y VM `.150` sin respuesta desde Wi-Fi). Ese deploy recrea postgres/livekit: corte breve.
+- **Archivos / refs:** `infra/docker-compose.sicom.yml`, `infra/sicom-deploy.sh`
+
 ## 2026-09-26 — Flujo en 3 fases: desarrollo → pruebas → producción
 
 - **Tipo:** infra
@@ -8,6 +40,16 @@
   - Deploy de validación OK (api + web reconstruidos desde git, `/api/health` 200). Guía: `docs/FLUJO_DESPLIEGUE.md`.
 - **Por qué / notas:** Acceso público por `pulsanet.duckdns.org` caído al cierre: ya no existe el puente `netsh` de la PC y el router aún no reenvía 80/443/7881 TCP y 7882/3478 UDP a `192.168.1.150`. El `hosts` de la PC sigue apuntando el dominio a `192.168.1.77` (debe ir a `.150` o quitarse). `C:\pulsanet-dev` (rama `develop`, 6-sep, 339 cambios sin commit) queda sin tocar y fuera del flujo.
 - **Archivos / refs:** `infra/PROMOVER.ps1`, `infra/PRUEBAS.ps1`, `infra/DEPLOY-SICOM.ps1`, `infra/sicom-deploy.sh`, `.gitattributes`, `docs/FLUJO_DESPLIEGUE.md`
+
+## 2026-09-26 — SICOM: rotación de credenciales Proxmox y prueba E2E por dominio
+
+- **Tipo:** security
+- **Área:** ops
+- **Qué:**
+  - Contraseña de `root@pam` en Proxmox cambiada (verificado: nueva 200, anterior 401). Token API `root@pam!cursor` eliminado y reemplazado por `root@pam!cursor-sicom`. Valores solo en `C:\pulsanet_soporte\Secrets\` (ACL restringida al usuario), nunca en chat ni repo.
+  - Prueba E2E por `https://pulsanet.duckdns.org` (cert LE): login 200, LiveKit configurado (`wss://pulsanet.duckdns.org`), 11 grupos, token PTT con E2EE y `/rtc/validate` 200.
+  - El puente `portproxy` + regla `SICOM-Puente-Temporal-TCP` se había borrado (16:52) sin cambiar aún el router → dominio caído; restablecido.
+- **Por qué / notas:** Pendiente: reenvío en el módem Huawei `192.168.1.254` (requiere credenciales del router) y prueba física de PTT en 4G.
 
 ## 2026-09-26 — Proxmox: respaldo nocturno de la VM SICOM en disco dedicado
 

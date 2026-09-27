@@ -10,10 +10,18 @@
 
 name: tacticalptx
 
+# Logs de contenedores acotados (sin esto json-file crece sin límite en el disco de la VM).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-tacticalptx}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
@@ -30,6 +38,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redisdata:/data
@@ -43,6 +52,7 @@ services:
     # Misma versión que infra/livekit/livekit-server.exe (advertise_internal_ip requiere >1.8).
     image: livekit/livekit-server:v1.13.3
     restart: unless-stopped
+    logging: *default-logging
     # WebRTC: red del host para exponer el rango UDP completo sin NAT de Docker.
     network_mode: host
     command: ["--config", "/etc/livekit.yaml"]
@@ -54,6 +64,7 @@ services:
       context: ../backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - .env.sicom
     environment:
@@ -93,12 +104,14 @@ services:
         VITE_API_URL: ""
         VITE_SOCKET_URL: ""
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - api
 
   proxy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"

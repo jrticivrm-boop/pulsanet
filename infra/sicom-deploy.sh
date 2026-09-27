@@ -66,6 +66,7 @@ if [ -n "$new_migrations" ]; then
 fi
 
 services=""
+full_stack=0
 restart_proxy=0
 restart_livekit=0
 case "$TARGET" in
@@ -75,14 +76,18 @@ case "$TARGET" in
   auto)
     echo "$changed" | grep -q '^backend/' && services="$services api"
     echo "$changed" | grep -q '^frontend/' && services="$services web"
-    echo "$changed" | grep -q '^infra/docker-compose.sicom.yml$' && services="api web"
+    echo "$changed" | grep -q '^infra/docker-compose.sicom.yml$' && full_stack=1
     echo "$changed" | grep -q '^infra/Caddyfile.sicom$' && restart_proxy=1
     echo "$changed" | grep -q '^infra/gen-sicom-env.py$' && restart_livekit=1
     ;;
 esac
 services=$(echo $services)
 
-echo "Servicios a reconstruir: ${services:-ninguno}"
+if [ "$full_stack" = 1 ]; then
+  echo "Compose cambió: se recrea todo el stack (corte breve de BD/voz)"
+else
+  echo "Servicios a reconstruir: ${services:-ninguno}"
+fi
 [ "$restart_proxy" = 1 ] && echo "Caddy: recargar configuración"
 [ "$restart_livekit" = 1 ] && echo "LiveKit/env: regenerar y reiniciar"
 
@@ -116,7 +121,10 @@ if [ "$restart_livekit" = 1 ]; then
   "${DC[@]}" up -d --force-recreate livekit api
 fi
 
-if [ -n "$services" ]; then
+if [ "$full_stack" = 1 ]; then
+  "${DC[@]}" up -d --build
+  services="(todo)"
+elif [ -n "$services" ]; then
   # shellcheck disable=SC2086
   "${DC[@]}" up -d --build $services
 fi
