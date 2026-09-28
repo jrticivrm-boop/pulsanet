@@ -68,9 +68,14 @@ if ($lanIp) {
 }
 
 # IP pública (UPnP / 4G / ICE): ipify manda; .env se corrige si quedó viejo.
+# TPX_NO_EDGE=1 (LEVANTAR sin /edge): desarrollo no toca DuckDNS, .env publico ni UPnP (80/443 son de la VM SICOM).
+$noEdge = ($env:TPX_NO_EDGE -eq '1')
 $publicIp = Get-TpxCurrentPublicIp
 $storedIp = Get-TpxStoredPublicIp -Root $root
-if ($publicIp -and $storedIp -and $publicIp -ne $storedIp) {
+if ($noEdge) {
+  if (-not $storedIp) { $storedIp = $publicIp }
+  $publicIp = $storedIp
+} elseif ($publicIp -and $storedIp -and $publicIp -ne $storedIp) {
   Write-Host "IP publica cambio: $storedIp -> $publicIp (sincronizando .env + yaml + UPnP)" -ForegroundColor Yellow
   [void](Sync-TpxPublicEnv -Root $root -PublicIp $publicIp)
   try { & (Join-Path $PSScriptRoot 'Reinforce-UPnP.ps1') } catch {}

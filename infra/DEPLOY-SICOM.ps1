@@ -45,6 +45,7 @@ $code = $LASTEXITCODE
 switch ($code) {
   0 { Write-Host 'Produccion actualizada.' -ForegroundColor Green }
   3 { Write-Host 'Detenido: hay migraciones de BD. Repite con -Migrate.' -ForegroundColor Yellow }
+  5 { Write-Host 'Detenido: produccion esta revertida y main sigue en la version retirada; sube una correccion.' -ForegroundColor Yellow }
   default { Write-Host "Fallo el despliegue (codigo $code)." -ForegroundColor Red }
 }
 exit $code

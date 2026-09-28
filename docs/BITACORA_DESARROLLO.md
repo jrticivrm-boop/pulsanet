@@ -1,3 +1,17 @@
+## 2026-09-28 — Flujo de 3 fases: controles antes de producción, reversión y desarrollo aislado
+
+- **Tipo:** infra
+- **Área:** ops | backend | docs
+- **Qué:**
+  - Regla `.cursor/rules/produccion-solo-con-orden.mdc`: nada sube a la VM sin orden explícita del usuario; sin `-Si` en producción.
+  - `VERIFICAR-PRUEBAS.ps1` (solo lectura): pruebas debe correr exactamente el commit a subir (`PRUEBAS.ps1` deja `pruebas-estado.json`), API/web de pruebas arriba, sin FCM, sintaxis backend, migraciones, antigüedad de la copia de BD, estado de producción y usuarios conectados. Lista manual `docs/CHECKLIST_PRUEBAS.md`.
+  - `PROMOVER.ps1 -A produccion`: corre la verificación (bloquea salvo `-Forzar`), confirma lista manual, ventana 21:00–07:00 (fuera pide `FUERA DE HORARIO`), se detiene antes de mover `main` si hay migraciones sin `-Migrate`, y etiqueta `prod-v<versión>-<fecha>` al terminar. Registros en `C:\pulsanet_soporte\Pruebas\`.
+  - Reversión: `REVERTIR-PRODUCCION.ps1` + `sicom-deploy.sh --ref=prod-*` (reconstruye solo lo que cambia, no toca BD ni reescribe git, bitácora de migraciones aplicadas, bloqueo de redeploy de la versión retirada). Etiquetas base `prod-v1.8.107-20260927-0037` y `-0225` (lo desplegado hoy). Probado en VM con `--dry-run`.
+  - Desarrollo: `npm run seed:dev` (`seed-dev-ficticio.js`, solo BD local `tacticalptx_db`) crea 7 usuarios ficticios de todos los perfiles y 2 canales en IV R.M./48/a. Z.M.; verificados login y visibilidad de canales.
+  - Aislamiento dev: sin `/edge`, el supervisor y `start-services.ps1` ya no actualizan DuckDNS, no reescriben `.env`/config de APK por cambio de IP ni corren `Reinforce-UPnP` (variable `TPX_NO_EDGE`). DuckDNS lo mantiene la VM (`sicom-edge-keepalive.sh`).
+- **Por qué / notas:** Esta PC queda para desarrollo y análisis/pruebas; producción solo se actualiza tras el análisis. Las funciones nuevas de deploy/reversión en la VM se activan cuando este commit llegue a `main` (primera promoción a producción). APK de pruebas separada pospuesta (requiere compilar); para probar la app contra pruebas: servidor `https://192.168.1.77:4200` en el login.
+- **Archivos / refs:** `infra/PROMOVER.ps1`, `infra/VERIFICAR-PRUEBAS.ps1`, `infra/REVERTIR-PRODUCCION.ps1`, `infra/sicom-deploy.sh`, `infra/DEPLOY-SICOM.ps1`, `infra/PRUEBAS.ps1`, `infra/Run-StackSupervisor.ps1`, `infra/start-services.ps1`, `LEVANTAR-TACTICALPTX.bat`, `backend/src/scripts/seed-dev-ficticio.js`, `docs/FLUJO_DESPLIEGUE.md`, `docs/CHECKLIST_PRUEBAS.md`
+
 ## 2026-09-26 — Auditoría de seguridad ProLiant + cambio de contraseña del módem
 
 - **Tipo:** security

@@ -228,6 +228,7 @@ function Ensure-Edge {
 
 $script:Root = Resolve-RepoRoot
 . (Join-Path $script:Root 'infra\Sync-PublicIp.ps1')
+if ($SkipEdge) { $env:TPX_NO_EDGE = '1' }
 
 $apiCmd = Join-Path $script:Root 'infra\start-api.cmd'
 $webCmd = Join-Path $script:Root 'infra\start-web.cmd'
@@ -325,7 +326,8 @@ try {
       if (Test-Path $svc) {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $svc | Out-Null
       }
-    } else {
+    } elseif (-not $SkipEdge) {
+      # Sin borde (desarrollo) no se toca DNS publico ni .env/config de APK: DuckDNS lo mantiene la VM SICOM.
       try {
         $yamlIp = Get-TpxLiveKitYamlNodeIp -Root $script:Root
         $storedIp = Get-TpxStoredPublicIp -Root $script:Root

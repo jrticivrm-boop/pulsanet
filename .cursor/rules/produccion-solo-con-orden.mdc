@@ -1,0 +1,34 @@
+---
+description: Flujo de 3 fases; nada sube a produccion (VM SICOM) sin orden explicita del usuario
+alwaysApply: true
+---
+
+# Produccion solo con orden explicita (TacticalPtx)
+
+Fases: `desarrollo` (C:\pulsanet, PC) -> `pruebas` (C:\pulsanet-pruebas, PC) -> `main` (VM SICOM 192.168.1.150, produccion).
+Guia: `docs/FLUJO_DESPLIEGUE.md`.
+
+## Prohibido sin orden explicita del usuario
+
+- `infra\PROMOVER.ps1 -A produccion`, `infra\DEPLOY-SICOM.ps1`, `infra\REVERTIR-PRODUCCION.ps1`.
+- `git push origin main`, mover/avanzar `main`, o ejecutar comandos que modifiquen la VM por SSH.
+- Usar `-Si` (salta confirmaciones) en cualquier comando que toque produccion.
+
+Orden explicita = el usuario lo pide con palabras como: "subelo a produccion", "despliega", "publica en el servidor", "revierte produccion".
+"Hazlo" o "adelante" sobre un cambio de codigo NO autoriza subir a produccion: el trabajo termina en `desarrollo` (y en `pruebas` solo si lo pide).
+
+## Si permitido
+
+- Commits en `desarrollo`; `PROMOVER.ps1 -A pruebas` y `PRUEBAS.ps1` cuando el usuario lo pida.
+- Consultas de solo lectura a la VM (health, logs, `deploys.log`) para diagnosticar.
+
+## Antes de proponer subir a produccion
+
+1. Correr `infra\VERIFICAR-PRUEBAS.ps1` y reportar el resultado.
+2. Entregar al usuario la lista de `docs/CHECKLIST_PRUEBAS.md` con lo que cambia y que revisar.
+3. Avisar si hay migraciones de BD (requieren `-Migrate`) y si la hora esta fuera de la ventana de despliegue.
+
+## Datos por ambiente
+
+- Desarrollo: solo datos ficticios (`backend/src/scripts/seed-dev-ficticio.js`); nunca copiar la BD de produccion a `tacticalptx_db`.
+- Pruebas: copia de produccion (`PRUEBAS.ps1 -RefrescarBD`), sin FCM; no sacar esos datos de la PC.

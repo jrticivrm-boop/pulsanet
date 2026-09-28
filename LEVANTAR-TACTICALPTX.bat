@@ -32,6 +32,8 @@ if /I "%~1"=="-strict" set "STRICT=1"
 if /I "%~1"=="/noedge" set "NO_EDGE=1"
 if /I "%~2"=="/noedge" set "NO_EDGE=1"
 if /I "%~3"=="/noedge" set "NO_EDGE=1"
+set "TPX_NO_EDGE="
+if defined NO_EDGE set "TPX_NO_EDGE=1"
 
 REM Preferir la carpeta del .bat (portable); luego C:/D: legacy.
 REM %~dp0 SIEMPRE trae barra final. NUNCA usar if ...=="\" (rompe el parseo CMD → error «"f"»).

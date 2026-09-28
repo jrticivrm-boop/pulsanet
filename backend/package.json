@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node src/scripts/seed.js",
+    "seed:dev": "node src/scripts/seed-dev-ficticio.js",
     "seed:units": "node src/scripts/seed-units.js",
     "import:pv-dependencias": "node src/scripts/import-pv-dependencias.js",
     "seed:purge-demo": "node src/scripts/purge-demo-users.js",

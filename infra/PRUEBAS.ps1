@@ -138,6 +138,7 @@ if ($RefrescarBD -or -not $exists) {
   & "$PgBin\pg_restore.exe" @pgArgs -d $DbName --no-owner --no-privileges $dump
   if ($LASTEXITCODE -gt 1) { throw 'pg_restore fallo.' }
   Remove-Item $dump -Force
+  $bdRefrescadaAhora = Get-Date -Format 'yyyy-MM-ddTHH:mm:ss'
   Write-Host "BD $DbName restaurada desde produccion." -ForegroundColor Green
 }
 
@@ -200,6 +201,17 @@ for ($i = 0; $i -lt 30; $i++) {
   } catch { }
 }
 if ($ok) {
+  # Lo lee VERIFICAR-PRUEBAS.ps1: confirma que lo que se probo es lo que se sube.
+  $stampPath = Join-Path $dataDir 'pruebas-estado.json'
+  $prevBd = $null
+  if (Test-Path $stampPath) { try { $prevBd = (Get-Content $stampPath -Raw | ConvertFrom-Json).bdRefrescada } catch { } }
+  $stampObj = [ordered]@{
+    commit       = (git -C $Wt rev-parse HEAD).Trim()
+    levantado    = Get-Date -Format 'yyyy-MM-ddTHH:mm:ss'
+    bdRefrescada = $(if ($bdRefrescadaAhora) { $bdRefrescadaAhora } else { $prevBd })
+  }
+  $stampObj | ConvertTo-Json | Set-Content -Path $stampPath -Encoding ascii
+
   Write-Host ''
   Write-Host "PRUEBAS arriba: https://localhost:$WebPort  (API :$ApiPort, BD $DbName)" -ForegroundColor Green
   Write-Host 'Cuando quede validado: .\infra\PROMOVER.ps1 -A produccion' -ForegroundColor Cyan
