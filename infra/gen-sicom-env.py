@@ -81,6 +81,9 @@ else:
     env.pop("PUBLIC_LAN_IPV6", None)
 
 cors = [o.strip() for o in env.get("CORS_ORIGINS", "").split(",") if o.strip()]
+# Orígenes de la PC de desarrollo (localhost, otras IP LAN) no aplican en la VM.
+cors = [o for o in cors
+        if not re.match(r"^https?://(localhost|127\.0\.0\.1|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)", o, re.I)]
 for o in (f"https://{LAN_IP}", f"http://{LAN_IP}"):
     if o not in cors:
         cors.append(o)

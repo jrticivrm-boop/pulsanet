@@ -188,10 +188,15 @@ CREATE INDEX idx_locations_user_time ON locations (user_id, recorded_at DESC);
 
 -- Vista: última ubicación por usuario
 CREATE OR REPLACE VIEW user_last_location AS
-SELECT DISTINCT ON (user_id)
- user_id, latitude, longitude, accuracy_m, recorded_at
-FROM locations
-ORDER BY user_id, recorded_at DESC;
+SELECT u.id AS user_id, l.latitude, l.longitude, l.accuracy_m, l.recorded_at
+FROM users u
+CROSS JOIN LATERAL (
+  SELECT latitude, longitude, accuracy_m, recorded_at
+  FROM locations
+  WHERE user_id = u.id
+  ORDER BY recorded_at DESC
+  LIMIT 1
+) l;
 
 -- ---------------------------------------------------------------------------
 -- Geocercas (círculos)

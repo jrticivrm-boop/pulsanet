@@ -1,3 +1,16 @@
+## 2026-09-28 — SICOM: revisión a fondo de la VM y correcciones
+
+- **Tipo:** fix | mejora
+- **Área:** backend | database | infra | ops
+- **Qué:**
+  - **Rendimiento (desarrollo, pendiente de promover):** migración `039_user_last_location_lateral.sql` redefine la vista `user_last_location` con `LATERAL ... LIMIT 1` sobre el índice `idx_locations_user_time`. Probada en prod en solo lectura: 71 filas, 0 diferencias, 80 ms → 1.8 ms (la consulta del mapa tardaba ~284 ms y mantenía PostgreSQL al ~50% CPU; `locations` ya tiene ~793 mil filas y crece ~28 mil/día). `database/schema.sql` actualizado.
+  - **Estabilidad (desarrollo):** `backend/src/db.js` con `pool.on('error')` (el 27-sep la API se cayó con `Unhandled 'error' event` al reiniciar PostgreSQL). `server.js` sin la opción `validate.keyGeneratorIpFallback` (no existe en express-rate-limit 7.5.1).
+  - **VM (aplicado):** `CORS_ORIGINS` solo `https://pulsanet.duckdns.org` y `https/http://192.168.1.150` (fuera `.77` y `localhost`; la app Flutter no usa CORS); API recreada, health OK en 2 s, preflight del dominio 204. Respaldo `/opt/respaldos/.env.sicom.20260928_170728`. `gen-sicom-env.py` ya filtra orígenes de la PC.
+  - **VM (aplicado):** borradas imágenes `postgres:17-alpine` y `livekit:v1.8.4` y caché de build (~1.8 GB; disco 57% → 55%).
+  - Resto OK: contenedores sin reinicios/OOM, logs con rotación, certificado LE hasta 16-dic, respaldos app diarios (14) y copia nocturna a la PC funcionando, LiveKit sin errores de unión desde el arreglo de IP.
+- **Por qué / notas:** Pendiente: promover a pruebas/producción (el deploy pedirá `--migrate` por la 039). A vigilar: avisos `dtls timeout` de canal de datos en LiveKit. La tarea al iniciar sesión `SICOM-Respaldo-a-PC` falla si la red aún no está lista (la nocturna sí funciona).
+- **Archivos / refs:** `database/migrations/039_user_last_location_lateral.sql`, `database/schema.sql`, `backend/src/db.js`, `backend/src/server.js`, `infra/gen-sicom-env.py`, `docs/CHANGELOG.md`
+
 ## 2026-09-28 — SICOM: LiveKit sigue la IP pública automáticamente
 
 - **Tipo:** fix

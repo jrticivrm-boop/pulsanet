@@ -17,6 +17,10 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **App — grabaciones PTT:** al soltar el PTT en la app móvil se sube el audio a `/api/recordings` y aparece en RESERVADO → Grabaciones (Radio), junto con las de la consola web. Las notas de voz de chat siguen listándose en la columna Chat.
 
 ### Fixed
+- **Mapa / ubicaciones — rendimiento:** la vista `user_last_location` ya no ordena toda la tabla `locations` en cada consulta; usa el índice por usuario (migración `039_user_last_location_lateral.sql`). En producción: de ~80–280 ms a ~2 ms por consulta, con resultados idénticos.
+- **API — caída por BD:** el pool de PostgreSQL tiene listener de `error`; un corte de conexión (reinicio de PostgreSQL) ya no tumba el proceso.
+- **API — arranque:** quitada la opción `validate.keyGeneratorIpFallback`, inexistente en `express-rate-limit` 7.x (generaba `ValidationError` en cada arranque).
+- **Infra — LiveKit SICOM:** `sicom-edge-keepalive.sh` sincroniza `node_ip` con la IP pública y reinicia LiveKit si cambia; `gen-sicom-env.py` ya no copia orígenes CORS de la PC de desarrollo.
 - **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Grupos / Usuarios — botón Filtros:** al desactivar Filtros se limpian los filtros aplicados (antes solo se ocultaban y la tabla seguía filtrada).
 - **Grupos — filtro Alcance:** el check de región/zona marca solo ese nodo, no toda la rama (ya no hace falta desmarcar zona por zona).

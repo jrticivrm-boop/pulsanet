@@ -110,8 +110,6 @@ app.use(
       }
       return req.ip || req.socket?.remoteAddress || 'unknown';
     },
-    // Custom key (JWT suffix); no usar validación de fallback IP por defecto.
-    validate: { keyGeneratorIpFallback: false },
     // Salud y OTA tienen su propio control; no gastar el cupo global (NAT).
     skip: (req) => {
       const p = req.path || '';
