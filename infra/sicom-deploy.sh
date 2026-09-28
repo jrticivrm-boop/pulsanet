@@ -160,7 +160,9 @@ if [ -n "$new_migrations" ]; then
   ts=$(date +%Y%m%d_%H%M%S)
   dump="$BACKUPS/pre_deploy_${ts}.dump"
   echo "Respaldando BD → $dump"
-  "${DC[@]}" exec -T postgres pg_dump -U "$PGU" -d "$PGD" -Fc > "$dump"
+  # </dev/null en todo comando docker: el script llega por stdin (ssh ... | bash -s) y
+  # `compose exec` se tragaría el resto del script (bash terminaría con éxito a medias).
+  "${DC[@]}" exec -T postgres pg_dump -U "$PGU" -d "$PGD" -Fc > "$dump" </dev/null
   [ -s "$dump" ] || { echo "[ERROR] Respaldo vacío; no se aplican migraciones." >&2; exit 1; }
   for m in $new_migrations; do
     echo "Aplicando $m"
@@ -173,20 +175,20 @@ if [ -n "$rolled_migrations" ]; then
 fi
 
 if [ "$restart_livekit" = 1 ]; then
-  python3 gen-sicom-env.py
-  "${DC[@]}" up -d --force-recreate livekit api
+  python3 gen-sicom-env.py </dev/null
+  "${DC[@]}" up -d --force-recreate livekit api </dev/null
 fi
 
 if [ "$full_stack" = 1 ]; then
-  "${DC[@]}" up -d --build
+  "${DC[@]}" up -d --build </dev/null
   services="(todo)"
 elif [ -n "$services" ]; then
   # shellcheck disable=SC2086
-  "${DC[@]}" up -d --build $services
+  "${DC[@]}" up -d --build $services </dev/null
 fi
 
 if [ "$restart_proxy" = 1 ]; then
-  "${DC[@]}" exec -T proxy caddy reload --config /etc/caddy/Caddyfile
+  "${DC[@]}" exec -T proxy caddy reload --config /etc/caddy/Caddyfile </dev/null
 fi
 
 ok=0

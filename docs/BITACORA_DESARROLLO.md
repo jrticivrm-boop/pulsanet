@@ -1,3 +1,15 @@
+## 2026-09-28 — Producción: despliegue de la revisión de la VM (039 + API + LiveKit)
+
+- **Tipo:** fix | infra
+- **Área:** backend | database | infra | ops
+- **Qué:**
+  - `PROMOVER -A produccion -Migrate` (fuera de horario, autorizado): main `b4da383` → `a853b0c` (commits 352c107, 7d3fd5e, a853b0c). Respaldo BD `/opt/respaldos/pre_deploy_20260928_173042.dump` (33 MB), migración 039 aplicada y anotada, etiqueta `prod-v1.8.107-20260928-1130`.
+  - **Falla del script:** el `pg_dump` (`docker compose exec`) consumió el resto de `sicom-deploy.sh`, que llega por `ssh … | bash -s`; bash terminó con código 0 sin reconstruir API, sin regenerar env/LiveKit y sin escribir `deploys.log`. Completado a mano en la VM con los mismos pasos del script: `backend/.env` con `LIVEKIT_PUBLIC_HOST`/`PUBLIC_HOST` = IP pública actual (respaldo `/opt/respaldos/backend.env.20260928_173314`), `gen-sicom-env.py` (llaves sin cambios; solo IP pública e IPv6 LAN rotada por el ISP), recreados LiveKit + API y build del API, anotado en `deploys.log`.
+  - Verificado: health OK, código nuevo en el contenedor, vista LATERAL (71 filas), `/api/locations` 11–35 ms (antes ~270 ms), CPU PostgreSQL ~98% → 0.2%, LiveKit `nodeIP` y TURN `domain` = `189.175.18.38`, preflight CORS del dominio 204 y `localhost` sin permiso.
+  - **Corrección en desarrollo (pendiente de promover):** `sicom-deploy.sh` con `</dev/null` en todo comando docker; `sicom-edge-keepalive.sh` también actualiza el `domain` de TURN y `LIVEKIT_PUBLIC_HOST`/`PUBLIC_HOST` (solo si son IPv4) en `backend/.env` e `infra/.env.sicom`.
+- **Por qué / notas:** Hasta promover la corrección, cualquier deploy con `--migrate` repetiría el corte; sin migraciones el script corre completo. Pendiente: prueba PTT real por datos móviles.
+- **Archivos / refs:** `infra/sicom-deploy.sh`, `infra/sicom-edge-keepalive.sh`, `docs/CHANGELOG.md`, `/opt/respaldos/deploys.log`
+
 ## 2026-09-28 — SICOM: revisión a fondo de la VM y correcciones
 
 - **Tipo:** fix | mejora

@@ -21,6 +21,8 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **API — caída por BD:** el pool de PostgreSQL tiene listener de `error`; un corte de conexión (reinicio de PostgreSQL) ya no tumba el proceso.
 - **API — arranque:** quitada la opción `validate.keyGeneratorIpFallback`, inexistente en `express-rate-limit` 7.x (generaba `ValidationError` en cada arranque).
 - **Infra — LiveKit SICOM:** `sicom-edge-keepalive.sh` sincroniza `node_ip` con la IP pública y reinicia LiveKit si cambia; `gen-sicom-env.py` ya no copia orígenes CORS de la PC de desarrollo.
+- **Infra — despliegue SICOM con migraciones:** `sicom-deploy.sh` redirige `</dev/null` en los comandos docker; el `pg_dump` del respaldo se tragaba el resto del script (llega por `ssh … | bash -s`) y el deploy terminaba "OK" sin reconstruir servicios ni anotar en `deploys.log`.
+- **Infra — IP pública SICOM:** el keepalive también actualiza el `domain` de TURN y `LIVEKIT_PUBLIC_HOST`/`PUBLIC_HOST` (backend/.env, .env.sicom) para que `gen-sicom-env.py` no regenere con la IP vieja.
 - **Grupos / Usuarios — filtro multi:** con una sola opción seleccionada se muestra etiqueta más larga (hasta ~56 chars / 2 líneas) y `title` con el texto completo (antes se cortaba a 24).
 - **Grupos / Usuarios — botón Filtros:** al desactivar Filtros se limpian los filtros aplicados (antes solo se ocultaban y la tabla seguía filtrada).
 - **Grupos — filtro Alcance:** el check de región/zona marca solo ese nodo, no toda la rama (ya no hace falta desmarcar zona por zona).
