@@ -9,6 +9,10 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **Radio despacho:** un fallo de conexión de audio (LiveKit) ya no se muestra como "Sin enlace en tiempo real (Socket.IO)"; se reintenta automáticamente y el aviso se limpia al reconectar.
+- **Despliegue SICOM:** `sicom-deploy.sh` ya no se corta tras el respaldo de BD (docker leía el script por stdin).
+
 ### Added
 - **Infra — despliegue SICOM (VM Proxmox):** `infra/docker-compose.sicom.yml` (PostgreSQL 18, LiveKit 1.13.3 en red host, volúmenes persistentes `uploads`/`data`/`secrets`), `Caddyfile.sicom` (dominio LE + IP LAN con `tls internal`), `gen-sicom-env.py` (genera `.env.sicom` y `livekit.sicom.yaml` desde `backend/.env` conservando llaves) y `sicom-edge-keepalive.sh` (DuckDNS + UPnP por cron).
 - **API Docker:** imagen incluye `postgresql18-client` y `bsdtar` para que los respaldos `.zip` funcionen en Linux; `.dockerignore` excluye `data/` y `uploads/` del contexto.

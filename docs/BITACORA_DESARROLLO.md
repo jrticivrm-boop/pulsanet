@@ -1,3 +1,14 @@
+## 2026-09-28 — Radio despacho: aviso "Sin enlace en tiempo real (Socket.IO)" fijo tras la migración
+
+- **Tipo:** fix
+- **Área:** web | infra
+- **Qué:**
+  - Diagnóstico: Socket.IO en producción funciona (usuario presente en 11 canales, sondeo y websocket OK). El aviso venía de un fallo de conexión de **LiveKit (audio)** al reconectar tras el corte por el despliegue; `esMsg` traducía "websocket error" como Socket.IO y `usePtt` no reintentaba, así que el aviso quedaba fijo.
+  - `usePtt.js`: si falla `ensureLiveKit` con el socket conectado, reintenta con espera creciente (3 s → 30 s) y limpia el aviso al conectar; temporizador limpiado al desmontar.
+  - `esMsg.js`: errores de LiveKit/señalización se muestran como "Sin audio (LiveKit)…" antes de la regla de Socket.IO.
+  - Se sube también `00d6add` (`sicom-deploy.sh` con `</dev/null` en docker, keepalive TURN/env).
+- **Archivos / refs:** `frontend/src/usePtt.js`, `frontend/src/esMsg.js`, `infra/sicom-deploy.sh`, `infra/sicom-edge-keepalive.sh`
+
 ## 2026-09-28 — Producción: despliegue de la revisión de la VM (039 + API + LiveKit)
 
 - **Tipo:** fix | infra

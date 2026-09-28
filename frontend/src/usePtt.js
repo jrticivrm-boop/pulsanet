@@ -629,6 +629,7 @@ export function usePtt({
       ...socketIoOptions,
     });
     socketRef.current = socket;
+    let audioRetryTimer = null;
 
     const presenceFocus = () =>
       typeof document !== 'undefined' && document.hidden ? 'background' : 'foreground';
@@ -674,15 +675,26 @@ export function usePtt({
         }
         return;
       }
-      try {
-        await ensureLiveKit();
-      } catch (err) {
-        console.error('[PTT LiveKit] ensureLiveKit', err?.message || err, err);
-        if (!cancelled) {
-          setError(esMsg(err.message || 'Error de audio'));
+      const tryAudio = async (attempt) => {
+        try {
+          await ensureLiveKit();
+        } catch (err) {
+          console.error('[PTT LiveKit] ensureLiveKit', err?.message || err, err);
+          if (cancelled || !socket.connected) return;
+          // El socket sí está conectado: el fallo es del audio (LiveKit), no de Socket.IO.
+          setError(esMsg(`LiveKit error: ${err?.message || 'room connection failed'}`, 'Error de audio'));
           setStatus('error');
+          clearTimeout(audioRetryTimer);
+          audioRetryTimer = setTimeout(
+            () => {
+              if (!cancelled && socket.connected) void tryAudio(attempt + 1);
+            },
+            Math.min(30000, 3000 * 2 ** Math.min(attempt, 4))
+          );
         }
-      }
+      };
+      clearTimeout(audioRetryTimer);
+      await tryAudio(0);
     });
 
     socket.on('disconnect', () => {
@@ -977,6 +989,7 @@ export function usePtt({
     return () => {
       cancelled = true;
       clearInterval(ping);
+      clearTimeout(audioRetryTimer);
       document.removeEventListener('visibilitychange', onVisibility);
       holdingRef.current = false;
       const leaveIds = new Set([

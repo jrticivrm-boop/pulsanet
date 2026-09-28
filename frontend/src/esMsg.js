@@ -49,6 +49,9 @@ export function esMsg(raw, fallback = 'Ocurrió un error') {
   if (/aborterror|the operation was aborted/i.test(s)) {
     return 'Operación cancelada.';
   }
+  if (/livekit|signal connection|could not establish|room connection/i.test(s)) {
+    return 'Sin audio (LiveKit): el enlace de datos está bien, reintentando la conexión de voz… Si persiste, revisa red/firewall (puertos 7881/7882, 3478).';
+  }
   if (/xhr poll error|websocket error|transport error|server error/i.test(s)) {
     return 'Sin enlace en tiempo real (Socket.IO). Recarga con Ctrl+F5; si persiste, revisa red/firewall o el proxy /socket.io.';
   }
