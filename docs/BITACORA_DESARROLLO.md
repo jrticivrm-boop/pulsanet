@@ -1,3 +1,14 @@
+## 2026-09-28 — SICOM: LiveKit sigue la IP pública automáticamente
+
+- **Tipo:** fix
+- **Área:** infra | ops
+- **Qué:**
+  - Telmex cambió la IP pública (`189.152.245.254` → `189.175.18.38`). DuckDNS se actualizó solo, pero LiveKit seguía anunciando la IP vieja en `node_ip` → audio PTT sin ruta (solo IPv6).
+  - `infra/sicom-edge-keepalive.sh` (cron 10 min en la VM): nuevo paso 3 que compara la IP pública con `node_ip` de `infra/livekit.sicom.yaml`; si cambió, lo reescribe in situ y reinicia `tacticalptx-livekit-1`.
+  - Aplicado en la VM como hotfix: LiveKit arrancó con `nodeIP 189.175.18.38`. Respaldo `/opt/respaldos/livekit.sicom.yaml.20260928_165341`.
+- **Por qué / notas:** El script en la VM va adelantado a `main` hasta promover este cambio por el flujo (desarrollo → pruebas → main). El reinicio de LiveKit corta unos segundos las llamadas en curso (reconectan solas).
+- **Archivos / refs:** `infra/sicom-edge-keepalive.sh`
+
 ## 2026-09-28 — Flujo de 3 fases: controles antes de producción, reversión y desarrollo aislado
 
 - **Tipo:** infra

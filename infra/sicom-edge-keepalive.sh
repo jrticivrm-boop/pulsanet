@@ -2,6 +2,7 @@
 # TacticalPtx / SICOM — reemplazo Linux de ENSURE-PUBLIC-EDGE (tarea TacticalPtx-EdgeKeepalive).
 # 1) UPnP: 80/443 (Caddy) + LiveKit media 7881/tcp, 7882/udp, 3478/udp -> IP LAN de esta VM.
 # 2) DuckDNS: actualiza el A-record con la IP pública actual.
+# 3) LiveKit: si la IP pública cambió, actualiza node_ip en infra/livekit.sicom.yaml y reinicia el contenedor.
 # Cron (cada 10 min):  */10 * * * * /opt/pulsanet/infra/sicom-edge-keepalive.sh >> /var/log/sicom-edge.log 2>&1
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -41,4 +42,24 @@ if [ -n "$SECRETS" ]; then
   fi
 else
   echo "DuckDNS omitido (sin stable-domain.env en infra/secrets ni Soporte/Secrets)"
+fi
+
+LK_YAML="$ROOT/infra/livekit.sicom.yaml"
+if [ -f "$LK_YAML" ]; then
+  PUB_IP="$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null || curl -fsS --max-time 10 https://ifconfig.me/ip 2>/dev/null || true)"
+  CUR_IP="$(grep -E '^\s*node_ip:' "$LK_YAML" | head -1 | awk '{print $2}')"
+  if ! echo "$PUB_IP" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+    echo "LiveKit node_ip: IP pública no disponible, sin cambios ($CUR_IP)"
+  elif [ "$PUB_IP" = "$CUR_IP" ]; then
+    echo "LiveKit node_ip OK ($CUR_IP)"
+  else
+    # Escritura in situ: el archivo está montado como bind de archivo único en el contenedor.
+    NEW_CONTENT="$(sed -E "s/^(\s*node_ip:).*/\1 $PUB_IP/" "$LK_YAML")"
+    printf '%s\n' "$NEW_CONTENT" > "$LK_YAML"
+    if docker restart tacticalptx-livekit-1 >/dev/null 2>&1; then
+      echo "LiveKit node_ip $CUR_IP -> $PUB_IP (contenedor reiniciado)"
+    else
+      echo "LiveKit node_ip $CUR_IP -> $PUB_IP (FALLO al reiniciar contenedor)"
+    fi
+  fi
 fi
