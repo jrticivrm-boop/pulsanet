@@ -129,7 +129,9 @@ class AppConfig {
     final apiUri = Uri.tryParse(apiBaseUrl);
     final apiHost = apiUri?.host ?? '';
     if (apiHost.isNotEmpty && isPrivateHost(apiHost)) {
-      return 'wss://$apiHost';
+      // Conserva el puerto (desarrollo: Vite :5173 reenvía /rtc a LiveKit).
+      final p = apiUri!.hasPort ? apiUri.port : 0;
+      return (p > 0 && p != 443) ? 'wss://$apiHost:$p' : 'wss://$apiHost';
     }
     if (hasLanDirect) {
       final bypassLan = HairpinState.lanIp;

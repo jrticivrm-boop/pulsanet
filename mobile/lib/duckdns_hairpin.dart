@@ -93,6 +93,9 @@ class DuckDnsHairpin {
     lanIp = null;
     AppConfig.setLanDirectBase(null);
 
+    // Build apuntando ya a IP LAN (APK de desarrollo): sin desvío hairpin.
+    if (!AppConfig.hasOverride && AppConfig.isPrivateHost(uri.host)) return;
+
     final ip = compileLanIp;
     if (!AppConfig.isPrivateHost(ip)) return;
 

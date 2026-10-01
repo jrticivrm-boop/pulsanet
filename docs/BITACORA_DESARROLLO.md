@@ -1,3 +1,14 @@
+## 2026-10-01 — APK de desarrollo compilada (apunta a la PC)
+
+- **Tipo:** infra
+- **Área:** mobile | infra | docs
+- **Qué:**
+  - Nuevo `mobile/scripts/Build-ApkDev.ps1`: `API_BASE=https://192.168.1.77:5173`, versión `<x>-dev`, sin `APP_UPDATE_SECRET` (no se autoactualiza a la de producción) ni `SERVER_LAN_IP`. Generada `C:\pulsanet_soporte\APK\TacticalPtx-DEV-1.8.182-dev+192.apk` con las mejoras de eficiencia.
+  - App: con servidor de IP privada, la URL de LiveKit conserva el puerto (`wss://192.168.1.77:5173` → Vite `/rtc`); un build que ya apunta a IP LAN no hace sondeo/desvío hairpin.
+  - Desarrollo levantado con `NO_EDGE=1` y `TPX_LISTEN_ALL=1` (Vite en `0.0.0.0:5173`; API sigue en loopback). Verificado desde la IP LAN: health, Socket.IO y `/rtc`.
+  - Compilación: entrada corrupta en la caché de transformaciones de Gradle 8.14 borrada (se regenera).
+- **Archivos / refs:** `mobile/scripts/Build-ApkDev.ps1`, `mobile/lib/config.dart`, `mobile/lib/duckdns_hairpin.dart`, `docs/FLUJO_DESPLIEGUE.md`
+
 ## 2026-10-01 — APK: eficiencia de batería, datos y CPU (sin compilar)
 
 - **Tipo:** mejora
