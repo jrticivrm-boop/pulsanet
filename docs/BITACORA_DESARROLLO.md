@@ -1,3 +1,12 @@
+## 2026-10-01 — Bitácora: se quitan entradas de otro proyecto (ExploNova)
+
+- **Tipo:** docs
+- **Área:** docs
+- **Qué:**
+  - Retiradas 57 entradas de ExploNova (navegador Android, proyecto aparte) que otra sesión escribió por error al inicio de esta bitácora y de la copia en soporte; se conserva «Tarjeta Costos WAVE PTX».
+  - Entrada del 2026-10-01 reubicada al inicio (orden por fecha).
+- **Archivos / refs:** `docs/BITACORA_DESARROLLO.md`, `C:\pulsanet_soporte\Documentos\BITACORA_DESARROLLO.md`; respaldo en `C:\pulsanet_soporte\Respaldos\BITACORA_*_20261001T131051.md`
+
 ## 2026-10-01 — Despacho: vuelve el módulo «Chats» al menú lateral
 
 - **Tipo:** fix
@@ -7,6 +16,17 @@
   - `loadNavOrder`: los módulos que falten en el orden guardado se insertan junto a su vecino por defecto (no al final).
 - **Por qué / notas:** El 24/09 Chats se movió a RESERVADO y luego se aclaró que esa pestaña es solo auditoría; `/despacho/chats` volvió a ser la mensajería operativa pero el ítem del rail no se restauró (solo quedó en la barra inferior del teléfono).
 - **Archivos / refs:** `frontend/src/dispatch/DispatchLayout.jsx`
+
+## 2026-09-28 — Tarjeta "Costos WAVE PTX": comparativo contra SICOM
+
+- **Tipo:** docs
+- **Área:** docs | ops
+- **Qué:**
+  - Tablas de licenciamiento WAVE PTX básico y Safeguard unificadas en una sola (se corrigió la descripción "plan básico" que aparecía en Safeguard) y nueva tabla comparativa WAVE PTX vs. SICOM (costo, licencia, dispositivos, funciones, alerta, GPS, personalización, presencia, consola, soporte, desarrollo, escalabilidad, resguardo, plataformas).
+  - Punto III (Consideraciones): funciones SICOM según necesidades de los usuarios, medidas de seguridad y costos de la aplicación.
+  - Nuevo punto IV (Recomendaciones): viabilidad técnica de SICOM y solicitud de adquirir equipo Mac + Apple Developer Program para la versión iOS. Marcas "A la hoja…" reacomodadas (4 hojas).
+- **Por qué / notas:** costo del equipo Mac ($25,000–$35,000 M.N.) es aproximado, sujeto a cotización. Original respaldado en `C:\pulsanet_soporte\Respaldos\wave-ptx-doc-20260928-152345\`.
+- **Archivos / refs:** `Escritorio\Tjta. Costos WAVE PTX_2026-09-18,,,, resumido.docx` (+ `.pdf`)
 
 ## 2026-09-28 — Radio despacho: aviso "Sin enlace en tiempo real (Socket.IO)" fijo tras la migración
 
