@@ -10,6 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **Despacho — menú Chats:** vuelve el módulo **Chats** al menú lateral (se había perdido al crear RESERVADO, cuya pestaña de conversaciones es solo auditoría).
 - **Radio despacho:** un fallo de conexión de audio (LiveKit) ya no se muestra como "Sin enlace en tiempo real (Socket.IO)"; se reintenta automáticamente y el aviso se limpia al reconectar.
 - **Despliegue SICOM:** `sicom-deploy.sh` ya no se corta tras el respaldo de BD (docker leía el script por stdin).
 

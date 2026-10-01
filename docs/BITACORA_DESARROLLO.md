@@ -1,3 +1,13 @@
+## 2026-10-01 — Despacho: vuelve el módulo «Chats» al menú lateral
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Restaurado el ítem **Chats** (Mensajes y respuestas → `/despacho/chats`) en el rail de Módulos y en «Más» del teléfono, entre Radio PTT y Catálogos.
+  - `loadNavOrder`: los módulos que falten en el orden guardado se insertan junto a su vecino por defecto (no al final).
+- **Por qué / notas:** El 24/09 Chats se movió a RESERVADO y luego se aclaró que esa pestaña es solo auditoría; `/despacho/chats` volvió a ser la mensajería operativa pero el ítem del rail no se restauró (solo quedó en la barra inferior del teléfono).
+- **Archivos / refs:** `frontend/src/dispatch/DispatchLayout.jsx`
+
 ## 2026-09-28 — Radio despacho: aviso "Sin enlace en tiempo real (Socket.IO)" fijo tras la migración
 
 - **Tipo:** fix
