@@ -1,32 +1,14 @@
-## 2026-10-01 — Bitácora: se quitan entradas de otro proyecto (ExploNova)
+## 2026-10-01 — APK: eficiencia de batería, datos y CPU (sin compilar)
 
-- **Tipo:** docs
-- **Área:** docs
+- **Tipo:** mejora
+- **Área:** mobile
 - **Qué:**
-  - Retiradas 57 entradas de ExploNova (navegador Android, proyecto aparte) que otra sesión escribió por error al inicio de esta bitácora y de la copia en soporte; se conserva «Tarjeta Costos WAVE PTX».
-  - Entrada del 2026-10-01 reubicada al inicio (orden por fecha).
-- **Archivos / refs:** `docs/BITACORA_DESARROLLO.md`, `C:\pulsanet_soporte\Documentos\BITACORA_DESARROLLO.md`; respaldo en `C:\pulsanet_soporte\Respaldos\BITACORA_*_20261001T131051.md`
-
-## 2026-10-01 — Despacho: vuelve el módulo «Chats» al menú lateral
-
-- **Tipo:** fix
-- **Área:** web
-- **Qué:**
-  - Restaurado el ítem **Chats** (Mensajes y respuestas → `/despacho/chats`) en el rail de Módulos y en «Más» del teléfono, entre Radio PTT y Catálogos.
-  - `loadNavOrder`: los módulos que falten en el orden guardado se insertan junto a su vecino por defecto (no al final).
-- **Por qué / notas:** El 24/09 Chats se movió a RESERVADO y luego se aclaró que esa pestaña es solo auditoría; `/despacho/chats` volvió a ser la mensajería operativa pero el ítem del rail no se restauró (solo quedó en la barra inferior del teléfono).
-- **Archivos / refs:** `frontend/src/dispatch/DispatchLayout.jsx`
-
-## 2026-09-28 — Tarjeta "Costos WAVE PTX": comparativo contra SICOM
-
-- **Tipo:** docs
-- **Área:** docs | ops
-- **Qué:**
-  - Tablas de licenciamiento WAVE PTX básico y Safeguard unificadas en una sola (se corrigió la descripción "plan básico" que aparecía en Safeguard) y nueva tabla comparativa WAVE PTX vs. SICOM (costo, licencia, dispositivos, funciones, alerta, GPS, personalización, presencia, consola, soporte, desarrollo, escalabilidad, resguardo, plataformas).
-  - Punto III (Consideraciones): funciones SICOM según necesidades de los usuarios, medidas de seguridad y costos de la aplicación.
-  - Nuevo punto IV (Recomendaciones): viabilidad técnica de SICOM y solicitud de adquirir equipo Mac + Apple Developer Program para la versión iOS. Marcas "A la hoja…" reacomodadas (4 hojas).
-- **Por qué / notas:** costo del equipo Mac ($25,000–$35,000 M.N.) es aproximado, sujeto a cotización. Original respaldado en `C:\pulsanet_soporte\Respaldos\wave-ptx-doc-20260928-152345\`.
-- **Archivos / refs:** `Escritorio\Tjta. Costos WAVE PTX_2026-09-18,,,, resumido.docx` (+ `.pdf`)
+  - **LiveKit:** al reconectar el socket (cambio de red, pantalla apagada) ya no se destruyen y recrean todas las salas; solo se reconectan las caídas o faltantes (`_ensureLiveKit`, `_connectRoom`). Era la causa de cientos de sesiones/hora con `DUPLICATE_IDENTITY` en producción.
+  - **GPS adaptativo:** en movimiento, alta precisión al intervalo de la organización (`/api/me/gps-settings`, antes ignorado por la app); quieto ≥ 2 min, precisión media cada 30 s y un envío cada 60 s; vuelve a alta precisión al moverse ≥ 25 m o con pánico (5 min). Antes: fix forzado de alta precisión cada 5 s + stream cada 3 s, siempre. Reanudar/minimizar ya no fuerza un fix si hubo envío en los últimos 15 s.
+  - **Mapa GPS:** solo consulta `/api/locations` con la pestaña visible y la app al frente (antes cada 5 s siempre, incluso minimizada). Pestañas ocultas del `IndexedStack` con animaciones pausadas (`TickerMode`).
+  - **Presencia:** latido HTTP del servicio en segundo plano 12 s → 50 s y del GPS 15 s → 50 s (servidor tolera 150 s); `presence:ping` por socket 30 s y un solo mensaje para todos los canales (antes uno por canal cada 15 s).
+- **Por qué / notas:** se mantiene el wakelock/wifilock del servicio (recepción de radio con pantalla bloqueada). Validar en teléfono contra desarrollo cuando se compile el APK.
+- **Archivos / refs:** `mobile/lib/channel_session.dart`, `mobile/lib/location_heartbeat.dart`, `mobile/lib/background_radio.dart`, `mobile/lib/api_client.dart`, `mobile/lib/screens/gps_track_screen.dart`, `mobile/lib/screens/radio_shell.dart`
 
 ## 2026-09-28 — Radio despacho: aviso "Sin enlace en tiempo real (Socket.IO)" fijo tras la migración
 

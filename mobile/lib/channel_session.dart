@@ -552,7 +552,7 @@ class ChannelSession extends ChangeNotifier {
           });
         }
         notifyListeners();
-        _connectLiveKit();
+        unawaited(_ensureLiveKit());
       })
       ..onDisconnect((_) {
         connected = false;
@@ -1027,8 +1027,9 @@ class ChannelSession extends ChangeNotifier {
         notifyListeners();
       });
 
-    // 15 s: margen amplio vs PRESENCE_STALE_MS (90 s) y redes intermitentes.
-    _ping = Timer.periodic(const Duration(seconds: 15), (_) {
+    // 30 s: tres intentos dentro de PRESENCE_STALE_MS (90 s). Cambios de foco
+    // se envían al instante desde el ciclo de vida.
+    _ping = Timer.periodic(const Duration(seconds: 30), (_) {
       if (connected) pingPresenceFocus();
     });
 
@@ -1103,9 +1104,8 @@ class ChannelSession extends ChangeNotifier {
   void pingPresenceFocus() {
     final focus = _presenceFocusWire;
     if (connected && _socket != null) {
-      for (final gid in listenGroupIds) {
-        _socket!.emit('presence:ping', {'groupId': gid, 'focus': focus});
-      }
+      // Sin groupId el servidor aplica a todos los canales unidos (ptt:join).
+      _socket!.emit('presence:ping', {'focus': focus});
     }
     // foreground|background solo por socket. HTTP /presence/heartbeat = service (FGS).
     final me = api.user?['id']?.toString();
@@ -1242,6 +1242,102 @@ class ChannelSession extends ChangeNotifier {
   bool _callOwnsAudio() =>
       PrivateCallGate.uiOpen || GroupVideoScreen.uiOpen;
 
+  static bool _roomAlive(Room? r) =>
+      r != null &&
+      (r.connectionState == ConnectionState.connected ||
+          r.connectionState == ConnectionState.reconnecting);
+
+  /// Reconexión del socket (cambio de red, pantalla apagada): LiveKit reanuda sus
+  /// salas por su cuenta. Rehacerlas todas duplicaba identidades y gastaba datos.
+  Future<void> _ensureLiveKit() async {
+    final talkId = talkGroupId;
+    final talk = _roomsByGroup[talkId];
+    if (!_roomAlive(talk) || !identical(_room, talk)) {
+      await _connectLiveKit();
+      return;
+    }
+    if (!livekitReady) {
+      livekitReady = true;
+      error = null;
+      notifyListeners();
+    }
+    final missing = listenGroupIds
+        .where((gid) => gid != talkId && !_roomAlive(_roomsByGroup[gid]))
+        .toSet();
+    for (final gid in missing) {
+      if (!identical(ChannelSession.current, this)) return;
+      final dead = _roomsByGroup.remove(gid);
+      if (dead != null) {
+        try {
+          dead.removeListener(_onRoomChanged);
+          await dead.disconnect();
+          await dead.dispose();
+        } catch (_) {}
+      }
+      try {
+        await _connectRoom(gid);
+        await _applyListenMute();
+        notifyListeners();
+      } catch (e) {
+        if (kDebugMode) debugPrint('LiveKit listen skip [$gid]: $e');
+      }
+    }
+  }
+
+  Future<bool> _connectRoom(String gid, {bool isTalk = false}) async {
+    final lk = await api.fetchLiveKitToken(gid);
+    final e2ee = await buildVoiceE2eeOptions(
+      lk['e2eeKey']?.toString(),
+      required: lk['e2ee'] == true,
+    );
+    final room = Room(
+      roomOptions: RoomOptions(
+        adaptiveStream: false,
+        dynacast: false,
+        encryption: e2ee,
+        defaultAudioPublishOptions: const AudioPublishOptions(
+          dtx: false,
+          red: false,
+          encoding: AudioEncoding.presetSpeech,
+        ),
+        defaultAudioCaptureOptions: const AudioCaptureOptions(
+          echoCancellation: true,
+          noiseSuppression: false,
+          autoGainControl: true,
+          stopAudioCaptureOnMute: true,
+        ),
+      ),
+    );
+    room.addListener(_onRoomChanged);
+    final ev = room.createListener();
+    ev
+      ..on<TrackSubscribedEvent>((e) {
+        if (e.track is! RemoteAudioTrack) return;
+        unawaited(_applyListenMute());
+      })
+      ..on<TrackPublishedEvent>((e) {
+        if (e.publication.kind != TrackType.AUDIO) return;
+        unawaited(_applyListenMute());
+      });
+    if (isTalk) {
+      _roomEvents = ev;
+    } else {
+      _extraRoomEvents.add(ev);
+    }
+    final lkUrl = AppConfig.publicLiveKitUrl(lk['url'] as String);
+    if (kDebugMode) debugPrint('LiveKit connect [$gid] → $lkUrl');
+    await room.connect(
+      lkUrl,
+      lk['token'] as String,
+      connectOptions: const ConnectOptions(autoSubscribe: true),
+    );
+    _roomsByGroup[gid] = room;
+    if (isTalk) {
+      _room = room;
+    }
+    return true;
+  }
+
   Future<void> _connectLiveKit() async {
     try {
       await _disposeAllRooms();
@@ -1261,59 +1357,8 @@ class ChannelSession extends ChangeNotifier {
       var talkOk = false;
       Object? lastErr;
 
-      Future<bool> connectOne(String gid, {bool isTalk = false}) async {
-        final lk = await api.fetchLiveKitToken(gid);
-        final e2ee = await buildVoiceE2eeOptions(
-          lk['e2eeKey']?.toString(),
-          required: lk['e2ee'] == true,
-        );
-        final room = Room(
-          roomOptions: RoomOptions(
-            adaptiveStream: false,
-            dynacast: false,
-            encryption: e2ee,
-            defaultAudioPublishOptions: const AudioPublishOptions(
-              dtx: false,
-              red: false,
-              encoding: AudioEncoding.presetSpeech,
-            ),
-            defaultAudioCaptureOptions: const AudioCaptureOptions(
-              echoCancellation: true,
-              noiseSuppression: false,
-              autoGainControl: true,
-              stopAudioCaptureOnMute: true,
-            ),
-          ),
-        );
-        room.addListener(_onRoomChanged);
-        final ev = room.createListener();
-        ev
-          ..on<TrackSubscribedEvent>((e) {
-            if (e.track is! RemoteAudioTrack) return;
-            unawaited(_applyListenMute());
-          })
-          ..on<TrackPublishedEvent>((e) {
-            if (e.publication.kind != TrackType.AUDIO) return;
-            unawaited(_applyListenMute());
-          });
-        if (isTalk) {
-          _roomEvents = ev;
-        } else {
-          _extraRoomEvents.add(ev);
-        }
-        final lkUrl = AppConfig.publicLiveKitUrl(lk['url'] as String);
-        if (kDebugMode) debugPrint('LiveKit connect [$gid] → $lkUrl');
-        await room.connect(
-          lkUrl,
-          lk['token'] as String,
-          connectOptions: const ConnectOptions(autoSubscribe: true),
-        );
-        _roomsByGroup[gid] = room;
-        if (isTalk) {
-          _room = room;
-        }
-        return true;
-      }
+      Future<bool> connectOne(String gid, {bool isTalk = false}) =>
+          _connectRoom(gid, isTalk: isTalk);
 
       // Talk: hasta 2 intentos (ICE a veces falla al primer PeerConnection).
       for (var attempt = 0; attempt < 2 && !talkOk; attempt++) {
@@ -2183,6 +2228,7 @@ class ChannelSession extends ChangeNotifier {
     panicSending = true;
     error = null;
     notifyListeners();
+    LocationHeartbeat.boost();
     try {
       final data = await api.triggerPanic(
         groupId: groupId,

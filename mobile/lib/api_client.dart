@@ -533,6 +533,13 @@ class ApiClient {
     });
   }
 
+  /// Intervalo/umbral GPS de la organización (Admin). `{maxAccuracyM, intervalSec}`.
+  Future<Map<String, dynamic>> fetchGpsSettings() async {
+    final data = await _get('/api/me/gps-settings');
+    final gps = data['gps'];
+    return gps is Map ? Map<String, dynamic>.from(gps) : const {};
+  }
+
   /// Refuerzo de presencia (socket + HTTP). focus: foreground|background|service.
   Future<void> presenceHeartbeat({String focus = 'service'}) async {
     try {

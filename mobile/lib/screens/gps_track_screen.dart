@@ -26,6 +26,7 @@ class GpsTrackScreen extends StatefulWidget {
     this.channelGroupId,
     this.channelName,
     this.groups = const [],
+    this.active = true,
   });
 
   final ApiClient api;
@@ -33,15 +34,18 @@ class GpsTrackScreen extends StatefulWidget {
   final String? channelName;
   /// Membresías del operador: opciones del filtro GPS (además de «Todos»).
   final List<Map<String, dynamic>> groups;
+  /// Pestaña visible. Oculta (IndexedStack) no consulta ubicaciones.
+  final bool active;
 
   @override
   State<GpsTrackScreen> createState() => _GpsTrackScreenState();
 }
 
 class _GpsTrackScreenState extends State<GpsTrackScreen>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final _map = MapController();
   Timer? _poll;
+  bool _appResumed = true;
   List<_GpsPeer> _peers = [];
   String? _error;
   bool _loading = true;
@@ -81,17 +85,42 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
     super.initState();
     final gid = (widget.channelGroupId ?? '').trim();
     _filterGroupId = gid.isNotEmpty ? gid : null;
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_loadStates());
     unawaited(_loadSites());
-    unawaited(_reload());
-    _poll = Timer.periodic(const Duration(seconds: 5), (_) {
-      unawaited(_reload(silent: true));
-    });
+    if (widget.active) unawaited(_reload());
+    _syncPoll();
+  }
+
+  bool get _shouldPoll => widget.active && _appResumed;
+
+  void _syncPoll() {
+    if (_shouldPoll) {
+      _poll ??= Timer.periodic(const Duration(seconds: 5), (_) {
+        unawaited(_reload(silent: true));
+      });
+    } else {
+      _poll?.cancel();
+      _poll = null;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == _appResumed) return;
+    _appResumed = resumed;
+    if (_shouldPoll) unawaited(_reload(silent: true));
+    _syncPoll();
   }
 
   @override
   void didUpdateWidget(covariant GpsTrackScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) {
+      if (_shouldPoll) unawaited(_reload(silent: true));
+      _syncPoll();
+    }
     if (oldWidget.channelGroupId != widget.channelGroupId) {
       final oldGid = (oldWidget.channelGroupId ?? '').trim();
       final newGid = (widget.channelGroupId ?? '').trim();
@@ -119,6 +148,7 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _map.dispose();
     super.dispose();

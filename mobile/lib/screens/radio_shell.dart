@@ -1998,9 +1998,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
 
     final session = _session!;
 
-    final mainBody = IndexedStack(
-      index: _mainTabIndex,
-      children: [
+    final mainTabs = <Widget>[
         ChatInboxScreen(
           key: _inboxKey,
           api: widget.api,
@@ -2073,7 +2071,16 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
             channelGroupId: session.groupId,
             channelName: session.groupName,
             groups: _groups,
+            active: _mainTabIndex == 3,
           ),
+    ];
+    // IndexedStack mantiene vivas las animaciones de pestañas ocultas (pines GPS
+    // pulsando = render a 60 fps sin que nadie lo vea).
+    final mainBody = IndexedStack(
+      index: _mainTabIndex,
+      children: [
+        for (var i = 0; i < mainTabs.length; i++)
+          TickerMode(enabled: i == _mainTabIndex, child: mainTabs[i]),
       ],
     );
 

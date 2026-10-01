@@ -207,6 +207,8 @@ void backgroundRadioCallback() {
 
 class _RadioTaskHandler extends TaskHandler {
   DateTime? _lastPresenceAt;
+  /// Servidor: PRESENCE_SERVICE_STALE_MS = 150 s.
+  static const _presenceEvery = Duration(seconds: 50);
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
@@ -226,10 +228,12 @@ class _RadioTaskHandler extends TaskHandler {
     try {
       final now = DateTime.now();
       if (_lastPresenceAt != null &&
-          now.difference(_lastPresenceAt!) < const Duration(seconds: 12)) {
+          now.difference(_lastPresenceAt!) < _presenceEvery) {
         return;
       }
       _lastPresenceAt = now;
+      // Sesión fresca del almacén: la app principal rota el token; un cliente
+      // cacheado aquí refrescaría en paralelo y podría cerrar la sesión.
       final api = ApiClient();
       await api.loadSession();
       if (!api.isLoggedIn) return;
