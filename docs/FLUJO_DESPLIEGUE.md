@@ -21,7 +21,7 @@
    ```
    Validar en https://localhost:5180 (o `https://<IP-PC>:5180` desde un teléfono en la LAN).
    Revisar lo que aplique de [`CHECKLIST_PRUEBAS.md`](CHECKLIST_PRUEBAS.md).
-   APK de desarrollo: `mobile\scripts\Build-ApkDev.ps1` → `C:\pulsanet_soporte\APK\TacticalPtx-DEV-<versión>-dev+<n>.apk`, apunta a `https://192.168.1.77:5173` (Vite reenvía `/api`, `/socket.io`, `/rtc`). Requiere levantar desarrollo con `NO_EDGE=1` y `TPX_LISTEN_ALL=1`. Mismo `applicationId` que producción: instalarla reemplaza la app de producción en ese teléfono (usar un teléfono de prueba).
+   APK de desarrollo: `mobile\scripts\Build-ApkDev.ps1` → `C:\pulsanet_soporte\APK\TacticalPtx-DEV-<versión>-dev+<n>.apk`, apunta a la IP de la PC en el Wi-Fi mesh de los teléfonos (hoy `https://192.168.68.69:5173`; la Ethernet 192.168.1.77 no es alcanzable desde ese Wi-Fi) (Vite reenvía `/api`, `/socket.io`, `/rtc`). Requiere levantar desarrollo con `NO_EDGE=1` y `TPX_LISTEN_ALL=1`. Mismo `applicationId` que producción: instalarla reemplaza la app de producción en ese teléfono (usar un teléfono de prueba).
    Probar la app móvil contra pruebas: en un teléfono de prueba conectado al Wi-Fi, en inicio de sesión → *Servidor*: `https://192.168.1.77:4200` (la APK confía en el certificado de la PC solo en esa IP). Sirve para sesión, mapa, canales y mensajes; voz/video del teléfono contra pruebas no está garantizado (LiveKit de pruebas no se publica). Al terminar, borrar el servidor para volver a producción. No hay APK de pruebas separada: requiere cambios de compilación (otro `applicationId` + Firebase) y se hará cuando se pida una APK.
 3. **Verificar** (automático, solo lectura; PROMOVER también lo corre):
    ```powershell

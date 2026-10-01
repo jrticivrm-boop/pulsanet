@@ -125,7 +125,21 @@ if (-not (Test-Path $lk)) {
   if (Test-Path $lkCfg) {
     $lkArgs = @('--config', $lkCfg, '--dev', '--udp-port', '7882')
   }
-  if ($publicIp) {
+  if ($noEdge) {
+    # Desarrollo: la IP publica lleva (UPnP) a la VM SICOM. Anunciar la IP de la
+    # PC en el Wi-Fi de los telefonos (mesh 192.168.68.x) o TPX_DEV_NODE_IP.
+    $devIp = $env:TPX_DEV_NODE_IP
+    if (-not $devIp) {
+      $devIp = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -like '192.168.68.*' } |
+        Select-Object -First 1 -ExpandProperty IPAddress
+    }
+    if (-not $devIp) { $devIp = $lanIp }
+    if ($devIp) {
+      $lkArgs += @('--node-ip', $devIp)
+      Write-Host "LiveKit (desarrollo): node-ip=$devIp udp=7882 tcp=7881" -ForegroundColor Cyan
+    }
+  } elseif ($publicIp) {
     $yamlIp = Get-TpxLiveKitYamlNodeIp -Root $root
     if ($yamlIp -and $yamlIp -ne $publicIp) {
       [void](Sync-TpxLiveKitYaml -Root $root -PublicIp $publicIp)

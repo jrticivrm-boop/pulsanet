@@ -1,10 +1,19 @@
 # APK de DESARROLLO: apunta al Vite de la PC (proxy /api, /socket.io, /rtc).
 # Sin APP_UPDATE_SECRET (no se autoactualiza a la APK de produccion) ni SERVER_LAN_IP.
-# Uso: powershell -File mobile\scripts\Build-ApkDev.ps1 [-ApiBase https://192.168.1.77:5173]
+# Uso: powershell -File mobile\scripts\Build-ApkDev.ps1 [-ApiBase https://IP:5173]
+# Por defecto: IP de la PC en el Wi-Fi de los telefonos (mesh 192.168.68.x); la Ethernet
+# 192.168.1.77 no es alcanzable desde ese Wi-Fi.
 # Requiere el stack dev con Vite en la red: LEVANTAR con NO_EDGE=1 y TPX_LISTEN_ALL=1.
 param(
-  [string]$ApiBase = 'https://192.168.1.77:5173'
+  [string]$ApiBase = ''
 )
+if (-not $ApiBase) {
+  $wifiIp = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -like '192.168.68.*' } |
+    Select-Object -First 1 -ExpandProperty IPAddress
+  if (-not $wifiIp) { throw 'Sin IP 192.168.68.x en esta PC; indica -ApiBase https://IP:5173' }
+  $ApiBase = "https://${wifiIp}:5173"
+}
 
 $ErrorActionPreference = 'Stop'
 $root = 'C:\pulsanet'

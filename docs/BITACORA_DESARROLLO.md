@@ -1,3 +1,14 @@
+## 2026-10-01 — APK de desarrollo: usar la IP Wi-Fi de la PC (mesh 192.168.68.x)
+
+- **Tipo:** fix
+- **Área:** mobile | infra
+- **Qué:**
+  - Los teléfonos en el Wi-Fi mesh (192.168.68.x) no tienen ruta a la Ethernet de la PC (192.168.1.77, `ERR_ADDRESS_UNREACHABLE` / errno 113). `Build-ApkDev.ps1` usa por defecto la IP 192.168.68.x de la PC (hoy `https://192.168.68.69:5173`); APK regenerada.
+  - `lan_tls.dart`: el certificado LAN fijado se acepta en cualquier IP privada (sigue exigiendo coincidencia exacta del cert).
+  - `start-services.ps1`: con `TPX_NO_EDGE=1`, LiveKit anuncia la IP de la PC en el mesh (o `TPX_DEV_NODE_IP`) en vez de la IP pública, que por UPnP lleva a la VM de producción.
+- **Por qué / notas:** la IP 192.168.68.69 es por DHCP del mesh; si cambia, recompilar o reservarla en el router.
+- **Archivos / refs:** `mobile/scripts/Build-ApkDev.ps1`, `mobile/lib/lan_tls.dart`, `infra/start-services.ps1`
+
 ## 2026-10-01 — APK de desarrollo compilada (apunta a la PC)
 
 - **Tipo:** infra

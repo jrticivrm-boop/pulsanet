@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart' show rootBundle;
 
+import 'config.dart';
+
 /// TLS para API/Socket.
 ///
 /// - DuckDNS/4G: trust del sistema (Let's Encrypt).
@@ -62,9 +64,10 @@ class _LanHttpOverrides extends HttpOverrides {
   }
 }
 
-/// Solo loopback / emulador / IP canónica del host Ethernet.
+/// Loopback / emulador / IP privada (PC en Ethernet o en el Wi‑Fi mesh). El cert
+/// debe coincidir exacto con el embebido, así que una IP privada no basta sola.
 bool _isLanTlsHost(String host) {
   final h = host.trim().toLowerCase();
-  if (h == 'localhost' || h == '127.0.0.1' || h == '10.0.2.2') return true;
-  return h == '192.168.1.77';
+  if (h == '10.0.2.2') return true;
+  return AppConfig.isPrivateHost(h);
 }
