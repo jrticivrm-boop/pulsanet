@@ -183,8 +183,9 @@ if [ "$full_stack" = 1 ]; then
   "${DC[@]}" up -d --build </dev/null
   services="(todo)"
 elif [ -n "$services" ]; then
+  # --no-deps: web depende de api; sin esto "up --build web" reconstruye y recrea también la API.
   # shellcheck disable=SC2086
-  "${DC[@]}" up -d --build $services </dev/null
+  "${DC[@]}" up -d --build --no-deps $services </dev/null
 fi
 
 if [ "$restart_proxy" = 1 ]; then

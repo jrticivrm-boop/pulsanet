@@ -40,8 +40,11 @@ if ($DryRun) { $args2 += '--dry-run' }
 Write-Host "== Desplegando main ($($remoteMain.Substring(0,7))) en SICOM: $($args2 -join ' ') ==" -ForegroundColor Cyan
 # El script se toma de origin/main para que un deploy use siempre su version mas nueva.
 $remote = "cd /opt/pulsanet && git fetch -q origin main && git show origin/main:infra/sicom-deploy.sh | bash -s -- $($args2 -join ' ')"
-& ssh @SshOpts $VmHost $remote
+# docker compose escribe su avance en stderr; con 'Stop' PowerShell 5 lo trata como error y corta.
+$ErrorActionPreference = 'Continue'
+& ssh @SshOpts $VmHost $remote 2>&1 | ForEach-Object { Write-Host $_ }
 $code = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
 switch ($code) {
   0 { Write-Host 'Produccion actualizada.' -ForegroundColor Green }
   3 { Write-Host 'Detenido: hay migraciones de BD. Repite con -Migrate.' -ForegroundColor Yellow }
