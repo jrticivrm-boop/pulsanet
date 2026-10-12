@@ -22,6 +22,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **App móvil — eficiencia:** GPS adaptativo (alta precisión solo en movimiento; respeta el intervalo GPS de la organización), mapa GPS sin consultas en segundo plano, menos latidos de presencia y LiveKit sin reconectar salas sanas al reconectar el socket. Menor consumo de batería, datos y CPU.
 
 ### Fixed
+- **Despliegue SICOM — `-Target web|api`:** usa `--no-deps`; antes `up --build web` también reconstruía y recreaba la API (web depende de api). `DEPLOY-SICOM.ps1` ya no se corta cuando docker escribe su avance en stderr.
 - **App móvil — sesión:** un error transitorio del servidor (5xx, HTML del proxy, sin red) al renovar el token ya no cierra la sesión; un solo refresh a la vez y, si otro proceso de la app ya rotó el token, se adopta en lugar de salir.
 - **API — estabilidad:** handlers de socket con datos vacíos o errores ya no generan rechazos sin manejar; manejador global `unhandledRejection`; Redis reintenta la conexión indefinidamente.
 - **Radio despacho:** un fallo de conexión de audio (LiveKit) ya no se muestra como "Sin enlace en tiempo real (Socket.IO)"; se reintenta automáticamente y el aviso se limpia al reconectar.

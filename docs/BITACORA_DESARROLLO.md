@@ -1,3 +1,13 @@
+## 2026-10-12 — Producción: solo consola web (Chats en el rail + menos recargas)
+
+- **Tipo:** ops | fix
+- **Área:** infra | web
+- **Qué:**
+  - Por orden del usuario (fuera de ventana, autorizado): `main` → `10370d1`; desplegado **solo web** (`DEPLOY-SICOM.ps1 -Target web`). Etiqueta `prod-v1.8.107-20261012-1616`. VERIFICAR-PRUEBAS: listo (aviso: copia de BD con 14 días). Health OK, 0 errores de API.
+  - La **API NO se reconstruyó**: sigue con el backend anterior (1a44bc1). Los cambios de backend de `0b392ed` (permisos cámara remota/grabaciones/LiveKit, estabilidad, presencia, purga de ubicaciones > 35 días) ya están en `main` pero el despliegue "auto" no los detectará: para subirlos usar `DEPLOY-SICOM.ps1 -Target api`.
+  - Fix del despliegue: `sicom-deploy.sh` usa `--no-deps` con servicios concretos (antes `up --build web` reconstruía y recreaba también la API por `depends_on`); `DEPLOY-SICOM.ps1` ya no se corta con el avance de docker en stderr. Un primer intento se cortó tras mover el código en la VM sin reconstruir nada (sin impacto).
+- **Archivos / refs:** `infra/sicom-deploy.sh`, `infra/DEPLOY-SICOM.ps1`, `/opt/respaldos/deploys.log`, `C:\pulsanet_soporte\Pruebas\despliegues.log`
+
 ## 2026-10-11 — Análisis del proyecto y correcciones P0/P1 (permisos, sesión móvil, estabilidad, carga)
 
 - **Tipo:** security | fix | mejora
