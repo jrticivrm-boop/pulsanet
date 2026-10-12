@@ -22,6 +22,8 @@ import {
 } from '../services/dm.js';
 import { notifyUserDevices, notifyUserDevicesDataOnly } from '../services/fcm.js';
 import { voiceE2eeKeyForRoom } from '../services/voiceE2ee.js';
+import { isDispatch } from '../services/roles.js';
+import { loadTrackScope, unitInTrackScope, getUserUnitId } from '../services/orgUnits.js';
 
 /** ~5 timbres (≈5 s c/u) sin contestar → colgar + llamada perdida. */
 const RING_MS = 5_000;
@@ -278,6 +280,15 @@ export function createCallsRouter(io) {
     const effectiveMode = intent === 'remote_camera' ? 'video' : mode;
     const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, targetUserId);
     if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    if (intent === 'remote_camera') {
+      if (!isDispatch(req.user.role)) {
+        return res.status(403).json({ ok: false, error: 'Sin permiso para ver cámaras remotas' });
+      }
+      const scope = await loadTrackScope(req.user);
+      if (!unitInTrackScope(scope, await getUserUnitId(peer.id))) {
+        return res.status(403).json({ ok: false, error: 'Usuario fuera de tu alcance' });
+      }
+    }
     if (!isLiveKitConfigured()) {
       return res.status(503).json({ ok: false, error: 'LiveKit no configurado' });
     }

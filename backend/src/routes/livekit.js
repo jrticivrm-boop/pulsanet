@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { isDispatch } from '../services/roles.js';
+import { listVisibleGroups } from '../services/orgUnits.js';
 import { createRoomToken, isLiveKitConfigured, resolveLiveKitUrl } from '../services/livekit.js';
 import { voiceE2eeKeyForRoom } from '../services/voiceE2ee.js';
 
@@ -45,13 +46,9 @@ livekitRouter.post('/token', async (req, res) => {
 
   let group = rows[0];
   if (!group && isDispatch(req.user.role)) {
-    const { rows: orgRows } = await query(
-      `SELECT g.id, g.name, g.livekit_room, 'leader'::text AS member_role
-       FROM groups g
-       WHERE g.id = $1 AND g.organization_id = $2 AND g.is_active = TRUE`,
-      [groupId, req.user.orgId]
-    );
-    group = orgRows[0];
+    const visible = await listVisibleGroups(req.user);
+    const g = visible.find((v) => String(v.id) === String(groupId));
+    if (g) group = { id: g.id, name: g.name, livekit_room: g.livekit_room, member_role: 'leader' };
   }
 
   if (!group) {

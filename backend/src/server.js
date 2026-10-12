@@ -49,6 +49,7 @@ import { backupsRouter } from './routes/backups.js';
 import { createPresenceRouter } from './routes/presence.js';
 import { isLiveKitConfigured } from './services/livekit.js';
 import { startBackupScheduler } from './services/backup.js';
+import { startLocationRetention } from './services/locationRetention.js';
 import { bindSessionIo, normalizeDeviceId } from './services/sessionPolicy.js';
 
 import { connectRedis, isRedisReady } from './redis.js';
@@ -59,6 +60,11 @@ import { bindLiveUser } from './services/userProfile.js';
 import { isWireEncryptionEnabled } from './services/wireCrypto.js';
 import { isContentEncryptionReady } from './services/contentCrypto.js';
 import { isVoiceE2eeReady } from './services/voiceE2ee.js';
+
+// Un handler async sin catch no debe tumbar el proceso (Node >=15 sale por defecto).
+process.on('unhandledRejection', (reason) => {
+  console.error('unhandledRejection:', reason?.stack || reason);
+});
 
 // --- HTTP(S) + Express ---
 const app = express();
@@ -284,4 +290,5 @@ async function start() {
 
 initFcm();
 startBackupScheduler();
+startLocationRetention();
 start();

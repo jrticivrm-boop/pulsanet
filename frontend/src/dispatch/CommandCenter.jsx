@@ -37,6 +37,8 @@ import {
   upsertLocation,
   gpsStatusLine,
   recordedAtLocal,
+  debounceTrailing,
+  PRESENCE_RELOAD_DEBOUNCE_MS,
 } from './liveTiming.js';
 import { sessionWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
 import { mapAvatarIcon } from './mapAvatarIcon.js';
@@ -287,7 +289,8 @@ export default function CommandCenter({ session }) {
       reload();
     });
 
-    socket.on('dispatch:presence', () => reload());
+    const reloadPresence = debounceTrailing(() => reload(), PRESENCE_RELOAD_DEBOUNCE_MS);
+    socket.on('dispatch:presence', reloadPresence);
 
     // GPS actualiza el mapa, NO satura la lista de actividad
     socket.on('dispatch:location', (payload) => {
@@ -438,6 +441,7 @@ export default function CommandCenter({ session }) {
       clearInterval(t);
       clearInterval(locPoll);
       document.removeEventListener('visibilitychange', onVis);
+      reloadPresence.cancel();
       offWire();
       socket.emit('dispatch:leave');
       socket.disconnect();

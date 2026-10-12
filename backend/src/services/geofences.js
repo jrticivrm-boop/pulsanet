@@ -43,6 +43,7 @@ export async function evaluateGeofences(
     const dist = haversineM(latitude, longitude, f.center_lat, f.center_lng);
     const inside = dist <= f.radius_m;
     const was = prev.has(f.id) ? prev.get(f.id) : null;
+    if (was === inside) continue;
 
     await query(
       `INSERT INTO geofence_presence (geofence_id, user_id, inside, updated_at)
@@ -52,11 +53,7 @@ export async function evaluateGeofences(
       [f.id, userId, inside]
     );
 
-    if (was === null) {
-      if (!inside) continue;
-    } else if (was === inside) {
-      continue;
-    }
+    if (was === null && !inside) continue;
 
     const event = inside ? 'enter' : 'exit';
     const fenceName = f.name || 'Geocerca';

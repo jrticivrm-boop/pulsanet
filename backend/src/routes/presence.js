@@ -27,6 +27,10 @@ export function createPresenceRouter(io) {
         displayName,
         focus,
       });
+      // Cada consola recarga mapa/listas con dispatch:presence: solo avisar si algo se ve distinto.
+      if (!result.focusChanged) {
+        return res.json({ ok: true, focus: result.focus || focus });
+      }
       emitDispatch(io, 'dispatch:presence', {
         orgId,
         userId,

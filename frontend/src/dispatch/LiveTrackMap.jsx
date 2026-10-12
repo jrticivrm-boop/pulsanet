@@ -31,6 +31,8 @@ import {
   recordedAtLocal,
   recordedAtMs,
   upsertLocation,
+  debounceTrailing,
+  PRESENCE_RELOAD_DEBOUNCE_MS,
 } from './liveTiming.js';
 import { isAbsurdGpsJump } from '../gpsQuality.js';
 import { mapAvatarIcon } from './mapAvatarIcon.js';
@@ -546,7 +548,8 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
         }
       })();
     });
-    socket.on('dispatch:presence', () => reload());
+    const reloadPresence = debounceTrailing(() => reload(), PRESENCE_RELOAD_DEBOUNCE_MS);
+    socket.on('dispatch:presence', reloadPresence);
     socket.on('dispatch:panic', (raw) => {
       void (async () => {
         const payload = await unwrapDispatchPayload(raw, socketWireKey(socket, session));
@@ -594,6 +597,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
       })();
     });
     return () => {
+      reloadPresence.cancel();
       offWire();
       socket.emit('dispatch:leave');
       socket.disconnect();

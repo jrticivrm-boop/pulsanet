@@ -1,3 +1,17 @@
+## 2026-10-11 — Análisis del proyecto y correcciones P0/P1 (permisos, sesión móvil, estabilidad, carga)
+
+- **Tipo:** security | fix | mejora
+- **Área:** backend | web | mobile
+- **Qué:**
+  - Análisis completo (arquitectura, seguridad, rendimiento, APK, producción vs desarrollo); reporte en canvas `analisis-proyecto-2026-10-12`.
+  - Permisos: cámara remota solo para administradores de consola sobre usuarios de su alcance (`calls.js`); grabaciones, token LiveKit leader y video de grupo limitados a los canales visibles por alcance (`listVisibleGroups`) en vez de toda la organización; `presence:ping` solo para canales unidos.
+  - Móvil: refresh de token single-flight; solo cierra sesión con 401/403/423 y adopta el token si otro isolate ya lo rotó. `showWhenLocked`/`turnScreenOn` fuera del manifiesto: se activan solo al entrar llamada/cámara y se liberan al terminar, al rechazar o al volver con el teléfono desbloqueado (`releaseLockScreen`).
+  - API: handlers de socket con payload por defecto y try/catch en leave/release/disconnect; `process.on('unhandledRejection')`; Redis reintenta sin límite.
+  - Carga: `/api/presence/heartbeat` solo emite `dispatch:presence` si hay cambio visible; debounce de 1,5 s en las 5 vistas de despacho; geocercas solo escriben al cambiar estado; purga de `locations` > 35 días cada 6 h en lotes de 5 000 (`LOCATION_RETENTION_DAYS`).
+  - Recuperados desde el commit 24cf54c archivos de la carpeta de trabajo que habían regresado a una versión anterior (config/duckdns_hairpin/lan_tls, Build-ApkDev.ps1, bitácora y FLUJO).
+- **Por qué / notas:** sin migraciones de BD. Al desplegar, la primera purga (5 min tras arrancar) borrará las posiciones de más de 35 días en producción. Cambios móviles requieren nueva APK (no compilada).
+- **Archivos / refs:** `backend/src/routes/{calls,recordings,livekit,groupVideo,presence}.js`, `backend/src/services/{presence,geofences,locationRetention}.js`, `backend/src/socket/{ptt,dm,chat}.js`, `backend/src/{server,redis}.js`, `frontend/src/dispatch/{liveTiming.js,DispatchMap,LiveTrackMap,CommandCenter,DispatchVideo,DispatchHome}.jsx`, `mobile/lib/{api_client,incoming_call_wake,remote_camera_session}.dart`, `mobile/lib/screens/{private_call_screen,radio_shell}.dart`, `MainActivity.kt`, `AndroidManifest.xml`
+
 ## 2026-10-01 — APK de desarrollo: usar la IP Wi-Fi de la PC (mesh 192.168.68.x)
 
 - **Tipo:** fix

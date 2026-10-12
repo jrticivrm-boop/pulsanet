@@ -33,7 +33,7 @@ export function registerChatHandlers(io) {
     const user = socket.data.user;
     if (!user) return;
 
-    socket.on('chat:typing', async ({ groupId, typing }) => {
+    socket.on('chat:typing', async ({ groupId, typing } = {}) => {
       if (!groupId) return;
       try {
         const ok = await assertGroupMember(groupId, user.sub);
@@ -49,7 +49,7 @@ export function registerChatHandlers(io) {
       }
     });
 
-    socket.on('chat:send', async ({ groupId, body, replyToId, clientMsgId }) => {
+    socket.on('chat:send', async ({ groupId, body, replyToId, clientMsgId } = {}) => {
       if (!groupId || typeof body !== 'string') return;
       const text = body.trim();
       if (!text) {
@@ -103,7 +103,7 @@ export function registerChatHandlers(io) {
       }
     });
 
-    socket.on('chat:edit', async ({ groupId, messageId, body }) => {
+    socket.on('chat:edit', async ({ groupId, messageId, body } = {}) => {
       if (!groupId || !messageId || typeof body !== 'string') return;
       try {
         const msg = await editGroupMessage({
@@ -119,7 +119,7 @@ export function registerChatHandlers(io) {
       }
     });
 
-    socket.on('chat:delete', async ({ groupId, messageId }) => {
+    socket.on('chat:delete', async ({ groupId, messageId } = {}) => {
       if (!groupId || !messageId) return;
       try {
         const msg = await softDeleteGroupMessage({
@@ -134,7 +134,7 @@ export function registerChatHandlers(io) {
       }
     });
 
-    socket.on('chat:react', async ({ groupId, messageId, emoji }) => {
+    socket.on('chat:react', async ({ groupId, messageId, emoji } = {}) => {
       if (!groupId || !messageId || typeof emoji !== 'string') return;
       try {
         const payload = await toggleMessageReaction({
@@ -149,7 +149,7 @@ export function registerChatHandlers(io) {
       }
     });
 
-    socket.on('chat:sticker', async ({ groupId, stickerId, replyToId }) => {
+    socket.on('chat:sticker', async ({ groupId, stickerId, replyToId } = {}) => {
       if (!groupId || !stickerId) return;
       try {
         const msg = await insertStickerMessage({
@@ -172,7 +172,7 @@ export function registerChatHandlers(io) {
       }
     });
 
-    socket.on('chat:read', async ({ groupId, upToMessageId }) => {
+    socket.on('chat:read', async ({ groupId, upToMessageId } = {}) => {
       if (!groupId) return;
       try {
         const payload = await markGroupMessagesRead({
@@ -188,7 +188,7 @@ export function registerChatHandlers(io) {
       }
     });
 
-    socket.on('chat:delivered', async ({ groupId, messageIds, upToMessageId }) => {
+    socket.on('chat:delivered', async ({ groupId, messageIds, upToMessageId } = {}) => {
       if (!groupId) return;
       try {
         const payload = await markGroupMessagesDelivered({

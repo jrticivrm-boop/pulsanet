@@ -9,8 +9,7 @@ export function getRedis() {
     redis = new Redis(config.redisUrl, {
       maxRetriesPerRequest: 2,
       retryStrategy(times) {
-        if (times > 10) return null;
-        return Math.min(times * 200, 2000);
+        return Math.min(times * 200, 5000);
       },
     });
     redis.on('ready', () => {

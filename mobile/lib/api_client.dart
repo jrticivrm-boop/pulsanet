@@ -114,7 +114,27 @@ class ApiClient {
     return data;
   }
 
+  /// Un refresh a la vez por isolate: el servidor rota el token y un segundo
+  /// envío con el mismo refresh recibiría 401.
+  static Future<bool>? _refreshInFlight;
+
   Future<bool> tryRefresh() async {
+    final pending = _refreshInFlight;
+    if (pending != null) {
+      final ok = await pending;
+      if (ok) await loadSession();
+      return ok;
+    }
+    final run = _doRefresh();
+    _refreshInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (identical(_refreshInFlight, run)) _refreshInFlight = null;
+    }
+  }
+
+  Future<bool> _doRefresh() async {
     final s = await SecureStore.readSession();
     final refresh = s.refresh;
     if (refresh == null || refresh.isEmpty) return false;
@@ -140,10 +160,25 @@ class ApiClient {
       }
     }
 
+    // 5xx, HTML del proxy, lockdown 503: fallo transitorio, conservar la sesión.
+    final rejected =
+        res.statusCode == 401 || res.statusCode == 403 || res.statusCode == 423;
+    if (!rejected && res.statusCode >= 400) return false;
+
     Map<String, dynamic> data;
     try {
       data = await _parse(res, path: '/api/auth/refresh');
     } catch (_) {
+      if (!rejected) return false;
+      // El otro isolate (UI o servicio en primer plano) pudo rotarlo antes.
+      final now = await SecureStore.readSession();
+      if (res.statusCode == 401 &&
+          now.refresh != null &&
+          now.refresh!.isNotEmpty &&
+          now.refresh != refresh) {
+        await loadSession();
+        return true;
+      }
       await logout();
       return false;
     }

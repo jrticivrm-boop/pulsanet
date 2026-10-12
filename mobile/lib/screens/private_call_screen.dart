@@ -14,6 +14,7 @@ import '../channel_session.dart';
 import '../camera_session_gate.dart';
 import '../config.dart';
 import '../es_msg.dart';
+import '../incoming_call_wake.dart';
 import '../livekit_e2ee.dart';
 import '../chat_message_banner.dart';
 import '../message_tone.dart';
@@ -992,6 +993,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen>
     _room?.disconnect();
     unawaited(CallRingtone.stopOutgoing());
     unawaited(BackgroundRadio.setPrivateCallActive(false));
+    unawaited(IncomingCallWake.releaseLockScreen());
     unawaited(ChannelSession.current?.unduckRadioAfterPrivateCall() ?? Future<void>.value());
     // Si no se colgó limpio, igual restaurar ruta (sin matar holders de radio).
     if (!_closing) {

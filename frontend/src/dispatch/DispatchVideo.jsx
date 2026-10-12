@@ -12,6 +12,7 @@ import { socketIoOptions, socketUrl } from '../socketConfig';
 import { startVideoCall as peerStartVideo } from '../peerActions';
 
 import { useIsPhone } from '../useMediaQuery.js';
+import { debounceTrailing, PRESENCE_RELOAD_DEBOUNCE_MS } from './liveTiming.js';
 
 const SOCKET_URL = socketUrl();
 const POLL_MS = 12000;
@@ -160,7 +161,8 @@ export default function DispatchVideo({ session }) {
     socket.on('connect', join);
     socket.on('reconnect', join);
     socket.on('disconnect', () => setLive(false));
-    socket.on('dispatch:presence', () => reload());
+    const reloadPresence = debounceTrailing(() => reload(), PRESENCE_RELOAD_DEBOUNCE_MS);
+    socket.on('dispatch:presence', reloadPresence);
     socket.on('group:video_started', (p) => {
       const gid = p?.groupId;
       if (gid) setGroupVideoLive((prev) => ({ ...prev, [gid]: true }));
@@ -180,6 +182,7 @@ export default function DispatchVideo({ session }) {
       setRemoteMonitors((list) => list.filter((m) => String(m.callId) !== String(callId)));
     });
     return () => {
+      reloadPresence.cancel();
       socket.emit('dispatch:leave');
       socket.disconnect();
     };

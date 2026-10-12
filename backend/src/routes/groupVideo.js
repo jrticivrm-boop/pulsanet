@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { isDispatch } from '../services/roles.js';
+import { listVisibleGroups } from '../services/orgUnits.js';
 import { createRoomToken, isLiveKitConfigured, resolveLiveKitUrl } from '../services/livekit.js';
 import { voiceE2eeKeyForRoom } from '../services/voiceE2ee.js';
 import { notifyUserDevicesDataOnly } from '../services/fcm.js';
@@ -25,13 +26,9 @@ async function loadGroupMember(orgId, groupId, userId, role) {
   );
   if (rows[0]) return rows[0];
   if (!isDispatch(role)) return null;
-  const { rows: orgRows } = await query(
-    `SELECT g.id, g.name, g.organization_id, 'leader'::text AS member_role
-     FROM groups g
-     WHERE g.id = $1 AND g.organization_id = $2 AND g.is_active = TRUE`,
-    [groupId, orgId]
-  );
-  return orgRows[0] || null;
+  const visible = await listVisibleGroups({ sub: userId, orgId, role });
+  const g = visible.find((v) => String(v.id) === String(groupId));
+  return g ? { id: g.id, name: g.name, organization_id: orgId, member_role: 'leader' } : null;
 }
 
 async function issueGroupVideoCredentials(req, group, roomName) {

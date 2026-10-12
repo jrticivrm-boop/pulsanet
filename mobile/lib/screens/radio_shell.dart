@@ -1124,6 +1124,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
             await CallRingtone.stop();
             await PushService.instance.clearConversationNotifications(callId: callId);
             _session?.incomingPrivateCall = null;
+            unawaited(IncomingCallWake.releaseLockScreen());
             if (ctx.mounted) Navigator.of(ctx).pop();
           },
           onAccept: () async {

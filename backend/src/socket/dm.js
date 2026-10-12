@@ -19,7 +19,7 @@ export function registerDmHandlers(io) {
 
     socket.join(`user:${user.sub}`);
 
-    socket.on('dm:join', async ({ peerId }) => {
+    socket.on('dm:join', async ({ peerId } = {}) => {
       try {
         const { rows } = await query(
           `SELECT organization_id FROM users WHERE id = $1`,
@@ -35,12 +35,12 @@ export function registerDmHandlers(io) {
       }
     });
 
-    socket.on('dm:leave', ({ peerId }) => {
+    socket.on('dm:leave', ({ peerId } = {}) => {
       if (!peerId) return;
       socket.leave(dmSocketRoom(user.sub, peerId));
     });
 
-    socket.on('dm:typing', async ({ peerId, typing }) => {
+    socket.on('dm:typing', async ({ peerId, typing } = {}) => {
       if (!peerId) return;
       socket.to(dmSocketRoom(user.sub, peerId)).emit('dm:typing', {
         peerId: user.sub,
@@ -49,7 +49,7 @@ export function registerDmHandlers(io) {
       });
     });
 
-    socket.on('dm:delivered', async ({ peerId, messageIds, upToMessageId }) => {
+    socket.on('dm:delivered', async ({ peerId, messageIds, upToMessageId } = {}) => {
       try {
         if (!peerId) return;
         const { rows } = await query(
@@ -76,7 +76,7 @@ export function registerDmHandlers(io) {
       }
     });
 
-    socket.on('dm:send', async ({ peerId, body, replyToId, clientMsgId }) => {
+    socket.on('dm:send', async ({ peerId, body, replyToId, clientMsgId } = {}) => {
       try {
         let orgId = user.orgId;
         if (!orgId) {
@@ -134,7 +134,7 @@ export function registerDmHandlers(io) {
       }
     });
 
-    socket.on('dm:history', async ({ peerId }, ack) => {
+    socket.on('dm:history', async ({ peerId } = {}, ack) => {
       try {
         const { rows } = await query(
           `SELECT organization_id FROM users WHERE id = $1`,

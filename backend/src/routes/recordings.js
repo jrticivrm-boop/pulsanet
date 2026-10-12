@@ -6,6 +6,13 @@ import { assertGroupMember } from '../services/presence.js';
 import { isDispatch } from '../services/roles.js';
 import { uploadAudio, mediaDiskPath, prepareGroupUploadDir, storedUploadRel } from '../services/uploads.js';
 import { emitDispatch } from '../socket/dispatch.js';
+import { listVisibleGroups } from '../services/orgUnits.js';
+
+/** Canales que el administrador puede supervisar según su alcance (zona/unidad no ven toda la org). */
+async function dispatchGroupIds(user) {
+  const groups = await listVisibleGroups(user);
+  return groups.map((g) => String(g.id));
+}
 
 function mapRec(r) {
   return {
@@ -34,7 +41,7 @@ export function createRecordingsRouter(io) {
 
     if (groupId) {
       const ok = await assertGroupMember(groupId, req.user.sub);
-      if (!ok && !dispatch) {
+      if (!ok && !(dispatch && (await dispatchGroupIds(req.user)).includes(groupId))) {
         return res.status(403).json({ ok: false, error: 'No eres miembro' });
       }
     } else if (!dispatch) {
@@ -46,6 +53,9 @@ export function createRecordingsRouter(io) {
     if (groupId) {
       params.push(groupId);
       filter += ` AND r.group_id = $${params.length}`;
+    } else {
+      params.push(await dispatchGroupIds(req.user));
+      filter += ` AND r.group_id = ANY($${params.length}::uuid[])`;
     }
 
     const { rows } = await query(
@@ -76,11 +86,12 @@ export function createRecordingsRouter(io) {
       return res.status(404).json({ ok: false, error: 'No encontrado' });
     }
 
-    if (!isDispatch(req.user.role)) {
-      const ok = await assertGroupMember(rec.group_id, req.user.sub);
-      if (!ok) {
-        return res.status(403).json({ ok: false, error: 'Sin acceso' });
-      }
+    const member = await assertGroupMember(rec.group_id, req.user.sub);
+    if (
+      !member &&
+      !(isDispatch(req.user.role) && (await dispatchGroupIds(req.user)).includes(rec.group_id))
+    ) {
+      return res.status(403).json({ ok: false, error: 'Sin acceso' });
     }
 
     const disk = mediaDiskPath(rec.file_path);

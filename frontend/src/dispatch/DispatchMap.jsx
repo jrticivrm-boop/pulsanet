@@ -43,6 +43,8 @@ import {
   LOCATION_POLL_MS,
   mergeLocations,
   upsertLocation,
+  debounceTrailing,
+  PRESENCE_RELOAD_DEBOUNCE_MS,
 } from './liveTiming.js';
 import {
   clampTrackRange,
@@ -2330,7 +2332,7 @@ export default function DispatchMap({ session }) {
         .then((ov) => setOverview(ov.overview || null))
         .catch(() => {});
     });
-    socket.on('dispatch:presence', () => {
+    const reloadPresence = debounceTrailing(() => {
       fetchOverview(session.token)
         .then((ov) => {
           setOverview(ov.overview || null);
@@ -2341,7 +2343,8 @@ export default function DispatchMap({ session }) {
           setOnlineIds(ids);
         })
         .catch(() => {});
-    });
+    }, PRESENCE_RELOAD_DEBOUNCE_MS);
+    socket.on('dispatch:presence', reloadPresence);
     socket.on('dispatch:location', (payload) => {
       void (async () => {
         const loc = await unwrapDispatchPayload(payload, socketWireKey(socket, session));
@@ -2418,6 +2421,7 @@ export default function DispatchMap({ session }) {
       })();
     });
     return () => {
+      reloadPresence.cancel();
       offWire();
       socket.emit('dispatch:leave');
       socket.disconnect();

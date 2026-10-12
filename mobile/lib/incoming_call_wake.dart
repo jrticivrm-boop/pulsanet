@@ -180,6 +180,14 @@ class IncomingCallWake {
     }
   }
 
+  /// Deja de mostrar la app sobre la pantalla de bloqueo (fin de llamada / cámara).
+  static Future<void> releaseLockScreen() async {
+    if (kIsWeb) return;
+    try {
+      await _channel.invokeMethod<void>('releaseLockScreen');
+    } catch (_) {}
+  }
+
   /// Isolate FCM data-only: persistir + FGS + abrir app + timbre.
   /// El wake nativo (receiver → IncomingCallWakeService) ya corre en paralelo;
   /// aquí refuerzo timbre / launchApp / pending por si el proceso Dart llega primero.

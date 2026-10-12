@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { fetchOverview } from '../api';
 import { socketIoOptions, socketUrl } from '../socketConfig';
+import { debounceTrailing, PRESENCE_RELOAD_DEBOUNCE_MS } from './liveTiming.js';
 
 const SOCKET_URL = socketUrl();
 
@@ -33,10 +34,12 @@ export default function DispatchHome({ session }) {
     socket.on('disconnect', () => setLive(false));
     socket.on('dispatch:speaker', () => reload());
     socket.on('dispatch:released', () => reload());
-    socket.on('dispatch:presence', () => reload());
+    const reloadPresence = debounceTrailing(() => reload(), PRESENCE_RELOAD_DEBOUNCE_MS);
+    socket.on('dispatch:presence', reloadPresence);
     const t = setInterval(reload, 15000);
     return () => {
       clearInterval(t);
+      reloadPresence.cancel();
       socket.emit('dispatch:leave');
       socket.disconnect();
     };

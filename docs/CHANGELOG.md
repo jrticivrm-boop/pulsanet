@@ -9,10 +9,21 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+- **Cámara remota:** solo administradores de consola pueden activarla y solo sobre usuarios dentro de su alcance de seguimiento (antes cualquier usuario de la organización).
+- **Alcance de administradores de zona/unidad:** grabaciones PTT, token LiveKit de canal (rol leader) y video de grupo se limitan a los canales de su territorio; antes veían toda la organización.
+- **App móvil — pantalla de bloqueo:** la app ya no queda visible sobre el bloqueo de forma permanente; solo durante una llamada o cámara remota con el teléfono bloqueado.
+- **Presencia por socket:** `presence:ping` con `groupId` solo aplica a canales a los que el socket se unió.
+
 ### Changed
+- **Consolas — menos recargas:** el latido de presencia del servicio en segundo plano solo emite `dispatch:presence` si cambia algo visible; las vistas de despacho agrupan las ráfagas en una sola recarga (1,5 s).
+- **Ubicaciones — retención:** purga automática por lotes de posiciones con más de 35 días (`LOCATION_RETENTION_DAYS`, 0 = desactivada). La consola consulta hasta 31 días.
+- **Geocercas:** solo se escribe en BD cuando cambia el estado dentro/fuera.
 - **App móvil — eficiencia:** GPS adaptativo (alta precisión solo en movimiento; respeta el intervalo GPS de la organización), mapa GPS sin consultas en segundo plano, menos latidos de presencia y LiveKit sin reconectar salas sanas al reconectar el socket. Menor consumo de batería, datos y CPU.
 
 ### Fixed
+- **App móvil — sesión:** un error transitorio del servidor (5xx, HTML del proxy, sin red) al renovar el token ya no cierra la sesión; un solo refresh a la vez y, si otro proceso de la app ya rotó el token, se adopta en lugar de salir.
+- **API — estabilidad:** handlers de socket con datos vacíos o errores ya no generan rechazos sin manejar; manejador global `unhandledRejection`; Redis reintenta la conexión indefinidamente.
 - **Radio despacho:** un fallo de conexión de audio (LiveKit) ya no se muestra como "Sin enlace en tiempo real (Socket.IO)"; se reintenta automáticamente y el aviso se limpia al reconectar.
 - **Despliegue SICOM:** `sicom-deploy.sh` ya no se corta tras el respaldo de BD (docker leía el script por stdin).
 

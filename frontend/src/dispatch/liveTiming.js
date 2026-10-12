@@ -13,6 +13,25 @@ export const LIVE_FRESH_MS = 30_000;
  * Sin esto, en otra máquina el mapa nunca marca «en vivo» aunque el GPS esté OK.
  */
 export const CLOCK_SKEW_MS = 120_000;
+/** Agrupa ráfagas de dispatch:presence (muchos teléfonos a la vez) en una sola recarga. */
+export const PRESENCE_RELOAD_DEBOUNCE_MS = 1_500;
+
+/** Llama `fn` una vez tras `ms` sin nuevos eventos. `.cancel()` al desmontar. */
+export function debounceTrailing(fn, ms) {
+  let t = null;
+  const run = (...args) => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => {
+      t = null;
+      fn(...args);
+    }, ms);
+  };
+  run.cancel = () => {
+    if (t) clearTimeout(t);
+    t = null;
+  };
+  return run;
+}
 
 /**
  * Parsea recordedAt a epoch ms.

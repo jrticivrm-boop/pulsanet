@@ -64,6 +64,33 @@ class MainActivity : FlutterActivity() {
         handleIncomingCallIntent(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Mostrar sobre el bloqueo solo mientras haga falta (llamada / cámara con el
+        // teléfono bloqueado). Si el usuario ya desbloqueó, la app vuelve a quedar detrás.
+        try {
+            val kg = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            if (!kg.isKeyguardLocked) releaseLockScreen()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun releaseLockScreen() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(false)
+                setTurnScreenOn(false)
+            }
+            @Suppress("DEPRECATION")
+            window.clearFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            )
+        } catch (_: Exception) {
+        }
+    }
+
     /** Extras desde IncomingCallWakeService / FSI / Contestar en notificación. */
     private fun handleIncomingCallIntent(intent: Intent?) {
         if (intent == null) return
@@ -165,6 +192,10 @@ class MainActivity : FlutterActivity() {
                         } catch (e: Exception) {
                             result.error("bring_front_failed", e.message, null)
                         }
+                    }
+                    "releaseLockScreen" -> {
+                        releaseLockScreen()
+                        result.success(true)
                     }
                     // Samsung/Android 14+: sin este permiso la llamada solo es heads-up.
                     "ensureFullScreenIntent" -> {

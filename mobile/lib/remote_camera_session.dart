@@ -11,6 +11,7 @@ import 'audio_session_setup.dart';
 import 'background_radio.dart';
 import 'camera_session_gate.dart';
 import 'config.dart';
+import 'incoming_call_wake.dart';
 import 'livekit_e2ee.dart';
 import 'private_call_stabilizer.dart';
 import 'remote_camera_prefs.dart';
@@ -420,6 +421,7 @@ class RemoteCameraSession {
     // No dejar el teléfono «en llamada» tras cerrar la cámara remota.
     await AudioSessionSetup.downgradeFromVoice();
     CameraSessionGate.release(CameraOwner.remoteCam);
+    unawaited(IncomingCallWake.releaseLockScreen());
     _api = null;
     _callId = null;
     _busy = false;

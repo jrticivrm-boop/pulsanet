@@ -38,7 +38,7 @@ export function registerPttHandlers(io) {
     if (!user) return;
     ensureJoinState(socket);
 
-    socket.on('ptt:join', async ({ groupId, focus, background }) => {
+    socket.on('ptt:join', async ({ groupId, focus, background } = {}) => {
       if (!groupId) return;
       try {
         ensureJoinState(socket);
@@ -78,13 +78,17 @@ export function registerPttHandlers(io) {
       }
     });
 
-    socket.on('ptt:leave', async ({ groupId }) => {
+    socket.on('ptt:leave', async ({ groupId } = {}) => {
       const gid = groupId || socket.data.activeGroup;
       if (!gid) return;
-      await leaveGroup(socket, io, gid, user);
+      try {
+        await leaveGroup(socket, io, gid, user);
+      } catch (e) {
+        console.error('ptt:leave:', e?.message || e);
+      }
     });
 
-    socket.on('ptt:request', async ({ groupId }) => {
+    socket.on('ptt:request', async ({ groupId } = {}) => {
       if (!groupId) return;
       try {
         ensureJoinState(socket);
@@ -196,16 +200,21 @@ export function registerPttHandlers(io) {
       }
     });
 
-    socket.on('ptt:release', async ({ groupId }) => {
+    socket.on('ptt:release', async ({ groupId } = {}) => {
       const gid = groupId || socket.data.activeGroup;
       if (!gid) return;
-      await releaseFloor(gid, user.sub, io, socket);
+      try {
+        await releaseFloor(gid, user.sub, io, socket);
+      } catch (e) {
+        console.error('ptt:release:', e?.message || e);
+      }
     });
 
-    socket.on('presence:ping', async ({ groupId, focus, background }) => {
+    socket.on('presence:ping', async ({ groupId, focus, background } = {}) => {
       ensureJoinState(socket);
       const targets = [];
       if (groupId) {
+        if (!socket.data.joinedGroups.has(groupId)) return;
         targets.push(groupId);
       } else if (socket.data.joinedGroups.size) {
         targets.push(...socket.data.joinedGroups);
@@ -245,7 +254,11 @@ export function registerPttHandlers(io) {
         groups.push(socket.data.activeGroup);
       }
       for (const gid of groups) {
-        await leaveGroup(socket, io, gid, user);
+        try {
+          await leaveGroup(socket, io, gid, user);
+        } catch (e) {
+          console.error('ptt disconnect:', e?.message || e);
+        }
       }
     });
   });

@@ -13,6 +13,7 @@ import {
 import { query } from '../db.js';
 import { logPresenceTransition } from './userEvents.js';
 import { isDispatch } from './roles.js';
+import { listVisibleGroups } from './orgUnits.js';
 
 const FOCUS_RANK = { foreground: 3, background: 2, service: 1 };
 
@@ -396,13 +397,17 @@ async function writeAggregatedUser(groupId, userId, entriesForUser) {
 }
 
 async function writeOrgPresence(orgId, userId, displayName, focus) {
-  if (!orgId || !userId) return;
+  if (!orgId || !userId) return false;
   const redis = getRedis();
   const key = orgPresenceKey(orgId);
   const tsKey = orgPresenceTsKey(orgId);
   const uid = String(userId);
-  const prev = decodePresenceValue(await redis.hget(key, uid));
+  const prevRaw = await redis.hget(key, uid);
+  const prevTs = parseInt((await redis.hget(tsKey, uid)) || '0', 10);
+  const prev = decodePresenceValue(prevRaw);
   const normalized = normalizePresenceFocus(focus);
+  const visibleChange =
+    !prevRaw || prev.focus !== normalized || prevTs < Date.now() - PRESENCE_STALE_MS;
   const awaySince = nextAwaySince(prev.focus, prev.awaySince, normalized);
   const now = String(Date.now());
   const pipe = redis.pipeline();
@@ -431,6 +436,7 @@ async function writeOrgPresence(orgId, userId, displayName, focus) {
       });
     }
   }
+  return visibleChange;
 }
 
 function presenceBand(focus) {
@@ -656,7 +662,7 @@ export async function heartbeatServicePresence({
   const uid = String(userId);
   const name = displayName || 'Usuario';
   const normalized = normalizePresenceFocus(focus);
-  await writeOrgPresence(orgId, uid, name, normalized);
+  const orgChanged = await writeOrgPresence(orgId, uid, name, normalized);
 
   const { rows } = await query(
     `SELECT gm.group_id
@@ -666,7 +672,7 @@ export async function heartbeatServicePresence({
     [uid, orgId]
   );
 
-  let anyChanged = false;
+  const changedGroupIds = [];
   for (const row of rows) {
     const { focusChanged } = await addPresence(
       row.group_id,
@@ -676,10 +682,15 @@ export async function heartbeatServicePresence({
       null,
       orgId
     );
-    if (focusChanged) anyChanged = true;
+    if (focusChanged) changedGroupIds.push(row.group_id);
   }
   await touchLastSeen(uid);
-  return { focusChanged: anyChanged, groupIds: rows.map((r) => r.group_id), focus: normalized };
+  return {
+    focusChanged: orgChanged || changedGroupIds.length > 0,
+    groupIds: rows.map((r) => r.group_id),
+    changedGroupIds,
+    focus: normalized,
+  };
 }
 
 export async function clearOrgPresenceForUser(orgId, userId) {
@@ -714,13 +725,8 @@ export async function resolvePttMemberRole(groupId, user) {
   const explicit = await getMemberRole(groupId, user.sub);
   if (explicit) return explicit;
   if (!isDispatch(user.role) || !user.orgId) return null;
-  const { rows } = await query(
-    `SELECT 1 FROM groups
-     WHERE id = $1 AND organization_id = $2 AND is_active = TRUE
-     LIMIT 1`,
-    [groupId, user.orgId]
-  );
-  return rows[0] ? 'leader' : null;
+  const visible = await listVisibleGroups(user);
+  return visible.some((g) => String(g.id) === String(groupId)) ? 'leader' : null;
 }
 
 export async function assertGroupMember(groupId, userId) {
