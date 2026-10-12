@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { query } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import {
   triggerPanic,
@@ -7,39 +6,31 @@ import {
   getPanicEvent,
   updatePanicStatus,
   emitPanicToGroupMembers,
+  canViewerActOnPanic,
+  scopedDispatcherIds,
 } from '../services/panic.js';
-
-/** Miembro del canal del evento (ver / Enterado / Resolver). */
-async function canActAsGroupMember(userId, panicId, orgId) {
-  const { rows } = await query(
-    `SELECT 1
-     FROM panic_events p
-     JOIN group_members gm ON gm.group_id = p.group_id AND gm.user_id = $1
-     WHERE p.id = $2 AND p.organization_id = $3`,
-    [userId, panicId, orgId]
-  );
-  return Boolean(rows[0]);
-}
 
 export function createPanicRouter(io) {
   const router = Router();
   router.use(authMiddleware);
 
-  /** Miembro del canal: dispara pánico */
+  /** Dispara la alerta a uno o varios canales visibles (`target: 'all'` solo despacho). */
   router.post('/', async (req, res) => {
     try {
-      const { event, systemMsg } = await triggerPanic({
+      const { event, events, systemMsg } = await triggerPanic({
         io,
         orgId: req.user.orgId,
         userId: req.user.sub,
         displayName: req.user.displayName || 'Usuario',
         groupId: req.body?.groupId,
+        groupIds: req.body?.groupIds,
+        target: req.body?.target,
         latitude: req.body?.latitude,
         longitude: req.body?.longitude,
         accuracyM: req.body?.accuracyM,
         note: req.body?.note,
       });
-      res.status(201).json({ ok: true, event, message: systemMsg });
+      res.status(201).json({ ok: true, event, events, message: systemMsg });
     } catch (err) {
       res.status(400).json({ ok: false, error: err.message });
     }
@@ -63,29 +54,33 @@ export function createPanicRouter(io) {
 
   /** Detalle de un evento (coords para APK al abrir por push). */
   router.get('/:id', async (req, res) => {
-    const event = await getPanicEvent({
-      orgId: req.user.orgId,
-      viewerId: req.user.sub,
-      panicId: req.params.id,
-    });
-    if (!event) {
-      return res.status(404).json({ ok: false, error: 'Alerta no encontrada' });
+    try {
+      const event = await getPanicEvent({
+        orgId: req.user.orgId,
+        viewerId: req.user.sub,
+        panicId: req.params.id,
+      });
+      if (!event) {
+        return res.status(404).json({ ok: false, error: 'Alerta no encontrada' });
+      }
+      res.json({ ok: true, event });
+    } catch {
+      res.status(404).json({ ok: false, error: 'Alerta no encontrada' });
     }
-    res.json({ ok: true, event });
   });
 
-  /** Ack / resolver / cancelar — solo miembros del mismo grupo */
+  /** Ack / resolver / cancelar — miembros del canal o despacho con alcance sobre el emisor */
   router.patch('/:id', async (req, res) => {
     const status = req.body?.status;
-    const member = await canActAsGroupMember(
-      req.user.sub,
-      req.params.id,
-      req.user.orgId
-    );
-    if (!member) {
-      return res.status(403).json({ ok: false, error: 'Sin permiso' });
-    }
     try {
+      const member = await canViewerActOnPanic({
+        orgId: req.user.orgId,
+        viewerId: req.user.sub,
+        panicId: req.params.id,
+      });
+      if (!member) {
+        return res.status(403).json({ ok: false, error: 'Sin permiso' });
+      }
       const event = await updatePanicStatus({
         orgId: req.user.orgId,
         panicId: req.params.id,
@@ -103,6 +98,8 @@ export function createPanicRouter(io) {
         // resolved/cancelled sí se avisa al grupo.
         if (status !== 'acked') {
           io.to(`group:${event.groupId}`).emit('panic:update', event);
+          const admins = await scopedDispatcherIds(event.organizationId, event.userId);
+          for (const uid of admins) io.to(`user:${uid}`).emit('panic:update', event);
         }
       }
       res.json({ ok: true, event });

@@ -28,6 +28,7 @@ import 'private_call_gate.dart';
 import 'push_service.dart';
 import 'remote_camera_prefs.dart';
 import 'remote_camera_session.dart';
+import 'roles.dart';
 import 'screens/group_video_screen.dart';
 
 const _kRadioListenMuteKey = 'tacticalptx_radio_mute';
@@ -1008,7 +1009,11 @@ class ChannelSession extends ChangeNotifier {
       })
       ..on('panic:alert', (data) {
         final m = Map<String, dynamic>.from(data as Map);
-        if (m['groupId']?.toString() != groupId) return;
+        // El servidor ya elige destinatarios (canales destino + despacho con alcance).
+        final gid = m['groupId']?.toString();
+        final mine = gid == groupId ||
+            memberships.any((g) => g['id']?.toString() == gid);
+        if (!mine && !canManageUsers(api.user)) return;
         applyIncomingPanic(m);
       })
       ..on('announcement:alert', (data) {
@@ -1086,7 +1091,8 @@ class ChannelSession extends ChangeNotifier {
       final events = await api.fetchPanicEvents(status: 'active', limit: 20);
       final me = api.user?['id']?.toString();
       for (final e in events) {
-        if (e['groupId']?.toString() != groupId) continue;
+        final gid = e['groupId']?.toString();
+        if (gid != groupId && !memberships.any((g) => g['id']?.toString() == gid)) continue;
         if (e['userId']?.toString() == me) continue;
         if (e['status']?.toString() != 'active') continue;
         applyIncomingPanic(e);
@@ -2222,16 +2228,22 @@ class ChannelSession extends ChangeNotifier {
     }
   }
 
-  /// Botón de pánico: notifica al grupo + admin/despacho + usuarios con permiso.
-  Future<bool> triggerPanic({String? note}) async {
+  /// Alerta a los canales elegidos (o `target: 'all'`, solo administración) + despacho con alcance.
+  Future<bool> triggerPanic({
+    List<String> groupIds = const [],
+    String? target,
+    String? note,
+  }) async {
     if (panicSending) return false;
     panicSending = true;
     error = null;
     notifyListeners();
     LocationHeartbeat.boost();
     try {
+      final ids = groupIds.isEmpty && target != 'all' ? [groupId] : groupIds;
       final data = await api.triggerPanic(
-        groupId: groupId,
+        groupIds: ids,
+        target: target,
         latitude: lastLatitude,
         longitude: lastLongitude,
         accuracyM: lastAccuracyM,

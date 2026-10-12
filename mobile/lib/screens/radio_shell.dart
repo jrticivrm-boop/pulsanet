@@ -32,6 +32,7 @@ import '../remote_camera_wake.dart';
 import '../roles.dart';
 import '../theme.dart';
 import '../widgets/tactical_backdrop.dart';
+import '../widgets/panic_confirm_sheet.dart';
 import '../widgets/user_avatar.dart';
 import 'call_history_pane.dart';
 import 'chat_inbox_screen.dart';
@@ -1350,11 +1351,24 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     });
   }
 
-  /// Un toque envía pánico (sin diálogo de confirmación).
+  /// Pide confirmación (destino + motivo) y envía la alerta.
   Future<void> _sendPanic() async {
     final session = _session;
     if (session == null || session.panicSending) return;
-    final success = await session.triggerPanic();
+    // GPS en alta precisión mientras el usuario confirma.
+    LocationHeartbeat.boost();
+    final choice = await showPanicConfirmSheet(
+      context,
+      groups: _groups,
+      initialIds: [session.groupId],
+      canAlertAll: canManageUsers(widget.api.user),
+    );
+    if (choice == null || !mounted) return;
+    final success = await session.triggerPanic(
+      groupIds: choice.groupIds,
+      target: choice.target,
+      note: choice.note,
+    );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

@@ -142,6 +142,82 @@ export async function notifyGroupMembers({
 }
 
 /**
+ * Push de alerta (mismo canal/sonido que notifyGroupMembers) a una lista de usuarios.
+ * `collapse` agrupa notificaciones del mismo evento en el dispositivo.
+ */
+export async function notifyUserIdsAlert({ userIds, title, body, data = {}, collapse }) {
+  if (!ready) return { sent: 0, skipped: true };
+  const ids = [...new Set((userIds || []).filter(Boolean))];
+  if (!ids.length) return { sent: 0 };
+
+  const { rows } = await query(
+    `SELECT fcm_token FROM devices
+     WHERE user_id = ANY($1::uuid[]) AND is_active = TRUE AND fcm_token IS NOT NULL`,
+    [ids]
+  );
+  const tokens = [...new Set(rows.map((r) => r.fcm_token).filter(Boolean))];
+  if (!tokens.length) return { sent: 0 };
+
+  const tag = collapse || `alert:${data?.panicId || Date.now()}`;
+  const payload = {
+    notification: { title, body },
+    data: Object.fromEntries(
+      Object.entries({ ...data, title, body }).map(([k, v]) => [k, String(v ?? '')])
+    ),
+    android: {
+      priority: 'high',
+      collapseKey: tag,
+      notification: {
+        channelId: 'tacticalptx_alerts_v3',
+        sound: 'tactical_msg',
+        tag,
+        priority: 'max',
+        visibility: 'private',
+        defaultVibrateTimings: true,
+      },
+    },
+    apns: {
+      payload: {
+        aps: {
+          sound: 'tactical_msg.wav',
+          interruptionLevel: 'time-sensitive',
+        },
+      },
+    },
+  };
+
+  let sent = 0;
+  for (let i = 0; i < tokens.length; i += 500) {
+    const batch = tokens.slice(i, i + 500);
+    try {
+      const res = await admin.messaging().sendEachForMulticast({ tokens: batch, ...payload });
+      sent += res.successCount;
+      if (res.failureCount) {
+        const bad = [];
+        res.responses.forEach((r, idx) => {
+          const code = r.success ? '' : r.error?.code || '';
+          if (
+            code.includes('registration-token-not-registered') ||
+            code.includes('invalid-registration-token')
+          ) {
+            bad.push(batch[idx]);
+          }
+        });
+        if (bad.length) {
+          await query(
+            `UPDATE devices SET is_active = FALSE WHERE fcm_token = ANY($1::text[])`,
+            [bad]
+          );
+        }
+      }
+    } catch (err) {
+      console.error('FCM alert send:', err.message);
+    }
+  }
+  return { sent };
+}
+
+/**
  * Envía push a todos los dispositivos activos de un usuario.
  */
 export async function notifyUserDevices({ userId, title, body, data = {} }) {

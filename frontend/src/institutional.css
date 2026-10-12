@@ -2204,3 +2204,78 @@ select option,
   gap: 0.55rem;
   padding: 0.85rem 1.1rem 1.05rem;
 }
+
+/* Confirmación de alerta (pánico) */
+.panic-confirm-backdrop {
+  z-index: 13000;
+}
+
+.panic-confirm-head {
+  border-bottom-color: #c62828;
+}
+
+.panic-confirm-head h2 {
+  color: #c62828;
+}
+
+.panic-confirm-label {
+  margin: 0.7rem 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.panic-confirm-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+
+.panic-chip {
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.panic-chip.on {
+  background: #c62828;
+  border-color: #c62828;
+  color: #fff;
+}
+
+.panic-confirm-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 8px;
+}
+
+.panic-confirm-groups li label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.65rem;
+  cursor: pointer;
+}
+
+.panic-confirm-send {
+  background: #c62828;
+  border-color: #c62828;
+  color: #fff;
+  font-weight: 700;
+}
+
+.panic-confirm-send:disabled {
+  opacity: 0.55;
+}

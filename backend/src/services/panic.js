@@ -1,9 +1,12 @@
 import { query } from '../db.js';
-import { assertGroupMember } from './presence.js';
-import { notifyGroupMembers } from './fcm.js';
+import { notifyUserIdsAlert } from './fcm.js';
 import { insertGroupMessage } from '../socket/chat.js';
 import { emitWireToUserIds } from '../socket/dispatch.js';
 import { logActivity } from './activity.js';
+import { isDispatch } from './roles.js';
+import { listVisibleGroups, loadTrackScope, unitInTrackScope, getUserUnitId } from './orgUnits.js';
+
+const MAX_NOTE_LEN = 280;
 
 function formatPanic(row) {
   return {
@@ -36,7 +39,63 @@ export async function emitPanicToGroupMembers(io, eventName, payload, groupId) {
     [groupId]
   );
   const userIds = rows.map((r) => r.user_id);
-  await emitWireToUserIds(io, eventName, payload, userIds);
+  const extra = await scopedDispatcherIds(payload?.organizationId, payload?.userId);
+  await emitWireToUserIds(io, eventName, payload, [...new Set([...userIds, ...extra])]);
+}
+
+/** Administradores de despacho activos cuyo alcance de seguimiento cubre al usuario `senderId`. */
+export async function scopedDispatcherIds(orgId, senderId) {
+  if (!orgId || !senderId) return [];
+  const { rows } = await query(
+    `SELECT id, role FROM users WHERE organization_id = $1 AND is_active = TRUE AND id <> $2`,
+    [orgId, senderId]
+  );
+  const admins = rows.filter((r) => isDispatch(r.role));
+  if (!admins.length) return [];
+  const senderUnit = await getUserUnitId(senderId);
+  const checks = await Promise.all(
+    admins.map(async (a) => {
+      try {
+        const scope = await loadTrackScope({ sub: a.id, orgId, role: a.role });
+        return unitInTrackScope(scope, senderUnit) ? a.id : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return checks.filter(Boolean);
+}
+
+/**
+ * Canales destino de la alerta, validados contra los canales visibles del usuario.
+ * `target === 'all'` (solo despacho) = todos sus canales visibles.
+ */
+async function resolvePanicTargets({ orgId, userId, groupId, groupIds, target }) {
+  const visible = await listVisibleGroups({ sub: userId, orgId });
+  const visibleById = new Map(visible.filter((g) => g.is_active !== false).map((g) => [g.id, g]));
+
+  if (target === 'all') {
+    const { rows } = await query(`SELECT role FROM users WHERE id = $1`, [userId]);
+    if (!isDispatch(rows[0]?.role)) throw new Error('Solo administración puede alertar a todos');
+    const all = [...visibleById.values()];
+    if (!all.length) throw new Error('Sin canales disponibles');
+    return all;
+  }
+
+  const wanted = [
+    ...new Set(
+      [...(Array.isArray(groupIds) ? groupIds : []), groupId]
+        .filter((x) => typeof x === 'string' && x)
+    ),
+  ];
+  if (!wanted.length) throw new Error('groupId requerido');
+  const out = [];
+  for (const id of wanted) {
+    const g = visibleById.get(id);
+    if (!g) throw new Error('No eres miembro de este grupo');
+    out.push(g);
+  }
+  return out;
 }
 
 export async function triggerPanic({
@@ -45,15 +104,15 @@ export async function triggerPanic({
   userId,
   displayName,
   groupId,
+  groupIds,
+  target,
   latitude,
   longitude,
   accuracyM,
   note,
 }) {
-  if (!groupId) throw new Error('groupId requerido');
-
-  const ok = await assertGroupMember(groupId, userId);
-  if (!ok) throw new Error('No eres miembro de este grupo');
+  const targets = await resolvePanicTargets({ orgId, userId, groupId, groupIds, target });
+  const cleanNote = typeof note === 'string' ? note.trim().slice(0, MAX_NOTE_LEN) || null : null;
 
   // Coordenadas: body o última ubicación conocida
   let lat = latitude != null ? Number(latitude) : null;
@@ -74,88 +133,140 @@ export async function triggerPanic({
     }
   }
 
-  const { rows } = await query(
-    `INSERT INTO panic_events (
-       organization_id, user_id, group_id, latitude, longitude, accuracy_m, note
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING *`,
-    [orgId, userId, groupId, lat, lng, acc, note?.trim() || null]
-  );
+  const targetList = targets.map((g) => ({ id: g.id, name: g.name || null }));
+  const sender = displayName || 'Usuario';
+  const events = [];
+  const messages = [];
 
-  const { rows: gRows } = await query(`SELECT name FROM groups WHERE id = $1`, [groupId]);
-  const event = formatPanic({
-    ...rows[0],
-    display_name: displayName,
-    group_name: gRows[0]?.name || null,
-  });
-
-  // Mensaje de sistema en el chat del grupo
-  let systemMsg = null;
-  try {
-    systemMsg = await insertGroupMessage({
-      groupId,
-      senderId: userId,
-      type: 'system',
-      body: `🚨 ALERTA — ${displayName || 'Usuario'}`,
-    });
-    io.to(`group:${groupId}`).emit('chat:message', systemMsg);
-  } catch (err) {
-    console.warn('panic system message:', err.message);
-  }
-
-  // Solo el canal activo: radio + consola de miembros de ese grupo (no org-wide)
-  io.to(`group:${groupId}`).emit('panic:alert', event);
-  await emitPanicToGroupMembers(io, 'dispatch:panic', event, groupId);
-  try {
-    const { rows: everyone } = await query(
-      `SELECT id FROM users WHERE organization_id = $1 AND is_active = TRUE`,
-      [orgId]
+  // Un evento por canal: cada canal atiende / cierra su alerta por separado.
+  for (const g of targets) {
+    const { rows } = await query(
+      `INSERT INTO panic_events (
+         organization_id, user_id, group_id, latitude, longitude, accuracy_m, note
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [orgId, userId, g.id, lat, lng, acc, cleanNote]
     );
-    for (const u of everyone) {
-      io.to(`user:${u.id}`).emit('panic:alert', event);
+    const event = {
+      ...formatPanic({ ...rows[0], display_name: displayName, group_name: g.name || null }),
+      targets: targetList,
+    };
+    events.push(event);
+
+    try {
+      const msg = await insertGroupMessage({
+        groupId: g.id,
+        senderId: userId,
+        type: 'system',
+        body: `🚨 ALERTA — ${sender}${cleanNote ? ` — ${cleanNote}` : ''}`,
+      });
+      messages.push(msg);
+      io.to(`group:${g.id}`).emit('chat:message', msg);
+    } catch (err) {
+      console.warn('panic system message:', err.message);
     }
-    io.to('dispatch').emit('dispatch:panic', event);
-  } catch (err) {
-    console.warn('panic broadcast:', err.message);
   }
+
+  // Cada destinatario recibe UNA sola alerta (la del primer canal destino que comparte).
+  const eventByUser = new Map();
+  const { rows: memberRows } = await query(
+    `SELECT group_id, user_id FROM group_members WHERE group_id = ANY($1::uuid[])`,
+    [targets.map((g) => g.id)]
+  );
+  for (const ev of events) {
+    for (const r of memberRows) {
+      if (r.group_id === ev.groupId && !eventByUser.has(r.user_id)) eventByUser.set(r.user_id, ev);
+    }
+  }
+  const dispatchers = await scopedDispatcherIds(orgId, userId);
+  for (const id of dispatchers) {
+    if (!eventByUser.has(id)) eventByUser.set(id, events[0]);
+  }
+
+  const usersByEvent = new Map(events.map((ev) => [ev.id, []]));
+  for (const [uid, ev] of eventByUser) usersByEvent.get(ev.id).push(uid);
 
   const title = '🚨 ALERTA';
-  const body = `${displayName || 'Usuario'} — ${event.groupName || 'canal'}`;
-  const data = {
-    type: 'panic',
-    panicId: event.id,
-    groupId,
-    userId,
-    displayName: displayName || 'Usuario',
-    ...(lat != null ? { latitude: String(lat) } : {}),
-    ...(lng != null ? { longitude: String(lng) } : {}),
-    ...(acc != null ? { accuracyM: String(acc) } : {}),
-  };
+  for (const ev of events) {
+    const uids = usersByEvent.get(ev.id);
+    if (!uids.length) continue;
+    for (const uid of uids) io.to(`user:${uid}`).emit('panic:alert', ev);
+    await emitWireToUserIds(io, 'dispatch:panic', ev, uids);
 
-  notifyGroupMembers({
-    groupId,
-    excludeUserId: userId,
-    title,
-    body,
-    data,
-  }).catch(() => {});
+    const pushUids = uids.filter((id) => id !== userId);
+    if (!pushUids.length) continue;
+    const body = `${sender} — ${ev.groupName || 'canal'}${cleanNote ? ` — ${cleanNote}` : ''}`;
+    notifyUserIdsAlert({
+      userIds: pushUids,
+      title,
+      body,
+      collapse: `panic:${ev.id}`,
+      data: {
+        type: 'panic',
+        panicId: ev.id,
+        groupId: ev.groupId,
+        userId,
+        displayName: sender,
+        ...(cleanNote ? { note: cleanNote } : {}),
+        ...(lat != null ? { latitude: String(lat) } : {}),
+        ...(lng != null ? { longitude: String(lng) } : {}),
+        ...(acc != null ? { accuracyM: String(acc) } : {}),
+      },
+    }).catch(() => {});
+  }
 
   await logActivity({
     organizationId: orgId,
     actorId: userId,
     action: 'panic.trigger',
     entityType: 'panic_event',
-    entityId: event.id,
-    meta: { groupId, latitude: lat, longitude: lng },
+    entityId: events[0].id,
+    meta: {
+      groupIds: targetList.map((t) => t.id),
+      target: target === 'all' ? 'all' : 'groups',
+      latitude: lat,
+      longitude: lng,
+    },
   }).catch(() => {});
 
-  return { event, systemMsg };
+  return { event: events[0], events, systemMsg: messages[0] || null };
 }
 
-/** Solo eventos de grupos en los que el viewer es miembro. */
+/** Despacho con alcance de seguimiento sobre quien envió la alerta (orgWide o lista de unidades). */
+async function viewerDispatchScope(orgId, viewerId) {
+  const { rows } = await query(`SELECT role FROM users WHERE id = $1`, [viewerId]);
+  if (!isDispatch(rows[0]?.role)) return { orgWide: false, unitIds: [] };
+  const scope = await loadTrackScope({ sub: viewerId, orgId, role: rows[0].role });
+  return { orgWide: Boolean(scope.orgWide), unitIds: scope.unitIds || [] };
+}
+
+const VIEWER_FILTER_SQL = (viewerIdx, orgWideIdx, unitIdsIdx) => `(
+  EXISTS (
+    SELECT 1 FROM group_members gm
+    WHERE gm.group_id = p.group_id AND gm.user_id = $${viewerIdx}
+  )
+  OR $${orgWideIdx}::boolean
+  OR u.unit_id = ANY($${unitIdsIdx}::uuid[])
+)`;
+
+/** ¿Puede ver / atender la alerta? Miembro del canal o despacho con alcance sobre el emisor. */
+export async function canViewerActOnPanic({ orgId, viewerId, panicId }) {
+  const scope = await viewerDispatchScope(orgId, viewerId);
+  const { rows } = await query(
+    `SELECT 1 FROM panic_events p
+     LEFT JOIN users u ON u.id = p.user_id
+     WHERE p.id = $1 AND p.organization_id = $2
+       AND ${VIEWER_FILTER_SQL(3, 4, 5)}`,
+    [panicId, orgId, viewerId, scope.orgWide, scope.unitIds]
+  );
+  return Boolean(rows[0]);
+}
+
+/** Eventos de canales donde el viewer es miembro, o de emisores dentro de su alcance de despacho. */
 export async function listPanicEvents({ orgId, viewerId, status, limit = 50 }) {
   const lim = Math.min(Number(limit) || 50, 100);
-  const params = [orgId, viewerId];
+  const scope = await viewerDispatchScope(orgId, viewerId);
+  const params = [orgId, viewerId, scope.orgWide, scope.unitIds];
   let filter = '';
   if (status) {
     params.push(status);
@@ -168,10 +279,7 @@ export async function listPanicEvents({ orgId, viewerId, status, limit = 50 }) {
      LEFT JOIN users u ON u.id = p.user_id
      LEFT JOIN groups g ON g.id = p.group_id
      WHERE p.organization_id = $1
-       AND EXISTS (
-         SELECT 1 FROM group_members gm
-         WHERE gm.group_id = p.group_id AND gm.user_id = $2
-       )${filter}
+       AND ${VIEWER_FILTER_SQL(2, 3, 4)}${filter}
      ORDER BY p.created_at DESC
      LIMIT $${params.length}`,
     params
@@ -180,6 +288,7 @@ export async function listPanicEvents({ orgId, viewerId, status, limit = 50 }) {
 }
 
 export async function getPanicEvent({ orgId, viewerId, panicId }) {
+  const scope = await viewerDispatchScope(orgId, viewerId);
   const { rows } = await query(
     `SELECT p.*, u.display_name, g.name AS group_name
      FROM panic_events p
@@ -187,11 +296,8 @@ export async function getPanicEvent({ orgId, viewerId, panicId }) {
      LEFT JOIN groups g ON g.id = p.group_id
      WHERE p.id = $1
        AND p.organization_id = $2
-       AND EXISTS (
-         SELECT 1 FROM group_members gm
-         WHERE gm.group_id = p.group_id AND gm.user_id = $3
-       )`,
-    [panicId, orgId, viewerId]
+       AND ${VIEWER_FILTER_SQL(3, 4, 5)}`,
+    [panicId, orgId, viewerId, scope.orgWide, scope.unitIds]
   );
   if (!rows[0]) return null;
   return formatPanic(rows[0]);

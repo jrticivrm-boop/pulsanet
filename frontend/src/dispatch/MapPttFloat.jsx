@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import iconVideollamada from '../assets/icons/videollamada.png';
 import { pickTopSelected } from '../ChannelMultiSelect.jsx';
 import { resolveDropdownPortalHost } from './dropdownPortalHost.js';
+import PanicConfirmDialog from '../PanicConfirmDialog.jsx';
+import { canDispatch, readStoredUser } from '../api.js';
 
 const POS_KEY = 'tacticalptx_map_ptt_float_pos';
 export const MAP_PTT_MENU_LAYOUT_KEY = 'tacticalptx_map_ptt_menu_layout';
@@ -209,6 +211,7 @@ export default function MapPttFloat({
   const [pos, setPos] = useState(() => readStoredPos());
   const [menu, setMenu] = useState(null); // { x, y } | null
   const [busyPanic, setBusyPanic] = useState(false);
+  const [panicConfirmIds, setPanicConfirmIds] = useState(null);
   const [activePanel, setActivePanel] = useState(() => readActivePanel());
   const [menuLayout, setMenuLayout] = useState(() => readMapPttMenuLayout());
 
@@ -366,7 +369,7 @@ export default function MapPttFloat({
     }
   }
 
-  async function onSendPanic() {
+  function onSendPanic() {
     if (!ptt?.sendPanic || busyPanic) return;
     const ids = alertIds.length
       ? alertIds
@@ -376,18 +379,15 @@ export default function MapPttFloat({
           ? [group.id]
           : [];
     if (!ids.length) return;
-    const names = orderedGroups
-      .filter((g) => ids.map(String).includes(String(g.id)))
-      .map((g) => g.name)
-      .join(', ');
-    const ok = window.confirm(
-      `¿Enviar alerta a ${ids.length === 1 ? '«' + (names || 'canal') + '»' : ids.length + ' canales'}?`
-    );
-    if (!ok) return;
-    setBusyPanic(true);
     setMenu(null);
+    setPanicConfirmIds(ids);
+  }
+
+  async function onConfirmPanic({ groupIds, target, note }) {
+    setBusyPanic(true);
     try {
-      await ptt.sendPanic({ groupIds: ids });
+      const ev = await ptt.sendPanic({ groupIds, target, note });
+      if (ev) setPanicConfirmIds(null);
     } finally {
       setBusyPanic(false);
     }
@@ -776,6 +776,16 @@ export default function MapPttFloat({
           </div>,
           menuHost
         )}
+      <PanicConfirmDialog
+        open={Boolean(panicConfirmIds)}
+        groups={orderedGroups}
+        initialIds={panicConfirmIds || []}
+        canAlertAll={canDispatch(readStoredUser())}
+        busy={busyPanic || ptt.panicSending}
+        host={hostEl}
+        onCancel={() => setPanicConfirmIds(null)}
+        onConfirm={onConfirmPanic}
+      />
     </>,
     hostEl
   );

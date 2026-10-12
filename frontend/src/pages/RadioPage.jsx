@@ -16,6 +16,7 @@ import { useDispatchListen } from '../useDispatchListen';
 import { openPeoplePalette } from '../peerActions';
 import { openChatsPanel } from '../chatsPanel';
 import BrandName from '../BrandName.jsx';
+import PanicConfirmDialog from '../PanicConfirmDialog.jsx';
 import { esDeniedReason, esMsg } from '../esMsg';
 import { radioSpeakerStatusLabel } from '../radioSpeakerLabel';
 import LiveTrackMap from '../dispatch/LiveTrackMap.jsx';
@@ -104,6 +105,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   const [err, setErr] = useState('');
   const [gpsOk, setGpsOk] = useState(false);
   const [panicFlash, setPanicFlash] = useState('');
+  const [panicConfirmIds, setPanicConfirmIds] = useState(null);
   const [focusPeerId, setFocusPeerId] = useState(null);
   const [focusGroupId, setFocusGroupId] = useState(null);
   const [channelLayout, setChannelLayout] = useState(readChannelLayout);
@@ -407,24 +409,34 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
     }
   }, [ptt.incomingPanic]);
 
-  async function onPanic() {
+  function onPanic() {
     if (!alertIds.length || ptt.panicSending) return;
     unlockPanicAudio().catch(() => {});
-
     const ordered = groupOrder.length
       ? groupOrder.filter((id) => alertIds.includes(id))
       : alertIds;
+    setPanicConfirmIds(ordered);
+  }
+
+  async function onConfirmPanic({ groupIds, target, note }) {
     const event = await ptt.sendPanic({
-      groupIds: ordered,
+      groupIds,
+      target,
+      note,
       latitude: gpsRef.current.latitude,
       longitude: gpsRef.current.longitude,
       accuracyM: gpsRef.current.accuracyM,
     });
     if (event) {
+      setPanicConfirmIds(null);
       setPanicFlash('Alerta enviada');
       setTimeout(() => setPanicFlash(''), 4000);
     }
   }
+
+  const panicGroups = groupOrder.length
+    ? groupOrder.map((id) => groups.find((g) => g.id === id)).filter(Boolean)
+    : groups;
 
   return (
     <div
@@ -588,7 +600,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                   alertIds.length
                     ? alertIds.length > 1
                       ? `Enviar alerta a ${alertIds.length} canales (1 aviso por persona)`
-                      : 'Enviar alerta — un clic envía la alerta al canal'
+                      : 'Enviar alerta — pide confirmación del destino'
                     : 'Selecciona al menos un canal en Alerta'
                 }
               >
@@ -863,6 +875,15 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
           </div>,
           document.body
         )}
+      <PanicConfirmDialog
+        open={Boolean(panicConfirmIds)}
+        groups={panicGroups}
+        initialIds={panicConfirmIds || []}
+        canAlertAll={canDispatch(session.user)}
+        busy={ptt.panicSending}
+        onCancel={() => setPanicConfirmIds(null)}
+        onConfirm={onConfirmPanic}
+      />
     </div>
   );
 }

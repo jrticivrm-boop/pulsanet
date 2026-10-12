@@ -1079,6 +1079,15 @@ export function canDispatch(user) {
   );
 }
 
+/** Usuario de la sesión guardada (para componentes sin `session` por props). */
+export function readStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')?.user || null;
+  } catch {
+    return null;
+  }
+}
+
 export function isRootUser(user) {
   return user?.role === 'root';
 }

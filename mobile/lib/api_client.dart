@@ -882,14 +882,17 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> triggerPanic({
-    required String groupId,
+    List<String> groupIds = const [],
+    String? target,
     double? latitude,
     double? longitude,
     double? accuracyM,
     String? note,
   }) {
     return _post('/api/panic', {
-      'groupId': groupId,
+      if (groupIds.isNotEmpty) 'groupId': groupIds.first,
+      if (groupIds.isNotEmpty) 'groupIds': groupIds,
+      if (target != null) 'target': target,
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (accuracyM != null) 'accuracyM': accuracyM,

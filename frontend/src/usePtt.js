@@ -1340,9 +1340,9 @@ export function usePtt({
   );
 
   const sendPanic = useCallback(
-    async ({ groupIds, latitude, longitude, accuracyM, note } = {}) => {
+    async ({ groupIds, target, latitude, longitude, accuracyM, note } = {}) => {
       const ids = (groupIds?.length ? groupIds : group?.id ? [group.id] : []).filter(Boolean);
-      if (!token || !ids.length || panicSending) return null;
+      if (!token || (!ids.length && target !== 'all') || panicSending) return null;
       setPanicSending(true);
       setChatError(null);
       // Confirmación corta al emisor (no bucle; los demás sí hasta Enterado)
@@ -1350,8 +1350,9 @@ export function usePtt({
       unlockPanicAudio().catch(() => {});
       try {
         const data = await triggerPanic(token, {
-          groupId: ids[0],
-          groupIds: ids,
+          groupId: target === 'all' ? undefined : ids[0],
+          groupIds: target === 'all' ? undefined : ids,
+          target,
           latitude,
           longitude,
           accuracyM,
