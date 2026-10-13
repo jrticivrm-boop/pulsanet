@@ -3787,6 +3787,69 @@ html.map-viewport-max .dispatch-page.map-page--maximized,
   min-height: 0;
 }
 
+/* Consola: lista de operadores (ex-Seguimiento) + mapa en fila */
+.ops-map-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: 0.55rem;
+  align-items: stretch;
+}
+
+.ops-map-body > .map-frame {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.map-page.map-page--fill .ops-map-body > .map-frame {
+  height: auto;
+}
+
+.ops-map-body > .lt-sheet.ops-roster {
+  flex: 0 0 21.5rem;
+  width: 21.5rem;
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  transition: flex-basis 0.22s ease, width 0.22s ease;
+}
+
+.ops-map-body > .lt-sheet.ops-roster.is-collapsed {
+  flex-basis: 3.5rem;
+  width: 3.5rem;
+}
+
+@media (max-width: 720px) {
+  .ops-map-body {
+    flex-direction: column;
+  }
+
+  .ops-map-body > .lt-sheet.ops-roster,
+  .ops-map-body > .lt-sheet.ops-roster.is-collapsed {
+    flex: 0 0 auto;
+    width: auto;
+    max-height: 45%;
+  }
+
+  .ops-roster.is-collapsed .lt-sheet-head,
+  .ops-roster.is-collapsed .lt-sheet-head-row,
+  .ops-roster.is-collapsed .lt-sheet-collapsed-meta {
+    flex-direction: row;
+    margin-top: 0;
+    padding-bottom: 0;
+  }
+
+  .ops-roster.is-collapsed .lt-sheet-head h1,
+  .ops-roster.is-collapsed .lt-sheet-collapsed-meta .lt-kpi {
+    writing-mode: horizontal-tb;
+    transform: none;
+  }
+
+  .ops-roster.is-collapsed .lt-sheet-toggle {
+    width: auto;
+  }
+}
+
 .cc-shell .map-toolbar select,
 .cc-shell .map-toolbar input,
 .cc-shell .map-ops-panel select,

@@ -7,7 +7,7 @@
  *  - /despacho/* — mapa, usuarios, catálogos, configuración
  * Hosts globales: llamadas, video, notificaciones, kick de sesión
  */
-import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import {
   canDispatch,
@@ -34,7 +34,6 @@ import DispatchProfiles from './dispatch/DispatchProfiles.jsx';
 import DispatchAnnouncements from './dispatch/DispatchAnnouncements.jsx';
 import DispatchGroups from './dispatch/DispatchGroups.jsx';
 import GlobalAnnouncementHost from './dispatch/GlobalAnnouncementHost.jsx';
-import LiveTrackMap from './dispatch/LiveTrackMap.jsx';
 import DispatchVideo from './dispatch/DispatchVideo.jsx';
 import ReservedLayout from './dispatch/ReservedLayout.jsx';
 import ReservedGrabaciones from './dispatch/ReservedGrabaciones.jsx';
@@ -84,6 +83,12 @@ function needsPasswordChange(session) {
 
 function homeFor(user) {
   return canDispatch(user) ? '/despacho' : '/solo-app';
+}
+
+/** Redirección que conserva ?lat=&lng=&user=… (enlaces viejos de Seguimiento). */
+function RedirectKeepQuery({ to }) {
+  const { search } = useLocation();
+  return <Navigate to={`${to}${search || ''}`} replace />;
 }
 
 const APP_ONLY_MSG =
@@ -319,7 +324,7 @@ export default function App() {
         }
       >
         <Route index element={<DispatchMap session={session} />} />
-        <Route path="seguimiento" element={<LiveTrackMap session={session} />} />
+        <Route path="seguimiento" element={<RedirectKeepQuery to="/despacho" />} />
         <Route
           path="video"
           element={

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { MAP_MIN_ZOOM, MAP_WORLD_BOUNDS } from './mapTiles.js';
+import { MAP_FOCUS_MAX_ZOOM, MAP_MIN_ZOOM, MAP_WORLD_BOUNDS } from './mapTiles.js';
 import { CARGO_LABEL_MIN_ZOOM } from './mapLabelUtils.js';
 
 /** True cuando el zoom es suficiente para mostrar etiquetas de Cargo. */
@@ -81,6 +81,48 @@ export function smoothMapFocus(map, { lat, lng, zoom }, options = {}) {
   return () => {
     if (rafId) cancelAnimationFrame(rafId);
   };
+}
+
+/** Mantiene centrado al operador seleccionado mientras se mueve. */
+export function FollowSelected({ target, enabled }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!enabled || !target) return;
+    map.panTo([target.lat, target.lng], { animate: true, duration: 0.55 });
+  }, [map, enabled, target?.lat, target?.lng, target?.t]);
+  return null;
+}
+
+/** Acerca suave a un punto (alerta de pánico / operador elegido) sin arco de flyTo. */
+export function FlyToFocus({ target }) {
+  const map = useMap();
+  const doneKey = useRef('');
+  const cancelAnim = useRef(null);
+
+  useEffect(() => {
+    if (!target) return;
+    const key = `${target.lat},${target.lng},${target.zoom},${target.token || ''}`;
+    if (doneKey.current === key) return;
+    doneKey.current = key;
+
+    const zoom = Number.isFinite(target.zoom) ? target.zoom : MAP_FOCUS_MAX_ZOOM;
+    const lat = target.lat;
+    const lng = target.lng;
+
+    const start = window.setTimeout(() => {
+      map.invalidateSize({ animate: false });
+      cancelAnim.current?.();
+      cancelAnim.current = smoothMapFocus(map, { lat, lng, zoom }, { durationMs: 950 });
+    }, target.delayMs ?? 320);
+
+    return () => {
+      clearTimeout(start);
+      cancelAnim.current?.();
+      cancelAnim.current = null;
+    };
+  }, [map, target?.lat, target?.lng, target?.zoom, target?.token]);
+
+  return null;
 }
 
 /** Lee foco de pánico desde query (?lat=&lng=&zoom=). Ignora (0,0) / inválidos. */

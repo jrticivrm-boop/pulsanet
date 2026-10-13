@@ -8,7 +8,7 @@ import {
   subscribeMsPanelExclusive,
 } from './exclusiveMsPanel.js';
 import { applyMsPanelListLayout, fitMsPanelHeight } from './fitMsPanelHeight.js';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { useIsPhone, useIsCoarsePointer } from '../useMediaQuery.js';
 import MapPttFloat from './MapPttFloat.jsx';
 import {
@@ -16,6 +16,7 @@ import {
   TileLayer,
   Popup,
   Circle,
+  CircleMarker,
   ZoomControl,
   useMap,
   useMapEvents,
@@ -41,6 +42,8 @@ import { socketIoOptions, socketUrl } from '../socketConfig';
 import { socketAuth } from '../deviceId';
 import {
   LOCATION_POLL_MS,
+  TRACK_POLL_MS,
+  isFresh,
   mergeLocations,
   upsertLocation,
   debounceTrailing,
@@ -69,8 +72,13 @@ import {
   loadMapView,
   PersistMapView,
   CargoZoomGate,
+  FollowSelected,
+  FlyToFocus,
+  focusFromSearchParams,
 } from './mapLeafletUtils.jsx';
 import { ClusteredLocationLayer } from './ClusteredLocationLayer.jsx';
+import OperatorRoster from './OperatorRoster.jsx';
+import { canViewModule } from './modulePermissions.js';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
 import {
   MAP_TILE_LAYERS,
@@ -105,6 +113,8 @@ L.Icon.Default.mergeOptions({
 
 const GDL = [20.6736, -103.344];
 const MAP_VIEW_KEY = 'tacticalptx_map_view_ops';
+/** Lista lateral de operadores en Consola abierta/cerrada (este navegador). */
+const OPS_ROSTER_KEY = 'tacticalptx_ops_roster';
 /** Preferencias de la barra Consola: operadores / ruta (este navegador). */
 const OPS_MAP_FILTERS_KEY = 'tacticalptx_ops_map_filters_v1';
 /** Preferencia: mostrar ruta probable (huecos GPS) en Consola Ruta. */
@@ -1383,9 +1393,49 @@ export default function DispatchMap({ session }) {
     );
   }, [dispatchCtx.groups]);
   const pageRef = useRef(null);
+  /** Permiso «Seguimiento» (módulo mapa): operadores en mapa + lista lateral. */
+  const canSeeOperators = canViewModule(session.user, 'mapa');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [initialFocus] = useState(() => focusFromSearchParams(searchParams));
   const savedView = useMemo(() => loadMapView(MAP_VIEW_KEY), []);
-  const initialCenter = savedView?.center || GDL;
-  const initialZoom = savedView?.zoom ?? 12;
+  const initialCenter = initialFocus
+    ? [initialFocus.lat, initialFocus.lng]
+    : savedView?.center || GDL;
+  const initialZoom = initialFocus?.zoom ?? savedView?.zoom ?? 12;
+  const [selectedId, setSelectedId] = useState(() => initialFocus?.userId || '');
+  const [follow, setFollow] = useState(true);
+  const [rosterQuery, setRosterQuery] = useState('');
+  const [rosterOpen, setRosterOpen] = useState(() => {
+    try {
+      const stored = localStorage.getItem(OPS_ROSTER_KEY);
+      if (stored === '0') return false;
+      if (stored === '1') return true;
+    } catch {
+      /* ignore */
+    }
+    try {
+      return !window.matchMedia('(max-width: 720px)').matches;
+    } catch {
+      return true;
+    }
+  });
+  /** Punto forzado desde alerta de pánico (coords del evento) o acercamiento al elegir operador. */
+  const [focusPin, setFocusPin] = useState(() =>
+    initialFocus
+      ? {
+          lat: initialFocus.lat,
+          lng: initialFocus.lng,
+          zoom: initialFocus.zoom,
+          token: initialFocus.token,
+          userId: initialFocus.userId,
+          alert: true,
+        }
+      : null
+  );
+  /** Evita que «Seguir» pelee con el acercamiento inicial. */
+  const [focusLock, setFocusLock] = useState(() => Boolean(initialFocus));
+  const appliedFocusKey = useRef(initialFocus?.key || '');
+  const [selectedTrack, setSelectedTrack] = useState([]);
   const [locations, setLocations] = useState([]);
   const [overview, setOverview] = useState(null);
   const [onlineIds, setOnlineIds] = useState(new Set());
@@ -1421,7 +1471,7 @@ export default function DispatchMap({ session }) {
   const [presenceStatusIds, setPresenceStatusIds] = useState(
     () => initialFilters.presenceStatusIds || [...ALL_PRESENCE_STATUS_IDS]
   );
-  const { markerPhoto, markerGroupPhoto } = useMapAvatarPhotos(locations, session.token, {
+  const { markerPhoto, markerGroupPhoto, listPhoto } = useMapAvatarPhotos(locations, session.token, {
     operatorMode: operatorFilterMode,
     selectedGroupIds: operatorGroupIds,
     groups: radioGroups,
@@ -1858,6 +1908,179 @@ export default function DispatchMap({ session }) {
     showOffline,
   ]);
 
+  const statusOfLoc = useCallback(
+    (loc, now = Date.now()) => {
+      const pInfo = presenceByUser[loc.userId];
+      return resolvePresenceStatus({
+        presence: loc.presence || pInfo?.status,
+        focus: loc.focus || pInfo?.focus,
+        lastSeenAt: loc.lastSeenAt || pInfo?.lastSeenAt,
+        recordedAt: loc.recordedAt,
+        awaySince: loc.awaySince ?? pInfo?.awaySince,
+        offlineRedMinutes,
+        absenceMinutes,
+        showAway,
+        showOffline,
+        now,
+      });
+    },
+    [presenceByUser, offlineRedMinutes, absenceMinutes, showAway, showOffline]
+  );
+
+  /** Pines del mapa: filtro de Operadores + el seleccionado (p. ej. alerta) aunque esté filtrado. */
+  const mapLocations = useMemo(() => {
+    if (!canSeeOperators) return [];
+    if (!selectedId || visibleLocations.some((l) => l.userId === selectedId)) {
+      return visibleLocations;
+    }
+    const sel =
+      locations.find((l) => l.userId === selectedId) ||
+      gpsPeople.find((l) => l.userId === selectedId);
+    return sel ? [...visibleLocations, sel] : visibleLocations;
+  }, [canSeeOperators, visibleLocations, selectedId, locations, gpsPeople]);
+
+  const rosterPeople = useMemo(() => {
+    const q = rosterQuery.trim().toLowerCase();
+    const now = Date.now();
+    return mapLocations
+      .filter((l) => !q || (l.displayName || '').toLowerCase().includes(q))
+      .sort((a, b) => {
+        const af = isFresh(a.recordedAt, now) ? 0 : 1;
+        const bf = isFresh(b.recordedAt, now) ? 0 : 1;
+        if (af !== bf) return af - bf;
+        return (a.displayName || '').localeCompare(b.displayName || '', 'es');
+      });
+  }, [mapLocations, rosterQuery]);
+
+  const selectedLoc = mapLocations.find((l) => l.userId === selectedId) || null;
+  const followTarget = selectedLoc
+    ? {
+        lat: Number(selectedLoc.latitude),
+        lng: Number(selectedLoc.longitude),
+        t: selectedLoc.recordedAt,
+      }
+    : null;
+  const selectedTrail = useMemo(() => {
+    if (!selectedLoc) return [];
+    const live = [Number(selectedLoc.latitude), Number(selectedLoc.longitude)];
+    const last = selectedTrack[selectedTrack.length - 1];
+    if (last && last[0] === live[0] && last[1] === live[1]) return selectedTrack;
+    return [...selectedTrack, live];
+  }, [selectedLoc, selectedTrack]);
+
+  // Rastro (2 h) del operador elegido en la lista; se refresca con el latido GPS.
+  useEffect(() => {
+    if (!selectedId || !canSeeOperators) {
+      setSelectedTrack([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const loadTrack = () => {
+      if (cancelled || document.hidden) return;
+      fetchUserTrack(session.token, selectedId, 2)
+        .then((data) => {
+          if (cancelled) return;
+          setSelectedTrack((data.points || []).map((p) => [p.latitude, p.longitude]));
+        })
+        .catch(() => {
+          if (!cancelled) setSelectedTrack([]);
+        });
+    };
+    setSelectedTrack([]);
+    loadTrack();
+    const t = setInterval(loadTrack, TRACK_POLL_MS);
+    const onVis = () => {
+      if (!document.hidden) loadTrack();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [session.token, selectedId, canSeeOperators]);
+
+  // Deep-link desde «Ver en mapa» en alerta de pánico (antes iba a Seguimiento).
+  useEffect(() => {
+    const hasFocusQuery =
+      searchParams.has('lat') ||
+      searchParams.has('lng') ||
+      searchParams.has('panic') ||
+      searchParams.has('user') ||
+      searchParams.has('t');
+    if (!hasFocusQuery) return;
+
+    const focus = focusFromSearchParams(searchParams);
+    const clearQuery = () => {
+      const next = new URLSearchParams(searchParams);
+      ['lat', 'lng', 'zoom', 'user', 'panic', 't'].forEach((k) => next.delete(k));
+      setSearchParams(next, { replace: true });
+    };
+    if (!focus) {
+      clearQuery();
+      return;
+    }
+    if (appliedFocusKey.current === focus.key) {
+      clearQuery();
+      return;
+    }
+    appliedFocusKey.current = focus.key;
+
+    setFocusPin({
+      lat: focus.lat,
+      lng: focus.lng,
+      zoom: focus.zoom,
+      token: focus.token,
+      userId: focus.userId,
+      alert: true,
+    });
+    setFocusLock(true);
+    if (focus.userId) {
+      setSelectedId(focus.userId);
+      setFollow(true);
+    }
+    clearQuery();
+    window.setTimeout(() => setFocusLock(false), 2500);
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!initialFocus) return undefined;
+    const t = window.setTimeout(() => setFocusLock(false), 2500);
+    return () => clearTimeout(t);
+  }, [initialFocus]);
+
+  function focusOperator(loc) {
+    setSelectedId(loc.userId);
+    setFollow(true);
+    setFocusLock(true);
+    setFocusPin({
+      lat: Number(loc.latitude),
+      lng: Number(loc.longitude),
+      zoom: 17,
+      token: `sel-${loc.userId}-${Date.now()}`,
+      delayMs: 0,
+    });
+    window.setTimeout(() => setFocusLock(false), 1100);
+  }
+
+  function toggleRoster() {
+    setRosterOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(OPS_ROSTER_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (!canSeeOperators && (opsTab === 'operadores' || opsTab === 'ruta')) {
+      setOpsTab('sitios');
+    }
+  }, [canSeeOperators, opsTab]);
+
   useEffect(() => {
     storeOpsMapFilters({
       operatorFilterMode,
@@ -1926,8 +2149,8 @@ export default function DispatchMap({ session }) {
   const orderedOpsTabs = useMemo(() => {
     const defs = [
       { id: 'sitios', label: 'Sitios' },
-      { id: 'operadores', label: 'Operadores' },
-      { id: 'ruta', label: 'Ruta' },
+      { id: 'operadores', label: 'Operadores', disabled: !canSeeOperators },
+      { id: 'ruta', label: 'Ruta', disabled: !canSeeOperators },
       { id: 'geocerca', label: 'Geocerca' },
     ];
     const byId = new Map(defs.map((t) => [t.id, t]));
@@ -1943,7 +2166,7 @@ export default function DispatchMap({ session }) {
       if (byId.has(tab.id)) next.push(tab);
     }
     return next;
-  }, [opsTabOrder]);
+  }, [opsTabOrder, canSeeOperators]);
 
   // Ruta: un solo id y solo si sigue en el universo GPS.
   useEffect(() => {
@@ -3085,6 +3308,30 @@ export default function DispatchMap({ session }) {
       )}
 
       {error && <p className="error">{error}</p>}
+      <div className="ops-map-body">
+      {canSeeOperators && !maximized ? (
+        <OperatorRoster
+          title="Operadores"
+          className="ops-roster"
+          people={rosterPeople}
+          statusOf={statusOfLoc}
+          listPhoto={listPhoto}
+          query={rosterQuery}
+          onQueryChange={setRosterQuery}
+          selectedId={selectedId}
+          onSelect={focusOperator}
+          follow={follow}
+          onFollowChange={setFollow}
+          open={rosterOpen}
+          onToggle={toggleRoster}
+          selectedTrailCount={selectedTrail.length}
+          emptyText={
+            locations.length
+              ? 'Nadie coincide con el filtro. Ajusta la pestaña Operadores.'
+              : 'Nadie comparte GPS aún. Abre la app móvil o Radio web con ubicación activa.'
+          }
+        />
+      ) : null}
       <div className={`map-frame${fixOnMap ? ' pick-mode' : ''}`}>
         {maximized ? (
           <button
@@ -3102,13 +3349,15 @@ export default function DispatchMap({ session }) {
         <div
           className={`map-frame-chrome${showIvRmEstados ? ' map-frame-chrome--has-estados' : ''}`}
         >
-          <PresenceMapLegend
-            overlay
-            counts={presenceLegendCounts}
-            showAway={showAway}
-            showOffline={showOffline}
-            selectedStatusIds={presenceStatusIds}
-          />
+          {canSeeOperators ? (
+            <PresenceMapLegend
+              overlay
+              counts={presenceLegendCounts}
+              showAway={showAway}
+              showOffline={showOffline}
+              selectedStatusIds={presenceStatusIds}
+            />
+          ) : null}
           <div className="lt-layers" role="group" aria-label="Estilo de mapa">
             {Object.entries(MAP_LAYERS).map(([key, meta]) => (
               <button
@@ -3124,7 +3373,7 @@ export default function DispatchMap({ session }) {
           </div>
           <IvRmStatesLegend surface="consola" />
         </div>
-        {trackUserIds.length > 0 ? (
+        {canSeeOperators && trackUserIds.length > 0 ? (
           <div className="track-route-legend" aria-label="Leyenda de rutas">
             <span className="track-route-legend__item">
               <i
@@ -3173,8 +3422,48 @@ export default function DispatchMap({ session }) {
           <MapWorldFillMinZoom />
           <PersistMapView storageKey={MAP_VIEW_KEY} />
           <InvalidateOnLayout
-            tick={(maximized ? 1 : 0) + (maximized && !opsChromeOpen ? 2 : 0)}
+            tick={
+              (maximized ? 1 : 0) +
+              (maximized && !opsChromeOpen ? 2 : 0) +
+              (canSeeOperators && rosterOpen ? 4 : 0)
+            }
           />
+          <FlyToFocus target={focusPin} />
+          <FollowSelected
+            target={followTarget}
+            enabled={Boolean(selectedId && follow && !focusLock)}
+          />
+          {focusPin?.alert ? (
+            <CircleMarker
+              center={[focusPin.lat, focusPin.lng]}
+              radius={14}
+              pathOptions={{
+                color: '#b42318',
+                fillColor: '#ff4d3a',
+                fillOpacity: 0.85,
+                weight: 3,
+              }}
+            >
+              <Popup>
+                <strong>Punto de alerta</strong>
+                <br />
+                <MapCoordsLink lat={focusPin.lat} lng={focusPin.lng} />
+              </Popup>
+            </CircleMarker>
+          ) : null}
+          {focusPin?.alert ? (
+            <Circle
+              center={[focusPin.lat, focusPin.lng]}
+              radius={45}
+              interactive={false}
+              pathOptions={{
+                color: '#b42318',
+                fillColor: '#b42318',
+                fillOpacity: 0.12,
+                weight: 2,
+              }}
+            />
+          ) : null}
           <MapClickPicker
             enabled={fenceFormOpen && fixOnMap}
             onPick={(lat, lng) => {
@@ -3233,7 +3522,8 @@ export default function DispatchMap({ session }) {
           <CargoZoomGate>
             {(showCargo) => (
               <ClusteredLocationLayer
-                points={visibleLocations.map((loc) => ({
+                keepSeparateIds={selectedId ? [String(selectedId)] : undefined}
+                points={mapLocations.map((loc) => ({
                   ...loc,
                   id: String(loc.userId),
                   lat: Number(loc.latitude),
@@ -3289,13 +3579,21 @@ export default function DispatchMap({ session }) {
                         absenceMinutes,
                         showAway,
                         showOffline,
-                        selected: false,
+                        selected: selectedId === loc.userId,
                         photoSrc: photo,
                         groupPhotoSrc: groupPhoto,
                         operatorMode: operatorFilterMode,
                         panic: inPanic,
                       })}
-                      zIndexOffset={inPanic ? 400 : isLive ? 100 : 0}
+                      zIndexOffset={
+                        inPanic ? 400 : selectedId === loc.userId ? 300 : isLive ? 100 : 0
+                      }
+                      eventHandlers={{
+                        click: () => {
+                          setSelectedId(loc.userId);
+                          setFollow(false);
+                        },
+                      }}
                     >
                       <Popup>
                         <strong>{loc.displayName}</strong>
@@ -3318,7 +3616,10 @@ export default function DispatchMap({ session }) {
               />
             )}
           </CargoZoomGate>
-          {trackPolylines.map((tr) => (
+          {selectedId && selectedTrail.length > 1 && !trackUserIds.includes(String(selectedId)) ? (
+            <HighlighterTrack points={selectedTrail} />
+          ) : null}
+          {canSeeOperators && trackPolylines.map((tr) => (
             <HighlighterTrack
               key={tr.userId}
               points={tr.points}
@@ -3335,6 +3636,7 @@ export default function DispatchMap({ session }) {
             />
           ) : null}
         </MapContainer>
+      </div>
       </div>
 
       <AppDialog

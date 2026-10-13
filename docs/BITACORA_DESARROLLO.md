@@ -1,3 +1,15 @@
+## 2026-10-12 — Consola de Operaciones absorbe Seguimiento (lista de operadores)
+
+- **Tipo:** feature
+- **Área:** web
+- **Qué:**
+  - Nuevo `OperatorRoster.jsx`: lista + detalle (búsqueda, KPIs, estado, Seguir, Contactar, puntos de estela) extraído de `LiveTrackMap`; Seguimiento/Radio lo reutilizan sin cambio visual. `FollowSelected` y `FlyToFocus` pasan a `mapLeafletUtils.jsx`.
+  - Consola (`DispatchMap`): panel lateral plegable «Operadores» a la izquierda del mapa (preferencia `tacticalptx_ops_roster`; en celular se apila arriba). Lista = pines visibles según la pestaña Operadores (+ el seleccionado aunque esté filtrado). Clic en lista acerca a zoom 17 y sigue; clic en pin selecciona; estela de 2 h del seleccionado (si no tiene ya Ruta activa). Oculto al maximizar el mapa.
+  - Foco por URL (`?lat=&lng=&user=&panic=&t=`) en la Consola con pin rojo de alerta; `DispatchPanicHost` navega a `/despacho`; `/despacho/seguimiento` redirige a `/despacho` conservando la query.
+  - Permiso `mapa` («Seguimiento», hint actualizado en `profiles.js`): sin él la Consola no muestra pines, lista, leyenda de presencia ni rutas, y deshabilita las pestañas Operadores/Ruta. Menú: se quita «Seguimiento» (`NAV`/`DEFAULT_NAV_ORDER`). Config → Estados IV R.M.: se oculta la superficie «Seguimiento».
+- **Por qué / notas:** Consola y Seguimiento duplicaban el mapa en vivo. `LiveTrackMap` se conserva porque Radio lo embebe. Sin migración. Probado en desarrollo con usuario ficticio y GPS ficticio.
+- **Archivos / refs:** `frontend/src/dispatch/OperatorRoster.jsx`, `DispatchMap.jsx`, `LiveTrackMap.jsx`, `mapLeafletUtils.jsx`, `DispatchPanicHost.jsx`, `DispatchLayout.jsx`, `ivRmStatesConfig.js`, `command-center.css`, `frontend/src/App.jsx`, `backend/src/services/profiles.js`
+
 ## 2026-10-12 — Usuarios: No. de teléfono en el alta
 
 - **Tipo:** feature

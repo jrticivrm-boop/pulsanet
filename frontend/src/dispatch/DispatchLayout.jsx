@@ -214,14 +214,13 @@ const NAV = [
     hint: 'Indicadores y mapa en vivo',
     icon: 'ops',
   },
-  { id: 'track', to: '/despacho/seguimiento', label: 'Seguimiento', hint: 'Ubicación en vivo', icon: 'track' },
   { id: 'video', to: '/despacho/video', label: 'RESERVADO', hint: 'Confidencial', icon: 'video' },
   { id: 'radio', to: '/despacho/radio', label: 'Radio PTT', hint: 'Hablar y canales', icon: 'radio' },
   { id: 'chats', to: '/despacho/chats', label: 'Chats', hint: 'Mensajes y respuestas', icon: 'chat' },
 ];
 
 const NAV_ORDER_KEY = 'tacticalptx_mod_nav_order';
-const DEFAULT_NAV_ORDER = ['ops', 'track', 'video', 'radio', 'chats', 'catalogs', 'admin', 'config'];
+const DEFAULT_NAV_ORDER = ['ops', 'video', 'radio', 'chats', 'catalogs', 'admin', 'config'];
 
 function loadNavOrder() {
   try {

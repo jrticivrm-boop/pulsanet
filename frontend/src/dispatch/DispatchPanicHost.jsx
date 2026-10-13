@@ -107,7 +107,7 @@ export default function DispatchPanicHost({
       if (p.id) params.set('panic', String(p.id));
       params.set('t', String(Date.now()));
       const qs = params.toString();
-      navigate(`/despacho/seguimiento${qs ? `?${qs}` : ''}`);
+      navigate(`/despacho${qs ? `?${qs}` : ''}`);
     },
     [navigate, silenceAlarmLocally]
   );

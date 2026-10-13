@@ -18,7 +18,6 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import 'leaflet/dist/leaflet.css';
 import './command-center.css';
 import { fetchLocations, fetchOverview, fetchUserTrack, fetchGroupMembers, fetchPanicEvents } from '../api';
-import { openPeerSheet } from '../peerActions';
 import { esMsg } from '../esMsg';
 import { socketIoOptions, socketUrl } from '../socketConfig';
 import { socketAuth } from '../deviceId';
@@ -41,7 +40,8 @@ import { MapMaximizeNearZoom } from './MapMaximizeButton.jsx';
 import { useMapViewportMaximize } from './useMapViewportMaximize.js';
 import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
-import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, smoothMapFocus, focusFromSearchParams, loadMapView, PersistMapView, CargoZoomGate } from './mapLeafletUtils.jsx';
+import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, focusFromSearchParams, loadMapView, PersistMapView, CargoZoomGate, FollowSelected, FlyToFocus } from './mapLeafletUtils.jsx';
+import OperatorRoster from './OperatorRoster.jsx';
 import { ClusteredLocationLayer } from './ClusteredLocationLayer.jsx';
 import { socketWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
@@ -94,51 +94,6 @@ function appendTrail(map, userId, lat, lng) {
   if (prev.length && samePoint(prev[prev.length - 1], point)) return map;
   next[userId] = [...prev, point].slice(-TRAIL_MAX);
   return next;
-}
-
-function FollowSelected({ target, enabled }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!enabled || !target) return;
-    map.panTo([target.lat, target.lng], { animate: true, duration: 0.55 });
-  }, [map, enabled, target?.lat, target?.lng, target?.t]);
-  return null;
-}
-
-/** Acerca suave al punto de pánico (sin arco agresivo de flyTo). */
-function FlyToFocus({ target }) {
-  const map = useMap();
-  const doneKey = useRef('');
-  const cancelAnim = useRef(null);
-
-  useEffect(() => {
-    if (!target) return;
-    const key = `${target.lat},${target.lng},${target.zoom},${target.token || ''}`;
-    if (doneKey.current === key) return;
-    doneKey.current = key;
-
-    const zoom = Number.isFinite(target.zoom) ? target.zoom : MAP_FOCUS_MAX_ZOOM;
-    const lat = target.lat;
-    const lng = target.lng;
-
-    const start = window.setTimeout(() => {
-      map.invalidateSize({ animate: false });
-      cancelAnim.current?.();
-      cancelAnim.current = smoothMapFocus(
-        map,
-        { lat, lng, zoom },
-        { durationMs: 950 }
-      );
-    }, 320);
-
-    return () => {
-      clearTimeout(start);
-      cancelAnim.current?.();
-      cancelAnim.current = null;
-    };
-  }, [map, target?.lat, target?.lng, target?.zoom, target?.token]);
-
-  return null;
 }
 
 function InvalidateOnLayout({ tick }) {
@@ -653,11 +608,6 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
       });
   }, [locations, query, now]);
 
-  const liveCount = useMemo(
-    () => people.filter((p) => isFresh(p.recordedAt, now)).length,
-    [people, now]
-  );
-
   const presenceLegendCounts = useMemo(
     () =>
       countPresenceLegend(
@@ -730,173 +680,47 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
       className={`lt-page${maximized ? ' lt-page--maximized' : ''}${sheetOpen ? '' : ' lt-page--sheet-collapsed'}${isPhone ? ' lt-page--phone' : ''}${embedRadio ? ' lt-page--embed-radio' : ''}`}
       data-esc-close={maximized ? '' : undefined}
     >
-      <aside className={`lt-sheet${sheetOpen ? '' : ' is-collapsed'}`} aria-label="Lista de operadores">
-        <header className="lt-sheet-head">
-          <div className="lt-sheet-head-row">
-            <h1>Seguimiento en vivo</h1>
-            <button
-              type="button"
-              className="lt-sheet-toggle"
-              onClick={toggleSheet}
-              aria-expanded={sheetOpen}
-              aria-controls="lt-sheet-body"
-              title={sheetOpen ? 'Ocultar lista' : 'Mostrar lista'}
-            >
-              <span className="lt-sheet-toggle-ico" aria-hidden="true">
-                {sheetOpen ? '◂' : '▸'}
-              </span>
-              <span className="lt-sheet-toggle-label">
-                {sheetOpen ? 'Ocultar' : 'Lista'}
-              </span>
-            </button>
-          </div>
-          {sheetOpen ? (
-            <div className="lt-kpi-row" role="status" aria-live="polite">
-              <span className={`lt-kpi${liveCount > 0 ? ' lt-kpi--live' : ''}`}>
-                {liveCount} en vivo
-              </span>
-              <span className="lt-kpi">{people.length} con GPS</span>
-              <span className="lt-kpi">cada {LOCATION_POLL_MS / 1000} s</span>
-              {trackScopeLabel ? (
-                <span className="lt-kpi lt-kpi--scope">{trackScopeLabel}</span>
-              ) : null}
-              <span className={`lt-kpi lt-kpi--conn${live ? ' on' : ''}`}>
-                {live ? 'Tiempo real' : 'Reconectando'}
-              </span>
-            </div>
-          ) : (
-            <div className="lt-sheet-collapsed-meta" role="status">
-              <span className={`lt-kpi${liveCount > 0 ? ' lt-kpi--live' : ''}`}>
-                {liveCount} en vivo
-              </span>
-              <span className="lt-kpi">{people.length} GPS</span>
-            </div>
-          )}
-        </header>
-
-        <div
-          id="lt-sheet-body"
-          className="lt-sheet-body"
-          hidden={!sheetOpen}
-          aria-hidden={!sheetOpen}
-        >
-          <div className="lt-tools">
-            <input
-              type="search"
-              placeholder="Buscar operador…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Buscar operador"
-            />
-          </div>
-
-          {error && <p className="lt-error">{error}</p>}
-
-          <ul className="lt-people">
-            {people.length === 0 && (
-              <li className="lt-empty">
-                Nadie comparte GPS aún. Abre la app móvil o Radio web con ubicación activa.
-              </li>
-            )}
-            {people.map((p) => {
-              const fresh = isFresh(p.recordedAt, now);
-              const status = resolvePresenceStatus({
-                presence: p.presence,
-                focus: p.focus,
-                lastSeenAt: p.lastSeenAt,
-                recordedAt: p.recordedAt,
-                awaySince: p.awaySince,
-                offlineRedMinutes,
-                absenceMinutes,
-                showAway,
-                showOffline,
-                now,
-              });
-              const photo = listPhoto(p);
-              return (
-                <li key={p.userId}>
-                  <button
-                    type="button"
-                    className={`lt-person${selectedId === p.userId ? ' selected' : ''}`}
-                    onClick={() => focusPerson(p)}
-                  >
-                    <span className={`lt-avatar${fresh ? ' live' : ''}`}>
-                      {photo ? (
-                        <img src={photo} alt="" />
-                      ) : (
-                        (p.displayName || '?').charAt(0).toUpperCase()
-                      )}
-                      {fresh ? <i className="lt-avatar-pulse" aria-hidden="true" /> : null}
-                    </span>
-                    <span className="lt-person-meta">
-                      <strong>{p.displayName}</strong>
-                      <em>
-                        {gpsStatusLine(p.recordedAt, now)}
-                        {` · ${PRESENCE_LABELS[status] || status}`}
-                        {p.accuracyM != null ? ` · ±${Math.round(p.accuracyM)} m` : ''}
-                      </em>
-                    </span>
-                    <span
-                      className={`lt-status-pill${
-                        status === 'online'
-                          ? ' on'
-                          : status === 'away'
-                            ? ' away'
-                            : status === 'stale'
-                              ? ' stale'
-                              : ' off'
-                      }`}
-                    >
-                      {PRESENCE_LABELS[status] || status}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-
-          {selected && (
-            <div className="lt-detail">
-              <div className="lt-detail-head">
-                <strong>{selected.displayName}</strong>
-                <label className="lt-follow">
-                  <input
-                    type="checkbox"
-                    checked={follow}
-                    onChange={(e) => setFollow(e.target.checked)}
-                  />
-                  Seguir
-                </label>
-              </div>
-              <p>
-                <MapCoordsLink lat={selected.latitude} lng={selected.longitude} />
-              </p>
-              <p>
-                {gpsStatusLine(selected.recordedAt, now)}
-                {selectedTrail.length > 1 ? ` (${selectedTrail.length} puntos)` : ''}
-              </p>
-              <button
-                type="button"
-                className="cc-btn primary"
-                style={{ marginTop: '0.65rem', width: '100%' }}
-                onClick={() =>
-                  openPeerSheet({
-                    id: selected.userId,
-                    displayName: selected.displayName,
-                  })
-                }
-              >
-                Contactar
-              </button>
-              {locationPingHint ? (
-                <p className="lt-detail-hint" style={{ marginTop: '0.45rem', fontSize: '0.85rem' }}>
-                  {locationPingHint}
-                </p>
-              ) : null}
-            </div>
-          )}
-        </div>
-      </aside>
+      <OperatorRoster
+        people={people}
+        now={now}
+        statusOf={(p, t) =>
+          resolvePresenceStatus({
+            presence: p.presence,
+            focus: p.focus,
+            lastSeenAt: p.lastSeenAt,
+            recordedAt: p.recordedAt,
+            awaySince: p.awaySince,
+            offlineRedMinutes,
+            absenceMinutes,
+            showAway,
+            showOffline,
+            now: t,
+          })
+        }
+        listPhoto={listPhoto}
+        query={query}
+        onQueryChange={setQuery}
+        selectedId={selectedId}
+        onSelect={focusPerson}
+        follow={follow}
+        onFollowChange={setFollow}
+        open={sheetOpen}
+        onToggle={toggleSheet}
+        error={error}
+        selectedTrailCount={selectedTrail.length}
+        hint={locationPingHint}
+        extraKpis={
+          <>
+            <span className="lt-kpi">cada {LOCATION_POLL_MS / 1000} s</span>
+            {trackScopeLabel ? (
+              <span className="lt-kpi lt-kpi--scope">{trackScopeLabel}</span>
+            ) : null}
+            <span className={`lt-kpi lt-kpi--conn${live ? ' on' : ''}`}>
+              {live ? 'Tiempo real' : 'Reconectando'}
+            </span>
+          </>
+        }
+      />
 
       <div className="lt-map-panel">
         <div className="lt-map">

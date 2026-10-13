@@ -9,8 +9,7 @@ export const IV_RM_STATES_EVENT = 'tacticalptx-iv-rm-states-changed';
 
 /** Mapas donde pueden dibujarse las delimitaciones (checks en Config → Estados). */
 export const IV_RM_SURFACES = [
-  { id: 'consola', label: 'Consola', hint: 'Consola de Operaciones' },
-  { id: 'seguimiento', label: 'Seguimiento', hint: 'Mapa de seguimiento' },
+  { id: 'consola', label: 'Consola', hint: 'Consola de Operaciones (incluye lista de operadores)' },
   { id: 'radio', label: 'Radio', hint: 'Mapa embebido en Radio' },
 ];
 

@@ -79,7 +79,7 @@ export const MODULES = [
   {
     key: 'mapa',
     label: 'Seguimiento',
-    hint: 'Ubicación en vivo',
+    hint: 'Operadores en el mapa y lista de la Consola',
     group: 'operacion',
     groupLabel: 'Operación',
     actions: ['ver'],
