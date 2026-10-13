@@ -24,6 +24,10 @@ const kNotifAccent = Color(0xFF1E88E5);
 const kNotifDanger = Color(0xFFC62828);
 const kNotifWarn = Color(0xFFF0B429);
 
+/// false = mensajes como aviso nativo simple (tono/vibración del teléfono, sin foto
+/// ni Responder). true = conversación acumulada con foto y Responder / Marcar leído.
+const kRichChatNotifications = false;
+
 const kNotifActionReply = 'msg_reply';
 const kNotifActionRead = 'msg_read';
 
@@ -113,7 +117,10 @@ class RichNotify {
     final type = data['type']?.toString();
     try {
       if (isChatType(type)) {
-        return await _buildChat(data: data, title: title, body: body, tag: tag);
+        if (kRichChatNotifications) {
+          return await _buildChat(data: data, title: title, body: body, tag: tag);
+        }
+        return _buildPlainChat(data, title, body);
       }
       switch (type) {
         case 'panic':
@@ -144,6 +151,29 @@ class RichNotify {
       title: title,
       body: body,
       style: body.length > 40 ? BigTextStyleInformation(body) : null,
+    );
+  }
+
+  /// Aviso nativo simple (mismo formato que el push del servidor): remitente · canal y texto.
+  static RichNotifParts _buildPlainChat(
+    Map<String, dynamic> data,
+    String title,
+    String body,
+  ) {
+    final type = data['type']?.toString();
+    final sender = (data['senderName']?.toString().trim().isNotEmpty ?? false)
+        ? data['senderName'].toString().trim()
+        : title;
+    final groupName = data['groupName']?.toString().trim() ?? '';
+    final head = type == 'chat' && groupName.isNotEmpty && !sender.contains(groupName)
+        ? '$sender · $groupName'
+        : sender;
+    final text = type == 'dm_nudge' ? '📳 ¡Zumbido!' : messageText(data, body);
+    return RichNotifParts(
+      title: head,
+      body: text,
+      style: BigTextStyleInformation(text),
+      category: AndroidNotificationCategory.message,
     );
   }
 

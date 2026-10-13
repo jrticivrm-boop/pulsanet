@@ -5,6 +5,45 @@ import { config } from '../config.js';
 
 let ready = false;
 
+/**
+ * Canal nativo de mensajes: Android lo muestra aunque la app duerma, con el tono,
+ * vibración, silencio y No molestar que el usuario tenga en el teléfono.
+ * La app crea el canal con el mismo id (sin tono propio).
+ */
+export const MSG_CHANNEL_ID = 'sicom_mensajes_v1';
+
+function nativeMessagePayload({ title, body, tag, data }) {
+  return {
+    notification: { title, body },
+    data: Object.fromEntries(
+      Object.entries({ ...data, title, body }).map(([k, v]) => [k, String(v ?? '')])
+    ),
+    android: {
+      priority: 'high',
+      notification: {
+        channelId: MSG_CHANNEL_ID,
+        ...(tag ? { tag } : {}),
+        icon: 'ic_stat_sicom',
+        color: '#1E88E5',
+        defaultSound: true,
+        defaultVibrateTimings: true,
+        notificationPriority: 'PRIORITY_HIGH',
+        visibility: 'private',
+      },
+    },
+    apns: {
+      payload: {
+        aps: {
+          alert: { title, body },
+          sound: 'default',
+          ...(tag ? { 'thread-id': tag } : {}),
+          interruptionLevel: 'time-sensitive',
+        },
+      },
+    },
+  };
+}
+
 export function isFcmReady() {
   return ready;
 }
@@ -83,31 +122,18 @@ export async function notifyGroupMembers({
     }
   }
 
-  // Android: solo datos → la app arma la notificación (foto, canal, mensajes
-  // acumulados, Responder). Sin collapseKey: sin red se conservan todos.
-  const payload = {
-    data: Object.fromEntries(
-      Object.entries({
-        ...data,
-        groupId,
-        groupName,
-        senderId: excludeUserId || '',
-        senderName: title,
-        title,
-        body,
-      }).map(([k, v]) => [k, String(v ?? '')])
-    ),
-    android: { priority: 'high' },
-    apns: {
-      payload: {
-        aps: {
-          alert: { title: groupName ? `${title} · ${groupName}` : title, body },
-          sound: 'tactical_msg.wav',
-          interruptionLevel: 'time-sensitive',
-        },
-      },
+  const payload = nativeMessagePayload({
+    title: groupName ? `${title} · ${groupName}` : title,
+    body,
+    tag: `g:${groupId}`,
+    data: {
+      ...data,
+      groupId,
+      groupName,
+      senderId: excludeUserId || '',
+      senderName: title,
     },
-  };
+  });
 
   let sent = 0;
   // FCM multicast en lotes de 500
@@ -295,9 +321,16 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
         ? 'tacticalptx_announcements_v1'
         : 'tacticalptx_alerts_v3';
 
-  // Mensajes, llamadas perdidas y avisos: solo datos en Android (la app arma la
-  // notificación enriquecida). Llamadas / seguridad / prueba: notificación del sistema.
-  const richType = ['dm', 'dm_nudge', 'missed_call', 'announcement'].includes(data?.type);
+  if (data?.type === 'dm' || data?.type === 'dm_nudge') {
+    return sendToTokens(
+      tokens,
+      nativeMessagePayload({ title, body, tag: notifTag, data }),
+      'FCM notifyUser'
+    );
+  }
+
+  // Llamadas perdidas y avisos: solo datos en Android (la app arma la notificación).
+  const richType = ['missed_call', 'announcement'].includes(data?.type);
   if (richType) {
     const richPayload = {
       data: Object.fromEntries(

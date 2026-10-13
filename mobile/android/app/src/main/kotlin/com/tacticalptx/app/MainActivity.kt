@@ -213,6 +213,26 @@ class MainActivity : FlutterActivity() {
                             result.error("fsi_check_failed", e.message, null)
                         }
                     }
+                    "openChannelSettings" -> {
+                        try {
+                            val channelId = call.argument<String>("channelId")
+                            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && channelId != null) {
+                                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                                    putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
+                                }
+                            } else {
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", packageName, null)
+                                }
+                            }
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("channel_settings_failed", e.message, null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

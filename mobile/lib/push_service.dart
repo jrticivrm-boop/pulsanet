@@ -42,6 +42,14 @@ final Int64List kNudgeShakeVibration = Int64List.fromList(const <int>[
   0, 40, 30, 55, 30, 40, 30, 70, 40, 40, 30, 55, 30, 40, 80, 50,
 ]);
 
+/// Mensajes (chat, DM, zumbido): canal nativo sin tono propio. Mismo id que manda
+/// el servidor en el push, así Android aplica el tono/vibración/silencio del teléfono.
+const kMsgChannelId = 'sicom_mensajes_v1';
+const kMsgChannelName = 'Mensajes SICOM';
+/// Android identifica el aviso por (tag, id); el push nativo de FCM usa id 0 con
+/// tag `dm:<id>` / `g:<id>`: el aviso local usa lo mismo para reemplazarlo, no duplicarlo.
+const kNativeMsgNotifId = 0;
+
 /// Canal Android v4 + sufijo de tono (Android no cambia el sonido de un id fijo).
 Future<({
   String channelId,
@@ -49,7 +57,16 @@ Future<({
   bool playSound,
   RawResourceAndroidNotificationSound? androidSound,
   String? iosSound,
-})> _resolveChatNotifAudio({required bool nudge}) async {
+})> _resolveChatNotifAudio({required bool nudge, String? type}) async {
+  if (RichNotify.isChatType(type)) {
+    return (
+      channelId: kMsgChannelId,
+      channelName: kMsgChannelName,
+      playSound: true,
+      androidSound: null,
+      iosSound: null,
+    );
+  }
   final tone =
       nudge ? await SoundPrefs.nudgeTone() : await SoundPrefs.messageTone();
   final baseId = nudge ? 'tacticalptx_nudge_v5' : 'tacticalptx_alerts_v4';
@@ -162,7 +179,8 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
   final nudge = type == 'dm_nudge';
   final audio = isCall
       ? null
-      : await _resolveChatNotifAudio(nudge: nudge);
+      : await _resolveChatNotifAudio(nudge: nudge, type: type);
+  final nativeMsg = audio?.channelId == kMsgChannelId;
   final channelId = isCall
       ? kCallChannelId
       : (audio?.channelId ?? (nudge ? kNudgeChannelId : kPushChannelId));
@@ -173,15 +191,17 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
     AndroidNotificationChannel(
       channelId,
       channelName,
-      description: nudge
-          ? 'Zumbidos DM'
-          : (isCall
-              ? 'Llamadas y videollamadas (timbre vía app)'
-              : 'Mensajes y alertas'),
+      description: nativeMsg
+          ? 'Mensajes de chat (tono y vibración del teléfono)'
+          : nudge
+              ? 'Zumbidos DM'
+              : (isCall
+                  ? 'Llamadas y videollamadas (timbre vía app)'
+                  : 'Mensajes y alertas'),
       importance: Importance.max,
       playSound: isCall ? false : (audio?.playSound ?? true),
       enableVibration: true,
-      vibrationPattern: nudge ? kNudgeShakeVibration : null,
+      vibrationPattern: nudge && !nativeMsg ? kNudgeShakeVibration : null,
       audioAttributesUsage: isCall
           ? AudioAttributesUsage.notificationRingtone
           : AudioAttributesUsage.notification,
@@ -189,7 +209,9 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
     ),
   );
 
-  final notifId = _stableId(tag ?? 'msg:${message.messageId ?? body}');
+  final notifId = nativeMsg && tag != null
+      ? kNativeMsgNotifId
+      : _stableId(tag ?? 'msg:${message.messageId ?? body}');
   // Llamadas: audio solo vía CallRingtone; notificación sin segundo tono.
   final vibrate = isCall
       ? (await incomingCallNotifPrefs()).enableVibration
@@ -229,7 +251,7 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
         timeoutAfter: isCall ? 55000 : (rich?.timeoutAfter ?? _timeoutFor(type)),
         playSound: isCall ? false : (audio?.playSound ?? true),
         enableVibration: vibrate,
-        vibrationPattern: nudge ? kNudgeShakeVibration : null,
+        vibrationPattern: nudge && !nativeMsg ? kNudgeShakeVibration : null,
         ticker: nudge ? '¡Zumbido!' : null,
         audioAttributesUsage: isCall
             ? AudioAttributesUsage.notificationRingtone
@@ -528,6 +550,16 @@ class PushService {
           sound: RawResourceAndroidNotificationSound(kNudgeSoundRaw),
         ),
       );
+      await androidPlugin?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          kMsgChannelId,
+          kMsgChannelName,
+          description: 'Mensajes de chat (tono y vibración del teléfono)',
+          importance: Importance.max,
+          playSound: true,
+          enableVibration: true,
+        ),
+      );
       try {
         final msgAudio = await _resolveChatNotifAudio(nudge: false);
         await androidPlugin?.createNotificationChannel(
@@ -702,6 +734,7 @@ class PushService {
     String? peerId,
     String? callId,
     Map<String, dynamic>? data,
+    bool fromPush = false,
   }) async {
     if (!localReady) return;
     // Chat abierto en primer plano: tono tenue, sin notificación de bandeja.
@@ -717,14 +750,23 @@ class PushService {
     final tag = (data != null ? _noticeTag(data) : null) ??
         _conversationTag(groupId: groupId, peerId: peerId, callId: callId);
     final type = data?['type']?.toString();
+    final audio = isCall
+        ? null
+        : await _resolveChatNotifAudio(nudge: isNudge, type: type);
+    final nativeMsg = audio?.channelId == kMsgChannelId && tag != null;
+    // Mensaje por socket con la app minimizada: el push nativo del servidor ya lo
+    // muestra con el tono del teléfono. Solo si no llegó, lo ponemos aquí (respaldo).
+    if (nativeMsg && !fromPush && ready && appInBackground) {
+      await Future<void>.delayed(const Duration(seconds: 5));
+      if (await _hasActiveNotification(tag)) return;
+    }
     final rich = isCall || data == null
         ? null
         : await RichNotify.build(data: data, title: title, body: body, tag: tag);
-    final notifId =
-        _stableId(tag ?? 't:${DateTime.now().millisecondsSinceEpoch}');
+    final notifId = nativeMsg
+        ? kNativeMsgNotifId
+        : _stableId(tag ?? 't:${DateTime.now().millisecondsSinceEpoch}');
     final callPrefs = isCall ? await incomingCallNotifPrefs() : null;
-    final audio =
-        isCall ? null : await _resolveChatNotifAudio(nudge: isNudge);
     final channelId = isCall
         ? kCallChannelId
         : (audio?.channelId ?? (isNudge ? kNudgeChannelId : kPushChannelId));
@@ -739,11 +781,13 @@ class PushService {
         AndroidNotificationChannel(
           audio.channelId,
           audio.channelName,
-          description: isNudge ? 'Zumbidos DM' : 'Mensajes y alertas',
+          description: nativeMsg
+              ? 'Mensajes de chat (tono y vibración del teléfono)'
+              : (isNudge ? 'Zumbidos DM' : 'Mensajes y alertas'),
           importance: Importance.max,
           playSound: audio.playSound,
           enableVibration: true,
-          vibrationPattern: isNudge ? kNudgeShakeVibration : null,
+          vibrationPattern: isNudge && !nativeMsg ? kNudgeShakeVibration : null,
           sound: audio.androidSound,
         ),
       );
@@ -778,7 +822,7 @@ class PushService {
           // Llamadas: CallRingtone es la única fuente de audio (evita doble tono).
           playSound: isCall ? false : (audio?.playSound ?? true),
           enableVibration: callPrefs?.enableVibration ?? true,
-          vibrationPattern: isNudge ? kNudgeShakeVibration : null,
+          vibrationPattern: isNudge && !nativeMsg ? kNudgeShakeVibration : null,
           ticker: isNudge ? '¡Zumbido!' : null,
           audioAttributesUsage: isCall
               ? AudioAttributesUsage.notificationRingtone
@@ -813,6 +857,29 @@ class PushService {
     if (isCall && !appInBackground) {
       // ignore: unawaited_futures
       CallRingtone.start(kind: ringKind);
+    }
+  }
+
+  /// Ajustes del sistema del canal «Mensajes SICOM» (tono, vibración, emergente).
+  Future<void> openMessageChannelSettings() async {
+    try {
+      await _notifyNative.invokeMethod('openChannelSettings', {'channelId': kMsgChannelId});
+    } catch (e) {
+      debugPrint('openChannelSettings: $e');
+    }
+  }
+
+  Future<bool> _hasActiveNotification(String tag) async {
+    try {
+      final active = await _local
+              .resolvePlatformSpecificImplementation<
+                  AndroidFlutterLocalNotificationsPlugin>()
+              ?.getActiveNotifications() ??
+          const <ActiveNotification>[];
+      return active.any((n) => n.tag == tag);
+    } catch (e) {
+      debugPrint('active notifications: $e');
+      return false;
     }
   }
 
@@ -887,6 +954,7 @@ class PushService {
       body: body,
       payload: payload,
       data: Map<String, dynamic>.from(msg.data),
+      fromPush: true,
       isCall: isCall,
       isNudge: type == 'dm_nudge',
       ringKind: (type != null && type.contains('video')) || type == 'group_video'

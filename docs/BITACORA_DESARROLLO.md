@@ -1,3 +1,15 @@
+## 2026-10-13 — Notificaciones de mensajes nativas (tono y vibración del teléfono)
+
+- **Tipo:** fix | mejora
+- **Área:** backend | mobile
+- **Qué:**
+  - Reporte: con la app minimizada los mensajes no sonaban ni vibraban ni aparecían hasta abrirla. Causa probable: desde el despliegue del 12-oct los push de chat/DM eran solo datos y dependían de que la app despertara para armar el aviso.
+  - Servidor (`fcm.js`): chat de canal, DM y zumbido vuelven a llevar notificación del sistema en el canal `sicom_mensajes_v1`, con sonido y vibración predeterminados del teléfono, prioridad alta, tag `g:<canal>` / `dm:<persona>` (un aviso por conversación), visibilidad privada; iOS sonido `default`. Android lo muestra aunque la app duerma y respeta silencio/vibrar/No molestar. Llamadas perdidas y avisos siguen igual.
+  - App 1.8.189+199: crea el canal «Mensajes SICOM» sin tono propio; aviso simple (remitente · canal y texto, sin foto/Responder: `kRichChatNotifications = false`, el código enriquecido se conserva). Si el mensaje llega por socket con la app minimizada, espera 5 s y solo avisa si el push nativo no llegó (mismo tag e id 0: reemplaza, no duplica). Ajustes › Sonidos › Mensajes abre los ajustes del sistema de ese canal (nuevo método nativo `openChannelSettings`).
+  - Formato del push validado con el SDK de Firebase (sin enviar). Desarrollo y pruebas no tienen FCM: la prueba real en teléfono requiere el servidor en producción.
+- **Por qué / notas:** el usuario pidió notificaciones nativas que respeten la configuración del dispositivo. Sin migraciones. La parte del servidor corrige también a teléfonos con APK anterior.
+- **Archivos / refs:** `backend/src/services/fcm.js`, `mobile/lib/push_service.dart`, `mobile/lib/rich_notify.dart`, `mobile/lib/screens/sound_settings_screen.dart`, `mobile/android/app/src/main/kotlin/com/tacticalptx/app/MainActivity.kt`, APK `C:\pulsanet_soporte\APK\SICOM-1.8.189+199.apk`
+
 ## 2026-10-12 — Alerta: motivo visible, acciones Llamar/Mensaje y cámara en vivo del emisor
 
 - **Tipo:** feature | ux

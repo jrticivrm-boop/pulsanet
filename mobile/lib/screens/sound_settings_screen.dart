@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../channel_session.dart';
 import '../message_tone.dart';
+import '../push_service.dart';
 import '../sound_prefs.dart';
 import '../theme.dart';
 
@@ -16,7 +17,6 @@ class SoundSettingsScreen extends StatefulWidget {
 }
 
 class _SoundSettingsScreenState extends State<SoundSettingsScreen> {
-  AppToneId _message = AppToneId.tacticalMsg;
   AppToneId _call = AppToneId.system;
   AppToneId _video = AppToneId.system;
   AppToneId _nudge = AppToneId.nudgeBuzz;
@@ -30,7 +30,6 @@ class _SoundSettingsScreenState extends State<SoundSettingsScreen> {
   }
 
   Future<void> _load() async {
-    final m = await SoundPrefs.messageTone();
     final c = await SoundPrefs.callTone();
     final v = await SoundPrefs.videoTone();
     final n = await SoundPrefs.nudgeTone();
@@ -41,7 +40,6 @@ class _SoundSettingsScreenState extends State<SoundSettingsScreen> {
     } catch (_) {}
     if (!mounted) return;
     setState(() {
-      _message = m;
       _call = c;
       _video = v;
       _nudge = n;
@@ -178,22 +176,17 @@ class _SoundSettingsScreenState extends State<SoundSettingsScreen> {
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
               children: [
                 Text(
-                  'Los mismos tonos se usan en la app y en las notificaciones '
-                  '(mensajes / zumbidos). Llamadas y video pueden usar el '
-                  'timbre del teléfono.',
+                  'Las notificaciones de mensajes y zumbidos usan el tono, la '
+                  'vibración y el modo silencio de tu teléfono. Llamadas y video '
+                  'pueden usar el timbre del teléfono.',
                   style: TacticalFonts.body(fontSize: 13, color: kInstMuted),
                 ),
                 const SizedBox(height: 12),
                 _tile(
                   icon: Icons.chat_bubble_outline,
                   title: 'Mensajes',
-                  value: _message.labelEs,
-                  onTap: () => _pick(
-                    title: 'Tono de mensajes',
-                    choices: SoundPrefs.messageChoices,
-                    current: _message,
-                    save: SoundPrefs.setMessageTone,
-                  ),
+                  value: 'Del teléfono · cambiar',
+                  onTap: () => PushService.instance.openMessageChannelSettings(),
                 ),
                 _tile(
                   icon: Icons.call_outlined,
