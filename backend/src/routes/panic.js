@@ -9,10 +9,77 @@ import {
   canViewerActOnPanic,
   scopedDispatcherIds,
 } from '../services/panic.js';
+import {
+  bindPanicLiveIo,
+  canViewPanicLive,
+  findPanicLive,
+  maybeEndPanicLiveForEvent,
+} from '../services/panicLive.js';
+import { createRoomToken, isLiveKitConfigured, resolveLiveKitUrl } from '../services/livekit.js';
+import { voiceE2eeKeyForRoom } from '../services/voiceE2ee.js';
+
+async function liveCredentials(req, session, { publish }) {
+  const token = await createRoomToken({
+    identity: publish ? String(req.user.sub) : `panicview-${req.user.sub}`,
+    displayName: req.user.displayName || 'Usuario',
+    roomName: session.roomName,
+    canPublish: publish,
+    publishMode: publish ? 'all' : 'none',
+  });
+  const e2eeKey = voiceE2eeKeyForRoom(session.roomName);
+  return {
+    ok: true,
+    panicId: session.panicId,
+    userId: session.userId,
+    token,
+    url: resolveLiveKitUrl(req),
+    e2eeKey,
+    e2ee: Boolean(e2eeKey),
+    expiresAt: session.expiresAt,
+  };
+}
 
 export function createPanicRouter(io) {
   const router = Router();
+  bindPanicLiveIo(io);
   router.use(authMiddleware);
+
+  /** Emisor: credencial para transmitir cámara + mic de su alerta (≤ 15 min). */
+  router.post('/:id/live/publish', async (req, res) => {
+    try {
+      if (!isLiveKitConfigured()) {
+        return res.status(503).json({ ok: false, error: 'LiveKit no configurado' });
+      }
+      const session = await findPanicLive(req.params.id, req.user.orgId);
+      if (!session || String(session.userId) !== String(req.user.sub)) {
+        return res.status(404).json({ ok: false, error: 'Transmisión no disponible' });
+      }
+      res.json(await liveCredentials(req, session, { publish: true }));
+    } catch (err) {
+      console.error('panic live publish:', err.message);
+      res.status(500).json({ ok: false, error: 'No se pudo iniciar la transmisión' });
+    }
+  });
+
+  /** Despacho con alcance sobre el emisor: credencial solo para ver/escuchar. */
+  router.post('/:id/live/view', async (req, res) => {
+    try {
+      if (!isLiveKitConfigured()) {
+        return res.status(503).json({ ok: false, error: 'LiveKit no configurado' });
+      }
+      const session = await findPanicLive(req.params.id, req.user.orgId);
+      if (!session) {
+        return res.status(404).json({ ok: false, error: 'La transmisión de esta alerta ya terminó' });
+      }
+      if (!(await canViewPanicLive(req.user, session))) {
+        return res.status(403).json({ ok: false, error: 'Sin permiso para ver esta cámara' });
+      }
+      res.json(await liveCredentials(req, session, { publish: false }));
+    } catch (err) {
+      console.error('panic live view:', err.message);
+      res.status(500).json({ ok: false, error: 'No se pudo abrir la cámara' });
+    }
+  });
 
   /** Dispara la alerta a uno o varios canales visibles (`target: 'all'` solo despacho). */
   router.post('/', async (req, res) => {
@@ -100,6 +167,7 @@ export function createPanicRouter(io) {
           io.to(`group:${event.groupId}`).emit('panic:update', event);
           const admins = await scopedDispatcherIds(event.organizationId, event.userId);
           for (const uid of admins) io.to(`user:${uid}`).emit('panic:update', event);
+          await maybeEndPanicLiveForEvent(event.id, req.user.orgId).catch(() => {});
         }
       }
       res.json({ ok: true, event });

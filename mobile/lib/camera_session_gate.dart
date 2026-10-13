@@ -1,6 +1,6 @@
 /// Gate de hardware: evita que Ver cámara / videollamada / video de grupo
 /// peleen por la misma cámara del dispositivo.
-enum CameraOwner { none, remoteCam, privateCall, groupVideo }
+enum CameraOwner { none, remoteCam, privateCall, groupVideo, panicLive }
 
 class CameraSessionGate {
   CameraSessionGate._();

@@ -24,6 +24,7 @@ import 'location_heartbeat.dart';
 import 'chat_message_banner.dart';
 import 'message_tone.dart';
 import 'native_audio_mode.dart';
+import 'panic_live_session.dart';
 import 'panic_vibration.dart';
 import 'private_call_gate.dart';
 import 'ptt_wake.dart';
@@ -32,6 +33,7 @@ import 'remote_camera_prefs.dart';
 import 'remote_camera_session.dart';
 import 'roles.dart';
 import 'screens/group_video_screen.dart';
+import 'widgets/panic_confirm_sheet.dart' show splitPanicNote;
 
 const _kRadioListenMuteKey = 'tacticalptx_radio_mute';
 
@@ -337,6 +339,10 @@ class ChannelSession extends ChangeNotifier {
   double? incomingPanicLng;
   double? incomingPanicAccuracyM;
   String? incomingPanicUserId;
+  String? incomingPanicReason;
+  String? incomingPanicDetail;
+  String? incomingPanicGroupName;
+  DateTime? incomingPanicAt;
 
   /// Aviso global (warning) pendiente de Enterado.
   String? announcementId;
@@ -1230,6 +1236,10 @@ class ChannelSession extends ChangeNotifier {
         if (id != null && lastPanicId != null && id != lastPanicId) return;
         _clearIncomingPanicState();
         notifyListeners();
+      })
+      ..on('panic:live_end', (data) {
+        final m = data is Map ? Map<String, dynamic>.from(data) : const <String, dynamic>{};
+        unawaited(PanicLiveSession.instance.stopFor(m['panicId']?.toString()));
       });
 
     // El servidor renueva la presencia con el heartbeat del socket (25 s); este ping
@@ -1270,6 +1280,15 @@ class ChannelSession extends ChangeNotifier {
     incomingPanicLng = _toDouble(m['longitude']);
     incomingPanicAccuracyM =
         _toDouble(m['accuracyM']) ?? _toDouble(m['accuracy_m']);
+    final parts = splitPanicNote(m['note']?.toString());
+    final reason = m['reason']?.toString();
+    final detail = m['detail']?.toString();
+    incomingPanicReason = (reason != null && reason.isNotEmpty) ? reason : parts.reason;
+    incomingPanicDetail = (detail != null && detail.isNotEmpty) ? detail : parts.detail;
+    final gname = m['groupName']?.toString();
+    incomingPanicGroupName = (gname != null && gname.isNotEmpty) ? gname : null;
+    incomingPanicAt =
+        DateTime.tryParse(m['createdAt']?.toString() ?? '')?.toLocal() ?? DateTime.now();
     incomingPanicActive = true;
     _startPanicAlarmLoop();
     notifyListeners();
@@ -1284,6 +1303,10 @@ class ChannelSession extends ChangeNotifier {
     incomingPanicLng = null;
     incomingPanicAccuracyM = null;
     incomingPanicUserId = null;
+    incomingPanicReason = null;
+    incomingPanicDetail = null;
+    incomingPanicGroupName = null;
+    incomingPanicAt = null;
   }
 
   /// Recupera pánico activo del canal (p. ej. tras abrir app por notificación).
@@ -2631,6 +2654,16 @@ class ChannelSession extends ChangeNotifier {
       );
       final event = data['event'] as Map<String, dynamic>?;
       lastPanicId = event?['id'] as String?;
+      final livePanicId =
+          (event?['live'] as Map?)?['panicId']?.toString() ?? lastPanicId;
+      if (livePanicId != null) {
+        // Enviar la alerta = consentimiento. Primero sale la alerta; luego el sistema
+        // pide cámara/mic (solo si faltan) y arranca la transmisión.
+        unawaited(() async {
+          await PanicLiveSession.requestPermissions();
+          await PanicLiveSession.instance.start(api: api, panicId: livePanicId);
+        }());
+      }
       final sys = data['message'];
       if (sys is Map<String, dynamic>) {
         final m = ChatMessage.fromJson(sys);

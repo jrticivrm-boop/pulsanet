@@ -934,6 +934,10 @@ export function usePtt({
         latitude: event.latitude,
         longitude: event.longitude,
         accuracyM: event.accuracyM,
+        note: event.note || null,
+        reason: event.reason || null,
+        detail: event.detail || null,
+        livePanicId: event.live?.panicId || event.id,
       });
       startPanicAlarm();
       recordPanicNotice(event);

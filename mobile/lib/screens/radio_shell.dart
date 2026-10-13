@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api_client.dart';
 import '../app_focus.dart';
@@ -22,8 +23,10 @@ import '../chat_message_banner.dart';
 import '../user_display.dart';
 import '../message_tone.dart';
 import '../nudge_shake.dart';
+import '../panic_live_session.dart';
 import '../panic_maps.dart';
 import '../panic_vibration.dart';
+import '../peer_actions.dart' show startPersonalCall;
 import '../private_call_gate.dart';
 import '../push_service.dart';
 import '../remote_camera_prefs.dart';
@@ -32,6 +35,7 @@ import '../remote_camera_wake.dart';
 import '../roles.dart';
 import '../theme.dart';
 import '../widgets/tactical_backdrop.dart';
+import '../widgets/panic_alert_card.dart';
 import '../widgets/panic_confirm_sheet.dart';
 import '../widgets/user_avatar.dart';
 import 'call_history_pane.dart';
@@ -40,6 +44,7 @@ import 'direct_pane.dart';
 import 'gps_track_screen.dart';
 import 'group_video_screen.dart';
 import 'incoming_call_screen.dart';
+import 'panic_live_view_screen.dart';
 import 'private_call_screen.dart';
 import 'radio_screen.dart';
 import 'sound_settings_screen.dart';
@@ -929,6 +934,138 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
 
   void _ackPanic(ChannelSession session) {
     session.ackIncomingPanic();
+  }
+
+  Widget _buildPanicCard(ChannelSession session) {
+    final api = widget.api;
+    final uid = session.incomingPanicUserId;
+    final name = session.incomingPanicLabel ?? 'Operador';
+    final hasPeer = uid != null && uid.isNotEmpty && uid != api.user?['id']?.toString();
+    final acc = session.incomingPanicAccuracyM;
+    return PanicAlertCard(
+      name: name,
+      userId: uid,
+      avatarUrl: uid == null ? null : api.peerAvatarNetworkUrl(uid, null),
+      avatarHeaders: api.avatarAuthHeaders(),
+      reason: session.incomingPanicReason,
+      detail: session.incomingPanicDetail,
+      groupName: session.incomingPanicGroupName ?? session.groupName,
+      at: session.incomingPanicAt,
+      locationText: session.incomingPanicHasLocation
+          ? (acc != null ? 'Ubicación registrada (±${acc.round()} m)' : 'Ubicación registrada')
+          : 'Sin ubicación GPS del emisor',
+      onAck: () => _ackPanic(session),
+      actions: [
+        PanicAlertAction(
+          icon: Icons.map_rounded,
+          label: 'Ubicación',
+          onTap: session.incomingPanicHasLocation
+              ? () => _openPanicMap(session, navigate: false)
+              : null,
+        ),
+        PanicAlertAction(
+          icon: Icons.directions_rounded,
+          label: 'Cómo llegar',
+          onTap: session.incomingPanicHasLocation
+              ? () => _openPanicMap(session, navigate: true)
+              : null,
+        ),
+        PanicAlertAction(
+          icon: Icons.call_rounded,
+          label: 'Llamar',
+          onTap: hasPeer ? () => _panicCall(session) : null,
+        ),
+        PanicAlertAction(
+          icon: Icons.chat_rounded,
+          label: 'Mensaje',
+          onTap: hasPeer ? () => _panicMessage(session) : null,
+        ),
+        PanicAlertAction(
+          icon: Icons.phone_android_rounded,
+          label: 'Celular',
+          onTap: hasPeer ? () => _panicPhone(session) : null,
+        ),
+        if (canManageUsers(api.user))
+          PanicAlertAction(
+            icon: Icons.videocam_rounded,
+            label: 'Ver cámara',
+            highlight: true,
+            onTap: hasPeer ? () => _panicCamera(session) : null,
+          ),
+      ],
+    );
+  }
+
+  Future<void> _panicCall(ChannelSession session) async {
+    final uid = session.incomingPanicUserId;
+    if (uid == null) return;
+    session.silenceIncomingPanicAlarm();
+    await startPersonalCall(
+      context: context,
+      api: widget.api,
+      peerId: uid,
+      peerName: session.incomingPanicLabel ?? 'Operador',
+    );
+  }
+
+  Future<void> _panicMessage(ChannelSession session) async {
+    final uid = session.incomingPanicUserId;
+    if (uid == null) return;
+    session.silenceIncomingPanicAlarm();
+    final nav = Navigator.of(context);
+    await nav.push<void>(
+      MaterialPageRoute(
+        builder: (_) => DirectPane(
+          api: widget.api,
+          initialPeerId: uid,
+          threadOnly: true,
+          onBack: () => nav.pop(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _panicPhone(ChannelSession session) async {
+    final uid = session.incomingPanicUserId;
+    if (uid == null) return;
+    session.silenceIncomingPanicAlarm();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final c = await widget.api.fetchPeerContact(uid);
+      final phone = c['phone']?.toString().trim() ?? '';
+      if (phone.isEmpty) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Sin número de celular registrado')),
+        );
+        return;
+      }
+      final digits = phone.replaceAll(RegExp(r'\D'), '');
+      final uri = Uri(scheme: 'tel', path: '${phone.startsWith('+') ? '+' : ''}$digits');
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        messenger.showSnackBar(const SnackBar(content: Text('No se pudo abrir el marcador')));
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(esMsg(e, 'No se pudo consultar el número'))),
+      );
+    }
+  }
+
+  Future<void> _panicCamera(ChannelSession session) async {
+    final id = session.lastPanicId;
+    if (id == null) return;
+    session.silenceIncomingPanicAlarm();
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => PanicLiveViewScreen(
+          api: widget.api,
+          panicId: id,
+          name: session.incomingPanicLabel ?? 'Operador',
+          reason: session.incomingPanicReason,
+        ),
+      ),
+    );
   }
 
   Future<void> _openPanicMap(ChannelSession session, {required bool navigate}) async {
@@ -2319,97 +2456,62 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
               ),
             ),
           ),
-        if (session.incomingPanicActive)
-          Positioned.fill(
-            child: Material(
-              color: Colors.black54,
-              child: SafeArea(
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Material(
-                      color: const Color(0xFFFFE4E1),
-                      borderRadius: BorderRadius.circular(16),
-                      elevation: 8,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            const Text(
-                              'ALERTA',
-                              textAlign: TextAlign.center,
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: IgnorePointer(
+            child: ListenableBuilder(
+              listenable: PanicLiveSession.instance,
+              builder: (context, _) {
+                if (!PanicLiveSession.instance.isActive) return const SizedBox.shrink();
+                return SafeArea(
+                  top: false,
+                  child: Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 84),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: kRadioDanger,
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black38, blurRadius: 10, offset: Offset(0, 3)),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.fiber_manual_record, color: Colors.white, size: 12),
+                          SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'Alerta activa · transmitiendo cámara y micrófono al mando',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: kRadioDanger,
+                                color: Colors.white,
                                 fontWeight: FontWeight.w800,
-                                fontSize: 18,
+                                fontSize: 12.5,
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            Text(
-                              '${session.incomingPanicLabel ?? 'Operador'} necesita ayuda en este canal.\nLa alarma suena hasta pulsar Enterado.',
-                              textAlign: TextAlign.center,
-                            ),
-                            if (session.incomingPanicHasLocation) ...[
-                              const SizedBox(height: 10),
-                              Text(
-                                session.incomingPanicAccuracyM != null
-                                    ? 'Ubicación registrada (±${session.incomingPanicAccuracyM!.round()} m)'
-                                    : 'Ubicación registrada',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 12.5,
-                                  color: Color(0xFF5C4033),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              OutlinedButton.icon(
-                                onPressed: () =>
-                                    _openPanicMap(session, navigate: false),
-                                icon: const Icon(Icons.map_outlined),
-                                label: const Text('Ver ubicación'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: kRadioDanger,
-                                  side: const BorderSide(color: kRadioDanger),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              FilledButton.tonalIcon(
-                                onPressed: () =>
-                                    _openPanicMap(session, navigate: true),
-                                icon: const Icon(Icons.directions),
-                                label: const Text('Cómo llegar'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFFFCDD2),
-                                  foregroundColor: kRadioDanger,
-                                ),
-                              ),
-                            ] else ...[
-                              const SizedBox(height: 10),
-                              const Text(
-                                'Sin ubicación GPS del emisor.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: Color(0xFF5C4033),
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 16),
-                            FilledButton(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: kRadioDanger,
-                              ),
-                              onPressed: () => _ackPanic(session),
-                              child: const Text('Enterado'),
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
+                );
+              },
+            ),
+          ),
+        ),
+        if (session.incomingPanicActive)
+          Positioned.fill(
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.62),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: _buildPanicCard(session),
                 ),
               ),
             ),

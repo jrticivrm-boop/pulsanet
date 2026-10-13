@@ -973,6 +973,11 @@ export function patchPanicEvent(token, id, status) {
   return api(`/api/panic/${id}`, { token, method: 'PATCH', body: { status } });
 }
 
+/** Credenciales para ver la cámara/mic en vivo del emisor de una alerta (solo mando). */
+export function panicLiveView(token, id) {
+  return api(`/api/panic/${id}/live/view`, { token, method: 'POST', body: {} });
+}
+
 export function triggerPanic(token, payload) {
   return api('/api/panic', { token, method: 'POST', body: payload });
 }

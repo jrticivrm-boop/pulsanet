@@ -13,7 +13,9 @@ import { openPanicLocation, isValidMapCoord } from '../panicMaps';
 import { unlockMediaAudio } from '../unlockMediaAudio';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
 import { useDispatchListen } from '../useDispatchListen';
-import { openPeoplePalette } from '../peerActions';
+import { openDm, openPeoplePalette, startVoiceCall } from '../peerActions';
+import { PANIC_REASON_ICON, panicReasonOf } from '../panicReason';
+import PanicLiveViewer from '../PanicLiveViewer.jsx';
 import { openChatsPanel } from '../chatsPanel';
 import BrandName from '../BrandName.jsx';
 import PanicConfirmDialog from '../PanicConfirmDialog.jsx';
@@ -106,6 +108,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   const [gpsOk, setGpsOk] = useState(false);
   const [panicFlash, setPanicFlash] = useState('');
   const [panicConfirmIds, setPanicConfirmIds] = useState(null);
+  const [panicLive, setPanicLive] = useState(null);
   const [focusPeerId, setFocusPeerId] = useState(null);
   const [focusGroupId, setFocusGroupId] = useState(null);
   const [channelLayout, setChannelLayout] = useState(readChannelLayout);
@@ -404,7 +407,10 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   useEffect(() => {
     if (ptt.incomingPanic) {
       setPanicFlash(
-        `🚨 ALERTA — ${ptt.incomingPanic.displayName}. Pulsa Enterado para silenciar en este equipo.`
+        `🚨 ALERTA${(() => {
+          const r = panicReasonOf(ptt.incomingPanic).reason;
+          return r ? ` · ${r.toUpperCase()}` : '';
+        })()} — ${ptt.incomingPanic.displayName}. Pulsa Enterado para silenciar en este equipo.`
       );
     }
   }, [ptt.incomingPanic]);
@@ -821,54 +827,95 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
             aria-modal="true"
             aria-label="Alerta"
           >
-            <div className="radio-panic-modal">
-              <h2>ALERTA</h2>
-              <p>
-                <strong>{ptt.incomingPanic.displayName}</strong> necesita ayuda en este canal.
-                <br />
-                La alarma suena hasta pulsar Enterado.
-              </p>
-              {isValidMapCoord(ptt.incomingPanic.latitude, ptt.incomingPanic.longitude) ? (
-                <>
-                  <p className="radio-panic-meta">
-                    {ptt.incomingPanic.accuracyM != null
-                      ? `Ubicación registrada (±${Math.round(Number(ptt.incomingPanic.accuracyM))} m)`
-                      : 'Ubicación registrada'}
-                  </p>
-                  <div className="radio-panic-actions">
-                    <button
-                      type="button"
-                      className="btn ghost"
-                      onClick={() => {
-                        ptt.silencePanicAlarm();
-                        openPanicLocation({
-                          latitude: ptt.incomingPanic.latitude,
-                          longitude: ptt.incomingPanic.longitude,
-                          navigate: false,
-                        });
-                      }}
-                    >
-                      Ver ubicación
-                    </button>
-                    <button
-                      type="button"
-                      className="btn ghost"
-                      onClick={() => {
-                        ptt.silencePanicAlarm();
-                        openPanicLocation({
-                          latitude: ptt.incomingPanic.latitude,
-                          longitude: ptt.incomingPanic.longitude,
-                          navigate: true,
-                        });
-                      }}
-                    >
-                      Cómo llegar
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p className="radio-panic-meta">Sin ubicación GPS del emisor.</p>
-              )}
+            <div className="radio-panic-modal panic-card">
+              {(() => {
+                const p = ptt.incomingPanic;
+                const { reason, detail } = panicReasonOf(p);
+                const hasLoc = isValidMapCoord(p.latitude, p.longitude);
+                const peer = p.userId ? { id: p.userId, displayName: p.displayName } : null;
+                const openLoc = (navigate) => {
+                  ptt.silencePanicAlarm();
+                  openPanicLocation({ latitude: p.latitude, longitude: p.longitude, navigate });
+                };
+                return (
+                  <>
+                    <header className="panic-card-head">
+                      <span className="panic-card-pulse" aria-hidden>
+                        📣
+                      </span>
+                      <h2>ALERTA</h2>
+                      <span className="panic-card-channel">{p.groupName || group?.name || ''}</span>
+                    </header>
+                    <div className="panic-card-body">
+                      <p className="panic-card-who">
+                        <strong>{p.displayName}</strong> necesita ayuda
+                      </p>
+                      <div className="panic-card-reason">
+                        <span className="panic-card-reason-ico" aria-hidden>
+                          {PANIC_REASON_ICON[reason] || '❗'}
+                        </span>
+                        <div>
+                          <strong>{(reason || 'Sin motivo indicado').toUpperCase()}</strong>
+                          {detail ? <p>«{detail}»</p> : null}
+                        </div>
+                      </div>
+                      <p className="panic-card-meta">
+                        📍{' '}
+                        {hasLoc
+                          ? p.accuracyM != null
+                            ? `Ubicación registrada (±${Math.round(Number(p.accuracyM))} m)`
+                            : 'Ubicación registrada'
+                          : 'Sin ubicación GPS del emisor'}
+                      </p>
+                      <div className="panic-card-actions">
+                        <button type="button" disabled={!hasLoc} onClick={() => openLoc(false)}>
+                          <span aria-hidden>🗺️</span>Ubicación
+                        </button>
+                        <button type="button" disabled={!hasLoc} onClick={() => openLoc(true)}>
+                          <span aria-hidden>🧭</span>Cómo llegar
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!peer}
+                          onClick={() => {
+                            ptt.silencePanicAlarm();
+                            startVoiceCall(peer);
+                          }}
+                        >
+                          <span aria-hidden>📞</span>Llamar
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!peer}
+                          onClick={() => {
+                            ptt.silencePanicAlarm();
+                            openDm(peer);
+                          }}
+                        >
+                          <span aria-hidden>💬</span>Mensaje
+                        </button>
+                        {canDispatch(session.user) ? (
+                          <button
+                            type="button"
+                            className="panic-card-live"
+                            disabled={!peer}
+                            onClick={() => {
+                              ptt.silencePanicAlarm();
+                              setPanicLive({
+                                panicId: p.livePanicId || p.id,
+                                name: p.displayName,
+                                reason,
+                              });
+                            }}
+                          >
+                            <span aria-hidden>🎥</span>Ver cámara
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
               <button
                 type="button"
                 className="btn danger radio-panic-ack"
@@ -890,6 +937,15 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
         onCancel={() => setPanicConfirmIds(null)}
         onConfirm={onConfirmPanic}
       />
+      {panicLive ? (
+        <PanicLiveViewer
+          token={session.token}
+          panicId={panicLive.panicId}
+          name={panicLive.name}
+          reason={panicLive.reason}
+          onClose={() => setPanicLive(null)}
+        />
+      ) : null}
     </div>
   );
 }

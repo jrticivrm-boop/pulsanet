@@ -9,6 +9,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
+import 'widgets/panic_confirm_sheet.dart' show splitPanicNote;
+
+const kPanicReasonEmoji = <String, String>{
+  'Emergencia': '🆘',
+  'Apoyo': '🤝',
+  'Médica': '🚑',
+  'Agresión': '⚠️',
+};
 
 /// Ícono monocromo de la barra de estado (res/drawable-*/ic_stat_sicom.png).
 const kNotifSmallIcon = 'ic_stat_sicom';
@@ -242,20 +250,30 @@ class RichNotify {
     String body,
   ) {
     final who = data['displayName']?.toString() ?? 'Operador';
-    final note = data['note']?.toString().trim() ?? '';
+    final split = splitPanicNote(data['note']?.toString());
+    final reason = (data['reason']?.toString().trim().isNotEmpty ?? false)
+        ? data['reason'].toString().trim()
+        : split.reason;
+    final detail = (data['detail']?.toString().trim().isNotEmpty ?? false)
+        ? data['detail'].toString().trim()
+        : split.detail;
+    final channel = data['groupName']?.toString().trim() ?? '';
     final hasLoc = (data['latitude']?.toString().isNotEmpty ?? false);
     final lines = <String>[
-      if (body.isNotEmpty) body,
-      if (note.isNotEmpty && !body.contains(note)) '“$note”',
+      if (reason != null) '${kPanicReasonEmoji[reason] ?? '⚠️'} Necesita: ${reason.toUpperCase()}',
+      if (detail != null && detail.isNotEmpty) '“$detail”',
+      if (channel.isNotEmpty) 'Canal: $channel',
+      if (reason == null && detail == null && body.isNotEmpty) body,
       if (hasLoc) '📍 Con ubicación — toca para ver en el mapa',
     ];
     final text = lines.isEmpty ? 'Alerta de emergencia' : lines.join('\n');
+    final head = reason != null ? '🚨 ${reason.toUpperCase()} · $who' : '🚨 ALERTA · $who';
     return RichNotifParts(
-      title: '🚨 ALERTA · $who',
+      title: head,
       body: text,
       style: BigTextStyleInformation(
         text,
-        contentTitle: '<b>🚨 ALERTA · $who</b>',
+        contentTitle: '<b>$head</b>',
         htmlFormatContentTitle: true,
         summaryText: 'Atiéndela para quitarla',
       ),

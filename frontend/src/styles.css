@@ -975,6 +975,330 @@ select:focus {
   margin-top: 1rem;
 }
 
+/* Tarjeta de alerta entrante (Radio web) */
+.radio-panic-modal.panic-card {
+  width: min(100%, 27rem);
+  max-height: calc(100dvh - 2.5rem);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #fff5f4;
+  color: #2b1a1a;
+  text-align: left;
+}
+
+.panic-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  background: linear-gradient(135deg, #b71c1c, #e53935);
+  color: #fff;
+}
+
+.panic-card .panic-card-head h2 {
+  margin: 0;
+  flex: 1;
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.panic-card-pulse {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  font-size: 1.25rem;
+  background: rgb(255 255 255 / 18%);
+  animation: panic-card-pulse 1s ease-out infinite;
+}
+
+@keyframes panic-card-pulse {
+  0% { box-shadow: 0 0 0 0 rgb(255 255 255 / 55%); }
+  100% { box-shadow: 0 0 0 14px rgb(255 255 255 / 0%); }
+}
+
+.panic-card-channel {
+  max-width: 45%;
+  overflow: hidden;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.92;
+}
+
+.panic-card-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.9rem 1rem 0.2rem;
+}
+
+.panic-card .panic-card-who {
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+  color: #6d5a5a;
+}
+
+.panic-card-who strong {
+  color: #2b1a1a;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.panic-card-reason {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 14px;
+  background: rgb(229 57 53 / 8%);
+  border: 1.5px solid rgb(229 57 53 / 45%);
+}
+
+.panic-card-reason-ico {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  font-size: 1.25rem;
+  background: #e53935;
+}
+
+.panic-card-reason strong {
+  display: block;
+  color: #e53935;
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.panic-card .panic-card-reason p {
+  margin: 0.2rem 0 0;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.panic-card .panic-card-meta {
+  margin: 0.6rem 0 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #6d5a5a;
+}
+
+.panic-card-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.panic-card-actions button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.65rem 0.3rem;
+  border-radius: 14px;
+  border: 1px solid rgb(229 57 53 / 35%);
+  background: #fff;
+  color: #2b1a1a;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panic-card-actions button span {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.panic-card-actions button:hover:not(:disabled) {
+  border-color: #e53935;
+  background: #fff0ee;
+}
+
+.panic-card-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.panic-card-actions button.panic-card-live {
+  background: #e53935;
+  border-color: #e53935;
+  color: #fff;
+}
+
+.panic-card-actions button.panic-card-live:hover:not(:disabled) {
+  background: #c62828;
+}
+
+.panic-card .radio-panic-ack {
+  width: auto;
+  margin: 0.8rem 1rem 1rem;
+  min-height: 3.2rem;
+  border-radius: 14px;
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+[data-theme='verde'] .radio-panic-modal.panic-card,
+[data-theme='obscuro'] .radio-panic-modal.panic-card {
+  background: #fff5f4;
+  color: #2b1a1a;
+}
+
+/* Visor de cámara en vivo de una alerta */
+.plv-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12500;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(0 0 0 / 72%);
+}
+
+.plv-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 56rem);
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  border-radius: 18px;
+  background: #0d1117;
+  color: #f4f7f1;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 55%);
+}
+
+.plv-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  background: linear-gradient(135deg, #b71c1c, #e53935);
+}
+
+.plv-live {
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 30%);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  animation: plv-blink 1.4s ease-in-out infinite;
+}
+
+.plv-live--off {
+  animation: none;
+  opacity: 0.8;
+}
+
+@keyframes plv-blink {
+  50% { opacity: 0.55; }
+}
+
+.plv-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.plv-title strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.plv-title span {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.plv-close {
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.plv-stage {
+  position: relative;
+  flex: 1;
+  min-height: 14rem;
+  background: #000;
+}
+
+.plv-video-box,
+.plv-video-box video {
+  width: 100%;
+  height: 100%;
+  max-height: calc(100dvh - 9rem);
+}
+
+.plv-video-box video {
+  display: block;
+  object-fit: contain;
+}
+
+.plv-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 1rem;
+  text-align: center;
+  color: #cfd8e3;
+}
+
+.plv-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 0.7rem;
+}
+
+.plv-btn {
+  padding: 0.55rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid #39424e;
+  background: #1a222d;
+  color: #f4f7f1;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.plv-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.plv-btn--close {
+  background: #c62828;
+  border-color: #c62828;
+}
+
 [data-theme='verde'] .radio-panic-modal {
   background: #3a2224;
   color: var(--ink);

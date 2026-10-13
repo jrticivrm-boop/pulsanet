@@ -930,6 +930,14 @@ class ApiClient {
     });
   }
 
+  /// Emisor de la alerta: credenciales LiveKit para transmitir cámara + mic.
+  Future<Map<String, dynamic>> panicLivePublish(String panicId) =>
+      _post('/api/panic/${Uri.encodeComponent(panicId)}/live/publish', const {});
+
+  /// Despacho con alcance: credenciales solo para ver/escuchar la alerta en vivo.
+  Future<Map<String, dynamic>> panicLiveView(String panicId) =>
+      _post('/api/panic/${Uri.encodeComponent(panicId)}/live/view', const {});
+
   Future<List<Map<String, dynamic>>> fetchPanicEvents({
     String? status,
     int limit = 20,

@@ -5,11 +5,28 @@ import { emitWireToUserIds } from '../socket/dispatch.js';
 import { logActivity } from './activity.js';
 import { isDispatch } from './roles.js';
 import { listVisibleGroups, loadTrackScope, unitInTrackScope, getUserUnitId } from './orgUnits.js';
+import { openPanicLive } from './panicLive.js';
 
 const MAX_NOTE_LEN = 280;
+/** Motivos rápidos que la app/web anteponen a la nota («Agresión — detalle»). */
+export const PANIC_REASONS = ['Emergencia', 'Apoyo', 'Médica', 'Agresión'];
+
+export function splitPanicNote(note) {
+  const text = typeof note === 'string' ? note.trim() : '';
+  if (!text) return { reason: null, detail: null };
+  const reason = PANIC_REASONS.find(
+    (r) => text === r || text.startsWith(`${r} — `) || text.startsWith(`${r} - `)
+  );
+  if (!reason) return { reason: null, detail: text };
+  const detail = text.slice(reason.length).replace(/^\s*[—-]\s*/, '').trim();
+  return { reason, detail: detail || null };
+}
 
 function formatPanic(row) {
+  const { reason, detail } = splitPanicNote(row.note);
   return {
+    reason,
+    detail,
     id: row.id,
     organizationId: row.organization_id,
     userId: row.user_id,
@@ -135,6 +152,7 @@ export async function triggerPanic({
 
   const targetList = targets.map((g) => ({ id: g.id, name: g.name || null }));
   const sender = displayName || 'Usuario';
+  const { reason, detail } = splitPanicNote(cleanNote);
   const events = [];
   const messages = [];
 
@@ -183,10 +201,14 @@ export async function triggerPanic({
     if (!eventByUser.has(id)) eventByUser.set(id, events[0]);
   }
 
+  // Cámara/mic en vivo del emisor (consentimiento al enviar); solo despacho con alcance la ve.
+  const live = openPanicLive({ orgId, userId, events });
+  for (const ev of events) ev.live = { panicId: live.panicId, expiresAt: live.expiresAt };
+
   const usersByEvent = new Map(events.map((ev) => [ev.id, []]));
   for (const [uid, ev] of eventByUser) usersByEvent.get(ev.id).push(uid);
 
-  const title = '🚨 ALERTA';
+  const title = reason ? `🚨 ALERTA · ${reason.toUpperCase()}` : '🚨 ALERTA';
   for (const ev of events) {
     const uids = usersByEvent.get(ev.id);
     if (!uids.length) continue;
@@ -195,7 +217,7 @@ export async function triggerPanic({
 
     const pushUids = uids.filter((id) => id !== userId);
     if (!pushUids.length) continue;
-    const body = `${sender} — ${ev.groupName || 'canal'}${cleanNote ? ` — ${cleanNote}` : ''}`;
+    const body = `${sender} — ${ev.groupName || 'canal'}${detail ? ` — ${detail}` : ''}`;
     notifyUserIdsAlert({
       userIds: pushUids,
       title,
@@ -208,6 +230,9 @@ export async function triggerPanic({
         userId,
         displayName: sender,
         ...(cleanNote ? { note: cleanNote } : {}),
+        ...(reason ? { reason } : {}),
+        ...(detail ? { detail } : {}),
+        ...(ev.groupName ? { groupName: ev.groupName } : {}),
         ...(lat != null ? { latitude: String(lat) } : {}),
         ...(lng != null ? { longitude: String(lng) } : {}),
         ...(acc != null ? { accuracyM: String(acc) } : {}),

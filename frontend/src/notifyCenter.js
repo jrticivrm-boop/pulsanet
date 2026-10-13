@@ -3,6 +3,8 @@
  * Tipos: dm | group | panic | missed_call | geofence | video | info.
  */
 
+import { panicReasonOf } from './panicReason.js';
+
 const STORE_PREFIX = 'tacticalptx_notify_center_v1:';
 const MAX_ITEMS = 60;
 const TOAST_EVENT = 'tacticalptx:notice-toast';
@@ -105,10 +107,12 @@ export function recordPanicNotice(ev) {
   }
   if (ev.userId) params.set('user', String(ev.userId));
   params.set('panic', String(ev.id));
+  const { reason, detail } = panicReasonOf(ev);
+  const where = ev.groupName ? `Canal ${ev.groupName}` : 'Alerta de emergencia';
   pushNotice({
     kind: 'panic',
-    title: `Pánico · ${ev.displayName || 'Operador'}`,
-    body: ev.groupName ? `Canal ${ev.groupName}` : 'Alerta de emergencia',
+    title: `${reason ? reason : 'Pánico'} · ${ev.displayName || 'Operador'}`,
+    body: detail ? `${detail} · ${where}` : where,
     userId: ev.userId,
     groupId: ev.groupId,
     route: `/despacho?${params.toString()}`,

@@ -4,6 +4,20 @@ import '../theme.dart';
 
 const List<String> kPanicReasons = ['Emergencia', 'Apoyo', 'Médica', 'Agresión'];
 
+/// La nota viaja como «Motivo — detalle»; separa el motivo rápido del texto libre.
+({String? reason, String? detail}) splitPanicNote(String? note) {
+  final text = note?.trim() ?? '';
+  if (text.isEmpty) return (reason: null, detail: null);
+  for (final r in kPanicReasons) {
+    if (text == r) return (reason: r, detail: null);
+    if (text.startsWith('$r — ') || text.startsWith('$r - ')) {
+      final d = text.substring(r.length).replaceFirst(RegExp(r'^\s*[—-]\s*'), '').trim();
+      return (reason: r, detail: d.isEmpty ? null : d);
+    }
+  }
+  return (reason: null, detail: text);
+}
+
 class PanicConfirmResult {
   const PanicConfirmResult({required this.groupIds, this.target, this.note});
 
@@ -444,6 +458,29 @@ class _PanicConfirmBodyState extends State<_PanicConfirmBody>
                     ),
                   ),
                   _header(),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: kInstPanel2,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: kInstBorder),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.videocam_rounded, size: 18, color: kInstDangerSoft),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Al enviar autorizas que el mando vea tu cámara y escuche tu '
+                            'micrófono hasta que se atienda la alerta (máx. 15 min).',
+                            style: TextStyle(fontSize: 12.5, color: kInstInk, height: 1.3),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   _sectionLabel(Icons.podcasts_rounded, 'DESTINO'),
                   Wrap(
                     spacing: 8,

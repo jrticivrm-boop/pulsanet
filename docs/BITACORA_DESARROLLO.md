@@ -1,3 +1,16 @@
+## 2026-10-12 — Alerta: motivo visible, acciones Llamar/Mensaje y cámara en vivo del emisor
+
+- **Tipo:** feature | ux
+- **Área:** backend | web | mobile
+- **Qué:**
+  - El motivo de la alerta ya se muestra: el servidor separa la nota «Motivo — detalle» (`reason`, `detail` en el evento y en el push; título `🚨 ALERTA · AGRESIÓN`). Aviso de la app: `🚨 AGRESIÓN · Nombre` + detalle + canal. Campana web y aviso de Radio también lo muestran.
+  - Tarjeta de alerta entrante nueva en la app (`PanicAlertCard`: encabezado rojo animado, foto, motivo grande con ícono, detalle, ubicación, acciones en rejilla 3/6 columnas, Enterado grande; sin desfases de 320 a 800 dp, probado con texto 1.3×). Acciones: Ubicación, Cómo llegar, Llamar (SICOM), Mensaje (chat directo), Celular (marcador con el número registrado) y Ver cámara (solo mando). Web: mismo diseño en el modal de Radio y motivo + Ver cámara/Llamar/Mensaje en el panel de alertas de despacho.
+  - Cámara/micrófono en vivo: al enviar la alerta el emisor transmite automáticamente cámara trasera + micrófono (LiveKit cifrado, sala `panic-live-<id>`) mientras la alerta siga activa, máx. 15 min; termina sola al resolver/cancelar (`panic:live_end`). Si faltan permisos, Android los pide una sola vez después de enviar (la alerta nunca espera). Leyenda de consentimiento en la hoja de envío; píldora «Alerta activa · transmitiendo…» en el emisor. Solo despacho/administradores con alcance sobre el emisor pueden ver (403 a los demás); pueden cambiar a cámara frontal y silenciar.
+  - Prueba E2E en desarrollo: motivo/detalle OK; publicar solo el emisor; ver: emisor 403, usuario 403, región 200; tras resolver 404.
+  - App **1.8.188+198** → `C:\pulsanet_soporte\APK\SICOM-1.8.188+198.apk` (+ `SICOM-latest.apk`), sin OTA.
+- **Por qué / notas:** Android no permite otorgar permisos sin el diálogo del sistema; enviar la alerta es el disparador. Las sesiones viven en memoria del API y se reconstruyen desde la BD tras un reinicio. Sin migraciones. Pendiente desplegar a producción (solo con orden).
+- **Archivos / refs:** `backend/src/services/panic.js`, `backend/src/services/panicLive.js`, `backend/src/routes/panic.js`, `mobile/lib/panic_live_session.dart`, `mobile/lib/widgets/panic_alert_card.dart`, `mobile/lib/screens/panic_live_view_screen.dart`, `mobile/lib/screens/radio_shell.dart`, `mobile/lib/channel_session.dart`, `mobile/lib/rich_notify.dart`, `mobile/lib/widgets/panic_confirm_sheet.dart`, `frontend/src/PanicLiveViewer.jsx`, `frontend/src/panicReason.js`, `frontend/src/pages/RadioPage.jsx`, `frontend/src/dispatch/DispatchPanicHost.jsx`
+
 ## 2026-10-12 — Producción: PTT despierta radios, notificaciones nuevas, batería; APK renombrada a SICOM
 
 - **Tipo:** ops | mejora

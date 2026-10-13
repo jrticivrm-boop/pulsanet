@@ -8,6 +8,9 @@ import { openPanicLocation, isValidMapCoord } from '../panicMaps';
 import { socketIoOptions, socketUrl } from '../socketConfig';
 import { sessionWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
 import { recordPanicNotice } from '../notifyCenter.js';
+import { openDm, startVoiceCall } from '../peerActions';
+import { PANIC_REASON_ICON, panicReasonOf } from '../panicReason';
+import PanicLiveViewer from '../PanicLiveViewer.jsx';
 
 const SOCKET_URL = socketUrl();
 const POS_KEY = 'tacticalptx_panic_panel_pos';
@@ -47,6 +50,7 @@ export default function DispatchPanicHost({
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState('');
   const [panelPos, setPanelPos] = useState(loadPanelPos);
+  const [liveView, setLiveView] = useState(null);
   const alarmSilencedRef = useRef(false);
   const dragRef = useRef(null);
   const panelRef = useRef(null);
@@ -75,6 +79,10 @@ export default function DispatchPanicHost({
         latitude: channelPanic.latitude,
         longitude: channelPanic.longitude,
         accuracyM: channelPanic.accuracyM,
+        note: channelPanic.note,
+        reason: channelPanic.reason,
+        detail: channelPanic.detail,
+        live: channelPanic.livePanicId ? { panicId: channelPanic.livePanicId } : undefined,
         status: 'active',
         _fromChannel: true,
       },
@@ -281,14 +289,27 @@ export default function DispatchPanicHost({
     }
   }
 
-  if (mergedPanics.length === 0) return null;
+  const liveViewer = liveView ? (
+    <PanicLiveViewer
+      token={session.token}
+      panicId={liveView.panicId}
+      name={liveView.name}
+      reason={liveView.reason}
+      onClose={() => setLiveView(null)}
+    />
+  ) : null;
+
+  if (mergedPanics.length === 0) return liveViewer;
 
   const style =
     panelPos != null
       ? { left: panelPos.x, top: panelPos.y, right: 'auto', transform: 'none' }
       : undefined;
 
-  return createPortal(
+  return (
+    <>
+    {liveViewer}
+    {createPortal(
     <div className="cc-panic-overlay cc-panic-overlay--float" aria-label="Alerta">
       <div
         ref={panelRef}
@@ -325,7 +346,10 @@ export default function DispatchPanicHost({
           </p>
         </header>
         <div className="cc-panic-banner cc-panic-banner--modal" role="alert">
-          {mergedPanics.map((p) => (
+          {mergedPanics.map((p) => {
+            const { reason, detail } = panicReasonOf(p);
+            const peer = p.userId ? { id: p.userId, displayName: p.displayName } : null;
+            return (
             <div key={p.id} className="cc-panic-item">
               <div>
                 <strong>{p.displayName || 'Operador'}</strong>
@@ -335,8 +359,51 @@ export default function DispatchPanicHost({
                     ? ` · ${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}`
                     : ' · Sin ubicación GPS'}
                 </span>
+                <div className="cc-panic-reason">
+                  <span aria-hidden>{PANIC_REASON_ICON[reason] || '❗'}</span>
+                  <b>{(reason || 'Sin motivo indicado').toUpperCase()}</b>
+                  {detail ? <em>«{detail}»</em> : null}
+                </div>
               </div>
               <div className="cc-panic-actions">
+                {peer ? (
+                  <>
+                    <button
+                      type="button"
+                      className="cc-btn cc-panic-live-btn"
+                      onClick={() => {
+                        silenceAlarmLocally();
+                        setLiveView({
+                          panicId: p.live?.panicId || p.id,
+                          name: p.displayName,
+                          reason,
+                        });
+                      }}
+                    >
+                      🎥 Ver cámara
+                    </button>
+                    <button
+                      type="button"
+                      className="cc-btn"
+                      onClick={() => {
+                        silenceAlarmLocally();
+                        startVoiceCall(peer);
+                      }}
+                    >
+                      📞 Llamar
+                    </button>
+                    <button
+                      type="button"
+                      className="cc-btn"
+                      onClick={() => {
+                        silenceAlarmLocally();
+                        openDm(peer);
+                      }}
+                    >
+                      💬 Mensaje
+                    </button>
+                  </>
+                ) : null}
                 {isValidMapCoord(p.latitude, p.longitude) && (
                   <>
                     <button
@@ -404,11 +471,14 @@ export default function DispatchPanicHost({
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
         {error ? <p className="error">{error}</p> : null}
       </div>
     </div>,
     document.body
+    )}
+    </>
   );
 }
