@@ -1,3 +1,14 @@
+## 2026-10-12 — Producción: API + web (alertas, radio bajo demanda, GPS por socket) y APK 1.8.183+193
+
+- **Tipo:** ops
+- **Área:** infra | mobile
+- **Qué:**
+  - Por orden del usuario, fuera de ventana (18:10, 20 usuarios activos, autorizado): `PROMOVER -A pruebas` → `PRUEBAS.ps1` → VERIFICAR-PRUEBAS (listo, aviso: copia de BD con 14 días) → `PROMOVER -A produccion`. `main` → `baefc8b`; se reconstruyeron **api y web**. Etiqueta `prod-v1.8.107-20261012-1810`. Health OK; logs de API sin errores.
+  - Con esta API entran también los cambios de backend de `0b392ed` (permisos por alcance, estabilidad, presencia) y la purga de ubicaciones > 35 días (cada 6 h).
+  - APK `1.8.183+193` compilada con `Publish-ApkUpdate.ps1` (`API_BASE=https://pulsanet.duckdns.org`, `SERVER_LAN_IP=192.168.1.77` como la APK anterior); sin OTA. Artefactos: `C:\pulsanet_soporte\APK\TacticalPtx-1.8.183+193.apk` y `TacticalPtx-latest.apk` (100 MB).
+- **Por qué / notas:** sin migraciones. Pendiente heredado: `SERVER_LAN_IP` debería apuntar a la VM `192.168.1.150` (requiere embeber su certificado en `lan_tls.dart`); hoy en Wi-Fi la APK prueba la PC y, sin borde, cae a DuckDNS.
+- **Archivos / refs:** `mobile/pubspec.yaml`, `/opt/respaldos/deploys.log`, `C:\pulsanet_soporte\Pruebas\_promover_20261012.log`
+
 ## 2026-10-12 — Alertas con confirmación y destino; APK: radio bajo demanda, batería, GPS, audio y datos
 
 - **Tipo:** feature | mejora
