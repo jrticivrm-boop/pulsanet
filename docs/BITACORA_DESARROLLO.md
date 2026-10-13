@@ -1,3 +1,13 @@
+## 2026-10-13 — Producción: alta masiva de integrantes y APK 1.8.190+200
+
+- **Tipo:** ops
+- **Área:** infra | backend | web
+- **Qué:**
+  - Por orden del usuario (00:47, dentro de ventana): `PROMOVER -A pruebas` → `PRUEBAS.ps1` (pruebas en `5d204f4`) → VERIFICAR-PRUEBAS (listo; aviso: copia de BD con 15 días) → `PROMOVER -A produccion`. `main` `6b60f10` → `5d204f4` (2 commits); reconstruyó **api + web**; sin migraciones. 14 usuarios activos al momento.
+  - Etiqueta `prod-v1.8.107-20261013-0048`. Health OK (BD, Redis, LiveKit, FCM `configured`); web 200; `POST /api/admin/groups/:id/members/bulk` responde (401 sin sesión).
+  - APK recompilada: `C:\pulsanet_soporte\APK\SICOM-1.8.190+200.apk` (también `SICOM-latest.apk`); sin OTA.
+- **Archivos / refs:** `C:\pulsanet_soporte\Pruebas\_promover_20261013_alta_masiva.log`, `/opt/respaldos/deploys.log`
+
 ## 2026-10-13 — Canales: agregar integrantes con buscador y alta masiva; app sin píldora de alerta activa
 
 - **Tipo:** ux

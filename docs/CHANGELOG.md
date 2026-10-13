@@ -14,6 +14,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > Ficha de contacto con celular desplegada el 2026-10-12 (`prod-v1.8.107-20261012-2122`, API + web). APK Android **1.8.184+194** lista para distribuir.
 > PTT que despierta radios, notificaciones nuevas, batería y hoja de alerta desplegados el 2026-10-12 (`prod-v1.8.107-20261012-2244`, API + web). APK Android **1.8.187+197**, ahora generada como `SICOM-1.8.187+197.apk`.
 > Alerta con motivo/acciones/cámara en vivo y notificaciones nativas de mensajes desplegadas el 2026-10-13 (`prod-v1.8.107-20261013-0006`, API + web). APK Android **1.8.189+199** (`SICOM-1.8.189+199.apk`).
+> Buscador y alta masiva de integrantes de canal desplegados el 2026-10-13 (`prod-v1.8.107-20261013-0048`, API + web). APK Android **1.8.190+200** (`SICOM-1.8.190+200.apk`, sin píldora de alerta activa).
 
 ### Security
 - **Cámara remota:** solo administradores de consola pueden activarla y solo sobre usuarios dentro de su alcance de seguimiento (antes cualquier usuario de la organización).
