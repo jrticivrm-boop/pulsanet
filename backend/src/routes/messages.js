@@ -325,7 +325,12 @@ export function createMessagesRouter(io) {
           excludeUserId: req.user.sub,
           title: msg.displayName || 'SICOM',
           body: caption || preview,
-          data: { type: 'chat', messageId: msg.id },
+          data: {
+            type: 'chat',
+            messageId: msg.id,
+            msgKind: msg.type,
+            mediaUrl: msg.type === 'image' ? msg.mediaUrl : '',
+          },
         }).catch(() => {});
         res.status(201).json({ ok: true, message: msg });
       } catch (e) {

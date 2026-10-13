@@ -26,6 +26,7 @@ import 'message_tone.dart';
 import 'native_audio_mode.dart';
 import 'panic_vibration.dart';
 import 'private_call_gate.dart';
+import 'ptt_wake.dart';
 import 'push_service.dart';
 import 'remote_camera_prefs.dart';
 import 'remote_camera_session.dart';
@@ -544,15 +545,120 @@ class ChannelSession extends ChangeNotifier {
     );
   }
 
+  // ---------- Despertar por push (ptt_wake) ----------
+
+  /// Canal → momento y emisor del push que despertó el radio.
+  final Map<String, ({DateTime at, String? speakerId})> _pushWake = {};
+  /// Canal → transmisión que terminó antes de conectar: reproducir su grabación.
+  final Map<String, ({DateTime since, String? speakerId})> _replayWanted = {};
+  AudioPlayer? _replayPlayer;
+
+  /// Push `ptt_wake`: reconecta ya (sin esperar el backoff) y abre la sala del canal.
+  void handlePushWake(Map<String, dynamic> data) {
+    final gid = data['groupId']?.toString();
+    if (gid == null || gid.isEmpty || !_isListenGroup(gid)) return;
+    final speakerId = data['speakerId']?.toString();
+    _pushWake[gid] = (at: DateTime.now(), speakerId: speakerId);
+    if (!connected) {
+      try {
+        _socket?.connect();
+      } catch (_) {}
+    }
+    if (!_radioPlaybackMuted) {
+      _noteRemoteSpeaker(gid, speakerId, data['speakerName']?.toString());
+    }
+    // Si el socket no vuelve, no dejar la sala (y la CPU) despiertas.
+    Timer(const Duration(seconds: 45), () {
+      if (connected) return;
+      _liveGroups.remove(gid);
+      _scheduleSleep(gid);
+    });
+  }
+
+  /// `ptt:state` sin hablante tras un push reciente: el mensaje ya terminó.
+  void _armReplayIfLate(String gid) {
+    final w = _pushWake.remove(gid);
+    if (w == null) return;
+    if (DateTime.now().difference(w.at) > const Duration(seconds: 40)) return;
+    if (_radioPlaybackMuted) return;
+    _replayWanted[gid] = (
+      since: w.at.subtract(const Duration(seconds: 8)),
+      speakerId: w.speakerId,
+    );
+    Timer(const Duration(seconds: 60), () => _replayWanted.remove(gid));
+    unawaited(_replayFromServer(gid));
+  }
+
+  /// La grabación pudo subirse antes de reconectar: buscarla por REST.
+  Future<void> _replayFromServer(String gid) async {
+    for (final waitMs in const [0, 2500, 5000]) {
+      if (waitMs > 0) await Future<void>.delayed(Duration(milliseconds: waitMs));
+      final want = _replayWanted[gid];
+      if (want == null) return;
+      try {
+        final recs = await api.fetchGroupRecordings(gid, hours: 1);
+        for (final r in recs) {
+          if (await _maybeReplay(r)) return;
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('replay fetch: $e');
+      }
+    }
+  }
+
+  /// `true` si la grabación correspondía a un mensaje perdido y se reprodujo.
+  Future<bool> _maybeReplay(Map<String, dynamic> rec) async {
+    final gid = rec['groupId']?.toString();
+    if (gid == null) return false;
+    final want = _replayWanted[gid];
+    if (want == null) return false;
+    final uid = rec['userId']?.toString();
+    if (want.speakerId != null && want.speakerId!.isNotEmpty && uid != want.speakerId) {
+      return false;
+    }
+    final created = DateTime.tryParse(rec['createdAt']?.toString() ?? '');
+    if (created == null || created.isBefore(want.since)) return false;
+    final audioUrl = rec['audioUrl']?.toString();
+    if (audioUrl == null || audioUrl.isEmpty) return false;
+    _replayWanted.remove(gid);
+    try {
+      final mime = rec['mimeType']?.toString() ?? '';
+      final ext = mime.contains('webm')
+          ? 'webm'
+          : mime.contains('ogg')
+              ? 'ogg'
+              : mime.contains('mpeg')
+                  ? 'mp3'
+                  : 'm4a';
+      final file = await api.downloadMediaToTemp(audioUrl, filename: 'ptt_replay_${rec['id']}.$ext');
+      _replayPlayer ??= AudioPlayer(playerId: 'ptt_replay');
+      await _replayPlayer!.play(DeviceFileSource(file.path));
+      speakerName = rec['displayName']?.toString();
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) debugPrint('replay play: $e');
+    }
+    return true;
+  }
+
   Future<void> start() async {
     current = this;
     error = null;
+    PttWake.attach(handlePushWake);
     try {
       final prefs = await SharedPreferences.getInstance();
       listenMuted = prefs.getBool(_kRadioListenMuteKey) ?? false;
       radioHangSeconds = (prefs.getInt(kRadioHangPrefKey) ?? 5).clamp(2, 30);
     } catch (_) {
       listenMuted = false;
+    }
+    final pendingWake = await PttWake.takePending();
+    final pendingGid = pendingWake?['groupId']?.toString();
+    if (pendingGid != null && pendingGid.isNotEmpty) {
+      _pushWake[pendingGid] = (
+        at: DateTime.now().subtract(const Duration(seconds: 5)),
+        speakerId: pendingWake?['speakerId']?.toString(),
+      );
     }
     try {
       final hist = await api.fetchMessages(groupId);
@@ -575,6 +681,9 @@ class ChannelSession extends ChangeNotifier {
             .setTransports(['websocket', 'polling'])
             .setAuth({'token': api.token})
             .enableReconnection()
+            // Sin cobertura: reintentos cada 5 s mantenían la antena encendida.
+            .setReconnectionDelay(1500)
+            .setReconnectionDelayMax(15000)
             .enableForceNew()
             .build();
         // Fuerza puerto válido (nunca 0) aunque Uri.parse se confunda.
@@ -766,6 +875,9 @@ class ChannelSession extends ChangeNotifier {
           'messageType': message is Map
               ? (message['type']?.toString() ?? 'text')
               : 'text',
+          if (message is Map) 'messageId': message['id']?.toString(),
+          if (message is Map) 'mediaUrl': message['mediaUrl']?.toString(),
+          if (message is Map) 'text': message['body']?.toString(),
         };
         notifyListeners();
       })
@@ -774,6 +886,13 @@ class ChannelSession extends ChangeNotifier {
         final gid = m['groupId']?.toString();
         if (!_isListenGroup(gid)) return;
         final speaker = m['speaker'] as Map?;
+        if (gid != null) {
+          if (speaker == null) {
+            _armReplayIfLate(gid);
+          } else {
+            _pushWake.remove(gid);
+          }
+        }
         if (speaker == null) {
           if (kRadioOnDemand && gid != null) {
             _liveGroups.remove(gid);
@@ -906,9 +1025,14 @@ class ChannelSession extends ChangeNotifier {
           unawaited(playPttPressTone());
         }
       })
+      ..on('ptt:recording', (data) {
+        if (data is! Map || _replayWanted.isEmpty) return;
+        unawaited(_maybeReplay(Map<String, dynamic>.from(data)));
+      })
       ..on('ptt:released', (data) async {
         final m = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
         final gid = m['groupId']?.toString();
+        if (gid != null) _pushWake.remove(gid);
         if (kRadioOnDemand && gid != null) {
           _liveGroups.remove(gid);
           _scheduleSleep(gid);
@@ -985,9 +1109,19 @@ class ChannelSession extends ChangeNotifier {
             if (appInBackground) {
               PushService.instance.showLocal(
                 title: msg.displayName.isNotEmpty ? msg.displayName : groupName,
-                body: short,
+                body: msg.body ?? '',
                 payload: groupId,
                 groupId: groupId,
+                data: {
+                  'type': 'chat',
+                  'groupId': groupId,
+                  'groupName': groupName,
+                  'senderId': msg.senderId,
+                  'senderName': msg.displayName,
+                  'messageId': msg.id,
+                  'msgKind': msg.type,
+                  if (msg.mediaUrl != null) 'mediaUrl': msg.mediaUrl,
+                },
               );
             }
           }
@@ -1098,9 +1232,9 @@ class ChannelSession extends ChangeNotifier {
         notifyListeners();
       });
 
-    // 30 s: tres intentos dentro de PRESENCE_STALE_MS (90 s). Cambios de foco
-    // se envían al instante desde el ciclo de vida.
-    _ping = Timer.periodic(const Duration(seconds: 30), (_) {
+    // El servidor renueva la presencia con el heartbeat del socket (25 s); este ping
+    // es respaldo. Cambios de foco se envían al instante desde el ciclo de vida.
+    _ping = Timer.periodic(const Duration(seconds: 60), (_) {
       if (connected) pingPresenceFocus();
     });
 
@@ -1143,6 +1277,7 @@ class ChannelSession extends ChangeNotifier {
 
   void _clearIncomingPanicState() {
     _stopPanicAlarmLoop();
+    unawaited(PushService.instance.clearPanicNotifications());
     incomingPanicActive = false;
     incomingPanicLabel = null;
     incomingPanicLat = null;
@@ -2514,7 +2649,14 @@ class ChannelSession extends ChangeNotifier {
   }
 
   Future<void> disposeSession() async {
-    if (identical(current, this)) current = null;
+    if (identical(current, this)) {
+      current = null;
+      PttWake.detach();
+    }
+    try {
+      await _replayPlayer?.dispose();
+    } catch (_) {}
+    _replayPlayer = null;
     _ping?.cancel();
     _typingIdle?.cancel();
     _lastHeardExpire?.cancel();

@@ -297,8 +297,8 @@ export default function ChatInbox({
       return;
     }
     bumpUnread(`group:${group.id}`);
-    const title = group.name || 'Grupo';
-    const body = `${last.displayName || 'Operador'}: ${previewText(last)}`;
+    const title = `${last.displayName || 'Operador'} · ${group.name || 'Grupo'}`;
+    const body = previewText(last);
     const showBanner = notifyIncomingMessage({
       title,
       body,
@@ -313,6 +313,8 @@ export default function ChatInbox({
         preview: previewText(last),
         title: group.name || 'Grupo',
         groupId: group.id,
+        senderId: last.senderId,
+        msgType: last.type,
       });
     }
   }, [ptt?.messages, group?.id, group?.name, session.user.id, bumpUnread, clearUnread]);

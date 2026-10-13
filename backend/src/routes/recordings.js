@@ -189,6 +189,8 @@ export function createRecordingsRouter(io) {
         });
 
         emitDispatch(io, 'dispatch:recording', recording);
+        // Radios despertados por push que llegaron tarde reproducen el mensaje completo.
+        io.to(`group:${groupId}`).emit('ptt:recording', recording);
         res.status(201).json({ ok: true, recording });
       } catch (e) {
         console.error('recording upload:', e);

@@ -857,6 +857,18 @@ class ApiClient {
     return '${AppConfig.apiBaseUrl}$mediaUrl';
   }
 
+  /// Grabaciones PTT recientes de un canal (más nuevas primero).
+  Future<List<Map<String, dynamic>>> fetchGroupRecordings(
+    String groupId, {
+    int hours = 1,
+  }) async {
+    final data = await _get(
+      '/api/recordings?groupId=${Uri.encodeComponent(groupId)}&hours=$hours',
+    );
+    final list = data['recordings'] as List? ?? const [];
+    return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
   /// Descarga media autenticada a un archivo temporal (abrir / compartir).
   Future<File> downloadMediaToTemp(String mediaUrl, {String? filename}) async {
     final uri = Uri.parse(mediaAbsoluteUrl(mediaUrl));

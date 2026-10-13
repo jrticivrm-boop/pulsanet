@@ -84,8 +84,10 @@ const io = new Server(server, {
   transports: ['websocket', 'polling'],
   allowUpgrades: true,
   maxHttpBufferSize: 1e6,
+  // Batería móvil: con 10 s la antena celular nunca entraba en reposo.
+  // La presencia se renueva con cada pong (socket/ptt.js).
   pingTimeout: 20000,
-  pingInterval: 10000,
+  pingInterval: 25000,
 });
 
 app.use(

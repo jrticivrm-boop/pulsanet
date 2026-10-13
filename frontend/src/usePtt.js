@@ -26,6 +26,7 @@ import { playPttPressTone, playPttReleaseTone, setOnAirTabIndicator } from './ap
 
 let lastLocalPttReleaseAt = 0;
 import { esMsg } from './esMsg';
+import { recordPanicNotice } from './notifyCenter';
 import {
   resolvePttLatch,
   PTT_MODE_EVENT,
@@ -53,6 +54,8 @@ export function usePtt({
   const [speakers, setSpeakers] = useState([]);
   const [holding, setHolding] = useState(false);
   const [denied, setDenied] = useState(null);
+  /** Servidor despertando radios dormidos por push antes de dar el micrófono. */
+  const [waking, setWaking] = useState(null);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('idle');
   const [online, setOnline] = useState([]);
@@ -731,11 +734,21 @@ export function usePtt({
       if (groupId === groupIdRef.current) setOnline(list);
     });
 
+    socket.on('ptt:waking', ({ groupId, count, delayMs } = {}) => {
+      const wait = floorWaitRef.current;
+      if (!wait.requested.has(groupId) && !talkGroupIdsRef.current.includes(groupId)) {
+        return;
+      }
+      setWaking({ groupId, count: Number(count) || 0 });
+      window.setTimeout(() => setWaking(null), (Number(delayMs) || 2000) + 1500);
+    });
+
     socket.on('ptt:granted', async ({ groupId }) => {
       const wait = floorWaitRef.current;
       if (!wait.requested.has(groupId) && !talkGroupIdsRef.current.includes(groupId)) {
         return;
       }
+      setWaking(null);
       wait.granted.add(groupId);
       wait.denied.delete(groupId);
       setDenied(null);
@@ -923,6 +936,7 @@ export function usePtt({
         accuracyM: event.accuracyM,
       });
       startPanicAlarm();
+      recordPanicNotice(event);
     });
 
     socket.on('panic:update', (event) => {
@@ -1445,6 +1459,7 @@ export function usePtt({
     speakers,
     holding,
     denied,
+    waking,
     error,
     status,
     online,

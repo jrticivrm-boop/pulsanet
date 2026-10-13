@@ -2,6 +2,7 @@ const counters = {
   pttGranted: 0,
   pttDenied: 0,
   pttReleased: 0,
+  pttWakePush: 0,
   chatSent: 0,
   socketConnects: 0,
   socketDisconnects: 0,

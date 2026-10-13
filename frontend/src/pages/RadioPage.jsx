@@ -454,6 +454,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
             <p className="user-line">{session.user.displayName}</p>
           </div>
           <div className="topbar-actions">
+            <span id="nt-bell-slot" className="nt-bell-slot" />
             <button
               type="button"
               className="btn ghost btn-personas"
@@ -751,6 +752,11 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
 
           <div className="radio-ops-secondary">
             {panicFlash && <p className="panic-flash">{panicFlash}</p>}
+            {ptt.waking && !ptt.holding && (
+              <p className="ptt-waking" role="status">
+                Despertando radios ({ptt.waking.count})…
+              </p>
+            )}
             {(ptt.denied || ptt.error || err) && (
               <p className="error">
                 {ptt.denied ? esDeniedReason(ptt.denied.reason) : esMsg(ptt.error || err)}

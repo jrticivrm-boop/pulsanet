@@ -7,6 +7,7 @@ import { startPanicAlarm, stopPanicAlarm, unlockPanicAudio } from '../panicSound
 import { openPanicLocation, isValidMapCoord } from '../panicMaps';
 import { socketIoOptions, socketUrl } from '../socketConfig';
 import { sessionWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
+import { recordPanicNotice } from '../notifyCenter.js';
 
 const SOCKET_URL = socketUrl();
 const POS_KEY = 'tacticalptx_panic_panel_pos';
@@ -155,6 +156,7 @@ export default function DispatchPanicHost({
         exitFullscreenIfAny();
         alarmSilencedRef.current = false;
         startPanicAlarm();
+        recordPanicNotice(payload);
         setActivePanics((prev) => {
           if (prev.some((p) => p.id === payload.id)) return prev;
           return [payload, ...prev];

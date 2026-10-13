@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { io } from 'socket.io-client';
 import { acceptPrivateCall, endPrivateCall, joinPrivateCall, declinePrivateCallInvite, leavePrivateCall, startPrivateCall } from './api';
 import { notifyIncomingCall, stopCallRingtone } from './appNotify';
+import { pushNotice } from './notifyCenter';
 import { warmUpVideoCallMedia } from './callMedia';
 import { esMsg } from './esMsg';
 import PersonAvatar from './PersonAvatar';
@@ -82,8 +83,20 @@ export default function PrivateCallHost({ session }) {
 
     const onEnded = ({ callId }) => {
       if (!callId) return;
-      if (String(incomingRef.current?.callId) === String(callId)) {
+      const inc = incomingRef.current;
+      if (String(inc?.callId) === String(callId)) {
         clearIncoming();
+        if (inc.intent !== 'remote_camera') {
+          const video = inc.mode === 'video';
+          pushNotice({
+            kind: 'missed_call',
+            title: inc.callerName || 'Usuario',
+            body: video ? 'Videollamada perdida' : 'Llamada perdida',
+            peerId: inc.callerId,
+            userId: inc.callerId,
+            dedupeKey: `call:${callId}`,
+          });
+        }
       }
       if (String(activeRef.current?.callId) === String(callId)) {
         setActiveCall(null);

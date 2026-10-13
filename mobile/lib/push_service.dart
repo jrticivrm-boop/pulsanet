@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -13,8 +14,10 @@ import 'call_ringtone.dart';
 import 'incoming_call_wake.dart';
 import 'message_tone.dart';
 import 'panic_vibration.dart';
+import 'ptt_wake.dart';
 import 'remote_camera_prefs.dart';
 import 'remote_camera_wake.dart';
+import 'rich_notify.dart';
 import 'ringer_mode.dart';
 import 'sound_prefs.dart';
 
@@ -120,7 +123,8 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
   final groupId = message.data['groupId']?.toString();
   final peerId = message.data['peerId']?.toString();
   final callId = message.data['callId']?.toString();
-  final tag = _conversationTag(groupId: groupId, peerId: peerId, callId: callId);
+  final tag = _noticeTag(message.data) ??
+      _conversationTag(groupId: groupId, peerId: peerId, callId: callId);
   String? payload;
   if (isCall) {
     if (type == 'group_video' && groupId != null && groupId.isNotEmpty) {
@@ -130,18 +134,29 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
     }
   } else if ((type == 'dm' || type == 'dm_nudge') && peerId != null) {
     payload = 'peer:$peerId';
+  } else if (_noticeTag(message.data) != null) {
+    payload = 'data:${jsonEncode(message.data)}';
   } else {
     payload = groupId;
   }
 
   final local = FlutterLocalNotificationsPlugin();
-  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const androidInit = AndroidInitializationSettings(kNotifSmallIcon);
   await local.initialize(
     const InitializationSettings(
       android: androidInit,
       iOS: DarwinInitializationSettings(),
     ),
+    onDidReceiveBackgroundNotificationResponse: notificationActionBackground,
   );
+  final rich = isCall
+      ? null
+      : await RichNotify.build(
+          data: Map<String, dynamic>.from(message.data),
+          title: title,
+          body: body,
+          tag: tag,
+        );
   final androidPlugin = local.resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>();
   final nudge = type == 'dm_nudge';
@@ -184,8 +199,8 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
       : body;
   await local.show(
     notifId,
-    title,
-    bodyShow,
+    rich?.title ?? title,
+    rich?.body ?? bodyShow,
     NotificationDetails(
       android: AndroidNotificationDetails(
         channelId,
@@ -197,15 +212,21 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
                 : 'Mensajes y alertas'),
         importance: Importance.max,
         priority: Priority.max,
-        icon: '@mipmap/ic_launcher',
+        icon: kNotifSmallIcon,
+        color: rich?.color ?? kNotifAccent,
+        largeIcon: rich?.largeIcon,
+        styleInformation: rich?.style,
+        subText: rich?.subText,
         tag: tag,
-        category: isCall ? AndroidNotificationCategory.call : AndroidNotificationCategory.message,
+        category: isCall
+            ? AndroidNotificationCategory.call
+            : (rich?.category ?? AndroidNotificationCategory.message),
         fullScreenIntent: isCall,
-        visibility: NotificationVisibility.public,
+        visibility: _visibilityFor(type),
         // Galaxy/Samsung: ongoing + timeout ayuda a que FSI no quede solo heads-up.
-        ongoing: isCall,
-        autoCancel: !isCall,
-        timeoutAfter: isCall ? 55000 : null,
+        ongoing: isCall || (rich?.ongoing ?? false),
+        autoCancel: !isCall && (rich?.autoCancel ?? true),
+        timeoutAfter: isCall ? 55000 : (rich?.timeoutAfter ?? _timeoutFor(type)),
         playSound: isCall ? false : (audio?.playSound ?? true),
         enableVibration: vibrate,
         vibrationPattern: nudge ? kNudgeShakeVibration : null,
@@ -228,7 +249,7 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
                   cancelNotification: true,
                 ),
               ]
-            : null,
+            : rich?.actions,
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
@@ -241,6 +262,27 @@ Future<void> _showFromBackgroundMessage(RemoteMessage message) async {
   );
 }
 
+/// Alertas y avisos con su propio id (no se mezclan con el chat del mismo canal).
+String? _noticeTag(Map<String, dynamic> data) {
+  final type = data['type']?.toString();
+  if (type == 'panic') {
+    final id = data['panicId']?.toString() ?? data['id']?.toString() ?? '';
+    return 'panic:${id.isEmpty ? (data['groupId'] ?? 'x') : id}';
+  }
+  if (type == 'missed_call') return 'missed:${data['callId'] ?? data['callerId'] ?? 'x'}';
+  if (type == 'announcement') return 'ann:${data['announcementId'] ?? 'x'}';
+  return null;
+}
+
+/// Pantalla bloqueada: mensajes sin contenido; alertas visibles completas.
+NotificationVisibility _visibilityFor(String? type) {
+  if (RichNotify.isChatType(type)) return NotificationVisibility.private;
+  return NotificationVisibility.public;
+}
+
+/// Alerta fija: se retira sola si la app no recibió el cierre (p. ej. proceso muerto).
+int? _timeoutFor(String? type) => type == 'panic' ? 30 * 60 * 1000 : null;
+
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Binding necesario para SharedPreferences / FGS desde isolate FCM.
@@ -252,6 +294,10 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final data = Map<String, dynamic>.from(message.data);
   final type = data['type']?.toString();
   final intent = data['intent']?.toString();
+  if (type == 'ptt_wake') {
+    await PttWake.handleBackground(data);
+    return;
+  }
   if (type == 'private_remote_camera' || intent == 'remote_camera') {
     try {
       await RemoteCameraWake.handleBackgroundWake(data);
@@ -289,10 +335,30 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 /// Acciones Contestar/Rechazar con app en background/killed.
+/// Responder / Marcar leído: envía por API y quita la notificación de la conversación.
+Future<void> _handleMessageAction(NotificationResponse resp) async {
+  final payload = resp.payload ?? '';
+  await RichNotify.handleAction(
+    actionId: resp.actionId ?? '',
+    payload: payload,
+    input: resp.input,
+  );
+  final tag = payload.startsWith('peer:') ? 'dm:${payload.substring(5)}' : 'g:$payload';
+  try {
+    await FlutterLocalNotificationsPlugin().cancel(_stableId(tag), tag: tag);
+  } catch (_) {}
+}
+
 @pragma('vm:entry-point')
 void notificationActionBackground(NotificationResponse resp) {
   final action = resp.actionId;
   final payload = resp.payload ?? '';
+  if (action == kNotifActionReply || action == kNotifActionRead) {
+    WidgetsFlutterBinding.ensureInitialized();
+    // ignore: unawaited_futures
+    _handleMessageAction(resp);
+    return;
+  }
   final callId = payload.startsWith('call:') ? payload.substring(5) : payload;
   if (callId.isEmpty) return;
   if (action == 'call_reject') {
@@ -362,6 +428,10 @@ class PushService {
       FirebaseMessaging.onMessage.listen((msg) {
         final data = Map<String, dynamic>.from(msg.data);
         final type = data['type']?.toString();
+        if (type == 'ptt_wake') {
+          PttWake.deliverForeground(data);
+          return;
+        }
         if (_isRemoteCameraPush(data)) {
           // ignore: unawaited_futures
           _handleForegroundRemoteCamera(data);
@@ -522,7 +592,7 @@ class PushService {
     final tag =
         _conversationTag(groupId: groupId, peerId: peerId, callId: callId);
     final id = _stableId(tag ?? 'misc');
-    final futures = <Future<void>>[];
+    final futures = <Future<void>>[RichNotify.clearHistory(tag)];
     try {
       if (localReady) {
         futures.add(_local.cancel(id));
@@ -588,8 +658,27 @@ class PushService {
     }
   }
 
+  /// Alerta atendida / cerrada: quita los avisos fijos `panic:*`.
+  Future<void> clearPanicNotifications() async {
+    if (!localReady) return;
+    try {
+      final android = _local.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      final active = await android?.getActiveNotifications() ?? const [];
+      for (final n in active) {
+        final tag = n.tag ?? '';
+        if (tag.startsWith('panic:') && n.id != null) {
+          await _local.cancel(n.id!, tag: tag);
+        }
+      }
+    } catch (e) {
+      debugPrint('clear panic notif: $e');
+    }
+  }
+
   /// Limpia todas las notificaciones de la app.
   Future<void> clearAllNotifications() async {
+    await RichNotify.clearAllHistory();
     try {
       if (localReady) await _local.cancelAll();
     } catch (_) {}
@@ -612,6 +701,7 @@ class PushService {
     String? groupId,
     String? peerId,
     String? callId,
+    Map<String, dynamic>? data,
   }) async {
     if (!localReady) return;
     // Chat abierto en primer plano: tono tenue, sin notificación de bandeja.
@@ -624,8 +714,12 @@ class PushService {
       }
       return;
     }
-    final tag =
+    final tag = (data != null ? _noticeTag(data) : null) ??
         _conversationTag(groupId: groupId, peerId: peerId, callId: callId);
+    final type = data?['type']?.toString();
+    final rich = isCall || data == null
+        ? null
+        : await RichNotify.build(data: data, title: title, body: body, tag: tag);
     final notifId =
         _stableId(tag ?? 't:${DateTime.now().millisecondsSinceEpoch}');
     final callPrefs = isCall ? await incomingCallNotifPrefs() : null;
@@ -656,8 +750,8 @@ class PushService {
     }
     await _local.show(
       notifId,
-      title,
-      body,
+      rich?.title ?? title,
+      rich?.body ?? body,
       NotificationDetails(
         android: AndroidNotificationDetails(
           channelId,
@@ -667,16 +761,20 @@ class PushService {
               : (isNudge ? 'Zumbidos DM' : 'Mensajes y alertas'),
           importance: Importance.max,
           priority: Priority.max,
-          icon: '@mipmap/ic_launcher',
+          icon: kNotifSmallIcon,
+          color: rich?.color ?? kNotifAccent,
+          largeIcon: rich?.largeIcon,
+          styleInformation: rich?.style,
+          subText: rich?.subText,
           tag: tag,
           category: isCall
               ? AndroidNotificationCategory.call
-              : AndroidNotificationCategory.message,
+              : (rich?.category ?? AndroidNotificationCategory.message),
           fullScreenIntent: isCall,
-          visibility: NotificationVisibility.public,
-          ongoing: isCall,
-          autoCancel: !isCall,
-          timeoutAfter: isCall ? 55000 : null,
+          visibility: isCall ? NotificationVisibility.public : _visibilityFor(type),
+          ongoing: isCall || (rich?.ongoing ?? false),
+          autoCancel: !isCall && (rich?.autoCancel ?? true),
+          timeoutAfter: isCall ? 55000 : (rich?.timeoutAfter ?? _timeoutFor(type)),
           // Llamadas: CallRingtone es la única fuente de audio (evita doble tono).
           playSound: isCall ? false : (audio?.playSound ?? true),
           enableVibration: callPrefs?.enableVibration ?? true,
@@ -700,7 +798,7 @@ class PushService {
                     cancelNotification: true,
                   ),
                 ]
-              : null,
+              : rich?.actions,
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
@@ -778,6 +876,8 @@ class PushService {
       }
     } else if ((type == 'dm' || type == 'dm_nudge') && peerId != null) {
       payload = 'peer:$peerId';
+    } else if (_noticeTag(msg.data) != null) {
+      payload = 'data:${jsonEncode(msg.data)}';
     } else {
       payload = groupId;
     }
@@ -786,6 +886,7 @@ class PushService {
       title: title,
       body: body,
       payload: payload,
+      data: Map<String, dynamic>.from(msg.data),
       isCall: isCall,
       isNudge: type == 'dm_nudge',
       ringKind: (type != null && type.contains('video')) || type == 'group_video'
@@ -804,6 +905,11 @@ class PushService {
   }) {
     final action = resp.actionId;
     final payload = resp.payload ?? '';
+    if (action == kNotifActionReply || action == kNotifActionRead) {
+      // ignore: unawaited_futures
+      _handleMessageAction(resp);
+      return;
+    }
     if (action == 'call_accept' || action == 'call_reject') {
       final callId =
           payload.startsWith('call:') ? payload.substring(5) : payload;
@@ -836,6 +942,15 @@ class PushService {
   /// Interpreta payload de notificación local (`peer:uuid` | `call:id` | groupId).
   void _applyLocalPayload(String? payload, {bool invokeCallbacks = true}) {
     final p = payload ?? '';
+    if (p.startsWith('data:')) {
+      try {
+        final data = Map<String, dynamic>.from(jsonDecode(p.substring(5)) as Map);
+        _handleOpen(data, invokeCallbacks: invokeCallbacks);
+      } catch (e) {
+        debugPrint('notif payload: $e');
+      }
+      return;
+    }
     if (p.startsWith('peer:')) {
       pendingPeerId = p.substring(5);
       if (invokeCallbacks) {

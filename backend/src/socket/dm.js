@@ -122,6 +122,7 @@ export function registerDmHandlers(io) {
           data: {
             type: 'dm',
             peerId: user.sub,
+            messageId: msg.id,
             title: user.displayName || 'SICOM',
             body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
           },

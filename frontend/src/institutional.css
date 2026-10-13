@@ -1047,6 +1047,20 @@ body {
   margin-left: 0.15rem;
 }
 
+.cc-ptt-mini-waking,
+.ptt-waking {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #f0b429;
+  margin-left: 0.15rem;
+  animation: cc-ptt-pulse 1s ease-in-out infinite;
+}
+
+.ptt-waking {
+  font-size: 0.85rem;
+  margin: 0.25rem 0;
+}
+
 @keyframes cc-ptt-pulse {
   0%,
   100% {

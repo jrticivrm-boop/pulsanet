@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { canDispatch } from './api';
 import { notifyIncomingGroupVideo, stopCallRingtone } from './appNotify';
+import { pushNotice } from './notifyCenter';
 import { socketIoOptions, socketUrl } from './socketConfig';
 
 /**
@@ -40,9 +41,18 @@ export default function GroupVideoIncomingHost({ session }) {
     const onEnded = (payload) => {
       const gid = payload?.groupId;
       if (!gid) return;
-      if (String(incomingRef.current?.groupId) === String(gid)) {
+      const inc = incomingRef.current;
+      if (String(inc?.groupId) === String(gid)) {
         stopCallRingtone();
         setIncoming(null);
+        pushNotice({
+          kind: 'video',
+          title: `Video de grupo perdido · ${inc.groupName || 'Grupo'}`,
+          body: `${inc.startedByName || inc.displayName || 'Un operador'} transmitió en vivo`,
+          groupId: gid,
+          route: canDispatch(session.user) ? '/despacho/radio' : '/radio',
+          dedupeKey: `gv:${gid}`,
+        });
       }
     };
 

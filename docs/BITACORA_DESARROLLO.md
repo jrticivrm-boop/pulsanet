@@ -1,3 +1,16 @@
+## 2026-10-12 — Radio que despierta con PTT, notificaciones nuevas (web/app) y batería
+
+- **Tipo:** feature | ux | mejora
+- **Área:** backend | web | mobile
+- **Qué:**
+  - **PTT despierta la radio:** en `ptt:request` (nuevo turno) el servidor manda push data-only `ptt_wake` (FCM, collapse por canal, TTL 20 s, máx. 1 cada 25 s por canal vía Redis) solo a miembros activos sin socket vivo, y si hubo alguno extiende la espera del que habla a 2 s (`PTT_PUSH_GRANT_DELAY_MS`) y emite `ptt:waking` (web muestra «Despertando radios…»). App: `PttWake` entrega el aviso al isolate principal (o lo deja pendiente), reconecta el socket, abre la sala LiveKit y muestra notificación silenciosa; si llegó tarde reproduce la grabación del turno (`ptt:recording` nuevo + sondeo `GET /api/recordings`).
+  - **Notificaciones web:** `notifyCenter.js` (historial por usuario en localStorage, 60 avisos), pila de tarjetas (máx. 3 + «+N», foto, canal, ícono, hora, cierre, barra que se pausa al pasar el mouse) en `GlobalChatNotifyHost`, campana con contador/historial filtrable (`NotifyBell`) en la barra de Despacho y Radio. Registran: chat/DM, pánico (solo historial; el panel rojo sigue igual), llamadas perdidas, video de grupo perdido y geocercas (reemplaza el toast propio de geocerca). Título del aviso del navegador «Remitente · Canal».
+  - **Notificaciones app:** push Android data-only para chat/DM/pánico/llamada perdida/anuncio; `rich_notify.dart` arma conversación acumulada (últimos 6, foto del remitente), imagen grande, Responder (texto en línea) y Marcar leído, pánico rojo fijo (30 min), ícono propio `ic_stat_sicom` y color de acento. Chat con visibilidad privada en bloqueo (el plugin no permite «quién sí / texto no»).
+  - **Batería:** `pingInterval` 10 → 25 s, presencia renovada en cada pong, ping de presencia app 30 → 60 s, reconexión con espera 1.5–15 s, GPS «quieto» exige 2 lecturas buenas y distancia ≥ max(25 m, 2× precisión) antes de pasar a alta precisión.
+  - App **1.8.185+195**; APK `C:\pulsanet_soporte\APK\TacticalPtx-1.8.185+195.apk` (sin OTA; `SERVER_LAN_IP=192.168.1.150`, respaldo `.77`).
+- **Por qué / notas:** usuarios reportaron calentamiento/batería; la radio no se activaba si la app estaba dormida; los avisos web se perdían. Sin migraciones. Si la app fue cerrada deslizándola, el aviso PTT solo muestra «Toca para escuchar» (Android no permite abrir la UI sola). Pendiente: animación del pin en mapa GPS visible y optimización de batería del fabricante (lista blanca).
+- **Archivos / refs:** `backend/src/socket/ptt.js`, `backend/src/services/fcm.js`, `backend/src/server.js`, `backend/src/routes/{recordings,messages,dm}.js`, `backend/src/socket/dm.js`, `frontend/src/{notifyCenter.js,NotifyBell.jsx,NoticeIcon.jsx,GlobalChatNotifyHost.jsx,usePtt.js,styles.css}`, `mobile/lib/{ptt_wake,rich_notify,push_service,channel_session,location_heartbeat}.dart`, `mobile/android/app/src/main/res/drawable-*/ic_stat_sicom.png`
+
 ## 2026-10-12 — Producción: ficha de contacto con celular
 
 - **Tipo:** ops

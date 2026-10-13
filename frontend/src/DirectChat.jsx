@@ -467,6 +467,8 @@ export default function DirectChat({
           peerName,
           preview,
           title: peerName || 'Mensaje',
+          senderId: peerId,
+          msgType: message?.type,
         });
       }
     });

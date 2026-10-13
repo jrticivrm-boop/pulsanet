@@ -73,30 +73,35 @@ export async function notifyGroupMembers({
   const tokens = [...new Set(rows.map((r) => r.fcm_token).filter(Boolean))];
   if (!tokens.length) return { sent: 0 };
 
+  let groupName = data.groupName || '';
+  if (!groupName) {
+    try {
+      const g = await query(`SELECT name FROM groups WHERE id = $1`, [groupId]);
+      groupName = g.rows[0]?.name || '';
+    } catch {
+      /* sin nombre: la app muestra «Canal» */
+    }
+  }
+
+  // Android: solo datos → la app arma la notificación (foto, canal, mensajes
+  // acumulados, Responder). Sin collapseKey: sin red se conservan todos.
   const payload = {
-    notification: { title, body },
     data: Object.fromEntries(
-      Object.entries({ ...data, groupId, title, body }).map(([k, v]) => [
-        k,
-        String(v ?? ''),
-      ])
+      Object.entries({
+        ...data,
+        groupId,
+        groupName,
+        senderId: excludeUserId || '',
+        senderName: title,
+        title,
+        body,
+      }).map(([k, v]) => [k, String(v ?? '')])
     ),
-    android: {
-      priority: 'high',
-      // Misma conversación reemplaza la notificación anterior (estilo WhatsApp).
-      collapseKey: `g:${groupId}`,
-      notification: {
-        channelId: 'tacticalptx_alerts_v3',
-        sound: 'tactical_msg',
-        tag: `g:${groupId}`,
-        priority: 'max',
-        visibility: 'private',
-        defaultVibrateTimings: true,
-      },
-    },
+    android: { priority: 'high' },
     apns: {
       payload: {
         aps: {
+          alert: { title: groupName ? `${title} · ${groupName}` : title, body },
           sound: 'tactical_msg.wav',
           interruptionLevel: 'time-sensitive',
         },
@@ -159,26 +164,19 @@ export async function notifyUserIdsAlert({ userIds, title, body, data = {}, coll
   if (!tokens.length) return { sent: 0 };
 
   const tag = collapse || `alert:${data?.panicId || Date.now()}`;
+  // Android: solo datos → la app muestra la alerta en rojo, fija hasta atenderla.
   const payload = {
-    notification: { title, body },
     data: Object.fromEntries(
       Object.entries({ ...data, title, body }).map(([k, v]) => [k, String(v ?? '')])
     ),
     android: {
       priority: 'high',
       collapseKey: tag,
-      notification: {
-        channelId: 'tacticalptx_alerts_v3',
-        sound: 'tactical_msg',
-        tag,
-        priority: 'max',
-        visibility: 'private',
-        defaultVibrateTimings: true,
-      },
     },
     apns: {
       payload: {
         aps: {
+          alert: { title, body },
           sound: 'tactical_msg.wav',
           interruptionLevel: 'time-sensitive',
         },
@@ -213,6 +211,31 @@ export async function notifyUserIdsAlert({ userIds, title, body, data = {}, coll
     } catch (err) {
       console.error('FCM alert send:', err.message);
     }
+  }
+  return { sent };
+}
+
+async function sendToTokens(tokens, payload, label) {
+  let sent = 0;
+  try {
+    const res = await admin.messaging().sendEachForMulticast({ tokens, ...payload });
+    sent = res.successCount;
+    const bad = [];
+    res.responses.forEach((r, idx) => {
+      const code = r.success ? '' : r.error?.code || '';
+      if (
+        code.includes('registration-token-not-registered') ||
+        code.includes('invalid-registration-token')
+      ) {
+        bad.push(tokens[idx]);
+      }
+    });
+    if (bad.length) {
+      await query(`UPDATE devices SET is_active = FALSE WHERE fcm_token = ANY($1::text[])`, [bad]);
+    }
+  } catch (err) {
+    console.error(`${label}:`, err.message);
+    return { sent: 0, error: err.message };
   }
   return { sent };
 }
@@ -271,6 +294,31 @@ export async function notifyUserDevices({ userId, title, body, data = {} }) {
       : isAnnouncement
         ? 'tacticalptx_announcements_v1'
         : 'tacticalptx_alerts_v3';
+
+  // Mensajes, llamadas perdidas y avisos: solo datos en Android (la app arma la
+  // notificación enriquecida). Llamadas / seguridad / prueba: notificación del sistema.
+  const richType = ['dm', 'dm_nudge', 'missed_call', 'announcement'].includes(data?.type);
+  if (richType) {
+    const richPayload = {
+      data: Object.fromEntries(
+        Object.entries({ ...data, title, body }).map(([k, v]) => [k, String(v ?? '')])
+      ),
+      android: {
+        priority: 'high',
+        ...(isAnnouncement ? { collapseKey: `ann:${data.announcementId || 'x'}` } : {}),
+      },
+      apns: {
+        payload: {
+          aps: {
+            alert: { title, body },
+            sound: iosSound,
+            interruptionLevel: 'time-sensitive',
+          },
+        },
+      },
+    };
+    return sendToTokens(tokens, richPayload, 'FCM notifyUser');
+  }
 
   const payload = {
     notification: { title, body },
@@ -390,6 +438,57 @@ export async function notifyUserDevicesDataOnly({ userId, data = {} }) {
   } catch (err) {
     console.error('FCM data-only:', err.message);
     return { sent: 0, error: err.message };
+  }
+  return { sent };
+}
+
+/**
+ * PTT en un canal: despierta el radio de miembros sin socket vivo (app dormida/cerrada).
+ * Data-only con TTL corto: un aviso viejo ya no sirve para escuchar en vivo.
+ */
+export async function notifyPttWake({ groupId, groupName, speakerId, speakerName, userIds }) {
+  if (!ready) return { sent: 0, skipped: true };
+  const ids = [...new Set((userIds || []).map(String))];
+  if (!ids.length) return { sent: 0 };
+
+  const { rows } = await query(
+    `SELECT fcm_token FROM devices
+     WHERE user_id = ANY($1::uuid[]) AND is_active = TRUE AND fcm_token IS NOT NULL`,
+    [ids]
+  );
+  const tokens = [...new Set(rows.map((r) => r.fcm_token).filter(Boolean))];
+  if (!tokens.length) return { sent: 0 };
+
+  const data = {
+    type: 'ptt_wake',
+    groupId,
+    groupName: groupName || 'Canal',
+    speakerId: speakerId || '',
+    speakerName: speakerName || 'Operador',
+    at: Date.now(),
+  };
+  const payload = {
+    data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v ?? '')])),
+    android: {
+      priority: 'high',
+      collapseKey: `ptt:${groupId}`,
+      ttl: 20000,
+    },
+    apns: {
+      headers: { 'apns-priority': '10', 'apns-push-type': 'background' },
+      payload: { aps: { 'content-available': 1 } },
+    },
+  };
+
+  let sent = 0;
+  for (let i = 0; i < tokens.length; i += 500) {
+    const batch = tokens.slice(i, i + 500);
+    try {
+      const res = await admin.messaging().sendEachForMulticast({ tokens: batch, ...payload });
+      sent += res.successCount;
+    } catch (err) {
+      console.error('FCM ptt wake:', err.message);
+    }
   }
   return { sent };
 }

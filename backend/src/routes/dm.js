@@ -156,7 +156,7 @@ export function createDmRouter(io) {
         userId: peer.id,
         title: req.user.displayName || 'SICOM',
         body: text.slice(0, 120),
-        data: { type: 'dm', peerId: req.user.sub },
+        data: { type: 'dm', peerId: req.user.sub, messageId: msg.id },
       }).catch(() => {});
     }
     res.status(201).json({ ok: true, message: msg });
@@ -314,7 +314,13 @@ export function createDmRouter(io) {
           userId: peer.id,
           title: req.user.displayName || 'SICOM',
           body: String(preview).slice(0, 120),
-          data: { type: 'dm', peerId: req.user.sub },
+          data: {
+            type: 'dm',
+            peerId: req.user.sub,
+            messageId: msg.id,
+            msgKind: msg.type,
+            mediaUrl: msg.type === 'image' ? msg.mediaUrl : '',
+          },
         }).catch(() => {});
         res.status(201).json({ ok: true, message: msg });
       } catch (e) {

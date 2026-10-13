@@ -1186,6 +1186,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
             ) : null}
           </div>
           <div className="cc-top-right">
+            <span id="nt-bell-slot" className="nt-bell-slot" />
             <div className="cc-user-chip">
               {!isPhone && <span className="cc-user">{session.user.displayName}</span>}
               <span className={`cc-role-badge role-${role}`}>{isPhone ? role : roleLabel}</span>
@@ -1305,6 +1306,11 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
             >
               {ptt.listenMuted ? 'MUTE' : 'Altavoz'}
             </button>
+            {ptt.waking && !ptt.holding && (
+              <span className="cc-ptt-mini-waking" role="status">
+                Despertando radios…
+              </span>
+            )}
             {(ptt.denied || ptt.error) && (
               <span className="cc-ptt-mini-err" role="status" title={ptt.error || ''}>
                 {ptt.denied?.reason === 'busy' || ptt.denied?.reason === 'ocupado'

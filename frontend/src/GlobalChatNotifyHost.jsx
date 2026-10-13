@@ -5,60 +5,126 @@ import { canDispatch } from './api';
 import { unlockAppNotifyAudio } from './appNotify';
 import { subscribeChatMessageToast } from './chatNotify';
 import { openChatsPanel } from './chatsPanel';
+import PersonAvatar from './PersonAvatar';
+import {
+  NOTICE_KIND_LABEL,
+  bindNoticeOwner,
+  markConversationNoticesRead,
+  markNoticeRead,
+  noticeTimeLabel,
+  pushNotice,
+  subscribeNoticeToasts,
+} from './notifyCenter';
+import NoticeIcon from './NoticeIcon.jsx';
+import NotifyBell from './NotifyBell.jsx';
+
+const MAX_VISIBLE = 3;
+const TOAST_MS = 9000;
+const TOAST_HIDDEN_MS = 30000;
+const STICKY_KINDS = new Set(['panic']);
 
 /**
- * Globo de mensaje en cualquier ruta (Radio, Despacho, Seguimiento, Config…).
+ * Avisos en cualquier ruta (Radio, Despacho, Config…): tarjetas apiladas con foto,
+ * canal, tipo y hora; la campana guarda el historial.
  */
 export default function GlobalChatNotifyHost({ session }) {
   const navigate = useNavigate();
-  const [toast, setToast] = useState(null);
-  const timerRef = useRef(null);
-  const pendingRef = useRef(null);
-  const toastRef = useRef(null);
+  const [toasts, setToasts] = useState([]);
+  const timersRef = useRef(new Map());
+  const pausedRef = useRef(false);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    toastRef.current = toast;
-  }, [toast]);
+    bindNoticeOwner(session?.user?.id || null);
+  }, [session?.user?.id]);
 
-  const dismissTimer = useCallback((ms) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      setToast(null);
-      pendingRef.current = null;
-    }, ms);
+  const dismiss = useCallback((id) => {
+    const t = timersRef.current.get(id);
+    if (t) window.clearTimeout(t.handle);
+    timersRef.current.delete(id);
+    setToasts((prev) => prev.filter((x) => x.id !== id));
   }, []);
 
-  const presentToast = useCallback(
-    (payload) => {
-      if (!payload) return;
-      if (document.hidden) {
-        pendingRef.current = payload;
-      }
-      setToast(payload);
-      dismissTimer(document.hidden ? 30000 : 9000);
+  const arm = useCallback(
+    (id, ms) => {
+      const prev = timersRef.current.get(id);
+      if (prev) window.clearTimeout(prev.handle);
+      const handle = window.setTimeout(() => dismiss(id), ms);
+      timersRef.current.set(id, { handle, endsAt: Date.now() + ms, left: ms });
     },
-    [dismissTimer]
+    [dismiss]
   );
 
-  useEffect(() => {
-    return subscribeChatMessageToast(presentToast);
-  }, [presentToast]);
+  const present = useCallback(
+    (item) => {
+      if (!item) return;
+      setToasts((prev) => [item, ...prev.filter((x) => x.dedupeKey !== item.dedupeKey || !item.dedupeKey)].slice(0, 12));
+      if (!STICKY_KINDS.has(item.kind)) {
+        arm(item.id, document.hidden ? TOAST_HIDDEN_MS : TOAST_MS);
+      }
+    },
+    [arm]
+  );
+
+  useEffect(() => subscribeNoticeToasts(present), [present]);
+
+  /* Mensajes (DM / canal) llegan por chatNotify: se registran en la campana. */
+  useEffect(
+    () =>
+      subscribeChatMessageToast((payload) => {
+        if (!payload?.kind) return;
+        const isGroup = payload.kind === 'group';
+        pushNotice({
+          kind: isGroup ? 'group' : 'dm',
+          title: isGroup ? payload.peerName || 'Operador' : payload.title || payload.peerName || 'Mensaje',
+          body: payload.preview || '',
+          groupId: isGroup ? payload.groupId || payload.peerId : undefined,
+          groupName: isGroup ? payload.title : undefined,
+          peerId: isGroup ? undefined : payload.peerId,
+          userId: payload.senderId || (isGroup ? undefined : payload.peerId),
+          msgType: payload.msgType,
+        });
+      }),
+    []
+  );
+
+  /* Pausa del temporizador al pasar el mouse (se puede leer con calma). */
+  const pauseAll = useCallback(() => {
+    if (pausedRef.current) return;
+    pausedRef.current = true;
+    const t0 = Date.now();
+    for (const [id, t] of timersRef.current) {
+      window.clearTimeout(t.handle);
+      timersRef.current.set(id, { ...t, handle: null, left: Math.max(1500, t.endsAt - t0) });
+    }
+  }, []);
+
+  const resumeAll = useCallback(() => {
+    if (!pausedRef.current) return;
+    pausedRef.current = false;
+    for (const [id, t] of timersRef.current) arm(id, t.left);
+  }, [arm]);
 
   useEffect(() => {
     const onVis = () => {
-      if (document.hidden || !pendingRef.current) return;
-      const p = pendingRef.current;
-      pendingRef.current = null;
-      setToast(p);
-      dismissTimer(10000);
+      if (document.hidden) return;
+      // Al volver a la pestaña: dar tiempo de leer lo que llegó mientras no se veía.
+      for (const id of timersRef.current.keys()) arm(id, TOAST_MS);
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
-  }, [dismissTimer]);
+  }, [arm]);
+
+  useEffect(() => {
+    if (!toasts.length) return undefined;
+    const t = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(t);
+  }, [toasts.length]);
 
   useEffect(
     () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      for (const t of timersRef.current.values()) window.clearTimeout(t.handle);
+      timersRef.current.clear();
     },
     []
   );
@@ -67,41 +133,119 @@ export default function GlobalChatNotifyHost({ session }) {
     unlockAppNotifyAudio().catch(() => {});
   }, []);
 
-  function openToast() {
-    const t = toastRef.current;
-    if (!t || !session?.user) return;
-    setToast(null);
-    pendingRef.current = null;
-    if (canDispatch(session.user)) {
-      if (t.kind === 'dm' && t.peerId) {
-        openChatsPanel({ peerId: t.peerId });
-      } else if (t.kind === 'group') {
-        openChatsPanel({ groupId: t.groupId || t.peerId });
-      } else {
-        openChatsPanel();
+  const openNotice = useCallback(
+    (t) => {
+      if (!t || !session?.user) return;
+      markNoticeRead(t.id);
+      dismiss(t.id);
+      const isDm = t.kind === 'dm' || t.kind === 'missed_call';
+      const gid = t.groupId;
+      if (t.kind === 'dm' || t.kind === 'group') {
+        markConversationNoticesRead({ peerId: isDm ? t.peerId : null, groupId: gid });
       }
-      return;
-    }
-    if (t.kind === 'dm' && t.peerId) {
-      navigate('/radio', { state: { focusPeerId: t.peerId } });
-    } else if (t.kind === 'group') {
-      const gid = t.groupId || t.peerId;
-      navigate('/radio', { state: { focusGroupId: gid } });
-    }
-  }
+      if (t.route && (canDispatch(session.user) || !t.route.startsWith('/despacho'))) {
+        navigate(t.route);
+        return;
+      }
+      if (canDispatch(session.user)) {
+        if (isDm && t.peerId) openChatsPanel({ peerId: t.peerId });
+        else if (t.kind === 'group' && gid) openChatsPanel({ groupId: gid });
+        else openChatsPanel();
+        return;
+      }
+      if (isDm && t.peerId) navigate('/radio', { state: { focusPeerId: t.peerId } });
+      else if (gid) navigate('/radio', { state: { focusGroupId: gid } });
+    },
+    [dismiss, navigate, session?.user]
+  );
 
-  if (!session?.token || !toast) return null;
+  if (!session?.token) return null;
 
-  return createPortal(
-    <button type="button" className="wa-banner-toast wa-banner-toast--global" onClick={openToast}>
-      <span className="wa-banner-toast-avatar" aria-hidden="true">
-        {(toast.title || toast.peerName || '?').slice(0, 1).toUpperCase()}
-      </span>
-      <span className="wa-banner-toast-body">
-        <strong>{toast.title || toast.peerName || 'Mensaje'}</strong>
-        <span>{toast.preview}</span>
-      </span>
-    </button>,
-    document.body
+  const visible = toasts.slice(0, MAX_VISIBLE);
+  const hiddenCount = toasts.length - visible.length;
+
+  return (
+    <>
+      <NotifyBell session={session} onOpenNotice={openNotice} />
+      {toasts.length
+        ? createPortal(
+            <div
+              className="nt-stack"
+              aria-live="polite"
+              aria-relevant="additions"
+              onMouseEnter={pauseAll}
+              onMouseLeave={resumeAll}
+            >
+              {visible.map((t) => {
+                const sticky = STICKY_KINDS.has(t.kind);
+                const timer = timersRef.current.get(t.id);
+                const dur = document.hidden ? TOAST_HIDDEN_MS : TOAST_MS;
+                const meta =
+                  t.kind === 'group'
+                    ? t.groupName || 'Canal'
+                    : NOTICE_KIND_LABEL[t.kind] || 'Aviso';
+                return (
+                  <div key={t.id} className={`nt-card nt-card--${t.kind}`} role="status">
+                    <button type="button" className="nt-card-main" onClick={() => openNotice(t)}>
+                      <span className="nt-card-avatar">
+                        {t.userId && (t.kind === 'dm' || t.kind === 'group' || t.kind === 'missed_call') ? (
+                          <PersonAvatar
+                            userId={t.userId}
+                            name={t.title}
+                            token={session.token}
+                            className="nt-card-avatar-img"
+                          />
+                        ) : (
+                          <span className="nt-card-avatar-ico">
+                            <NoticeIcon kind={t.kind} msgType={t.msgType} />
+                          </span>
+                        )}
+                        <span className="nt-card-kind" aria-hidden="true">
+                          <NoticeIcon kind={t.kind} msgType={t.msgType} />
+                        </span>
+                      </span>
+                      <span className="nt-card-text">
+                        <span className="nt-card-meta">
+                          <span className="nt-card-chip">{meta}</span>
+                          <span className="nt-card-time">{noticeTimeLabel(t.at, now)}</span>
+                        </span>
+                        <strong className="nt-card-title">{t.title}</strong>
+                        {t.body ? <span className="nt-card-body">{t.body}</span> : null}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="nt-card-close"
+                      aria-label="Cerrar aviso"
+                      onClick={() => dismiss(t.id)}
+                    >
+                      ×
+                    </button>
+                    {!sticky && timer ? (
+                      <span
+                        className="nt-card-progress"
+                        style={{ animationDuration: `${dur}ms` }}
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+              {hiddenCount > 0 ? (
+                <button
+                  type="button"
+                  className="nt-more"
+                  onClick={() => {
+                    for (const t of toasts.slice(MAX_VISIBLE)) dismiss(t.id);
+                  }}
+                >
+                  +{hiddenCount} más · descartar
+                </button>
+              ) : null}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
   );
 }

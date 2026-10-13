@@ -52,6 +52,7 @@ class LocationHeartbeat {
   static double? _anchorLng;
   static DateTime? _lastMoveAt;
   static DateTime? _boostUntil;
+  static int _stillMoveHits = 0;
 
   static Duration _interval = const Duration(seconds: 5);
   static double _maxAccuracyM = 50;
@@ -284,8 +285,20 @@ class LocationHeartbeat {
         pos.latitude,
         pos.longitude,
       );
-      final threshold = pos.accuracy > _stillRadiusM ? pos.accuracy : _stillRadiusM;
-      if (fromAnchor >= threshold) {
+      var threshold = pos.accuracy > _stillRadiusM ? pos.accuracy : _stillRadiusM;
+      var moved = fromAnchor >= threshold;
+      if (!_moving) {
+        // Quieto en interiores el fix de precisión media salta decenas de metros:
+        // exigir fix bueno, el doble de la precisión y dos lecturas seguidas antes
+        // de volver a encender el GPS de alta precisión.
+        final acc2 = pos.accuracy * 2;
+        threshold = acc2 > _stillRadiusM ? acc2 : _stillRadiusM;
+        final candidate = good && fromAnchor >= threshold;
+        _stillMoveHits = candidate ? _stillMoveHits + 1 : 0;
+        moved = _stillMoveHits >= 2;
+      }
+      if (moved) {
+        _stillMoveHits = 0;
         _anchorLat = pos.latitude;
         _anchorLng = pos.longitude;
         _lastMoveAt = now;
@@ -381,6 +394,7 @@ class LocationHeartbeat {
     _anchorLng = null;
     _lastMoveAt = null;
     _boostUntil = null;
+    _stillMoveHits = 0;
     _settingsAt = null;
   }
 }

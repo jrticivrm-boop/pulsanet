@@ -887,6 +887,15 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
             payload: peerId != null ? 'peer:$peerId' : null,
             peerId: peerId,
             isNudge: isNudge,
+            data: {
+              'type': isNudge ? 'dm_nudge' : 'dm',
+              'peerId': peerId,
+              'senderId': peerId,
+              'senderName': peerName,
+              'messageId': dm['messageId'],
+              'msgKind': dm['messageType'],
+              'mediaUrl': dm['mediaUrl'],
+            },
           );
         } else if (isNudge) {
           // Primer plano, otro hilo: sacudir la UI visible + aviso.

@@ -18,11 +18,24 @@ import {
 } from '../services/presence.js';
 import { emitDispatch } from './dispatch.js';
 import { inc } from '../services/metrics.js';
+import { isFcmReady, notifyPttWake } from '../services/fcm.js';
+import { getRedis } from '../redis.js';
 import { query } from '../db.js';
 
 const PTT_WAKE_GRANT_DELAY_MS = Math.max(
   0,
   Math.min(2000, Number(process.env.PTT_WAKE_GRANT_DELAY_MS ?? 800) || 0)
+);
+
+/** Margen extra al emisor cuando se despertó por push algún radio dormido. */
+const PTT_PUSH_GRANT_DELAY_MS = Math.max(
+  0,
+  Math.min(4000, Number(process.env.PTT_PUSH_GRANT_DELAY_MS ?? 2000) || 0)
+);
+/** Un push de despertar por canal como máximo en esta ventana. */
+const PTT_WAKE_PUSH_EVERY_SEC = Math.max(
+  5,
+  Math.min(120, Number(process.env.PTT_WAKE_PUSH_EVERY_SEC ?? 25) || 25)
 );
 
 /** Retraso del grant solo si hay otro radio bajo demanda (APK) escuchando el canal. */
@@ -35,6 +48,44 @@ async function grantDelayFor(io, groupId, talkerSocketId) {
   } catch {
     return PTT_WAKE_GRANT_DELAY_MS;
   }
+}
+
+/**
+ * Miembros del canal sin socket unido (app dormida, cerrada o sin red): push `ptt_wake`.
+ * @returns {Promise<number>} cuántos usuarios se intentaron despertar
+ */
+async function wakeSleepingMembers(io, groupId, user) {
+  if (!isFcmReady()) return 0;
+  try {
+    const ok = await getRedis().set(`pttwake:${groupId}`, '1', 'EX', PTT_WAKE_PUSH_EVERY_SEC, 'NX');
+    if (ok !== 'OK') return 0;
+  } catch {
+    /* sin Redis: seguir sin límite */
+  }
+  const socks = await io.in(`group:${groupId}`).fetchSockets();
+  const awake = new Set(socks.map((s) => String(s.data?.user?.sub || '')).filter(Boolean));
+  const { rows } = await query(
+    `SELECT gm.user_id, g.name AS group_name
+     FROM group_members gm
+     INNER JOIN groups g ON g.id = gm.group_id
+     INNER JOIN users u ON u.id = gm.user_id
+     WHERE gm.group_id = $1 AND u.is_active = TRUE AND gm.user_id <> $2`,
+    [groupId, user.sub]
+  );
+  const sleeping = rows.map((r) => String(r.user_id)).filter((id) => !awake.has(id));
+  if (!sleeping.length) return 0;
+  notifyPttWake({
+    groupId,
+    groupName: rows[0]?.group_name,
+    speakerId: user.sub,
+    speakerName: user.displayName,
+    userIds: sleeping,
+  })
+    .then(({ sent }) => {
+      if (sent) inc('pttWakePush', sent);
+    })
+    .catch((err) => console.error('ptt wake push:', err?.message || err));
+  return sleeping.length;
 }
 
 function ensureJoinState(socket) {
@@ -74,6 +125,7 @@ export function registerPttHandlers(io) {
         socket.data.joinedGroups.add(groupId);
 
         const focusState = normalizePresenceFocus(focus, background);
+        socket.data.presenceFocus = focusState;
         await addPresence(groupId, user.sub, user.displayName, focusState, socket.id, user.orgId);
         await broadcastPresence(io, groupId);
         emitDispatch(io, 'dispatch:presence', { groupId });
@@ -198,7 +250,17 @@ export function registerPttHandlers(io) {
           takeover: Boolean(result.takeover),
           selfMove: Boolean(result.selfMove),
         };
-        const delayMs = await grantDelayFor(io, groupId, socket.id);
+        let delayMs = await grantDelayFor(io, groupId, socket.id);
+        if (!result.renewed) {
+          const woken = await wakeSleepingMembers(io, groupId, user).catch((err) => {
+            console.error('ptt wake:', err?.message || err);
+            return 0;
+          });
+          if (woken > 0) {
+            delayMs = Math.max(delayMs, PTT_PUSH_GRANT_DELAY_MS);
+            socket.emit('ptt:waking', { groupId, count: woken, delayMs });
+          }
+        }
         if (delayMs > 0) {
           setTimeout(() => {
             getFloor(groupId)
@@ -242,6 +304,34 @@ export function registerPttHandlers(io) {
       }
     });
 
+    const refreshPresence = async (targets, focusState) => {
+      for (const gid of targets) {
+        const { focusChanged } = await addPresence(
+          gid,
+          user.sub,
+          user.displayName,
+          focusState,
+          socket.id,
+          user.orgId
+        );
+        const floor = await getFloor(gid);
+        if (floor?.userId === user.sub) {
+          await refreshFloorTtl(gid);
+        }
+        if (focusChanged) {
+          await broadcastPresence(io, gid);
+          emitDispatch(io, 'dispatch:presence', { groupId: gid });
+        }
+      }
+    };
+
+    // Heartbeat de engine.io (cada pingInterval): renueva presencia sin tráfico extra del cliente.
+    socket.conn?.on?.('packet', (packet) => {
+      if (packet?.type !== 'pong') return;
+      if (!socket.data.joinedGroups?.size || !socket.data.presenceFocus) return;
+      refreshPresence([...socket.data.joinedGroups], socket.data.presenceFocus).catch(() => {});
+    });
+
     socket.on('presence:ping', async ({ groupId, focus, background } = {}) => {
       ensureJoinState(socket);
       const targets = [];
@@ -256,24 +346,8 @@ export function registerPttHandlers(io) {
       if (!targets.length) return;
       try {
         const focusState = normalizePresenceFocus(focus, background);
-        for (const gid of targets) {
-          const { focusChanged } = await addPresence(
-            gid,
-            user.sub,
-            user.displayName,
-            focusState,
-            socket.id,
-            user.orgId
-          );
-          const floor = await getFloor(gid);
-          if (floor?.userId === user.sub) {
-            await refreshFloorTtl(gid);
-          }
-          if (focusChanged) {
-            await broadcastPresence(io, gid);
-            emitDispatch(io, 'dispatch:presence', { groupId: gid });
-          }
-        }
+        socket.data.presenceFocus = focusState;
+        await refreshPresence(targets, focusState);
       } catch {
         /* ignore ping errors */
       }
