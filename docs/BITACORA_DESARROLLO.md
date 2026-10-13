@@ -1,3 +1,14 @@
+## 2026-10-12 — Producción: PTT despierta radios, notificaciones nuevas, batería; APK renombrada a SICOM
+
+- **Tipo:** ops | mejora
+- **Área:** infra | backend | web | mobile
+- **Qué:**
+  - Por orden del usuario (22:42, dentro de ventana): `PROMOVER -A pruebas` → `PRUEBAS.ps1` OK → VERIFICAR-PRUEBAS (listo; aviso: copia de BD con 15 días) → `PROMOVER -A produccion`. `main` `b60aded` → `df26b4d` (4 commits); reconstruyó **api + web**; sin migraciones. 16 usuarios activos al momento.
+  - Etiqueta `prod-v1.8.107-20261012-2244`. Health OK (BD, Redis, LiveKit, FCM `configured`); web 200.
+  - APK renombrada: `Publish-ApkUpdate.ps1` genera `SICOM-<versión>.apk` y `SICOM-latest.apk` (OTA `SICOM.apk`), `Build-ApkDev.ps1` → `SICOM-DEV-…`, descarga OTA en el teléfono `sicom-update-<code>.apk`. El nombre visible ya era «SICOM»; el `applicationId` `com.tacticalptx.app` se conserva para que actualice sobre la instalada.
+  - App **1.8.187+197** → `C:\pulsanet_soporte\APK\SICOM-1.8.187+197.apk` (+ `SICOM-latest.apk`), sin OTA, `SERVER_LAN_IP=192.168.1.150`.
+- **Archivos / refs:** `mobile/scripts/Publish-ApkUpdate.ps1`, `mobile/scripts/Build-ApkDev.ps1`, `mobile/lib/app_update.dart`, `C:\pulsanet_soporte\Pruebas\_promover_20261012_alerta_sicom.log`, `/opt/respaldos/deploys.log`
+
 ## 2026-10-12 — App: hoja «Enviar alerta» rediseñada (celulares)
 
 - **Tipo:** ux | fix
