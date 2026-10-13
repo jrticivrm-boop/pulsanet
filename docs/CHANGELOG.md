@@ -24,6 +24,9 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Consola web — operador seleccionado:** se deselecciona y deja de seguir al hacer clic en el mapa vacío o fuera del mapa, con Esc, con otro clic en el mismo operador o con la «×» de la ficha; arrastrar el mapa deja de seguir.
 - **Web — subida de fotos de perfil y canal:** se reducen en el navegador (máx. 640 px) antes de subirlas; el servidor sirve cada foto con caché de 7 días.
 
+### Fixed
+- **Consola web — «Sin audio (LiveKit)» tras un corte de red:** al reconectar, la consola ya no reemplaza las salas que LiveKit está reanudando (eso expulsaba su propia sesión con «identidad duplicada» y provocaba ráfagas de reconexión en todos los canales). Cada sala que LiveKit da por perdida se reabre sola, y los canales de solo escucha ya no dejan conexiones huérfanas ni se quedan sin audio hasta recargar.
+
 ### Security
 - **Cámara remota:** solo administradores de consola pueden activarla y solo sobre usuarios dentro de su alcance de seguimiento (antes cualquier usuario de la organización).
 - **Alcance de administradores de zona/unidad:** grabaciones PTT, token LiveKit de canal (rol leader) y video de grupo se limitan a los canales de su territorio; antes veían toda la organización.

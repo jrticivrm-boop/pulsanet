@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import { RoomEvent, Track, createLocalAudioTrack, LocalAudioTrack, AudioPresets } from 'livekit-client';
 import { createEncryptedRoom } from './livekitE2ee';
 import { publicLiveKitUrl } from './livekitUrl';
+import { isFinalDisconnect, roomIsResuming, waitRoomSettled } from './livekitRoomState';
 import {
   fetchLiveKitToken,
   fetchMessages,
@@ -77,6 +78,8 @@ export function usePtt({
   const connectingByGroupRef = useRef(new Map());
   /** @type {React.MutableRefObject<Promise<void>|null>} */
   const ensureLiveKitInflightRef = useRef(null);
+  const ensureLiveKitRef = useRef(null);
+  const lkRetryTimerRef = useRef(null);
   /** @type {React.MutableRefObject<Map<string, import('livekit-client').LocalAudioTrack>>} */
   const micsByGroupRef = useRef(new Map());
   const micRef = useRef(null);
@@ -388,8 +391,13 @@ export function usePtt({
       if (inflight) return inflight;
 
       const run = (async () => {
-        const prev = roomsByGroupRef.current.get(gid);
+        let prev = roomsByGroupRef.current.get(gid);
         if (prev?.state === 'connected') return prev;
+        if (roomIsResuming(prev)) {
+          await waitRoomSettled(prev);
+          prev = roomsByGroupRef.current.get(gid);
+          if (prev?.state === 'connected' || roomIsResuming(prev)) return prev;
+        }
 
         const lk = await fetchLiveKitToken(tok, gid);
         if (prev) {
@@ -462,12 +470,20 @@ export function usePtt({
         room.on(RoomEvent.TrackUnsubscribed, (track) => {
           track.detach().forEach((el) => el.remove());
         });
-        room.on(RoomEvent.Disconnected, () => {
-          if (roomsByGroupRef.current.get(gid) === room) {
+        room.on(RoomEvent.Disconnected, (reason) => {
+          const wasCurrent = roomsByGroupRef.current.get(gid) === room;
+          if (wasCurrent) {
             roomsByGroupRef.current.delete(gid);
           }
           if (roomRef.current === room) roomRef.current = null;
           if (!roomsByGroupRef.current.size) setLivekitReady(false);
+          // El SDK agotó sus reintentos: reabrir solo esta sala (sin tumbar las demás).
+          if (!wasCurrent || isFinalDisconnect(reason)) return;
+          clearTimeout(lkRetryTimerRef.current);
+          lkRetryTimerRef.current = setTimeout(() => {
+            if (!socketRef.current?.connected) return;
+            void ensureLiveKitRef.current?.().catch(() => {});
+          }, 3000);
         });
         try {
           await room.connect(connectUrl, lk.token);
@@ -563,6 +579,11 @@ export function usePtt({
         if (roomRef.current === room) roomRef.current = null;
       }
 
+      // Tras un corte el SDK reanuda cada sala solo; esperar en paralelo en vez de reemplazarlas.
+      await Promise.all(
+        [...roomsByGroupRef.current.values()].filter(roomIsResuming).map((r) => waitRoomSettled(r))
+      );
+
       /** @type {Error[]} */
       const errors = [];
       // Primero canales Hablar (PTT); luego Escuchar — no tumbar todo si falla uno.
@@ -604,6 +625,7 @@ export function usePtt({
       }
     }
   }, [connectTalkRoom]);
+  ensureLiveKitRef.current = ensureLiveKit;
 
   useEffect(() => {
     // Consola despacho: mantener presencia aunque no haya canal Hablar seleccionado.
@@ -1008,6 +1030,7 @@ export function usePtt({
       cancelled = true;
       clearInterval(ping);
       clearTimeout(audioRetryTimer);
+      clearTimeout(lkRetryTimerRef.current);
       document.removeEventListener('visibilitychange', onVisibility);
       holdingRef.current = false;
       const leaveIds = new Set([

@@ -1,3 +1,15 @@
+## 2026-10-13 — Consola: bucle de reconexión LiveKit («Sin audio») tras cortes de red
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Diagnóstico (solo lectura en VM): la consola `66fdf13a…` (Chrome/Windows, LAN 192.168.1.77) acumuló 534 cierres `DUPLICATE_IDENTITY` en 4 h, en ráfagas tras `PEER_CONNECTION_DISCONNECTED` (11:38, 13:14, 13:28, 14:20 UTC). Al reconectar Socket.IO, `ensureLiveKit` reemplazaba salas que el SDK estaba reanudando → el servidor expulsaba la sesión previa → más reintentos y banner «Sin audio».
+  - `usePtt`: si la sala está `connecting/reconnecting`, espera a que se asiente (`waitRoomSettled`, 20 s) en vez de crear otra; `ensureLiveKit` espera en paralelo; al `Disconnected` no definitivo reabre solo esa sala (3 s).
+  - `useDispatchListen`: las salas en conexión se cierran al cancelar (antes quedaban huérfanas); reintento con espera creciente por sala al fallar o desconectarse.
+  - Nuevo `frontend/src/livekitRoomState.js` (`roomIsResuming`, `waitRoomSettled`, `isFinalDisconnect`).
+- **Por qué / notas:** hallazgos pendientes de decisión: (1) cada canal Escuchar se conecta dos veces (identidad de hablar vía `usePtt` + `:listen:` vía `useDispatchListen`); (2) `usePtt` publica mic en canales Escuchar y al presionar los desmutea todos; (3) LiveKit solo anuncia la IP pública (sin candidato LAN pese a `advertise_internal_ip`), la consola LAN depende del hairpin del router; el ISP rota IPv4 (5 cambios) y prefijo IPv6. No desplegado.
+- **Archivos / refs:** `frontend/src/usePtt.js`, `frontend/src/useDispatchListen.js`, `frontend/src/livekitRoomState.js`
+
 ## 2026-10-13 — Producción: GPS app, avatares rápidos y deseleccionar en consola; APK 1.8.191+201
 
 - **Tipo:** ops
