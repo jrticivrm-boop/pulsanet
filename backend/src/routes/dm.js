@@ -78,6 +78,34 @@ export function createDmRouter(io) {
     res.json({ ok: true, conversations });
   });
 
+  /** Ficha de contacto (teléfono, cargo, presencia): cualquier usuario de la organización. */
+  router.get('/:userId/contact', async (req, res) => {
+    const { rows } = await query(
+      `SELECT id, username, display_name, grade, cargo, phone, avatar_url, last_seen_at
+       FROM users
+       WHERE id = $1 AND organization_id = $2 AND is_active = TRUE`,
+      [req.params.userId, req.user.orgId]
+    ).catch(() => ({ rows: [] }));
+    const u = rows[0];
+    if (!u) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    const [flagged] = await withOnlineFlags(req.user.orgId, req.user.sub, [{ id: u.id }]);
+    res.json({
+      ok: true,
+      contact: {
+        id: u.id,
+        username: u.username,
+        displayName: u.display_name,
+        grade: u.grade || null,
+        cargo: u.cargo || null,
+        phone: u.phone || null,
+        avatarUrl: u.avatar_url || null,
+        lastSeenAt: u.last_seen_at || null,
+        presence: flagged?.presence || 'offline',
+        isSelf: Boolean(flagged?.isSelf),
+      },
+    });
+  });
+
   /** Historial con un usuario */
   router.get('/:userId/messages', async (req, res) => {
     const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);

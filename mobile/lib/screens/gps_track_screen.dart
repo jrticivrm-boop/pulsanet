@@ -11,6 +11,7 @@ import 'package:latlong2/latlong.dart';
 import '../api_client.dart';
 import '../config.dart';
 import '../gps_location_cluster.dart';
+import '../peer_actions.dart';
 import '../theme.dart';
 import '../widgets/gps_cluster_pin.dart';
 import '../widgets/gps_map_pin.dart';
@@ -1331,6 +1332,17 @@ class _SelectedSheet extends StatelessWidget {
                   value: follow,
                   onChanged: onFollowChanged,
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                IconButton(
+                  tooltip: 'Contactar',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => showChannelPeerActions(
+                    context: context,
+                    api: api,
+                    peerId: peer.userId,
+                    displayName: peer.displayName,
+                  ),
+                  icon: const Icon(Icons.contact_phone_rounded, size: 22, color: kInstOlive),
                 ),
                 IconButton(
                   tooltip: 'Centrar mapa',

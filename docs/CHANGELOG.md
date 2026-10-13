@@ -19,6 +19,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Presencia por socket:** `presence:ping` con `groupId` solo aplica a canales a los que el socket se unió.
 
 ### Added
+- **Ficha de contacto con celular (web y app 1.8.184+194):** al contactar a una persona se muestra su teléfono con Llamar, Copiar y WhatsApp, junto a Mensaje, Llamada SICOM y Videollamada; diseño nuevo con foto, estado de presencia y grado/cargo. En la app también desde el mapa GPS («Contactar»). Endpoint `GET /api/dm/:userId/contact`.
 - **Usuarios — No. de teléfono:** obligatorio en el alta (10 dígitos o internacional con +), editable después; visible en la tabla, la búsqueda y el CSV. Migración `040_user_phone.sql`.
 
 ### Changed

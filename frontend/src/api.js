@@ -185,6 +185,10 @@ export function fetchContacts(token, { scope } = {}) {
   return api(`/api/dm/contacts${q}`, { token });
 }
 
+export function fetchPeerContact(token, userId) {
+  return api(`/api/dm/${encodeURIComponent(userId)}/contact`, { token });
+}
+
 export function fetchDmConversations(token) {
   return api('/api/dm/conversations', { token });
 }

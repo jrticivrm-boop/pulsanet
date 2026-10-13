@@ -1,3 +1,14 @@
+## 2026-10-12 — Ficha de contacto rediseñada con celular (llamar, copiar, WhatsApp)
+
+- **Tipo:** feature | ux
+- **Área:** backend | web | mobile
+- **Qué:**
+  - API `GET /api/dm/:userId/contact`: nombre, usuario, grado, cargo, teléfono, avatar y presencia; visible para cualquier usuario de la misma organización (decisión del usuario: «todos en general»).
+  - Web (`PeerActionSheet`): ficha nueva con avatar grande y anillo de presencia, estado, botones circulares (Mensaje, Llamada SICOM, Videollamada), tarjeta «Celular» con Llamar (`tel:`), Copiar y WhatsApp (`wa.me`, 10 dígitos → +52), y «Ver cámara remota» aparte (solo administradores). Íconos SVG en lugar de emojis; animación de entrada; en celular se abre desde abajo.
+  - App (`peer_actions.dart`): misma ficha en hoja inferior (marcador, portapapeles y WhatsApp vía `url_launcher`); botón «Contactar» en la tarjeta del operador del mapa GPS. Manifest: consulta `VIEW tel:`. Versión **1.8.184+194**; APK en `C:\pulsanet_soporte\APK\TacticalPtx-1.8.184+194.apk` (sin OTA).
+- **Por qué / notas:** aprovechar el teléfono capturado en el alta. Sin migración. La app y la web necesitan el endpoint nuevo en producción para mostrar el número (antes de desplegar muestran «No se pudo consultar»).
+- **Archivos / refs:** `backend/src/routes/dm.js`, `frontend/src/PeerActionSheet.jsx`, `frontend/src/phoneLinks.js`, `frontend/src/api.js`, `frontend/src/styles.css`, `mobile/lib/peer_actions.dart`, `mobile/lib/api_client.dart`, `mobile/lib/screens/gps_track_screen.dart`, `mobile/android/app/src/main/AndroidManifest.xml`, `mobile/pubspec.yaml`
+
 ## 2026-10-12 — Producción: Consola + Seguimiento y teléfono de usuarios (con migración)
 
 - **Tipo:** ops

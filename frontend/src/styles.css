@@ -6410,6 +6410,358 @@ html[data-layout='phone'] .incoming-call-banner-btn {
   font-size: 1.35rem;
 }
 
+/* Ficha de contacto (PeerActionSheet) */
+.peer-sheet.peer-card {
+  position: relative;
+  width: min(100%, 23.5rem);
+  padding: 1.5rem 1.15rem 1.15rem;
+  border-radius: 1.35rem;
+  background:
+    radial-gradient(120% 70% at 50% -10%, rgba(62, 207, 154, 0.16), transparent 60%),
+    linear-gradient(170deg, #1b2c22 0%, #111c16 55%, #0d1511 100%);
+  border: 1px solid rgba(62, 207, 154, 0.28);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: peer-card-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes peer-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.peer-card-close {
+  position: absolute;
+  top: 0.8rem;
+  right: 0.8rem;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.peer-card-close:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.peer-card-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.25rem;
+  margin-bottom: 1.1rem;
+}
+
+.peer-card-ring {
+  --ring: #6b7a72;
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  margin-bottom: 0.45rem;
+  border-radius: 50%;
+  background: conic-gradient(from 210deg, var(--ring), color-mix(in srgb, var(--ring) 35%, transparent), var(--ring));
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.25), 0 0 22px color-mix(in srgb, var(--ring) 45%, transparent);
+}
+
+.peer-card-ring.is-online {
+  --ring: #2ecc71;
+}
+
+.peer-card-ring.is-away {
+  --ring: #e0b03a;
+}
+
+.peer-card-ring.is-stale {
+  --ring: #d64545;
+}
+
+.peer-sheet-avatar.peer-card-avatar {
+  width: 4.75rem;
+  height: 4.75rem;
+  font-size: 1.45rem;
+  border: 3px solid #121d17;
+  background: linear-gradient(160deg, #2d4a28, #1c3019);
+}
+
+.peer-card-name {
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peer-card-sub {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.peer-card-status {
+  --dot: #8a958f;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.peer-card-status i {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--dot);
+  box-shadow: 0 0 8px var(--dot);
+}
+
+.peer-card-status em {
+  font-style: normal;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.peer-card-status.is-online {
+  --dot: #2ecc71;
+}
+
+.peer-card-status.is-away {
+  --dot: #e0b03a;
+}
+
+.peer-card-status.is-stale {
+  --dot: #d64545;
+}
+
+.peer-card-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.peer-card-act {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.2rem;
+  border: 0;
+  background: none;
+  color: rgba(255, 255, 255, 0.86);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.peer-card-act-ico {
+  display: grid;
+  place-items: center;
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cfe9d9;
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.peer-card-act:hover .peer-card-act-ico,
+.peer-card-act:focus-visible .peer-card-act-ico {
+  transform: translateY(-2px);
+  background: rgba(62, 207, 154, 0.18);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+
+.peer-card-act.is-primary .peer-card-act-ico {
+  background: linear-gradient(160deg, #2fbf71, #1d8a4d);
+  border-color: rgba(120, 255, 180, 0.45);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(46, 204, 113, 0.35);
+}
+
+.peer-card-act.is-primary:hover .peer-card-act-ico {
+  background: linear-gradient(160deg, #38d07e, #1f9653);
+}
+
+.peer-card-phone {
+  padding: 0.75rem 0.8rem;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.peer-card-phone-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.peer-card-phone-ico {
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 0.7rem;
+  background: rgba(62, 207, 154, 0.14);
+  color: #7fe0b4;
+  flex-shrink: 0;
+}
+
+.peer-card-phone-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.peer-card-phone-meta small {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.peer-card-phone-num {
+  font-size: 1.12rem;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  color: #fff;
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.peer-card-phone-num:hover {
+  color: #8ff0c2;
+}
+
+.peer-card-phone-muted {
+  font-size: 0.88rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.peer-card-phone-btns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+}
+
+.peer-card-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.4rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.peer-card-chip svg {
+  width: 17px;
+  height: 17px;
+}
+
+.peer-card-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.peer-card-chip.is-call {
+  background: rgba(46, 204, 113, 0.18);
+  border-color: rgba(46, 204, 113, 0.45);
+}
+
+.peer-card-chip.is-call:hover {
+  background: rgba(46, 204, 113, 0.3);
+}
+
+.peer-card-chip.is-wa {
+  background: rgba(37, 211, 102, 0.12);
+  border-color: rgba(37, 211, 102, 0.38);
+  color: #c9f7dc;
+}
+
+.peer-card-chip.is-wa:hover {
+  background: rgba(37, 211, 102, 0.24);
+}
+
+.peer-card-cam {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  margin-top: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(184, 148, 63, 0.42);
+  background: linear-gradient(90deg, rgba(184, 148, 63, 0.2), rgba(184, 148, 63, 0.06));
+  color: #f1dfb0;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.peer-card-cam span {
+  display: flex;
+  flex-direction: column;
+}
+
+.peer-card-cam small {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: rgba(241, 223, 176, 0.6);
+}
+
+.peer-card-cam:hover {
+  background: linear-gradient(90deg, rgba(184, 148, 63, 0.32), rgba(184, 148, 63, 0.1));
+}
+
+@media (max-width: 720px) {
+  .peer-sheet-root:has(.peer-card) {
+    place-items: end stretch;
+  }
+
+  .peer-sheet.peer-card {
+    width: 100%;
+    height: auto;
+    margin-top: 0;
+    border-radius: 1.25rem 1.25rem 0.75rem 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .peer-sheet.peer-card {
+    animation: none;
+  }
+}
+
 .peer-call-toast-err {
   position: fixed;
   bottom: 1.25rem;

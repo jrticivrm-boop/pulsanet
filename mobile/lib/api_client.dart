@@ -338,6 +338,12 @@ class ApiClient {
         .cast<Map<String, dynamic>>();
   }
 
+  /// Ficha de contacto: teléfono, grado, cargo y presencia (misma organización).
+  Future<Map<String, dynamic>> fetchPeerContact(String userId) async {
+    final data = await _get('/api/dm/$userId/contact');
+    return (data['contact'] as Map?)?.cast<String, dynamic>() ?? {};
+  }
+
   Future<Map<String, dynamic>> fetchDmMessages(String userId) async {
     return _get('/api/dm/$userId/messages');
   }
