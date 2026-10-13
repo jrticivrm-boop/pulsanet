@@ -1,3 +1,13 @@
+## 2026-10-13 — Producción: notificaciones nativas de mensajes y alerta con motivo/cámara en vivo
+
+- **Tipo:** ops
+- **Área:** infra | backend | web
+- **Qué:**
+  - Por orden del usuario (00:05, dentro de ventana): VERIFICAR-PRUEBAS (listo; aviso: copia de BD con 15 días) → `PROMOVER -A produccion`. `main` `df26b4d` → `6b60f10` (4 commits); reconstruyó **api + web**; sin migraciones. 15 usuarios activos al momento.
+  - Etiqueta `prod-v1.8.107-20261013-0006`. Health OK (BD, Redis, LiveKit, FCM `configured`); web 200; `POST /api/panic/:id/live/view` responde (401 sin sesión).
+  - Desde ya los mensajes llegan como notificación nativa también a teléfonos con APK anterior. APK a distribuir: `C:\pulsanet_soporte\APK\SICOM-1.8.189+199.apk` (incluye alerta con motivo/cámara en vivo y canal «Mensajes SICOM»); sin OTA.
+- **Archivos / refs:** `C:\pulsanet_soporte\Pruebas\_promover_20261013_notif_nativas.log`, `/opt/respaldos/deploys.log`
+
 ## 2026-10-13 — Notificaciones de mensajes nativas (tono y vibración del teléfono)
 
 - **Tipo:** fix | mejora
