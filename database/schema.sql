@@ -37,6 +37,7 @@ CREATE TABLE users (
  paternal_surname VARCHAR(80),
  maternal_surname VARCHAR(80),
  matricula VARCHAR(40),
+ phone VARCHAR(20),
  role user_role NOT NULL DEFAULT 'operator',
  unit_id UUID,
  admin_scope_unit_id UUID,

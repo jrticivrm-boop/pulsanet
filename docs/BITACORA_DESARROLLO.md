@@ -1,3 +1,14 @@
+## 2026-10-12 — Usuarios: No. de teléfono en el alta
+
+- **Tipo:** feature
+- **Área:** database | backend | web
+- **Qué:**
+  - Nueva columna `users.phone` (migración `040_user_phone.sql`, también en `schema.sql`).
+  - Alta de usuario (paso Generales): sección «Contacto» con «No. de teléfono» **obligatorio** (10 dígitos MX o `+` con lada, 10–15 dígitos); se formatea al escribir (`55 1234 5678`) y aparece en «Falta completar». En edición es opcional (usuarios existentes no lo tienen).
+  - API: `POST /api/admin/users` exige teléfono válido; `PATCH` lo acepta/valida; se guarda sin espacios (`parsePhone`). Columna «Teléfono» en la tabla de usuarios (búsqueda incluida) y en el CSV exportado.
+- **Por qué / notas:** **requiere migración** al desplegar (`PROMOVER -A produccion -Migrate`). Aplicada en desarrollo.
+- **Archivos / refs:** `database/migrations/040_user_phone.sql`, `database/schema.sql`, `backend/src/services/phone.js`, `backend/src/routes/admin.js`, `frontend/src/dispatch/DispatchUsers.jsx`
+
 ## 2026-10-12 — Producción: zoom fluido de mapas (solo web)
 
 - **Tipo:** ops

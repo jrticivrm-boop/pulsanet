@@ -212,6 +212,7 @@ const EMPTY_FORM = {
   paternalSurname: '',
   maternalSurname: '',
   matricula: '',
+  phone: '',
   role: '',
   profileId: '',
   regionId: '',
@@ -232,6 +233,34 @@ const ALC_ALL_UNITS = '__all__';
 
 function fieldFilled(value) {
   return String(value || '').trim().length > 0;
+}
+
+/** Teléfono: 10 dígitos (MX) o `+` y 10–15 dígitos. Misma regla que `backend/src/services/phone.js`. */
+function isValidPhone(value) {
+  const s = String(value || '').trim();
+  const digits = s.replace(/\D/g, '');
+  if (s.startsWith('+')) return digits.length >= 10 && digits.length <= 15;
+  return digits.length === 10;
+}
+
+/** Mensaje de error del teléfono o '' si es válido. En edición puede quedar vacío. */
+function phoneValidationError(value, optional) {
+  if (!fieldFilled(value)) return optional ? '' : 'Captura el No. de teléfono (10 dígitos).';
+  return isValidPhone(value)
+    ? ''
+    : 'No. de teléfono inválido: 10 dígitos, o + con lada internacional (10 a 15 dígitos).';
+}
+
+/** Al escribir: solo dígitos (y `+` inicial); 10 dígitos MX se muestran `55 1234 5678`. */
+function formatPhoneInput(value) {
+  const s = String(value || '');
+  const plus = s.trim().startsWith('+');
+  const digits = s.replace(/\D/g, '').slice(0, 15);
+  if (plus) return `+${digits}`;
+  const d = digits.slice(0, 10);
+  if (d.length <= 2) return d;
+  if (d.length <= 6) return `${d.slice(0, 2)} ${d.slice(2)}`;
+  return `${d.slice(0, 2)} ${d.slice(2, 6)} ${d.slice(6)}`;
 }
 
 /** Busca nodos en el árbol org por id. */
@@ -406,15 +435,15 @@ function CreateStepIndicator({ step, editMode = false, basicsOnly = false }) {
   const steps = basicsOnly
     ? [{ id: 'datos', n: 1, label: 'Generales' }]
     : editMode
-      ? [
-          { id: 'datos', n: 1, label: 'Generales' },
-          { id: 'adscripcion', n: 2, label: 'Adscripción' },
-        ]
-      : [
-          { id: 'datos', n: 1, label: 'Generales' },
-          { id: 'adscripcion', n: 2, label: 'Adscripción' },
-          { id: 'grupos', n: 3, label: 'Grupos' },
-        ];
+    ? [
+        { id: 'datos', n: 1, label: 'Generales' },
+        { id: 'adscripcion', n: 2, label: 'Adscripción' },
+      ]
+    : [
+        { id: 'datos', n: 1, label: 'Generales' },
+        { id: 'adscripcion', n: 2, label: 'Adscripción' },
+        { id: 'grupos', n: 3, label: 'Grupos' },
+      ];
   const order = steps.map((s) => s.id);
   const currentIdx = order.indexOf(step);
   return (
@@ -482,6 +511,7 @@ const USER_TABLE_COLS = [
   { key: 'grade', label: 'Grado y empleo' },
   { key: 'name', label: 'Nombre completo' },
   { key: 'user', label: 'Usuario' },
+  { key: 'phone', label: 'Teléfono' },
   { key: 'profile', label: 'Perfil' },
   { key: 'scope', label: 'Alcance' },
   { key: 'status', label: 'Estado' },
@@ -565,6 +595,8 @@ function getUserSortValue(u, key) {
       return u.fullName || u.displayName || '';
     case 'user':
       return u.username || '';
+    case 'phone':
+      return u.phone || '';
     case 'profile':
       return roleLabel(u.role) || u.role || '';
     case 'scope':
@@ -616,6 +648,8 @@ function userTableCell(u, key) {
       return u.fullName || u.displayName || '—';
     case 'user':
       return <code>{u.username}</code>;
+    case 'phone':
+      return u.phone ? formatPhoneInput(u.phone) : '—';
     case 'profile':
       return roleLabel(u.role);
     case 'scope':
@@ -653,6 +687,8 @@ function getUserColFilterVal(u, key) {
       return u.fullName || u.displayName || '—';
     case 'user':
       return u.username || '';
+    case 'phone':
+      return u.phone ? formatPhoneInput(u.phone) : '—';
     case 'profile':
       return u.role || '';
     case 'scope':
@@ -1112,13 +1148,13 @@ function UserCard({
                 visibilityLevelsForRole(u.role).map((lvl) => {
                   const short =
                     lvl.key === 'canSeeRegion' ? 'R' : lvl.key === 'canSeeZones' ? 'Z' : 'U';
-                  return (
+                return (
                     <span
                       key={lvl.key}
                       className="cc-priv-chip on"
                       title={`${lvl.name} (según rol)`}
-                    >
-                      {short}
+                  >
+                    {short}
                     </span>
                   );
                 })
@@ -1333,6 +1369,7 @@ export default function DispatchUsers({ session }) {
           (u.fullName || '').toLowerCase().includes(q) ||
           (u.username || '').toLowerCase().includes(q) ||
           (u.matricula || '').toLowerCase().includes(q) ||
+          (u.phone || '').includes(q.replace(/[\s-]/g, '')) ||
           (u.cargo || '').toLowerCase().includes(q) ||
           (u.specialty || '').toLowerCase().includes(q) ||
           roleLabel(u.role).toLowerCase().includes(q)
@@ -1634,21 +1671,22 @@ export default function DispatchUsers({ session }) {
     setEditBasicsOnly(flags.basicsOnly);
     setForm(
       withUnitAdminOrgLock({
-        grade: u.grade || '',
-        specialty: u.specialty || '',
-        cargo: u.cargo || '',
-        givenNames: u.givenNames || '',
-        paternalSurname: u.paternalSurname || '',
-        maternalSurname: u.maternalSurname || '',
-        matricula: formatMatriculaInput(u.matricula || ''),
+      grade: u.grade || '',
+      specialty: u.specialty || '',
+      cargo: u.cargo || '',
+      givenNames: u.givenNames || '',
+      paternalSurname: u.paternalSurname || '',
+      maternalSurname: u.maternalSurname || '',
+      matricula: formatMatriculaInput(u.matricula || ''),
+      phone: formatPhoneInput(u.phone || ''),
         role,
         profileId,
         regionId: alc.regionId || path.regionId || '',
         zoneChoice: alc.zoneChoice || '',
         unitChoice: alc.unitChoice || '',
-        zoneId: path.zoneId || '',
-        unitId: path.unitId || u.unitId || '',
-        adminScopeUnitId: u.adminScopeUnitId || '',
+      zoneId: path.zoneId || '',
+      unitId: path.unitId || u.unitId || '',
+      adminScopeUnitId: u.adminScopeUnitId || '',
         ...visibilityForRole(role),
       })
     );
@@ -1843,6 +1881,11 @@ export default function DispatchUsers({ session }) {
       setError('Completa grado, nombre y apellido paterno.');
       return;
     }
+    const phoneErr = phoneValidationError(form.phone, Boolean(editingUser));
+    if (phoneErr) {
+      setError(phoneErr);
+      return;
+    }
     setError('');
     if (editingUser && editBasicsOnly) {
       onSaveEdit();
@@ -1909,17 +1952,23 @@ export default function DispatchUsers({ session }) {
       );
       return;
     }
+    const phoneErr = phoneValidationError(form.phone, true);
+    if (phoneErr) {
+      setError(phoneErr);
+      return;
+    }
     setBusy(true);
     try {
       if (editBasicsOnly) {
-        await patchAdminUser(session.token, editingUser.id, {
-          grade: form.grade,
-          specialty: form.specialty || null,
-          cargo: form.cargo || null,
-          givenNames: form.givenNames,
-          paternalSurname: form.paternalSurname,
-          maternalSurname: form.maternalSurname || null,
-          matricula: formatMatriculaInput(form.matricula),
+      await patchAdminUser(session.token, editingUser.id, {
+        grade: form.grade,
+        specialty: form.specialty || null,
+        cargo: form.cargo || null,
+        givenNames: form.givenNames,
+        paternalSurname: form.paternalSurname,
+        maternalSurname: form.maternalSurname || null,
+        matricula: formatMatriculaInput(form.matricula),
+        phone: form.phone || null,
         });
       } else {
         const lockedRole = isActingUnitAdmin ? 'unit_user' : form.role;
@@ -1945,6 +1994,7 @@ export default function DispatchUsers({ session }) {
           paternalSurname: form.paternalSurname,
           maternalSurname: form.maternalSurname || null,
           matricula: formatMatriculaInput(form.matricula),
+          phone: form.phone || null,
           role: scope.role || lockedRole,
           profileId: form.profileId || undefined,
           unitId: scope.unitId ?? null,
@@ -2205,10 +2255,14 @@ export default function DispatchUsers({ session }) {
       { label: 'Nombre(s)', ok: fieldFilled(form.givenNames) },
       { label: 'Apellido paterno', ok: fieldFilled(form.paternalSurname) },
       { label: 'Matrícula', ok: isValidMatricula(form.matricula) && matriculaStatus !== 'taken' },
+      {
+        label: 'No. de teléfono',
+        ok: editingUser && !fieldFilled(form.phone) ? true : isValidPhone(form.phone),
+      },
       { label: 'Usuario generado', ok: fieldFilled(preview.username) },
       { label: 'Indicativo', ok: fieldFilled(composedDisplayName) },
     ],
-    [form, preview, composedDisplayName, matriculaStatus]
+    [form, preview, composedDisplayName, matriculaStatus, editingUser]
   );
 
   const adscripcionChecklist = useMemo(() => {
@@ -2293,10 +2347,10 @@ export default function DispatchUsers({ session }) {
                     {activeColFilterCount}
                   </span>
                 )}
-              </button>
+          </button>
               <div className="usr-col-panel-wrap" ref={colsWrapRef}>
-                <button
-                  type="button"
+          <button
+            type="button"
                   className={`usr-btn-cols${colsOpen ? ' active' : ''}`}
                   title="Mostrar/ocultar columnas"
                   onClick={(e) => {
@@ -2313,8 +2367,8 @@ export default function DispatchUsers({ session }) {
                       <span>Columnas</span>
                       <button type="button" className="usr-col-panel-reset" onClick={resetColConfig}>
                         ↺ Restablecer
-                      </button>
-                    </div>
+          </button>
+        </div>
                     <div className="usr-col-panel-list">
                       {colConfig.map((col, idx) => (
                         <div
@@ -2329,13 +2383,13 @@ export default function DispatchUsers({ session }) {
                         >
                           <span className="usr-col-drag-handle" title="Arrastra para reordenar">⠿</span>
                           <label className="usr-col-panel-label" onClick={(e) => e.stopPropagation()}>
-                            <input
+          <input
                               type="checkbox"
                               checked={col.visible !== false}
                               onChange={() => toggleColVisible(col.key)}
                             />
                             <span>{col.label}</span>
-                          </label>
+        </label>
                           <div className="usr-col-panel-arrows">
                             <button
                               type="button"
@@ -2418,10 +2472,10 @@ export default function DispatchUsers({ session }) {
                   {NEW_CHANNEL_BTN_SVG}
                   Nuevo usuario
                 </button>
-              </span>
+          </span>
             ) : null}
-          </div>
         </div>
+      </div>
       </header>
 
       {error && !createOpen && <p className="error">{error}</p>}
@@ -2857,6 +2911,40 @@ export default function DispatchUsers({ session }) {
               </section>
 
               <section className="cc-form-section">
+                <h3 className="cc-form-section-title">Contacto</h3>
+                <div className="cc-form-grid">
+                  <label className="field">
+                    <span>
+                      No. de teléfono{editingUser ? '' : ' *'}{' '}
+                      <em className="cc-field-hint-inline">10 dígitos</em>
+                    </span>
+                    <input
+                      type="tel"
+                      value={form.phone}
+                      onChange={(e) => setForm({ ...form, phone: formatPhoneInput(e.target.value) })}
+                      placeholder="55 1234 5678"
+                      inputMode="tel"
+                      autoComplete="off"
+                      required={!editingUser}
+                      aria-invalid={fieldFilled(form.phone) && !isValidPhone(form.phone)}
+                      className={
+                        fieldFilled(form.phone)
+                          ? isValidPhone(form.phone)
+                            ? 'is-ok'
+                            : 'is-invalid'
+                          : undefined
+                      }
+                    />
+                    {fieldFilled(form.phone) && !isValidPhone(form.phone) && (
+                      <span className="cc-field-hint cc-field-hint--err">
+                        10 dígitos, o + y lada internacional
+                      </span>
+                    )}
+                  </label>
+                </div>
+              </section>
+
+              <section className="cc-form-section">
                 <h3 className="cc-form-section-title">Cargo</h3>
                 <div className="cc-form-grid">
                   <label className="field cc-form-span-2">
@@ -2998,70 +3086,70 @@ export default function DispatchUsers({ session }) {
                 {roleNorm === 'root' ? (
                   <p className="cc-field-hint-inline">Alcance: todas las regiones</p>
                 ) : (
-                  <div className="cc-form-grid cc-form-grid--3">
-                    <label className="field">
-                      <span>Región *</span>
-                      <select
-                        value={form.regionId}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            regionId: e.target.value,
+                <div className="cc-form-grid cc-form-grid--3">
+                  <label className="field">
+                    <span>Región *</span>
+                    <select
+                      value={form.regionId}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          regionId: e.target.value,
                             zoneChoice: '',
                             unitChoice: '',
-                            zoneId: '',
-                            unitId: '',
-                          })
-                        }
+                          zoneId: '',
+                          unitId: '',
+                        })
+                      }
                         required={showRegionAlcance || isActingUnitAdmin}
                         disabled={isActingUnitAdmin}
-                      >
-                        <option value="">— Selecciona —</option>
-                        {orgRegions.map((region) => (
-                          <option key={region.id} value={region.id}>
-                            {region.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    >
+                      <option value="">— Selecciona —</option>
+                      {orgRegions.map((region) => (
+                        <option key={region.id} value={region.id}>
+                          {region.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                     {(showZoneStep || isActingUnitAdmin) && (
-                      <label className="field">
-                        <span>Zona / C.G. *</span>
-                        <select
+                  <label className="field">
+                    <span>Zona / C.G. *</span>
+                    <select
                           value={form.zoneChoice}
-                          onChange={(e) =>
-                            setForm({
-                              ...form,
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
                               zoneChoice: e.target.value,
                               unitChoice: '',
                               zoneId:
                                 e.target.value && e.target.value !== ALC_ALL_ZONES
                                   ? e.target.value
                                   : '',
-                              unitId: '',
-                            })
-                          }
-                          required
+                          unitId: '',
+                        })
+                      }
+                      required
                           disabled={isActingUnitAdmin || !form.regionId}
-                        >
-                          <option value="">— Selecciona —</option>
+                    >
+                      <option value="">— Selecciona —</option>
                           {allowAllZones ? (
                             <option value={ALC_ALL_ZONES}>
                               Todas las zonas de {regionName}
                             </option>
                           ) : null}
-                          {orgZones.map((zone) => (
-                            <option key={zone.id} value={zone.id}>
-                              {zone.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      {orgZones.map((zone) => (
+                        <option key={zone.id} value={zone.id}>
+                          {zone.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                     )}
                     {(showUnitStep || isActingUnitAdmin) && (
-                      <label className="field">
+                  <label className="field">
                         <span>{unitMustBeSpecific || isActingUnitAdmin ? 'Unidad *' : 'Unidad'}</span>
-                        <select
+                    <select
                           value={form.unitChoice}
                           onChange={(e) =>
                             setForm({
@@ -3082,15 +3170,15 @@ export default function DispatchUsers({ session }) {
                               Todos los organismos de {zoneName}
                             </option>
                           ) : null}
-                          {orgUnits.map((unit) => (
-                            <option key={unit.id} value={unit.id}>
-                              {unit.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      {orgUnits.map((unit) => (
+                        <option key={unit.id} value={unit.id}>
+                          {unit.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                     )}
-                  </div>
+                </div>
                 )}
               </section>
               <section className="cc-form-section">
@@ -3102,14 +3190,14 @@ export default function DispatchUsers({ session }) {
                     cambias el rol, este alcance cambia con él.
                   </p>
                   {visibilityLevelsForRole(form.role).length ? (
-                    <div className="cc-priv-check-list">
+                  <div className="cc-priv-check-list">
                       {visibilityLevelsForRole(form.role).map((lvl) => (
                         <div key={lvl.key} className="cc-priv-check on cc-priv-check--locked">
-                          <span className="cc-priv-check-body">
+                      <span className="cc-priv-check-body">
                             <span className="cc-priv-check-name">{lvl.name}</span>
                             <span className="cc-priv-check-desc">({lvl.desc})</span>
-                          </span>
-                        </div>
+                        </span>
+                  </div>
                       ))}
                     </div>
                   ) : (
@@ -3149,6 +3237,12 @@ export default function DispatchUsers({ session }) {
                   Usuario: <code className="cc-mono">{preview.username}</code>
                   {' · '}
                   Matrícula: <code className="cc-mono">{form.matricula}</code>
+                  {form.phone ? (
+                    <>
+                      {' · '}
+                      Tel.: <code className="cc-mono">{form.phone}</code>
+                    </>
+                  ) : null}
                   {' · '}
                   {roleLabel(form.role)}
                 </p>
@@ -3164,7 +3258,7 @@ export default function DispatchUsers({ session }) {
                         ? ` · Toda la zona`
                         : form.zoneChoice && orgZones.find((z) => z.id === form.zoneChoice)
                           ? ` · ${orgZones.find((z) => z.id === form.zoneChoice)?.name}`
-                          : ''}
+                    : ''}
                 </p>
               </div>
 
@@ -3195,32 +3289,32 @@ export default function DispatchUsers({ session }) {
                         Ninguno
                       </button>
                     </div>
-                    <ul className="cc-group-check-list">
-                      {activeGroups.map((g) => {
-                        const suggested = suggestedGroupIds(activeGroups).includes(g.id);
-                        const checked = selectedGroupIds.includes(g.id);
-                        return (
-                          <li key={g.id}>
-                            <label className={`cc-group-check ${checked ? 'on' : ''}`}>
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleGroup(g.id)}
-                              />
-                              <span className="cc-group-check-body">
-                                <span className="cc-group-check-name">{g.name}</span>
-                                {suggested && (
-                                  <span className="cc-group-suggest">sugerido</span>
-                                )}
-                                {g.description ? (
-                                  <span className="cc-group-check-desc">{g.description}</span>
-                                ) : null}
-                              </span>
-                            </label>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                  <ul className="cc-group-check-list">
+                    {activeGroups.map((g) => {
+                      const suggested = suggestedGroupIds(activeGroups).includes(g.id);
+                      const checked = selectedGroupIds.includes(g.id);
+                      return (
+                        <li key={g.id}>
+                          <label className={`cc-group-check ${checked ? 'on' : ''}`}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleGroup(g.id)}
+                            />
+                            <span className="cc-group-check-body">
+                              <span className="cc-group-check-name">{g.name}</span>
+                              {suggested && (
+                                <span className="cc-group-suggest">sugerido</span>
+                              )}
+                              {g.description ? (
+                                <span className="cc-group-check-desc">{g.description}</span>
+                              ) : null}
+                            </span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
                   </>
                 )}
               </fieldset>

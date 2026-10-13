@@ -40,6 +40,7 @@ import {
 } from './me.js';
 import { storedUploadRel } from '../services/uploads.js';
 import { parseMatricula } from '../services/matricula.js';
+import { parsePhone } from '../services/phone.js';
 import { unlockUserLogin, clientIpFromReq } from '../services/intrusion.js';
 import { forceLogoutUserSockets } from '../services/sessionPolicy.js';
 import fs from 'fs';
@@ -198,6 +199,7 @@ function mapUser(u) {
     paternalSurname: u.paternal_surname || null,
     maternalSurname: u.maternal_surname || null,
     matricula: u.matricula || null,
+    phone: u.phone || null,
     fullName: [u.given_names, u.paternal_surname, u.maternal_surname]
       .map((s) => String(s || '').trim())
       .filter(Boolean)
@@ -616,7 +618,7 @@ adminRouter.get('/users', async (req, res) => {
             u.must_change_password, u.last_seen_at, u.created_at,
             u.login_fail_count, u.login_locked_at, u.login_locked_reason,
             u.grade, u.specialty, u.cargo, u.given_names, u.paternal_surname, u.maternal_surname, u.matricula,
-            u.unit_id, u.admin_scope_unit_id, u.profile_id,
+            u.phone, u.unit_id, u.admin_scope_unit_id, u.profile_id,
             u.can_see_region, u.can_see_zones, u.can_see_units, u.location_share,
             ap.name AS profile_name,
             ou.name AS unit_name,
@@ -921,6 +923,15 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
   if (!gradeTrim) {
     return res.status(400).json({ ok: false, error: 'Grado es requerido' });
   }
+  let phoneNorm;
+  try {
+    phoneNorm = parsePhone(req.body?.phone);
+  } catch (err) {
+    return res.status(400).json({ ok: false, error: err.message });
+  }
+  if (!phoneNorm) {
+    return res.status(400).json({ ok: false, error: 'No. de teléfono es requerido' });
+  }
 
   let built;
   try {
@@ -958,12 +969,13 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
       `INSERT INTO users (
          organization_id, username, email, password_hash, display_name, role, must_change_password,
          grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula,
-         unit_id, admin_scope_unit_id, profile_id, can_see_region, can_see_zones, can_see_units, can_receive_panic
+         unit_id, admin_scope_unit_id, profile_id, can_see_region, can_see_zones, can_see_units, can_receive_panic,
+         phone
        )
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
        RETURNING id, username, email, display_name, role, is_active, can_receive_panic,
                  must_change_password, last_seen_at,
-                 grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula,
+                 grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula, phone,
                  unit_id, admin_scope_unit_id, profile_id, can_see_region, can_see_zones, can_see_units`,
       [
         req.user.orgId,
@@ -986,6 +998,7 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
         canSeeZones,
         canSeeUnits,
         canReceivePanic,
+        phoneNorm,
       ]
     );
     const u = rows[0];
@@ -1195,7 +1208,17 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     maternalSurname: maternalSurnameIn,
     matricula: matriculaIn,
     profileId: profileIdIn,
+    phone: phoneIn,
   } = req.body || {};
+
+  let nextPhone;
+  if (phoneIn !== undefined) {
+    try {
+      nextPhone = parsePhone(phoneIn);
+    } catch (err) {
+      return res.status(400).json({ ok: false, error: err.message });
+    }
+  }
 
   let profileId =
     profileIdIn === undefined
@@ -1510,12 +1533,13 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
        maternal_surname = CASE WHEN $16::boolean THEN $22 ELSE maternal_surname END,
        matricula = CASE WHEN $16::boolean THEN $23 ELSE matricula END,
        profile_id = CASE WHEN $24::boolean THEN $25 ELSE profile_id END,
+       phone = CASE WHEN $26::boolean THEN $27 ELSE phone END,
        updated_at = NOW()
      WHERE id = $1 AND organization_id = $7
      RETURNING id, username, email, display_name, role, is_active, can_receive_panic,
                must_change_password, last_seen_at, unit_id, admin_scope_unit_id, profile_id,
                can_see_region, can_see_zones, can_see_units,
-               grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula`,
+               grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula, phone`,
     [
       req.params.id,
       typeof isActive === 'boolean' ? isActive : null,
@@ -1542,6 +1566,8 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
       nextMatricula,
       nextProfileId !== undefined,
       nextProfileId ?? null,
+      phoneIn !== undefined,
+      nextPhone ?? null,
     ]
   );
   const u = rows[0];
@@ -1661,7 +1687,7 @@ adminRouter.delete('/users/:id', requireUserManager, async (req, res) => {
 /** Exportación CSV de usuarios — solo root/admin (PII). */
 adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req, res) => {
   const { rows } = await query(
-    `SELECT username, matricula, grade, specialty, cargo, given_names, paternal_surname, maternal_surname,
+    `SELECT username, matricula, phone, grade, specialty, cargo, given_names, paternal_surname, maternal_surname,
             display_name, role, is_active, last_seen_at, created_at
      FROM users WHERE organization_id = $1
      ORDER BY display_name`,
@@ -1675,13 +1701,14 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
   };
 
   const lines = [
-    'username,matricula,grade,specialty,cargo,given_names,paternal_surname,maternal_surname,call_sign,role,is_active,last_seen_at,created_at',
+    'username,matricula,phone,grade,specialty,cargo,given_names,paternal_surname,maternal_surname,call_sign,role,is_active,last_seen_at,created_at',
   ];
   for (const u of rows) {
     lines.push(
       [
         esc(u.username),
         esc(u.matricula),
+        esc(u.phone),
         esc(u.grade),
         esc(u.specialty),
         esc(u.cargo),
