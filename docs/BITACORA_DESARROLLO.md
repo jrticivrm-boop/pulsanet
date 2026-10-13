@@ -1,3 +1,12 @@
+## 2026-10-12 — Producción: ficha de contacto con celular
+
+- **Tipo:** ops
+- **Área:** infra | backend | web
+- **Qué:**
+  - Por orden del usuario (21:21, dentro de ventana): `PROMOVER -A pruebas` → `PRUEBAS.ps1` OK → VERIFICAR-PRUEBAS (listo; aviso: copia de BD con 15 días) → `PROMOVER -A produccion`. `main` `ffcbf6f` → `b60aded`; reconstruyó **api + web**; sin migraciones.
+  - Etiqueta `prod-v1.8.107-20261012-2122`. Health OK; `GET /api/dm/:id/contact` responde (401 sin token). APK 1.8.184+194 ya puede distribuirse.
+- **Archivos / refs:** `C:\pulsanet_soporte\Pruebas\_promover_20261012_ficha.log`, `/opt/respaldos/deploys.log`
+
 ## 2026-10-12 — Ficha de contacto rediseñada con celular (llamar, copiar, WhatsApp)
 
 - **Tipo:** feature | ux
