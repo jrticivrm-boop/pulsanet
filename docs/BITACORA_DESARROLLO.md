@@ -1,3 +1,13 @@
+## 2026-10-12 — Mapas web: zoom con rueda fluido (estilo Google Maps)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - `CursorZoom` reescrito: la rueda acumula un zoom objetivo (~1 nivel por muesca, trackpad proporcional) y el mapa se desliza hacia él por frame, fijo bajo el cursor; tiles se recargan al terminar. Antes: pasos de 0,25 con pausa de 40 ms y eventos descartados durante cada animación (lento al acercar/alejar).
+  - Enfoque a operador (`smoothMapFocus`) de 2,2 s a 0,95 s.
+- **Por qué / notas:** aplica a Despacho, Seguimiento y Centro de mando. Botones +/−, doble clic y pellizco sin cambios. Usa `_move/_moveStart/_moveEnd` de Leaflet 1.9 (como Leaflet.SmoothWheelZoom). Ajuste fino: `PX_PER_LEVEL` y `EASE`.
+- **Archivos / refs:** `frontend/src/dispatch/mapLeafletUtils.jsx`, `frontend/src/dispatch/LiveTrackMap.jsx`
+
 ## 2026-10-12 — Producción: API + web (alertas, radio bajo demanda, GPS por socket) y APK 1.8.183+193
 
 - **Tipo:** ops

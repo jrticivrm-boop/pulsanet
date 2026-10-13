@@ -52,7 +52,7 @@ function easeInOutCubic(t) {
  * Devuelve función cancel.
  */
 export function smoothMapFocus(map, { lat, lng, zoom }, options = {}) {
-  const durationMs = options.durationMs ?? 2200;
+  const durationMs = options.durationMs ?? 950;
   const minZoom = map.getMinZoom?.() ?? 0;
   const maxZoom = map.getMaxZoom?.() ?? 22;
   const targetZoom = Math.max(minZoom, Math.min(maxZoom, Number(zoom) || 19));
@@ -238,70 +238,87 @@ export function MapCursorFix() {
 }
 
 /**
- * Zoom con la rueda: fino y suave hacia el cursor.
- * Pasos 0.25 + acumulación de deltaY; botones +/- siguen en zoomDelta=1.
+ * Zoom con la rueda estilo Google Maps: la rueda acumula un zoom objetivo (nada
+ * se descarta) y el mapa se desliza hacia él frame a frame, fijo bajo el cursor.
+ * Tiles se recargan al terminar. Botones +/- siguen en zoomDelta=1.
+ * Usa `_move/_moveStart/_moveEnd` de Leaflet 1.9 (igual que Leaflet.SmoothWheelZoom).
  */
 export function CursorZoom() {
   const map = useMap();
   useEffect(() => {
     const el = map.getContainer();
-    const WHEEL_STEP = 0.25;
-    const ACCUM_THRESHOLD = 48; // px de rueda (o equiv.) por escalón fino
-    const ANIM_MS = 175;
+    const PX_PER_LEVEL = 120; // ~1 muesca de rueda = 1 nivel
+    const MAX_PER_EVENT = 1.5; // tope por evento (ruedas libres / trackpad rápido)
+    const EASE = 0.3; // fracción del recorrido restante por frame
 
-    map.options.scrollWheelZoom = true;
-    map.options.zoomSnap = WHEEL_STEP;
-    map.options.zoomDelta = 1; // +/- del control Leaflet: un nivel entero
-    map.scrollWheelZoom?.enable?.();
+    map.options.zoomSnap = 0.25;
+    map.options.zoomDelta = 1;
+    map.scrollWheelZoom?.disable?.();
     L.DomEvent.disableScrollPropagation(el);
 
-    let accum = 0;
-    let lastDir = 0;
-    let lastStepAt = 0;
-    const STEP_COOLDOWN_MS = 40;
+    let target = null;
+    let anchor = null;
+    let raf = 0;
+
+    const centerFor = (z) => {
+      const scale = map.getZoomScale(z, map.getZoom());
+      const half = map.getSize().divideBy(2);
+      const offset = anchor.subtract(half).multiplyBy(1 - 1 / scale);
+      return map.containerPointToLatLng(half.add(offset));
+    };
+
+    const finish = () => {
+      raf = 0;
+      target = null;
+      map._moveEnd(true);
+    };
+
+    const frame = () => {
+      raf = 0;
+      if (target == null) return;
+      const cur = map.getZoom();
+      const diff = target - cur;
+      if (Math.abs(diff) < 0.01) {
+        map._move(centerFor(target), target);
+        finish();
+        return;
+      }
+      const z = cur + diff * EASE;
+      map._move(centerFor(z), z);
+      raf = requestAnimationFrame(frame);
+    };
 
     const onWheel = (e) => {
       if (e.ctrlKey) return;
       e.preventDefault();
       e.stopPropagation();
-      if (!e.deltaY) return;
-
-      // Normalizar delta (líneas / páginas → px aprox.)
       let dy = e.deltaY;
-      if (e.deltaMode === 1) dy *= 16;
-      else if (e.deltaMode === 2) dy *= 100;
+      if (!dy) return;
+      if (e.deltaMode === 1) dy *= 40;
+      else if (e.deltaMode === 2) dy *= 800;
 
-      const dir = dy > 0 ? -1 : 1;
-      if (dir !== lastDir) {
-        accum = 0;
-        lastDir = dir;
+      const delta = Math.max(-MAX_PER_EVENT, Math.min(MAX_PER_EVENT, -dy / PX_PER_LEVEL));
+      const base = target ?? map.getZoom();
+      const next = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), base + delta));
+      if (target == null && Math.abs(next - map.getZoom()) < 0.001) return;
+      target = next;
+      anchor = map.mouseEventToContainerPoint(e);
+
+      if (!raf) {
+        map.stop();
+        map._moveStart(true, false);
+        raf = requestAnimationFrame(frame);
       }
-      accum += Math.abs(dy);
-      if (accum < ACCUM_THRESHOLD) return;
-
-      const steps = Math.floor(accum / ACCUM_THRESHOLD);
-      accum -= steps * ACCUM_THRESHOLD;
-
-      const now = performance.now();
-      if (now - lastStepAt < STEP_COOLDOWN_MS) return;
-      lastStepAt = now;
-
-      const cur = map.getZoom();
-      const raw = cur + dir * WHEEL_STEP * steps;
-      const snapped = Math.round(raw / WHEEL_STEP) * WHEEL_STEP;
-      const next = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), snapped));
-      if (Math.abs(next - cur) < WHEEL_STEP / 2) return;
-
-      const point = map.mouseEventToContainerPoint(e);
-      const latlng = map.containerPointToLatLng(point);
-      map.setZoomAround(latlng, next, { animate: true, duration: ANIM_MS / 1000 });
     };
 
     el.addEventListener('wheel', onWheel, { passive: false });
-    map.scrollWheelZoom?.disable?.();
 
     return () => {
       el.removeEventListener('wheel', onWheel);
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      }
       map.scrollWheelZoom?.enable?.();
     };
   }, [map]);

@@ -127,7 +127,7 @@ function FlyToFocus({ target }) {
       cancelAnim.current = smoothMapFocus(
         map,
         { lat, lng, zoom },
-        { durationMs: 2200 }
+        { durationMs: 950 }
       );
     }, 320);
 
