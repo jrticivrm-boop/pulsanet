@@ -376,12 +376,16 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
     );
   }
 
+  DateTime? _awaySince;
+  static const _resumeReloadAfter = Duration(minutes: 2);
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     appInBackground = state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached;
+    if (appInBackground) _awaySince ??= DateTime.now();
     _session?.pingPresenceFocus();
     final name = _session?.groupName;
     if (state == AppLifecycleState.paused ||
@@ -422,9 +426,22 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       }
       unawaited(_drainRemoteCameraWake());
       unawaited(_drainIncomingCallWake());
-      unawaited(_session?.refreshChatHistory() ?? Future<void>.value());
-      unawaited(_session?.syncActivePanic() ?? Future<void>.value());
-      unawaited(_inboxKey.currentState?.refreshInbox() ?? Future<void>.value());
+      final awaySince = _awaySince;
+      _awaySince = null;
+      final sess = _session;
+      // Persiana de notificaciones / multitarea breve con socket vivo: los
+      // eventos en tiempo real ya mantuvieron todo al día; no gastar datos.
+      final briefAway = awaySince != null &&
+          DateTime.now().difference(awaySince) < _resumeReloadAfter &&
+          sess != null &&
+          sess.connected &&
+          (sess.lastDisconnectAt == null ||
+              sess.lastDisconnectAt!.isBefore(awaySince));
+      if (!briefAway) {
+        unawaited(sess?.refreshChatHistory() ?? Future<void>.value());
+        unawaited(sess?.syncActivePanic() ?? Future<void>.value());
+        unawaited(_inboxKey.currentState?.refreshInbox() ?? Future<void>.value());
+      }
       if (_conversationOpen) {
         _clearCurrentChatNotifications(markMessages: true);
       } else if (_tab == _MainTab.chats) {

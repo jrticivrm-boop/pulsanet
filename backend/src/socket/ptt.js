@@ -20,6 +20,23 @@ import { emitDispatch } from './dispatch.js';
 import { inc } from '../services/metrics.js';
 import { query } from '../db.js';
 
+const PTT_WAKE_GRANT_DELAY_MS = Math.max(
+  0,
+  Math.min(2000, Number(process.env.PTT_WAKE_GRANT_DELAY_MS ?? 800) || 0)
+);
+
+/** Retraso del grant solo si hay otro radio bajo demanda (APK) escuchando el canal. */
+async function grantDelayFor(io, groupId, talkerSocketId) {
+  if (!PTT_WAKE_GRANT_DELAY_MS) return 0;
+  try {
+    const socks = await io.in(`group:${groupId}`).fetchSockets();
+    const wake = socks.some((s) => s.id !== talkerSocketId && s.data?.radioOnDemand);
+    return wake ? PTT_WAKE_GRANT_DELAY_MS : 0;
+  } catch {
+    return PTT_WAKE_GRANT_DELAY_MS;
+  }
+}
+
 function ensureJoinState(socket) {
   if (!(socket.data.joinedGroups instanceof Set)) {
     socket.data.joinedGroups = new Set();
@@ -38,10 +55,11 @@ export function registerPttHandlers(io) {
     if (!user) return;
     ensureJoinState(socket);
 
-    socket.on('ptt:join', async ({ groupId, focus, background } = {}) => {
+    socket.on('ptt:join', async ({ groupId, focus, background, onDemand } = {}) => {
       if (!groupId) return;
       try {
         ensureJoinState(socket);
+        if (onDemand === true) socket.data.radioOnDemand = true;
         const role = await resolvePttMemberRole(groupId, user);
         if (!role) {
           socket.emit('ptt:error', { groupId, error: 'No eres miembro' });
@@ -167,17 +185,31 @@ export function registerPttHandlers(io) {
         inc('pttGranted');
         socket.data.holdingFloor = true;
         socket.data.holdingFloors.add(groupId);
-        socket.emit('ptt:granted', {
-          groupId,
-          takeover: Boolean(result.takeover),
-          selfMove: Boolean(result.selfMove),
-        });
+        // ptt:speaker primero: los radios bajo demanda conectan su sala mientras
+        // el emisor espera el grant (si no, se pierden las primeras palabras).
         io.to(`group:${groupId}`).emit('ptt:speaker', {
           groupId,
           userId: user.sub,
           displayName: user.displayName,
           role: orgRole,
         });
+        const grant = {
+          groupId,
+          takeover: Boolean(result.takeover),
+          selfMove: Boolean(result.selfMove),
+        };
+        const delayMs = await grantDelayFor(io, groupId, socket.id);
+        if (delayMs > 0) {
+          setTimeout(() => {
+            getFloor(groupId)
+              .then((f) => {
+                if (f?.socketId === socket.id) socket.emit('ptt:granted', grant);
+              })
+              .catch(() => {});
+          }, delayMs);
+        } else {
+          socket.emit('ptt:granted', grant);
+        }
         emitDispatch(io, 'dispatch:speaker', {
           groupId,
           userId: user.sub,

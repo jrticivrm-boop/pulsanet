@@ -370,7 +370,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen>
       await ChannelSession.current?.unduckRadioAfterPrivateCall();
     } catch (_) {}
     try {
-      await AudioSessionSetup.acquireRadio();
+      await ChannelSession.restoreAudioAfterCall();
     } catch (_) {
       await AudioSessionSetup.resetRouting();
     }

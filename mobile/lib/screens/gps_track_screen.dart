@@ -6,7 +6,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_map/flutter_map.dart';
-import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import '../api_client.dart';
@@ -1773,18 +1772,17 @@ class _TacticalSitePinState extends State<_TacticalSitePin> {
       return;
     }
     try {
-      final res = await http.get(
-        Uri.parse(url),
-        headers: widget.headers ?? const {},
+      final bytes = await AvatarBytesCache.load(
+        url,
+        auth: widget.headers?['Authorization'],
       );
       if (!mounted || widget.iconUrl != url) return;
-      if (res.statusCode >= 200 && res.statusCode < 300 && res.bodyBytes.isNotEmpty) {
-        AvatarBytesCache.put(url, res.bodyBytes);
+      if (bytes != null) {
         setState(() {
-          _bytes = res.bodyBytes;
+          _bytes = bytes;
           _failed = false;
         });
-      } else if (mounted) {
+      } else {
         setState(() => _failed = true);
       }
     } catch (_) {

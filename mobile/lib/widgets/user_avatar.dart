@@ -1,7 +1,13 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../theme.dart';
 
@@ -17,10 +23,20 @@ String userAvatarInitials(String? name) {
   return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
 }
 
-/// Cache en memoria de avatares descargados con Bearer (Image.network falla con auth).
+/// Cache de avatares descargados con Bearer (Image.network falla con auth).
+/// Memoria + disco (revalidación con ETag → 304 sin cuerpo) para no
+/// re-descargar fotos en cada pantalla / arranque con datos móviles.
 class AvatarBytesCache {
   AvatarBytesCache._();
   static final Map<String, Uint8List> _byUrl = {};
+  static final Map<String, Future<Uint8List?>> _inflight = {};
+  static final Map<String, DateTime> _failedAt = {};
+  static const _failRetry = Duration(minutes: 5);
+  /// Igual que `Cache-Control: max-age=3600` del servidor.
+  static const _diskFresh = Duration(hours: 1);
+  static final http.Client _http =
+      IOClient(HttpClient()..idleTimeout = const Duration(seconds: 75));
+  static Directory? _dir;
 
   static Uint8List? get(String url) => _byUrl[url];
 
@@ -29,11 +45,119 @@ class AvatarBytesCache {
       _byUrl.remove(_byUrl.keys.first);
     }
     _byUrl[url] = bytes;
+    _failedAt.remove(url);
   }
 
-  static void remove(String url) => _byUrl.remove(url);
+  static void remove(String url) {
+    _byUrl.remove(url);
+    _failedAt.remove(url);
+    unawaited(_diskFile(url).then((f) async {
+      for (final x in [f, File('${f.path}.etag')]) {
+        if (await x.exists()) await x.delete();
+      }
+    }).catchError((_) {}));
+  }
 
-  static void clear() => _byUrl.clear();
+  static void clear() {
+    _byUrl.clear();
+    _failedAt.clear();
+    unawaited(_avatarDir().then((d) async {
+      if (await d.exists()) await d.delete(recursive: true);
+      _dir = null;
+    }).catchError((_) {}));
+  }
+
+  /// Bytes del avatar: memoria → disco (≤1 h) → red condicional. null si no hay.
+  static Future<Uint8List?> load(String url, {String? auth}) {
+    final hit = _byUrl[url];
+    if (hit != null) return Future.value(hit);
+    final failed = _failedAt[url];
+    if (failed != null && DateTime.now().difference(failed) < _failRetry) {
+      return Future.value(null);
+    }
+    final pending = _inflight[url];
+    if (pending != null) return pending;
+    final fut = _loadUncached(url, auth).whenComplete(() => _inflight.remove(url));
+    _inflight[url] = fut;
+    return fut;
+  }
+
+  static Future<Uint8List?> _loadUncached(String url, String? auth) async {
+    File? file;
+    Uint8List? disk;
+    String? etag;
+    try {
+      file = await _diskFile(url);
+      if (await file.exists()) {
+        disk = await file.readAsBytes();
+        final age = DateTime.now().difference(await file.lastModified());
+        if (disk.isNotEmpty && age < _diskFresh) {
+          put(url, disk);
+          return disk;
+        }
+        final tagFile = File('${file.path}.etag');
+        if (await tagFile.exists()) etag = (await tagFile.readAsString()).trim();
+      }
+    } catch (_) {}
+    try {
+      final res = await _http.get(Uri.parse(url), headers: {
+        if (auth != null && auth.isNotEmpty) 'Authorization': auth,
+        if (disk != null && disk.isNotEmpty && etag != null && etag.isNotEmpty)
+          'If-None-Match': etag,
+      });
+      if (res.statusCode == 304 && disk != null && disk.isNotEmpty) {
+        put(url, disk);
+        try {
+          await file?.setLastModified(DateTime.now());
+        } catch (_) {}
+        return disk;
+      }
+      if (res.statusCode >= 200 && res.statusCode < 300 && res.bodyBytes.isNotEmpty) {
+        final bytes = res.bodyBytes;
+        put(url, bytes);
+        try {
+          await file?.writeAsBytes(bytes, flush: false);
+          final tag = res.headers['etag'];
+          final tagFile = file == null ? null : File('${file.path}.etag');
+          if (tag != null && tag.isNotEmpty) {
+            await tagFile?.writeAsString(tag);
+          } else if (tagFile != null && await tagFile.exists()) {
+            await tagFile.delete();
+          }
+        } catch (_) {}
+        return bytes;
+      }
+      if (res.statusCode == 404) {
+        try {
+          if (file != null && await file.exists()) await file.delete();
+        } catch (_) {}
+      }
+    } catch (_) {
+      // Sin red: mejor la foto vieja que las iniciales.
+      if (disk != null && disk.isNotEmpty) {
+        put(url, disk);
+        return disk;
+      }
+    }
+    _failedAt[url] = DateTime.now();
+    return null;
+  }
+
+  static Future<Directory> _avatarDir() async {
+    final cached = _dir;
+    if (cached != null) return cached;
+    final base = await getTemporaryDirectory();
+    final d = Directory('${base.path}${Platform.pathSeparator}avatars');
+    if (!await d.exists()) await d.create(recursive: true);
+    _dir = d;
+    return d;
+  }
+
+  static Future<File> _diskFile(String url) async {
+    final d = await _avatarDir();
+    final name = sha1.convert(utf8.encode(url)).toString();
+    return File('${d.path}${Platform.pathSeparator}$name.img');
+  }
 }
 
 /// Visor a pantalla completa de foto de perfil / grupo (estilo WhatsApp).
@@ -109,24 +233,20 @@ class _AvatarPreviewPageState extends State<_AvatarPreviewPage> {
       _error = null;
     });
     try {
-      final auth = widget.headers?['Authorization'];
-      final res = await http.get(
-        Uri.parse(url),
-        headers: {
-          if (auth != null && auth.isNotEmpty) 'Authorization': auth,
-        },
+      final bytes = await AvatarBytesCache.load(
+        url,
+        auth: widget.headers?['Authorization'],
       );
       if (!mounted) return;
-      if (res.statusCode >= 400 || res.bodyBytes.isEmpty) {
+      if (bytes == null) {
         setState(() {
           _loading = false;
           _error = 'No se pudo cargar la foto';
         });
         return;
       }
-      AvatarBytesCache.put(url, res.bodyBytes);
       setState(() {
-        _bytes = res.bodyBytes;
+        _bytes = bytes;
         _loading = false;
       });
     } catch (_) {
@@ -325,23 +445,18 @@ class _UserAvatarState extends State<UserAvatar> {
       _loadedFor = url;
     });
     try {
-      final auth = widget.headers?['Authorization'];
-      final res = await http.get(
-        Uri.parse(url),
-        headers: {
-          if (auth != null && auth.isNotEmpty) 'Authorization': auth,
-        },
+      final bytes = await AvatarBytesCache.load(
+        url,
+        auth: widget.headers?['Authorization'],
       );
       if (!mounted || widget.avatarUrl != url) return;
-      if (res.statusCode >= 400 || res.bodyBytes.isEmpty) {
+      if (bytes == null) {
         setState(() {
           _bytes = null;
           _loading = false;
         });
         return;
       }
-      final bytes = res.bodyBytes;
-      AvatarBytesCache.put(url, bytes);
       setState(() {
         _bytes = bytes;
         _loading = false;

@@ -50,6 +50,7 @@ class MainActivity : FlutterActivity() {
     private var ringbackHandler: Handler? = null
     private var ringbackRunnable: Runnable? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var cpuWakeLock: PowerManager.WakeLock? = null
     private var cellularCallback: ConnectivityManager.NetworkCallback? = null
     private var boundToCellular: Boolean = false
 
@@ -263,6 +264,14 @@ class MainActivity : FlutterActivity() {
                             result.error("set_mode_failed", e.message, null)
                         }
                     }
+                    "setCpuAwake" -> {
+                        try {
+                            setCpuAwake(call.argument<Boolean>("on") == true)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("cpu_awake_failed", e.message, null)
+                        }
+                    }
                     // Avisos / pánico: waveform en bucle con ref nativa (cancel fiable en OEM).
                     "startAlarmVibration" -> {
                         try {
@@ -317,6 +326,7 @@ class MainActivity : FlutterActivity() {
         stopOutgoingRingback()
         stopAlarmVibration()
         releaseWakeLock()
+        setCpuAwake(false)
         clearNetworkBind()
         super.onDestroy()
     }
@@ -652,6 +662,27 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {
         }
         wakeLock = null
+    }
+
+    /**
+     * CPU despierta solo mientras hay radio al aire, llamada o cámara remota.
+     * Tope de 30 min por si Dart no llega a soltarlo (proceso congelado).
+     */
+    private fun setCpuAwake(on: Boolean) {
+        if (on) {
+            val wl = cpuWakeLock ?: (getSystemService(Context.POWER_SERVICE) as PowerManager)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tacticalptx:radio_active")
+                .also {
+                    it.setReferenceCounted(false)
+                    cpuWakeLock = it
+                }
+            wl.acquire(30 * 60 * 1000L)
+        } else {
+            try {
+                if (cpuWakeLock?.isHeld == true) cpuWakeLock?.release()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private fun audioModeName(mode: Int): String = when (mode) {

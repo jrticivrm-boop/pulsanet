@@ -6,6 +6,8 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'api_client.dart';
 import 'audio_session_setup.dart';
+import 'cpu_awake.dart';
+import 'location_heartbeat.dart';
 
 /// Mantiene Radio / socket / audio / GPS (/ cámara remota / llamada) vivos.
 class BackgroundRadio {
@@ -59,12 +61,14 @@ class BackgroundRadio {
         showNotification: true,
         playSound: false,
       ),
+      // Sin wakelock/wifilock permanentes: la CPU se mantiene despierta solo
+      // mientras hay radio, llamada o cámara activas ([CpuAwake]).
       foregroundTaskOptions: ForegroundTaskOptions(
-        eventAction: ForegroundTaskEventAction.repeat(12000),
+        eventAction: ForegroundTaskEventAction.repeat(30000),
         autoRunOnBoot: false,
         autoRunOnMyPackageReplaced: false,
-        allowWakeLock: true,
-        allowWifiLock: true,
+        allowWakeLock: false,
+        allowWifiLock: false,
       ),
     );
     _inited = true;
@@ -90,6 +94,7 @@ class BackgroundRadio {
   }) async {
     final was = _privateCallActive;
     _privateCallActive = active;
+    CpuAwake.set('private_call', active);
     _privateCallVideo = active && video;
     _privateCallPeer = active ? (peerName ?? _privateCallPeer) : '';
     if (was == active) {
@@ -106,6 +111,8 @@ class BackgroundRadio {
 
   /** Activa tipo FGS `camera` para que Android no suspenda el feed al bloquear. */
   static Future<void> setRemoteCameraActive(bool active) async {
+    CpuAwake.set('remote_camera', active);
+    if (!active) CpuAwake.release('remote_mic');
     if (_remoteCameraActive == active) {
       if (active) {
         await start(forceRestart: false);
@@ -121,6 +128,7 @@ class BackgroundRadio {
 
   /// Incluye tipo FGS `microphone` mientras el despacho activa el mic remoto.
   static Future<void> setRemoteMicActive(bool active) async {
+    CpuAwake.set('remote_mic', active);
     if (_remoteMicActive == active) return;
     final enabling = active && !_remoteMicActive;
     _remoteMicActive = active;
@@ -194,6 +202,9 @@ class BackgroundRadio {
     _privateCallActive = false;
     _privateCallVideo = false;
     _privateCallPeer = '';
+    for (final r in const ['private_call', 'remote_camera', 'remote_mic']) {
+      CpuAwake.release(r);
+    }
     if (await FlutterForegroundTask.isRunningService) {
       await FlutterForegroundTask.stopService();
     }
@@ -229,6 +240,14 @@ class _RadioTaskHandler extends TaskHandler {
       final now = DateTime.now();
       if (_lastPresenceAt != null &&
           now.difference(_lastPresenceAt!) < _presenceEvery) {
+        return;
+      }
+      // Las posiciones GPS ya cuentan como presencia en el servidor.
+      final stamp = await FlutterForegroundTask.getData<int>(
+        key: LocationHeartbeat.presenceStampKey,
+      );
+      if (stamp != null &&
+          now.millisecondsSinceEpoch - stamp < _presenceEvery.inMilliseconds) {
         return;
       }
       _lastPresenceAt = now;

@@ -1,3 +1,14 @@
+## 2026-10-12 — Alertas con confirmación y destino; APK: radio bajo demanda, batería, GPS, audio y datos
+
+- **Tipo:** feature | mejora
+- **Área:** backend | web | mobile
+- **Qué:**
+  - Alertas: hoja (app) / diálogo (web) de confirmación con canales destino, «Todos (mi alcance)» solo admins y motivo opcional. Backend: un `panic_events` por canal; se notifica solo a miembros de esos canales + consolas cuyo alcance cubre al emisor (`scopedDispatcherIds`); se quitó la difusión a toda la organización; ver/atender una alerta respeta el alcance (commit 8439a68).
+  - Radio bajo demanda (`kRadioOnDemand`): sin salas LiveKit en reposo; conecta con `ptt:speaker` o al pulsar PTT, cuelgue configurable (5 s, Ajustes › Sonidos), caché de token 45 min. Servidor: `ptt:speaker` primero y `ptt:granted` retrasado `PTT_WAKE_GRANT_DELAY_MS` (800 ms) solo si hay receptores bajo demanda (`ptt:join` con `onDemand`).
+  - Batería/GPS/audio/datos: servicio sin wifiLock/wakelock fijos (wakelock nativo `setCpuAwake` solo en uso); GPS por socket `location:update` con respaldo HTTP keep-alive, posición = presencia (latido del servicio se omite si hubo posición < 50 s), 10 s en movimiento; audio de radio solo con sala abierta, NS + high-pass + DTX, mic liberado al silenciar; avatares con caché en disco (ETag/304) y sin recargas al volver de un vistazo breve.
+- **Por qué / notas:** quejas de batería, datos y altavoz en la APK. Sin migraciones de BD. Compatibilidad: APK nueva con servidor viejo cae a HTTP para GPS; APK vieja sigue funcionando (sin retraso de grant). Requiere APK nueva (no compilada) y despliegue de API. No se añadió indicador propio de mic/cámara remota (Android 12+ ya muestra el punto verde de privacidad).
+- **Archivos / refs:** `backend/src/services/{panic,fcm,ownLocation}.js`, `backend/src/routes/{panic,locations}.js`, `backend/src/socket/{ptt,location}.js`, `backend/src/server.js`, `frontend/src/{PanicConfirmDialog.jsx,pages/RadioPage.jsx,dispatch/MapPttFloat.jsx}`, `mobile/lib/{channel_session,location_heartbeat,background_radio,cpu_awake,api_client,video_streaming_config}.dart`, `mobile/lib/widgets/{panic_confirm_sheet,user_avatar,gps_map_pin}.dart`, `mobile/lib/screens/{radio_shell,sound_settings_screen,private_call_screen,personal_radio_bar,group_video_screen,gps_track_screen}.dart`, `MainActivity.kt`
+
 ## 2026-10-12 — Producción: solo consola web (Chats en el rail + menos recargas)
 
 - **Tipo:** ops | fix

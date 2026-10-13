@@ -16,6 +16,12 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Presencia por socket:** `presence:ping` con `groupId` solo aplica a canales a los que el socket se unió.
 
 ### Changed
+- **Alertas de pánico — confirmación y destino:** web y app piden confirmar antes de enviar: canales destino (uno, varios o todos los míos), «Todos (mi alcance)» solo para administradores, y motivo opcional. La alerta llega solo a los miembros de los canales elegidos y a las consolas cuyo alcance cubre al emisor; **ya no se difunde a toda la organización**.
+- **App móvil — radio bajo demanda (estilo WAVE):** las salas de voz ya no quedan abiertas en reposo; se conectan al recibir una transmisión o al pulsar PTT y se cierran tras un cuelgue configurable (5 s por defecto, en Ajustes › Sonidos). El servidor retrasa el permiso de hablar ~800 ms (`PTT_WAKE_GRANT_DELAY_MS`) solo si hay receptores en este modo.
+- **App móvil — batería:** servicio en segundo plano sin wifiLock ni wakelock permanentes; la CPU se mantiene despierta solo durante radio activa, llamada, cámara/micrófono remoto o video de grupo.
+- **App móvil — GPS:** posiciones por el socket (HTTP con conexión persistente como respaldo), cada posición cuenta como presencia, 10 s en movimiento y ráfaga de 5 s al enviar alerta.
+- **App móvil — audio:** la sesión de audio de radio se toma solo con canal abierto; respeta audífonos/Bluetooth; micrófono liberado al silenciar; supresión de ruido y filtro de graves (menos soplido); Opus DTX (no envía silencio).
+- **App móvil — datos:** fotos de perfil en caché de disco con revalidación (ETag/304) y sin descargas duplicadas; al volver de un vistazo breve (< 2 min con el socket conectado) no se recargan chats, alertas ni bandeja.
 - **Consolas — menos recargas:** el latido de presencia del servicio en segundo plano solo emite `dispatch:presence` si cambia algo visible; las vistas de despacho agrupan las ráfagas en una sola recarga (1,5 s).
 - **Ubicaciones — retención:** purga automática por lotes de posiciones con más de 35 días (`LOCATION_RETENTION_DAYS`, 0 = desactivada). La consola consulta hasta 31 días.
 - **Geocercas:** solo se escribe en BD cuando cambia el estado dentro/fuera.

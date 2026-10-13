@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-
 import '../theme.dart';
 import 'user_avatar.dart';
 
@@ -84,17 +82,12 @@ class _GpsMapPinState extends State<GpsMapPin>
       if (mounted) setState(() => _bytes = cached);
       return;
     }
-    try {
-      final res = await http.get(
-        Uri.parse(url),
-        headers: widget.headers ?? const {},
-      );
-      if (!mounted || widget.photoUrl != url) return;
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        AvatarBytesCache.put(url, res.bodyBytes);
-        setState(() => _bytes = res.bodyBytes);
-      }
-    } catch (_) {}
+    final bytes = await AvatarBytesCache.load(
+      url,
+      auth: widget.headers?['Authorization'],
+    );
+    if (!mounted || widget.photoUrl != url) return;
+    if (bytes != null) setState(() => _bytes = bytes);
   }
 
   @override

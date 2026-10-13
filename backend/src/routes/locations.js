@@ -1,14 +1,12 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { emitDispatchTrack } from '../socket/dispatch.js';
-import { evaluateGeofences } from '../services/geofences.js';
 import { isDispatch } from '../services/roles.js';
 import { canSeePerson } from '../services/visibility.js';
 import { routeBetween } from '../services/routeHint.js';
 import { loadUserTrack } from '../services/trackHistory.js';
+import { recordOwnLocation, validateCoords } from '../services/ownLocation.js';
 import {
-  getUserUnitId,
   loadTrackScope,
   listVisibleGroups,
   unitInTrackScope,
@@ -19,7 +17,6 @@ import {
   listPresence,
   pickBestFocus,
   resolvePresenceStatus,
-  touchLastSeen,
 } from '../services/presence.js';
 
 function toIsoUtc(value) {
@@ -339,64 +336,16 @@ export function createLocationsRouter(io) {
 
   /** Reportar ubicación propia */
   router.post('/', async (req, res) => {
-    const { latitude, longitude, accuracyM } = req.body || {};
-    if (typeof latitude !== 'number' || typeof longitude !== 'number') {
-      return res.status(400).json({ ok: false, error: 'latitude y longitude numéricos requeridos' });
-    }
-    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-      return res.status(400).json({ ok: false, error: 'Coordenadas fuera de rango' });
-    }
+    const { latitude, longitude, accuracyM, presence } = req.body || {};
+    const bad = validateCoords(latitude, longitude);
+    if (bad) return res.status(400).json({ ok: false, error: bad });
 
-    const { rows } = await query(
-      `INSERT INTO locations (user_id, latitude, longitude, accuracy_m)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, latitude, longitude, accuracy_m, recorded_at`,
-      [req.user.sub, latitude, longitude, accuracyM ?? null]
-    );
-    void touchLastSeen(req.user.sub);
-
-    const { rows: me } = await query(
-      `SELECT avatar_url, unit_id, cargo FROM users WHERE id = $1`,
-      [req.user.sub]
-    );
-    const avatarUrl = me[0]?.avatar_url
-      ? `/api/avatars/file/${encodeURIComponent(me[0].avatar_url)}`
-      : null;
-    const unitId = me[0]?.unit_id || (await getUserUnitId(req.user.sub));
-    const cargo = me[0]?.cargo || null;
-
-    const loc = rows[0];
-    emitDispatchTrack(
+    const { loc, geofenceEvents } = await recordOwnLocation(
       io,
-      'dispatch:location',
-      {
-        userId: req.user.sub,
-        displayName: req.user.displayName || null,
-        cargo,
-        unitId: unitId || null,
-        avatarUrl,
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-        accuracyM: loc.accuracy_m,
-        recordedAt: toIsoUtc(loc.recorded_at),
-      },
-      { unitId }
+      req.user,
+      { latitude, longitude, accuracyM },
+      { presence: presence === true }
     );
-
-    let geofenceEvents = [];
-    try {
-      geofenceEvents = await evaluateGeofences(io, {
-        orgId: req.user.orgId,
-        userId: req.user.sub,
-        displayName: req.user.displayName || null,
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-        unitId: unitId || null,
-      });
-    } catch (err) {
-      console.error('geofence eval:', err.message);
-    }
-
     res.status(201).json({ ok: true, location: loc, geofenceEvents });
   });
 

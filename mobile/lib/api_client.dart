@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -16,6 +17,14 @@ class ApiClient {
   ApiClient();
 
   static const _timeout = Duration(seconds: 8);
+
+  /// Un cliente con keep-alive para todo el proceso: evita un handshake TCP+TLS
+  /// por petición (GPS, presencia, chat) en datos móviles.
+  static final http.Client _http = IOClient(
+    HttpClient()
+      ..idleTimeout = const Duration(seconds: 75)
+      ..connectionTimeout = const Duration(seconds: 10),
+  );
 
   String? _token;
   Map<String, dynamic>? _user;
@@ -556,15 +565,18 @@ class ApiClient {
     return _post('/api/dm/$userId/messages/nudge', {});
   }
 
+  /// `presence: true` = el servidor cuenta la posición como latido de presencia (FGS).
   Future<void> postLocation({
     required double latitude,
     required double longitude,
     double? accuracyM,
+    bool presence = false,
   }) async {
     await _post('/api/locations', {
       'latitude': latitude,
       'longitude': longitude,
       'accuracyM': ?accuracyM,
+      if (presence) 'presence': true,
     });
   }
 
@@ -944,7 +956,7 @@ class ApiClient {
     bool hairpinRetried = false,
   }) async {
     try {
-      final res = await http
+      final res = await _http
           .get(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers())
           .timeout(_timeout);
       if (res.statusCode == 401 && !retried) {
@@ -975,7 +987,7 @@ class ApiClient {
     bool hairpinRetried = false,
   }) async {
     try {
-      final res = await http
+      final res = await _http
           .post(
             Uri.parse('${AppConfig.apiBaseUrl}$path'),
             headers: _jsonHeaders(),
@@ -1010,7 +1022,7 @@ class ApiClient {
     bool hairpinRetried = false,
   }) async {
     try {
-      final res = await http
+      final res = await _http
           .patch(
             Uri.parse('${AppConfig.apiBaseUrl}$path'),
             headers: _jsonHeaders(),
@@ -1044,7 +1056,7 @@ class ApiClient {
     bool hairpinRetried = false,
   }) async {
     try {
-      final res = await http
+      final res = await _http
           .delete(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers())
           .timeout(_timeout);
       if (res.statusCode == 401 && !retried) {

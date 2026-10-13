@@ -39,6 +39,7 @@ import { registerPttHandlers } from './socket/ptt.js';
 import { registerChatHandlers } from './socket/chat.js';
 import { registerDispatchHandlers } from './socket/dispatch.js';
 import { registerDmHandlers } from './socket/dm.js';
+import { registerLocationHandlers } from './socket/location.js';
 import { createDmRouter } from './routes/dm.js';
 import { createCallsRouter, startPrivateCallSweeper } from './routes/calls.js';
 import { createGroupVideoRouter } from './routes/groupVideo.js';
@@ -243,6 +244,7 @@ registerPttHandlers(io);
 registerChatHandlers(io);
 registerDispatchHandlers(io);
 registerDmHandlers(io);
+registerLocationHandlers(io);
 
 app.use((_req, res) => {
   res.status(404).json({ ok: false, error: 'Ruta no encontrada' });

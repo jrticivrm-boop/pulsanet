@@ -8,6 +8,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../api_client.dart';
 import '../audio_session_setup.dart';
 import '../config.dart';
+import '../cpu_awake.dart';
 import '../es_msg.dart';
 import '../livekit_e2ee.dart';
 import '../theme.dart';
@@ -75,6 +76,7 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
   void initState() {
     super.initState();
     GroupVideoScreen.uiOpen = true;
+    CpuAwake.hold('group_video');
     _listenSocket();
     _connect();
   }
@@ -327,6 +329,7 @@ class _GroupVideoScreenState extends State<GroupVideoScreen> {
   @override
   void dispose() {
     GroupVideoScreen.uiOpen = false;
+    CpuAwake.release('group_video');
     _pingTimer?.cancel();
     _roomListener?.dispose();
     _signalSocket?.dispose();

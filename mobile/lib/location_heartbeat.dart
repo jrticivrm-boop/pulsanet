@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'api_client.dart';
 
 /// GPS continuo hacia despacho, adaptativo; sigue con pantalla bloqueada vía FGS location.
-/// - En movimiento: alta precisión al intervalo de la organización (Admin, 5 s por defecto).
+/// - En movimiento: alta precisión al intervalo de la organización, mínimo 10 s
+///   (con pánico/[boost] se respeta el de la organización, máx. 5 s).
+/// - Envío por el socket de radio ([socketSender]); si falla, HTTP. La posición cuenta
+///   como presencia en el servidor (sin latido aparte).
 /// - Quieto ≥ 2 min: precisión media (Wi‑Fi/celda) cada 30 s y un envío cada 60 s con la
 ///   última posición buena. Al desplazarse ≥ 25 m vuelve a alta precisión.
 /// - Pánico ([boost]): alta precisión forzada 5 min.
@@ -20,8 +24,15 @@ class LocationHeartbeat {
   static const _stillInterval = Duration(seconds: 30);
   static const _keepaliveEvery = Duration(seconds: 60);
   static const _tickEvery = Duration(seconds: 15);
-  static const _presenceGap = Duration(seconds: 50);
+  static const _minMovingInterval = Duration(seconds: 10);
+  static const _boostInterval = Duration(seconds: 5);
   static const _boostFor = Duration(minutes: 5);
+
+  /// Clave compartida con el isolate del FGS: último latido de presencia (ms epoch).
+  static const presenceStampKey = 'tacticalptx_presence_ms';
+
+  /// Envío por el socket ya abierto (ChannelSession). `true` = el servidor confirmó.
+  static Future<bool> Function(double lat, double lng, double? accuracyM)? socketSender;
   static const _settingsTtl = Duration(minutes: 30);
   static const _resumeMinGap = Duration(seconds: 15);
 
@@ -31,7 +42,6 @@ class LocationHeartbeat {
   static bool _starting = false;
   static ApiClient? _api;
   static DateTime? _lastSentAt;
-  static DateTime? _lastPresenceAt;
   static DateTime? _lastFixAt;
   static double? _lastLat;
   static double? _lastLng;
@@ -54,6 +64,11 @@ class LocationHeartbeat {
 
   static bool get _boosted =>
       _boostUntil != null && DateTime.now().isBefore(_boostUntil!);
+
+  static Duration get _movingInterval {
+    if (_boosted) return _interval < _boostInterval ? _interval : _boostInterval;
+    return _interval < _minMovingInterval ? _minMovingInterval : _interval;
+  }
 
   static Future<void> start(
     ApiClient api, {
@@ -112,9 +127,14 @@ class LocationHeartbeat {
 
   /// Pánico u otra urgencia: alta precisión inmediata durante [_boostFor].
   static void boost() {
+    final wasBoosted = _boosted;
     _boostUntil = DateTime.now().add(_boostFor);
     if (!running) return;
-    _setMoving(true);
+    if (_moving && !wasBoosted) {
+      _startStream();
+    } else {
+      _setMoving(true);
+    }
     unawaited(_push());
   }
 
@@ -156,10 +176,15 @@ class LocationHeartbeat {
         now.difference(_lastMoveAt!) >= _stillAfter) {
       _setMoving(false);
     }
+    // Terminó el refuerzo de pánico: volver al intervalo normal de movimiento.
+    if (_moving && _boostUntil != null && !_boosted) {
+      _boostUntil = null;
+      if (_stream != null) _startStream();
+    }
 
     // Stream sin entregar (OEM agresivo / sin señal): pedir un fix puntual.
     final silentLimit = _moving
-        ? _interval * 3 + const Duration(seconds: 10)
+        ? _movingInterval * 3 + const Duration(seconds: 10)
         : _stillInterval * 3;
     if (_lastFixAt == null || now.difference(_lastFixAt!) >= silentLimit) {
       unawaited(_push());
@@ -188,7 +213,7 @@ class LocationHeartbeat {
         accuracy: accuracy,
         // 0: entrega cada intervalo para detectar quietud; el envío lo decide _onPosition.
         distanceFilter: 0,
-        intervalDuration: _moving ? _interval : _stillInterval,
+        intervalDuration: _moving ? _movingInterval : _stillInterval,
         // El FGS de radio ya notifica; no abrir un segundo servicio de Geolocator.
         forceLocationManager: false,
       );
@@ -282,7 +307,7 @@ class LocationHeartbeat {
 
     final last = _lastSentAt;
     if (last != null) {
-      if (now.difference(last) < _interval * 0.8) return;
+      if (now.difference(last) < _movingInterval * 0.8) return;
       if (_lastLat != null && _lastLng != null) {
         final moved = Geolocator.distanceBetween(
           _lastLat!,
@@ -304,26 +329,34 @@ class LocationHeartbeat {
     if (api == null) return;
     final now = DateTime.now();
     try {
-      await api.postLocation(
-        latitude: pos.latitude,
-        longitude: pos.longitude,
-        accuracyM: pos.accuracy,
-      );
+      var sent = false;
+      final viaSocket = socketSender;
+      if (viaSocket != null) {
+        try {
+          sent = await viaSocket(pos.latitude, pos.longitude, pos.accuracy);
+        } catch (_) {
+          sent = false;
+        }
+      }
+      if (!sent) {
+        await api.postLocation(
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+          accuracyM: pos.accuracy,
+          presence: true,
+        );
+      }
       _lastSentAt = now;
       _lastLat = pos.latitude;
       _lastLng = pos.longitude;
       onFix?.call(true, pos.latitude, pos.longitude, pos.accuracy);
-      // Refuerzo presencia mientras el FGS de ubicación sigue vivo.
-      if (_lastPresenceAt == null ||
-          now.difference(_lastPresenceAt!) >= _presenceGap) {
-        _lastPresenceAt = now;
-        unawaited(
-          api.presenceHeartbeat(
-            // FGS de ubicación: solo focus=service (UI usa socket presence:ping).
-            focus: 'service',
-          ),
-        );
-      }
+      // El FGS omite su latido HTTP mientras las posiciones sigan llegando.
+      unawaited(
+        FlutterForegroundTask.saveData(
+          key: presenceStampKey,
+          value: now.millisecondsSinceEpoch,
+        ).then((_) {}, onError: (_) {}),
+      );
     } catch (_) {
       onFix?.call(false, null, null, null);
     }
@@ -339,7 +372,6 @@ class LocationHeartbeat {
     _starting = false;
     _busy = false;
     _lastSentAt = null;
-    _lastPresenceAt = null;
     _lastFixAt = null;
     _lastLat = null;
     _lastLng = null;

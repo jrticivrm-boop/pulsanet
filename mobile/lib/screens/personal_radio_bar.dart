@@ -252,7 +252,7 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
       await _room?.disconnect();
     } catch (_) {}
     await ChannelSession.current?.resumeAfterPersonalRadio();
-    await AudioSessionSetup.acquireRadio();
+    await ChannelSession.restoreAudioAfterCall();
     if (mounted) widget.onClosed();
   }
 

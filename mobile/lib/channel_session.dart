@@ -16,6 +16,7 @@ import 'app_focus.dart';
 import 'audio_session_setup.dart';
 import 'call_ringtone.dart';
 import 'config.dart';
+import 'cpu_awake.dart';
 import 'duckdns_hairpin.dart';
 import 'incoming_call_wake.dart';
 import 'livekit_e2ee.dart';
@@ -32,6 +33,14 @@ import 'roles.dart';
 import 'screens/group_video_screen.dart';
 
 const _kRadioListenMuteKey = 'tacticalptx_radio_mute';
+
+/// Radio bajo demanda (estilo WAVE PTX): sin salas LiveKit en reposo. La sala de
+/// un canal se conecta al recibir `ptt:speaker` o al pulsar PTT y se cierra tras
+/// [ChannelSession.radioHangSeconds] sin actividad. `false` = salas siempre abiertas.
+const bool kRadioOnDemand = true;
+
+/// Preferencia del cuelgue (segundos) tras la última transmisión.
+const kRadioHangPrefKey = 'tacticalptx_radio_hang_s';
 
 enum PresenceFocus { foreground, background }
 
@@ -259,6 +268,18 @@ class ChannelSession extends ChangeNotifier {
   EventsListener<RoomEvent>? _roomEvents;
   final List<EventsListener<RoomEvent>> _extraRoomEvents = [];
 
+  /// Radio bajo demanda: listener por sala, salas conectándose, cuelgue y tokens.
+  final Map<String, EventsListener<RoomEvent>> _eventsByGroup = {};
+  final Map<String, Future<Room?>> _roomWaking = {};
+  final Map<String, Timer> _roomHang = {};
+  /// Canales con alguien (otro) al aire ahora: su sala no se cierra.
+  final Set<String> _liveGroups = {};
+  final Map<String, ({Map<String, dynamic> lk, DateTime at})> _lkTokens = {};
+  static const _lkTokenTtl = Duration(minutes: 45);
+
+  /// Segundos que la sala sigue abierta tras la última transmisión (2–30).
+  static int radioHangSeconds = 5;
+
   /// Copia local del PTT para RESERVADO (misma API que la consola web).
   final AudioRecorder _pttArchive = AudioRecorder();
   String? _pttArchivePath;
@@ -266,6 +287,8 @@ class ChannelSession extends ChangeNotifier {
   String? _pttArchiveGroupId;
 
   bool connected = false;
+  /// Último corte del socket (para decidir si hay que recargar al volver al frente).
+  DateTime? lastDisconnectAt;
   bool livekitReady = false;
   /// Silencia el audio entrante del canal (sigue en el canal; PTT propio no cambia).
   bool listenMuted = false;
@@ -451,6 +474,13 @@ class ChannelSession extends ChangeNotifier {
       if (room != null) _room = room;
     }
     _armLastHeardExpiry();
+    if (kRadioOnDemand) {
+      _liveGroups.add(gid);
+      if (!_radioPlaybackMuted) {
+        _cancelSleep(gid);
+        unawaited(_wakeRoom(gid));
+      }
+    }
     notifyListeners();
   }
 
@@ -460,8 +490,22 @@ class ChannelSession extends ChangeNotifier {
     return n;
   }
 
+  /// Tras llamada / radio 1:1: sesión de radio solo si hay salas de canal abiertas.
+  static Future<void> restoreAudioAfterCall() async {
+    final s = current;
+    if (kRadioOnDemand && (s == null || s._roomsByGroup.isEmpty || s.listenMuted)) {
+      await AudioSessionSetup.release();
+      return;
+    }
+    await AudioSessionSetup.acquireRadio();
+  }
+
   Future<void> _restoreRadioAudio() async {
     if (PrivateCallGate.uiOpen) return;
+    if (kRadioOnDemand && _roomsByGroup.isEmpty) {
+      await AudioSessionSetup.release();
+      return;
+    }
     try {
       await AudioSessionSetup.acquireRadio();
     } catch (_) {}
@@ -506,6 +550,7 @@ class ChannelSession extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       listenMuted = prefs.getBool(_kRadioListenMuteKey) ?? false;
+      radioHangSeconds = (prefs.getInt(kRadioHangPrefKey) ?? 5).clamp(2, 30);
     } catch (_) {
       listenMuted = false;
     }
@@ -550,13 +595,16 @@ class ChannelSession extends ChangeNotifier {
           _socket!.emit('ptt:join', {
             'groupId': gid,
             'focus': _presenceFocusWire,
+            if (kRadioOnDemand) 'onDemand': true,
           });
         }
+        LocationHeartbeat.socketSender = _sendLocationViaSocket;
         notifyListeners();
         unawaited(_ensureLiveKit());
       })
       ..onDisconnect((_) {
         connected = false;
+        lastDisconnectAt = DateTime.now();
         notifyListeners();
       })
       ..onConnectError((e) async {
@@ -727,6 +775,10 @@ class ChannelSession extends ChangeNotifier {
         if (!_isListenGroup(gid)) return;
         final speaker = m['speaker'] as Map?;
         if (speaker == null) {
+          if (kRadioOnDemand && gid != null) {
+            _liveGroups.remove(gid);
+            _scheduleSleep(gid);
+          }
           if (gid == talkGroupId ||
               gid == lastHeardGroupId ||
               speakerId != null) {
@@ -770,6 +822,16 @@ class ChannelSession extends ChangeNotifier {
         error = null;
         notifyListeners();
         try {
+          if (kRadioOnDemand) {
+            _cancelSleep(talkGroupId);
+            final room = await _wakeRoom(talkGroupId);
+            if (room == null) throw Exception('Sin audio de red. Prueba Wi‑Fi/4G.');
+            _room = room;
+            if (!_pttWantTransmit) {
+              await releasePtt();
+              return;
+            }
+          }
           // Archivo primero (mismo micrófono / sesión de voz); luego LiveKit al aire.
           await _startPttArchive(talkGroupId);
           await _publishMic();
@@ -847,6 +909,10 @@ class ChannelSession extends ChangeNotifier {
       ..on('ptt:released', (data) async {
         final m = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
         final gid = m['groupId']?.toString();
+        if (kRadioOnDemand && gid != null) {
+          _liveGroups.remove(gid);
+          _scheduleSleep(gid);
+        }
         // Quita “quién habla ahora”; el último (60 s) se conserva para contestar.
         if (gid == null ||
             gid == lastHeardGroupId ||
@@ -1131,6 +1197,26 @@ class ChannelSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// GPS por el socket abierto; `false` → LocationHeartbeat usa HTTP.
+  Future<bool> _sendLocationViaSocket(double lat, double lng, double? acc) async {
+    final s = _socket;
+    if (!connected || s == null || !identical(ChannelSession.current, this)) {
+      return false;
+    }
+    try {
+      final res = await s
+          .emitWithAckAsync('location:update', {
+            'latitude': lat,
+            'longitude': lng,
+            'accuracyM': ?acc,
+          })
+          .timeout(const Duration(seconds: 6));
+      return res is Map && res['ok'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _attachGps() async {
     await LocationHeartbeat.start(
       api,
@@ -1166,7 +1252,10 @@ class ChannelSession extends ChangeNotifier {
     if (!_radioDuckedForCall) return;
     _radioDuckedForCall = false;
     await _applyListenMute();
-    if (!listenMuted && livekitReady && !PrivateCallGate.uiOpen) {
+    if (!listenMuted &&
+        livekitReady &&
+        !PrivateCallGate.uiOpen &&
+        (!kRadioOnDemand || _roomsByGroup.isNotEmpty)) {
       try {
         await AudioSessionSetup.acquireRadio();
       } catch (_) {}
@@ -1187,7 +1276,16 @@ class ChannelSession extends ChangeNotifier {
     await _applyListenMute();
     if (muted && !holding) {
       await AudioSessionSetup.release();
-    } else if (!muted && livekitReady && !_radioDuckedForCall) {
+      // Bajo demanda: silenciado = no gastar datos en salas abiertas.
+      if (kRadioOnDemand) {
+        for (final gid in _roomsByGroup.keys.toList()) {
+          _scheduleSleep(gid);
+        }
+      }
+    } else if (!muted &&
+        livekitReady &&
+        !_radioDuckedForCall &&
+        (!kRadioOnDemand || _roomsByGroup.isNotEmpty)) {
       await AudioSessionSetup.acquireRadio();
     }
   }
@@ -1256,6 +1354,17 @@ class ChannelSession extends ChangeNotifier {
   /// Reconexión del socket (cambio de red, pantalla apagada): LiveKit reanuda sus
   /// salas por su cuenta. Rehacerlas todas duplicaba identidades y gastaba datos.
   Future<void> _ensureLiveKit() async {
+    if (kRadioOnDemand) {
+      // Sin salas en reposo: el canal está «listo» con el socket; el token del
+      // canal de PTT se precarga para que la primera conexión sea rápida.
+      if (!livekitReady) {
+        livekitReady = true;
+        error = null;
+        notifyListeners();
+      }
+      unawaited(_liveKitToken(talkGroupId).then((_) {}, onError: (_) {}));
+      return;
+    }
     final talkId = talkGroupId;
     final talk = _roomsByGroup[talkId];
     if (!_roomAlive(talk) || !identical(_room, talk)) {
@@ -1290,8 +1399,118 @@ class ChannelSession extends ChangeNotifier {
     }
   }
 
-  Future<bool> _connectRoom(String gid, {bool isTalk = false}) async {
+  /// Token LiveKit (TTL 1 h en servidor) cacheado 45 min por canal.
+  Future<Map<String, dynamic>> _liveKitToken(String gid) async {
+    final hit = _lkTokens[gid];
+    if (hit != null && DateTime.now().difference(hit.at) < _lkTokenTtl) {
+      return hit.lk;
+    }
     final lk = await api.fetchLiveKitToken(gid);
+    _lkTokens[gid] = (lk: lk, at: DateTime.now());
+    return lk;
+  }
+
+  void _cancelSleep(String gid) {
+    _roomHang.remove(gid)?.cancel();
+  }
+
+  /// Cuelgue: cerrar la sala del canal tras [radioHangSeconds] sin transmisión.
+  void _scheduleSleep(String gid) {
+    if (!kRadioOnDemand) return;
+    _cancelSleep(gid);
+    if (!_roomsByGroup.containsKey(gid) && !_roomWaking.containsKey(gid)) return;
+    _roomHang[gid] = Timer(Duration(seconds: radioHangSeconds), () {
+      _roomHang.remove(gid);
+      unawaited(_sleepRoom(gid));
+    });
+  }
+
+  /// Conecta (o reutiliza) la sala del canal. null si no se pudo.
+  Future<Room?> _wakeRoom(String gid) {
+    final alive = _roomsByGroup[gid];
+    if (_roomAlive(alive)) return Future.value(alive);
+    final pending = _roomWaking[gid];
+    if (pending != null) return pending;
+    final fut = () async {
+      try {
+        if (alive != null) await _sleepRoom(gid, keepAudio: true);
+        if (!_callOwnsAudio() && !holding && !_pttWantTransmit) {
+          await AudioSessionSetup.acquireRadio();
+        }
+        CpuAwake.hold('radio');
+        try {
+          await _connectRoom(gid, isTalk: gid == talkGroupId);
+        } catch (e) {
+          // Token vencido/revocado: un reintento con token nuevo.
+          _lkTokens.remove(gid);
+          if (kDebugMode) debugPrint('LiveKit wake retry [$gid]: $e');
+          await _connectRoom(gid, isTalk: gid == talkGroupId);
+        }
+        final room = _roomsByGroup[gid];
+        if (gid == talkGroupId && room != null) _room = room;
+        await _applyListenMute();
+        if (!holding && !_pttWantTransmit && !_radioPlaybackMuted && !_callOwnsAudio()) {
+          try {
+            await AudioManager.instance.setSpeakerOutputPreferred(true);
+          } catch (_) {}
+        }
+        notifyListeners();
+        // Se reprograma en cada fin de transmisión; aquí cubre «despertó y nadie habló».
+        _roomHang.remove(gid)?.cancel();
+        _roomHang[gid] = Timer(Duration(seconds: radioHangSeconds + 10), () {
+          _roomHang.remove(gid);
+          unawaited(_sleepRoom(gid));
+        });
+        return room;
+      } catch (e) {
+        if (kDebugMode) debugPrint('LiveKit wake fail [$gid]: $e');
+        error = _friendlyLiveKitError(e);
+        if (_roomsByGroup.isEmpty) CpuAwake.release('radio');
+        notifyListeners();
+        return null;
+      } finally {
+        _roomWaking.remove(gid);
+      }
+    }();
+    _roomWaking[gid] = fut;
+    return fut;
+  }
+
+  /// Cierra la sala del canal (fin del cuelgue). Sin salas: suelta audio y CPU.
+  Future<void> _sleepRoom(String gid, {bool keepAudio = false}) async {
+    if (!keepAudio) {
+      if ((holding || _pttWantTransmit) && gid == talkGroupId) return;
+      if (_liveGroups.contains(gid) || _roomWaking.containsKey(gid)) return;
+    }
+    final room = _roomsByGroup.remove(gid);
+    if (room == null) return;
+    final ev = _eventsByGroup.remove(gid);
+    if (ev != null) {
+      _extraRoomEvents.remove(ev);
+      if (identical(_roomEvents, ev)) _roomEvents = null;
+      try {
+        await ev.dispose();
+      } catch (_) {}
+    }
+    if (identical(_room, room)) {
+      _room = null;
+      _mic = null;
+      _micPub = null;
+    }
+    try {
+      room.removeListener(_onRoomChanged);
+      await room.disconnect();
+      await room.dispose();
+    } catch (_) {}
+    if (_roomsByGroup.isEmpty && !keepAudio) {
+      CpuAwake.release('radio');
+      if (!_callOwnsAudio()) await AudioSessionSetup.release();
+    }
+    notifyListeners();
+  }
+
+  Future<bool> _connectRoom(String gid, {bool isTalk = false}) async {
+    final lk = kRadioOnDemand ? await _liveKitToken(gid) : await api.fetchLiveKitToken(gid);
     final e2ee = await buildVoiceE2eeOptions(
       lk['e2eeKey']?.toString(),
       required: lk['e2ee'] == true,
@@ -1302,14 +1521,15 @@ class ChannelSession extends ChangeNotifier {
         dynacast: false,
         encryption: e2ee,
         defaultAudioPublishOptions: const AudioPublishOptions(
-          dtx: false,
+          dtx: true,
           red: false,
           encoding: AudioEncoding.presetSpeech,
         ),
         defaultAudioCaptureOptions: const AudioCaptureOptions(
           echoCancellation: true,
-          noiseSuppression: false,
+          noiseSuppression: true,
           autoGainControl: true,
+          highPassFilter: true,
           stopAudioCaptureOnMute: true,
         ),
       ),
@@ -1330,13 +1550,26 @@ class ChannelSession extends ChangeNotifier {
     } else {
       _extraRoomEvents.add(ev);
     }
+    _eventsByGroup[gid] = ev;
     final lkUrl = AppConfig.publicLiveKitUrl(lk['url'] as String);
     if (kDebugMode) debugPrint('LiveKit connect [$gid] → $lkUrl');
-    await room.connect(
-      lkUrl,
-      lk['token'] as String,
-      connectOptions: const ConnectOptions(autoSubscribe: true),
-    );
+    try {
+      await room.connect(
+        lkUrl,
+        lk['token'] as String,
+        connectOptions: const ConnectOptions(autoSubscribe: true),
+      );
+    } catch (_) {
+      _eventsByGroup.remove(gid);
+      _extraRoomEvents.remove(ev);
+      if (identical(_roomEvents, ev)) _roomEvents = null;
+      try {
+        await ev.dispose();
+        room.removeListener(_onRoomChanged);
+        await room.dispose();
+      } catch (_) {}
+      rethrow;
+    }
     _roomsByGroup[gid] = room;
     if (isTalk) {
       _room = room;
@@ -1442,6 +1675,11 @@ class ChannelSession extends ChangeNotifier {
   }
 
   Future<void> _disposeAllRooms() async {
+    for (final t in _roomHang.values) {
+      t.cancel();
+    }
+    _roomHang.clear();
+    _eventsByGroup.clear();
     await _roomEvents?.dispose();
     _roomEvents = null;
     for (final ev in _extraRoomEvents) {
@@ -1475,7 +1713,7 @@ class ChannelSession extends ChangeNotifier {
       final room = _roomsByGroup[dest];
       if (room != null) {
         _room = room;
-      } else if (!_roomsByGroup.containsKey(dest)) {
+      } else if (!kRadioOnDemand && !_roomsByGroup.containsKey(dest)) {
         // Sala aún no lista: no pedir floor a ciegas.
         error = 'Audio de «${_nameForGroup(dest)}» aún no listo';
         notifyListeners();
@@ -1483,6 +1721,11 @@ class ChannelSession extends ChangeNotifier {
       }
     }
     _pttWantTransmit = true;
+    if (kRadioOnDemand) {
+      // Conectar la sala en paralelo al bip y al pedido de floor.
+      _cancelSleep(talkGroupId);
+      unawaited(_wakeRoom(talkGroupId));
+    }
     // Bip primero (players lowLatency); luego voz — evita que acquireVoice mutee el cue.
     await playPttPressTone();
     // Si soltó durante el bip, no pedir floor (releasePtt ya limpió).
@@ -1521,6 +1764,7 @@ class ChannelSession extends ChangeNotifier {
     }
     _socket?.emit('ptt:release', {'groupId': talkGroupId});
     await _restoreRadioAudio();
+    if (kRadioOnDemand) _scheduleSleep(talkGroupId);
     notifyListeners();
   }
 
@@ -1555,8 +1799,9 @@ class ChannelSession extends ChangeNotifier {
       final mic = await LocalAudioTrack.create(
         const AudioCaptureOptions(
           echoCancellation: true,
-          noiseSuppression: false,
+          noiseSuppression: true,
           autoGainControl: true,
+          highPassFilter: true,
           stopAudioCaptureOnMute: true,
         ),
       );
@@ -1565,7 +1810,7 @@ class ChannelSession extends ChangeNotifier {
       _micPub = await lp.publishAudioTrack(
         mic,
         publishOptions: const AudioPublishOptions(
-          dtx: false,
+          dtx: true,
           red: false,
           encoding: AudioEncoding.presetSpeech,
           name: 'ptt',
@@ -2285,9 +2530,17 @@ class ChannelSession extends ChangeNotifier {
     for (final gid in listenGroupIds) {
       _socket?.emit('ptt:leave', {'groupId': gid});
     }
+    if (LocationHeartbeat.socketSender == _sendLocationViaSocket) {
+      LocationHeartbeat.socketSender = null;
+    }
+    for (final t in _roomHang.values) {
+      t.cancel();
+    }
+    _roomHang.clear();
     _socket?.dispose();
     _socket = null;
     await _disposeAllRooms();
+    CpuAwake.release('radio');
     await AudioSessionSetup.release();
     try {
       await NativeAudioMode.ensureNormal();

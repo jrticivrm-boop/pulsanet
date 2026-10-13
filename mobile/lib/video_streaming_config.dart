@@ -1,7 +1,7 @@
 import 'package:livekit_client/livekit_client.dart';
 
 /// Calidad despacho / 1:1: 720p @ ~3.2 Mbps, 30 FPS, VP8, sin simulcast.
-/// Audio alineado con PTT: sin NS agresivo ni DTX (más nítido, menos metálico).
+/// Audio alineado con PTT: NS + paso alto contra el siseo, DTX para ahorrar datos.
 const int kStreamFps = 30;
 const int kStreamMaxBitrate = 3200 * 1000;
 
@@ -23,16 +23,19 @@ CameraCaptureOptions streamingCameraCapture({
 
 final CameraCaptureOptions kStreamingCameraCapture = streamingCameraCapture();
 
-/// Captura de micrófono táctica (llamadas / PTT): AEC+AGC, sin NS agresivo.
+/// Captura de micrófono (llamadas): AEC+AGC con supresión de ruido y filtro paso
+/// alto (el AGC sin NS amplificaba el siseo de fondo). Silenciar suelta el micrófono.
 const AudioCaptureOptions kCallAudioCapture = AudioCaptureOptions(
   echoCancellation: true,
-  noiseSuppression: false,
+  noiseSuppression: true,
   autoGainControl: true,
-  stopAudioCaptureOnMute: false,
+  highPassFilter: true,
+  stopAudioCaptureOnMute: true,
 );
 
+/// DTX: no se envían paquetes en silencio (menos datos móviles).
 const AudioPublishOptions kCallAudioPublish = AudioPublishOptions(
-  dtx: false,
+  dtx: true,
   red: false,
   encoding: AudioEncoding.presetSpeech,
 );
