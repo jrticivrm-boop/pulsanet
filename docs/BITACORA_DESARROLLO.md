@@ -1,3 +1,13 @@
+## 2026-10-13 — Producción: GPS app, avatares rápidos y deseleccionar en consola; APK 1.8.191+201
+
+- **Tipo:** ops
+- **Área:** infra | backend | web | mobile
+- **Qué:**
+  - Por orden del usuario (06:54, dentro de ventana): `PROMOVER -A pruebas` → `PRUEBAS.ps1` (pruebas en `32cc022`) → VERIFICAR-PRUEBAS (listo; aviso: copia de BD con 15 días) → `PROMOVER -A produccion`. `main` `5d204f4` → `32cc022` (2 commits); reconstruyó **api + web**; sin migraciones. 14 usuarios activos al momento.
+  - Etiqueta `prod-v1.8.107-20261013-0655`. Health OK (BD, Redis, LiveKit, FCM `configured`); web 200; `/api/avatars/file/*` responde (401 sin sesión).
+  - APK recompilada: `C:\pulsanet_soporte\APK\SICOM-1.8.191+201.apk` (también `SICOM-latest.apk`); sin OTA.
+- **Archivos / refs:** `C:\pulsanet_soporte\Pruebas\_promover_20261013_gps_avatares.log`, `/opt/respaldos/deploys.log`
+
 ## 2026-10-13 — Seguimiento GPS app rediseñado, avatares rápidos y deseleccionar en consola
 
 - **Tipo:** ux

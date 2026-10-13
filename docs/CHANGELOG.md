@@ -15,7 +15,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > PTT que despierta radios, notificaciones nuevas, batería y hoja de alerta desplegados el 2026-10-12 (`prod-v1.8.107-20261012-2244`, API + web). APK Android **1.8.187+197**, ahora generada como `SICOM-1.8.187+197.apk`.
 > Alerta con motivo/acciones/cámara en vivo y notificaciones nativas de mensajes desplegadas el 2026-10-13 (`prod-v1.8.107-20261013-0006`, API + web). APK Android **1.8.189+199** (`SICOM-1.8.189+199.apk`).
 > Buscador y alta masiva de integrantes de canal desplegados el 2026-10-13 (`prod-v1.8.107-20261013-0048`, API + web). APK Android **1.8.190+200** (`SICOM-1.8.190+200.apk`, sin píldora de alerta activa).
-> Pendiente de desplegar: deseleccionar operador en consola, avatares más rápidos y nuevo Seguimiento GPS en app (APK **1.8.191+201**).
+> Deseleccionar operador en consola, avatares más rápidos y nuevo Seguimiento GPS en app desplegados el 2026-10-13 (`prod-v1.8.107-20261013-0655`, API + web). APK Android **1.8.191+201** (`SICOM-1.8.191+201.apk`).
 
 ### Changed
 - **App — Seguimiento GPS rediseñado:** seguir a alguien se suelta al mover o hacer zoom con el dedo (botón «Volver a seguir»); tocar el mapa vacío, el encabezado o de nuevo a la persona la deselecciona. La ficha muestra foto, cargo, estado, coordenadas (toque para copiar) y botones Seguir / Centrar / Ruta 8 h / Contactar. Filtro, cámara, selección, estilo y lista se conservan al cambiar a Chats o Radio y al reabrir la app; el filtro ya no cambia solo con el canal de Radio.
