@@ -10,6 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 > Desplegado en producción el 2026-10-12 (`prod-v1.8.107-20261012-1810`, API + web). APK Android **1.8.183+193**.
+> Teléfono de usuarios (migración 040) y fusión Consola + Seguimiento desplegados el 2026-10-12 (`prod-v1.8.107-20261012-2053`).
 
 ### Security
 - **Cámara remota:** solo administradores de consola pueden activarla y solo sobre usuarios dentro de su alcance de seguimiento (antes cualquier usuario de la organización).

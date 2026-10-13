@@ -1,3 +1,12 @@
+## 2026-10-12 — Producción: Consola + Seguimiento y teléfono de usuarios (con migración)
+
+- **Tipo:** ops
+- **Área:** infra | database | backend | web
+- **Qué:**
+  - Por orden del usuario (20:53, fuera de ventana, autorizado «ahora»): `PROMOVER -A pruebas` → `PRUEBAS.ps1` (migración 040 OK sobre la copia) → VERIFICAR-PRUEBAS (listo; avisos: copia de BD con 15 días, migración nueva) → `PROMOVER -A produccion -Migrate`. `main` → `ffcbf6f`; reconstruyó **api + web**; migración `040_user_phone.sql` aplicada.
+  - Respaldo previo `/opt/respaldos/pre_deploy_20261013_025258.dump` (50 MB). Etiqueta `prod-v1.8.107-20261012-2053`. Health OK; log de API limpio. 19 usuarios activos al momento (corte breve de PTT).
+- **Archivos / refs:** `C:\pulsanet_soporte\Pruebas\_promover_20261012_consola.log`, `/opt/respaldos/deploys.log`
+
 ## 2026-10-12 — Consola de Operaciones absorbe Seguimiento (lista de operadores)
 
 - **Tipo:** feature
