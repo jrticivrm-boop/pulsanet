@@ -15,6 +15,14 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > PTT que despierta radios, notificaciones nuevas, batería y hoja de alerta desplegados el 2026-10-12 (`prod-v1.8.107-20261012-2244`, API + web). APK Android **1.8.187+197**, ahora generada como `SICOM-1.8.187+197.apk`.
 > Alerta con motivo/acciones/cámara en vivo y notificaciones nativas de mensajes desplegadas el 2026-10-13 (`prod-v1.8.107-20261013-0006`, API + web). APK Android **1.8.189+199** (`SICOM-1.8.189+199.apk`).
 > Buscador y alta masiva de integrantes de canal desplegados el 2026-10-13 (`prod-v1.8.107-20261013-0048`, API + web). APK Android **1.8.190+200** (`SICOM-1.8.190+200.apk`, sin píldora de alerta activa).
+> Pendiente de desplegar: deseleccionar operador en consola, avatares más rápidos y nuevo Seguimiento GPS en app (APK **1.8.191+201**).
+
+### Changed
+- **App — Seguimiento GPS rediseñado:** seguir a alguien se suelta al mover o hacer zoom con el dedo (botón «Volver a seguir»); tocar el mapa vacío, el encabezado o de nuevo a la persona la deselecciona. La ficha muestra foto, cargo, estado, coordenadas (toque para copiar) y botones Seguir / Centrar / Ruta 8 h / Contactar. Filtro, cámara, selección, estilo y lista se conservan al cambiar a Chats o Radio y al reabrir la app; el filtro ya no cambia solo con el canal de Radio.
+- **App — «Capas» sustituido por «Mapa»:** estilos Calles / Satélite / Claro, mostrar u ocultar ausentes y desconectados, y nombres siempre o al acercar. Se retiraron estados IV R.M., sitios tácticos y huecos OSRM; la ruta de 8 h se pide desde la ficha. Botón «Ver a todos».
+- **App — avatares:** iniciales al instante mientras carga, foto guardada en disco mostrada de inmediato (se revalida en segundo plano), caché compartido Wi-Fi/datos y más grande, y fotos decodificadas al tamaño del círculo.
+- **Consola web — operador seleccionado:** se deselecciona y deja de seguir al hacer clic en el mapa vacío o fuera del mapa, con Esc, con otro clic en el mismo operador o con la «×» de la ficha; arrastrar el mapa deja de seguir.
+- **Web — subida de fotos de perfil y canal:** se reducen en el navegador (máx. 640 px) antes de subirlas; el servidor sirve cada foto con caché de 7 días.
 
 ### Security
 - **Cámara remota:** solo administradores de consola pueden activarla y solo sobre usuarios dentro de su alcance de seguimiento (antes cualquier usuario de la organización).

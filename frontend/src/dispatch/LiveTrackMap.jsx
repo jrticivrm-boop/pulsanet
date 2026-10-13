@@ -40,7 +40,7 @@ import { MapMaximizeNearZoom } from './MapMaximizeButton.jsx';
 import { useMapViewportMaximize } from './useMapViewportMaximize.js';
 import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
-import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, focusFromSearchParams, loadMapView, PersistMapView, CargoZoomGate, FollowSelected, FlyToFocus } from './mapLeafletUtils.jsx';
+import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, focusFromSearchParams, loadMapView, PersistMapView, CargoZoomGate, FollowSelected, FlyToFocus, MapSelectionEvents, useDeselectOutside } from './mapLeafletUtils.jsx';
 import OperatorRoster from './OperatorRoster.jsx';
 import { ClusteredLocationLayer } from './ClusteredLocationLayer.jsx';
 import { socketWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
@@ -662,6 +662,12 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
     setFocusPin(null);
   }
 
+  const clearSelection = useCallback(() => {
+    setSelectedId('');
+    setFollow(false);
+  }, []);
+  useDeselectOutside(Boolean(selectedId), clearSelection);
+
   function toggleSheet() {
     setSheetOpen((prev) => {
       const next = !prev;
@@ -702,6 +708,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
         onQueryChange={setQuery}
         selectedId={selectedId}
         onSelect={focusPerson}
+        onClear={clearSelection}
         follow={follow}
         onFollowChange={setFollow}
         open={sheetOpen}
@@ -799,6 +806,11 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
           <FollowSelected
             target={followTarget}
             enabled={Boolean(selectedId && follow && !focusLock)}
+          />
+          <MapSelectionEvents
+            enabled={Boolean(selectedId)}
+            onEmptyClick={clearSelection}
+            onUserMove={() => setFollow(false)}
           />
           {!selectedId && !focusPin && !savedView && people.length > 0 && (
             <FitPeople

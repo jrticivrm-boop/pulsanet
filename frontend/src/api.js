@@ -1,5 +1,6 @@
 import { esMsg } from './esMsg';
 import { getDeviceId } from './deviceId';
+import { shrinkAvatarFile } from './avatarResize.js';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const STORAGE_KEY = 'tacticalptx_session';
@@ -844,7 +845,7 @@ export function mapPersonAvatarUrl(person, tokenOrSession) {
 
 export async function uploadMyAvatar(token, file) {
   const form = new FormData();
-  form.append('avatar', file);
+  form.append('avatar', await shrinkAvatarFile(file));
   const res = await fetch(`${API_BASE}/api/me/avatar`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
@@ -861,7 +862,7 @@ export function deleteMyAvatar(token) {
 
 export async function uploadGroupAvatar(token, groupId, file) {
   const form = new FormData();
-  form.append('avatar', file);
+  form.append('avatar', await shrinkAvatarFile(file));
   const res = await fetch(`${API_BASE}/api/admin/groups/${encodeURIComponent(groupId)}/avatar`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },

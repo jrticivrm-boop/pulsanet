@@ -93,6 +93,72 @@ export function FollowSelected({ target, enabled }) {
   return null;
 }
 
+/**
+ * Clic en zona vacía del mapa → `onEmptyClick`; arrastre del usuario → `onUserMove`.
+ * Los marcadores no propagan su clic al mapa, así que tocar un pin no deselecciona.
+ */
+export function MapSelectionEvents({ enabled = true, onEmptyClick, onUserMove }) {
+  const map = useMap();
+  const cbs = useRef({ onEmptyClick, onUserMove, enabled });
+  cbs.current = { onEmptyClick, onUserMove, enabled };
+  useEffect(() => {
+    const click = () => {
+      if (cbs.current.enabled) cbs.current.onEmptyClick?.();
+    };
+    const drag = () => cbs.current.onUserMove?.();
+    map.on('click', click);
+    map.on('dragstart', drag);
+    return () => {
+      map.off('click', click);
+      map.off('dragstart', drag);
+    };
+  }, [map]);
+  return null;
+}
+
+const KEEP_SELECTION_SELECTOR = [
+  '.leaflet-container',
+  '.ops-roster',
+  '.lt-sheet',
+  'button',
+  'a',
+  'input',
+  'select',
+  'textarea',
+  'label',
+  '[role="button"]',
+  '[role="dialog"]',
+  '[role="menu"]',
+  '[role="listbox"]',
+  '.sys-modal-backdrop',
+].join(',');
+
+/**
+ * Quita la selección con Esc o con un clic en una parte no interactiva de la página
+ * (fuera del mapa y de la lista). Los controles de la consola no la quitan.
+ */
+export function useDeselectOutside(active, onClear) {
+  const cb = useRef(onClear);
+  cb.current = onClear;
+  useEffect(() => {
+    if (!active) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) cb.current?.();
+    };
+    const onDown = (e) => {
+      const t = e.target;
+      if (!(t instanceof Element) || t.closest(KEEP_SELECTION_SELECTOR)) return;
+      cb.current?.();
+    };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onDown, true);
+    };
+  }, [active]);
+}
+
 /** Acerca suave a un punto (alerta de pánico / operador elegido) sin arco de flyTo. */
 export function FlyToFocus({ target }) {
   const map = useMap();

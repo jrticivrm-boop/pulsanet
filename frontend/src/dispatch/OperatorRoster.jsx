@@ -25,6 +25,7 @@ export default function OperatorRoster({
   onQueryChange,
   selectedId,
   onSelect,
+  onClear = null,
   follow,
   onFollowChange,
   open,
@@ -112,7 +113,10 @@ export default function OperatorRoster({
                 <button
                   type="button"
                   className={`lt-person${selectedId === p.userId ? ' selected' : ''}`}
-                  onClick={() => onSelect(p)}
+                  aria-pressed={selectedId === p.userId}
+                  onClick={() =>
+                    selectedId === p.userId && onClear ? onClear() : onSelect(p)
+                  }
                 >
                   <span className={`lt-avatar${fresh ? ' live' : ''}`}>
                     {photo ? <img src={photo} alt="" /> : (p.displayName || '?').charAt(0).toUpperCase()}
@@ -147,6 +151,17 @@ export default function OperatorRoster({
                 />
                 Seguir
               </label>
+              {onClear ? (
+                <button
+                  type="button"
+                  className="lt-detail-close"
+                  onClick={onClear}
+                  title="Quitar selección (Esc)"
+                  aria-label="Quitar selección"
+                >
+                  ×
+                </button>
+              ) : null}
             </div>
             <p>
               <MapCoordsLink lat={selected.latitude} lng={selected.longitude} />

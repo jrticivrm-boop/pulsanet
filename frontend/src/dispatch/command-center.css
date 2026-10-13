@@ -5699,6 +5699,29 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   flex-shrink: 0;
   font-size: 0.78rem;
 }
+.lt-detail-head > strong {
+  flex: 1;
+  min-width: 0;
+}
+.lt-detail-close {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid var(--cc-border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--cc-muted);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.lt-detail-close:hover {
+  color: var(--cc-text);
+  background: color-mix(in srgb, var(--cc-text) 8%, transparent);
+}
 
 .lt-max-btn {
   flex-shrink: 0;

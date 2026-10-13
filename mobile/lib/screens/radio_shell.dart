@@ -1825,7 +1825,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
                       try {
                         await widget.api.clearAvatar();
                         if (!mounted) return;
-                        AvatarBytesCache.clear();
+                        _forgetOwnAvatar();
                         setState(() {});
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Icono restablecido')),
@@ -1977,7 +1977,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
         await widget.api.ensureAvatarTicket(force: true);
         if (!mounted) return;
         Navigator.of(context, rootNavigator: true).pop(); // loading
-        AvatarBytesCache.clear();
+        _forgetOwnAvatar();
         PaintingBinding.instance.imageCache.clear();
         PaintingBinding.instance.imageCache.clearLiveImages();
         setState(() {});
@@ -2129,6 +2129,17 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
   }
 
   bool get _showGpsTab => canViewGpsTrack(widget.api.user);
+
+  /// Tras cambiar/quitar mi foto: solo invalida mis entradas, no la caché de todos.
+  void _forgetOwnAvatar() {
+    final id = widget.api.user?['id']?.toString();
+    for (final url in [
+      widget.api.peerAvatarNetworkUrl(id),
+      widget.api.avatarNetworkUrl(),
+    ]) {
+      if (url != null && url.isNotEmpty) AvatarBytesCache.remove(url);
+    }
+  }
 
   String get _locationMenuLabel =>
       _showGpsTab ? 'Seguimiento GPS' : 'Ubicación GPS';

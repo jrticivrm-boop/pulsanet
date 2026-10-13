@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -24,97 +25,183 @@ String userAvatarInitials(String? name) {
 }
 
 /// Cache de avatares descargados con Bearer (Image.network falla con auth).
-/// Memoria + disco (revalidación con ETag → 304 sin cuerpo) para no
-/// re-descargar fotos en cada pantalla / arranque con datos móviles.
+/// Memoria (LRU) + disco. Lo guardado se muestra al instante y se revalida en
+/// segundo plano (ETag → 304); «sin foto» (404) se recuerda en disco para no
+/// pedirlo en cada pantalla. La clave es la ruta `/api/avatars/...` sin host,
+/// así Wi‑Fi (IP LAN) y datos (dominio) comparten la misma copia.
 class AvatarBytesCache {
   AvatarBytesCache._();
-  static final Map<String, Uint8List> _byUrl = {};
+  static final LinkedHashMap<String, Uint8List> _byKey = LinkedHashMap();
   static final Map<String, Future<Uint8List?>> _inflight = {};
   static final Map<String, DateTime> _failedAt = {};
-  static const _failRetry = Duration(minutes: 5);
+  static final Map<String, DateTime> _missingAt = {};
+  static final Set<String> _revalidating = {};
+  static final StreamController<String> _updates =
+      StreamController<String>.broadcast();
+  static const _maxInMemory = 300;
+  static const _failRetry = Duration(minutes: 2);
+  static const _missingTtl = Duration(hours: 6);
   /// Igual que `Cache-Control: max-age=3600` del servidor.
   static const _diskFresh = Duration(hours: 1);
+  static const _fileFresh = Duration(days: 7);
+  static const _netTimeout = Duration(seconds: 15);
   static final http.Client _http =
       IOClient(HttpClient()..idleTimeout = const Duration(seconds: 75));
   static Directory? _dir;
 
-  static Uint8List? get(String url) => _byUrl[url];
+  /// Emite la clave ([keyFor]) cuando una foto cambió tras revalidar.
+  static Stream<String> get updates => _updates.stream;
 
-  static void put(String url, Uint8List bytes) {
-    if (_byUrl.length > 80) {
-      _byUrl.remove(_byUrl.keys.first);
+  static String keyFor(String url) {
+    final u = Uri.tryParse(url);
+    if (u == null || u.path.isEmpty) return url;
+    return u.path;
+  }
+
+  static Uint8List? get(String url) {
+    final k = keyFor(url);
+    final hit = _byKey.remove(k);
+    if (hit != null) _byKey[k] = hit;
+    return hit;
+  }
+
+  /// true si el servidor dijo «sin foto» hace poco: mostrar iniciales sin pedir.
+  static bool isMissing(String url) {
+    final at = _missingAt[keyFor(url)];
+    return at != null && DateTime.now().difference(at) < _missingTtl;
+  }
+
+  static void put(String url, Uint8List bytes) => _putKey(keyFor(url), bytes);
+
+  static void _putKey(String k, Uint8List bytes) {
+    _byKey.remove(k);
+    _byKey[k] = bytes;
+    while (_byKey.length > _maxInMemory) {
+      _byKey.remove(_byKey.keys.first);
     }
-    _byUrl[url] = bytes;
-    _failedAt.remove(url);
+    _failedAt.remove(k);
+    _missingAt.remove(k);
   }
 
   static void remove(String url) {
-    _byUrl.remove(url);
-    _failedAt.remove(url);
-    unawaited(_diskFile(url).then((f) async {
-      for (final x in [f, File('${f.path}.etag')]) {
+    final k = keyFor(url);
+    _byKey.remove(k);
+    _failedAt.remove(k);
+    _missingAt.remove(k);
+    unawaited(_diskFile(k).then((f) async {
+      for (final x in [f, File('${f.path}.etag'), File('${f.path}.none')]) {
         if (await x.exists()) await x.delete();
       }
     }).catchError((_) {}));
+    _updates.add(k);
   }
 
   static void clear() {
-    _byUrl.clear();
+    _byKey.clear();
     _failedAt.clear();
+    _missingAt.clear();
     unawaited(_avatarDir().then((d) async {
       if (await d.exists()) await d.delete(recursive: true);
       _dir = null;
     }).catchError((_) {}));
   }
 
-  /// Bytes del avatar: memoria → disco (≤1 h) → red condicional. null si no hay.
+  /// Bytes del avatar: memoria → disco (al instante) → red. null si no hay foto.
   static Future<Uint8List?> load(String url, {String? auth}) {
-    final hit = _byUrl[url];
+    final k = keyFor(url);
+    final hit = get(url);
     if (hit != null) return Future.value(hit);
-    final failed = _failedAt[url];
+    if (isMissing(url)) return Future.value(null);
+    final failed = _failedAt[k];
     if (failed != null && DateTime.now().difference(failed) < _failRetry) {
       return Future.value(null);
     }
-    final pending = _inflight[url];
+    final pending = _inflight[k];
     if (pending != null) return pending;
-    final fut = _loadUncached(url, auth).whenComplete(() => _inflight.remove(url));
-    _inflight[url] = fut;
+    final fut =
+        _loadUncached(url, k, auth).whenComplete(() => _inflight.remove(k));
+    _inflight[k] = fut;
     return fut;
   }
 
-  static Future<Uint8List?> _loadUncached(String url, String? auth) async {
+  static Future<Uint8List?> _loadUncached(
+    String url,
+    String k,
+    String? auth,
+  ) async {
     File? file;
-    Uint8List? disk;
-    String? etag;
     try {
-      file = await _diskFile(url);
+      file = await _diskFile(k);
       if (await file.exists()) {
-        disk = await file.readAsBytes();
-        final age = DateTime.now().difference(await file.lastModified());
-        if (disk.isNotEmpty && age < _diskFresh) {
-          put(url, disk);
+        final disk = await file.readAsBytes();
+        if (disk.isNotEmpty) {
+          _putKey(k, disk);
+          final age = DateTime.now().difference(await file.lastModified());
+          // `/api/avatars/file/<uuid>` no cambia nunca (cada subida = nombre nuevo).
+          final fresh =
+              k.contains('/avatars/file/') ? _fileFresh : _diskFresh;
+          if (age >= fresh) unawaited(_revalidate(url, k, auth, file, disk));
           return disk;
         }
-        final tagFile = File('${file.path}.etag');
-        if (await tagFile.exists()) etag = (await tagFile.readAsString()).trim();
+      }
+      final none = File('${file.path}.none');
+      if (await none.exists()) {
+        final at = await none.lastModified();
+        if (DateTime.now().difference(at) < _missingTtl) {
+          _missingAt[k] = at;
+          return null;
+        }
       }
     } catch (_) {}
+    return _fetch(url, k, auth, file, null, null);
+  }
+
+  static Future<void> _revalidate(
+    String url,
+    String k,
+    String? auth,
+    File file,
+    Uint8List disk,
+  ) async {
+    if (!_revalidating.add(k)) return;
+    try {
+      String? etag;
+      try {
+        final tagFile = File('${file.path}.etag');
+        if (await tagFile.exists()) etag = (await tagFile.readAsString()).trim();
+      } catch (_) {}
+      final fresh = await _fetch(url, k, auth, file, disk, etag);
+      if (!identical(fresh, disk)) _updates.add(k);
+    } finally {
+      _revalidating.remove(k);
+    }
+  }
+
+  static Future<Uint8List?> _fetch(
+    String url,
+    String k,
+    String? auth,
+    File? file,
+    Uint8List? disk,
+    String? etag,
+  ) async {
     try {
       final res = await _http.get(Uri.parse(url), headers: {
         if (auth != null && auth.isNotEmpty) 'Authorization': auth,
         if (disk != null && disk.isNotEmpty && etag != null && etag.isNotEmpty)
           'If-None-Match': etag,
-      });
+      }).timeout(_netTimeout);
       if (res.statusCode == 304 && disk != null && disk.isNotEmpty) {
-        put(url, disk);
         try {
           await file?.setLastModified(DateTime.now());
         } catch (_) {}
         return disk;
       }
-      if (res.statusCode >= 200 && res.statusCode < 300 && res.bodyBytes.isNotEmpty) {
+      if (res.statusCode >= 200 &&
+          res.statusCode < 300 &&
+          res.bodyBytes.isNotEmpty) {
         final bytes = res.bodyBytes;
-        put(url, bytes);
+        _putKey(k, bytes);
         try {
           await file?.writeAsBytes(bytes, flush: false);
           final tag = res.headers['etag'];
@@ -124,38 +211,43 @@ class AvatarBytesCache {
           } else if (tagFile != null && await tagFile.exists()) {
             await tagFile.delete();
           }
+          final none = file == null ? null : File('${file.path}.none');
+          if (none != null && await none.exists()) await none.delete();
         } catch (_) {}
         return bytes;
       }
       if (res.statusCode == 404) {
+        _byKey.remove(k);
+        _missingAt[k] = DateTime.now();
         try {
-          if (file != null && await file.exists()) await file.delete();
+          if (file != null) {
+            if (await file.exists()) await file.delete();
+            await File('${file.path}.none').writeAsString('');
+          }
         } catch (_) {}
+        return null;
       }
     } catch (_) {
       // Sin red: mejor la foto vieja que las iniciales.
-      if (disk != null && disk.isNotEmpty) {
-        put(url, disk);
-        return disk;
-      }
     }
-    _failedAt[url] = DateTime.now();
+    if (disk != null && disk.isNotEmpty) return disk;
+    _failedAt[k] = DateTime.now();
     return null;
   }
 
   static Future<Directory> _avatarDir() async {
     final cached = _dir;
     if (cached != null) return cached;
-    final base = await getTemporaryDirectory();
+    final base = await getApplicationSupportDirectory();
     final d = Directory('${base.path}${Platform.pathSeparator}avatars');
     if (!await d.exists()) await d.create(recursive: true);
     _dir = d;
     return d;
   }
 
-  static Future<File> _diskFile(String url) async {
+  static Future<File> _diskFile(String key) async {
     final d = await _avatarDir();
-    final name = sha1.convert(utf8.encode(url)).toString();
+    final name = sha1.convert(utf8.encode(key)).toString();
     return File('${d.path}${Platform.pathSeparator}$name.img');
   }
 }
@@ -387,10 +479,12 @@ class _UserAvatarState extends State<UserAvatar> {
   Uint8List? _bytes;
   bool _loading = false;
   String? _loadedFor;
+  StreamSubscription<String>? _updatesSub;
 
   @override
   void initState() {
     super.initState();
+    _updatesSub = AvatarBytesCache.updates.listen(_onCacheUpdate);
     final url = widget.avatarUrl;
     if (url == null || url.isEmpty) return;
     final cached = AvatarBytesCache.get(url);
@@ -399,7 +493,21 @@ class _UserAvatarState extends State<UserAvatar> {
       _loadedFor = url;
       return;
     }
+    if (AvatarBytesCache.isMissing(url)) return;
     _fetch(url);
+  }
+
+  void _onCacheUpdate(String key) {
+    final url = widget.avatarUrl;
+    if (!mounted || url == null || url.isEmpty) return;
+    if (AvatarBytesCache.keyFor(url) != key) return;
+    setState(() => _bytes = AvatarBytesCache.get(url));
+  }
+
+  @override
+  void dispose() {
+    _updatesSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -435,6 +543,7 @@ class _UserAvatarState extends State<UserAvatar> {
       _bytes = null;
       _loadedFor = null;
     });
+    if (AvatarBytesCache.isMissing(url)) return;
     _fetch(url);
   }
 
@@ -511,41 +620,24 @@ class _UserAvatarState extends State<UserAvatar> {
   Widget build(BuildContext context) {
     final photo = widget.avatarUrl;
     final size = widget.radius * 2;
-    final bg = widget.group
-        ? kInstOlive.withValues(alpha: 0.18)
-        : kRadioBlue.withValues(alpha: 0.15);
-    final fg = widget.group ? kInstOlive : kRadioBlue;
 
     Widget face;
-    if (photo == null || photo.isEmpty) {
+    if (photo == null || photo.isEmpty || _bytes == null) {
+      // Mientras carga: iniciales (sin spinner) para no ensuciar listas largas.
       face = _initials();
-    } else if (_bytes != null) {
+    } else {
+      final px = (size * MediaQuery.devicePixelRatioOf(context)).round();
       face = ClipOval(
         child: Image.memory(
           _bytes!,
           width: size,
           height: size,
+          cacheWidth: px,
           fit: BoxFit.cover,
           gaplessPlayback: true,
+          errorBuilder: (_, _, _) => _initials(),
         ),
       );
-    } else if (_loading) {
-      face = SizedBox(
-        width: size,
-        height: size,
-        child: DecoratedBox(
-          decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-          child: Center(
-            child: SizedBox(
-              width: widget.radius * 0.7,
-              height: widget.radius * 0.7,
-              child: CircularProgressIndicator(strokeWidth: 2, color: fg),
-            ),
-          ),
-        ),
-      );
-    } else {
-      face = _initials();
     }
 
     if (!widget.previewOnTap) return face;

@@ -43,6 +43,7 @@ class _GpsMapPinState extends State<GpsMapPin>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulse;
   Uint8List? _bytes;
+  StreamSubscription<String>? _updatesSub;
 
   @override
   void initState() {
@@ -52,7 +53,14 @@ class _GpsMapPinState extends State<GpsMapPin>
       duration: const Duration(milliseconds: 1800),
     );
     if (widget.live || widget.panic) _pulse.repeat();
-    unawaited(_loadPhoto());
+    final url = widget.photoUrl;
+    if (url != null && url.isNotEmpty) _bytes = AvatarBytesCache.get(url);
+    _updatesSub = AvatarBytesCache.updates.listen((key) {
+      final u = widget.photoUrl;
+      if (!mounted || u == null || AvatarBytesCache.keyFor(u) != key) return;
+      setState(() => _bytes = AvatarBytesCache.get(u));
+    });
+    if (_bytes == null) unawaited(_loadPhoto());
   }
 
   @override
@@ -92,6 +100,7 @@ class _GpsMapPinState extends State<GpsMapPin>
 
   @override
   void dispose() {
+    _updatesSub?.cancel();
     _pulse.dispose();
     super.dispose();
   }
@@ -206,7 +215,13 @@ class _GpsMapPinState extends State<GpsMapPin>
                     ],
                     image: _bytes != null
                         ? DecorationImage(
-                            image: MemoryImage(_bytes!),
+                            image: ResizeImage(
+                              MemoryImage(_bytes!),
+                              width: (face *
+                                      MediaQuery.devicePixelRatioOf(context))
+                                  .round(),
+                              policy: ResizeImagePolicy.fit,
+                            ),
                             fit: BoxFit.cover,
                           )
                         : null,

@@ -75,6 +75,8 @@ import {
   FollowSelected,
   FlyToFocus,
   focusFromSearchParams,
+  MapSelectionEvents,
+  useDeselectOutside,
 } from './mapLeafletUtils.jsx';
 import { ClusteredLocationLayer } from './ClusteredLocationLayer.jsx';
 import OperatorRoster from './OperatorRoster.jsx';
@@ -2063,6 +2065,12 @@ export default function DispatchMap({ session }) {
     window.setTimeout(() => setFocusLock(false), 1100);
   }
 
+  const clearSelection = useCallback(() => {
+    setSelectedId('');
+    setFollow(false);
+  }, []);
+  useDeselectOutside(Boolean(selectedId), clearSelection);
+
   function toggleRoster() {
     setRosterOpen((prev) => {
       const next = !prev;
@@ -3320,6 +3328,7 @@ export default function DispatchMap({ session }) {
           onQueryChange={setRosterQuery}
           selectedId={selectedId}
           onSelect={focusOperator}
+          onClear={clearSelection}
           follow={follow}
           onFollowChange={setFollow}
           open={rosterOpen}
@@ -3432,6 +3441,11 @@ export default function DispatchMap({ session }) {
           <FollowSelected
             target={followTarget}
             enabled={Boolean(selectedId && follow && !focusLock)}
+          />
+          <MapSelectionEvents
+            enabled={Boolean(selectedId) && !(fenceFormOpen && fixOnMap)}
+            onEmptyClick={clearSelection}
+            onUserMove={() => setFollow(false)}
           />
           {focusPin?.alert ? (
             <CircleMarker

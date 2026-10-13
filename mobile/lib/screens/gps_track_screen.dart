@@ -1,15 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api_client.dart';
-import '../config.dart';
 import '../gps_location_cluster.dart';
 import '../peer_actions.dart';
 import '../theme.dart';
@@ -52,29 +49,51 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
   String? _selectedId;
   /// `null` = Todos; id concreto = solo ese grupo.
   String? _filterGroupId;
-  bool _follow = true;
-  bool _showStates = true;
-  bool _showSites = true;
-  bool _showTrack = true;
+  bool _follow = false;
+  bool _showTrack = false;
   bool _showList = true;
   double _mapZoom = 12;
+
+  /// Estilo de mapa: `natural` | `satelite` | `claro` (igual que la consola web).
+  String _mapStyle = 'natural';
+  bool _showAway = true;
+  bool _showOffline = true;
+  /// Nombres en los pines siempre (si no, solo al acercar).
+  bool _labelsAlways = false;
+
+  /// Preferencias leídas: hasta entonces no se dibuja el mapa (evita salto de cámara).
+  bool _prefsReady = false;
+  LatLng _initialCenter = _defaultCenter;
+  double _initialZoom = 11;
+  Timer? _saveViewDebounce;
 
   /// Como web `CARGO_LABEL_MIN_ZOOM` (~11); un poco más cerca en móvil.
   static const _labelMinZoom = 13.0;
 
-  List<Polygon> _statePolygons = [];
-  List<_TacticalSite> _sites = [];
   List<LatLng> _trackPts = [];
-  List<List<LatLng>> _gapRoutes = [];
-  List<LatLng> _gapPendingEnds = [];
   bool _trackLoading = false;
 
   static const _defaultCenter = LatLng(25.6866, -100.3161);
-  static const _gapOrange = Color(0xFFE87812);
-  static const _ivColors = {
-    'NL': Color(0xFF2F6FED),
-    'TM': Color(0xFFC97070),
-    'SLP': Color(0xFF1F8A4C),
+  static const _prefsPrefix = 'gps_track_';
+
+  static const _mapStyles = <String, ({String label, String url, int maxNative})>{
+    'natural': (
+      label: 'Calles',
+      url:
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+      maxNative: 19,
+    ),
+    'satelite': (
+      label: 'Satélite',
+      url:
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      maxNative: 19,
+    ),
+    'claro': (
+      label: 'Claro',
+      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      maxNative: 19,
+    ),
   };
 
   @override
@@ -86,10 +105,73 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
     final gid = (widget.channelGroupId ?? '').trim();
     _filterGroupId = gid.isNotEmpty ? gid : null;
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_loadStates());
-    unawaited(_loadSites());
-    if (widget.active) unawaited(_reload());
+    unawaited(_restorePrefs());
     _syncPoll();
+  }
+
+  Future<void> _restorePrefs() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      String k(String s) => '$_prefsPrefix$s';
+      if (p.containsKey(k('filter'))) {
+        final f = p.getString(k('filter')) ?? '';
+        _filterGroupId = f.isEmpty ? null : f;
+      }
+      _mapStyle = _mapStyles.containsKey(p.getString(k('style')))
+          ? p.getString(k('style'))!
+          : 'natural';
+      _showAway = p.getBool(k('away')) ?? true;
+      _showOffline = p.getBool(k('offline')) ?? true;
+      _labelsAlways = p.getBool(k('labels')) ?? false;
+      _showList = p.getBool(k('list')) ?? true;
+      final lat = p.getDouble(k('lat'));
+      final lng = p.getDouble(k('lng'));
+      final z = p.getDouble(k('zoom'));
+      if (lat != null && lng != null && lat.isFinite && lng.isFinite) {
+        _initialCenter = LatLng(lat, lng);
+      }
+      if (z != null && z.isFinite) _initialZoom = z.clamp(3.0, 19.0);
+      _mapZoom = _initialZoom;
+      final sel = p.getString(k('selected'));
+      if (sel != null && sel.isNotEmpty) {
+        _selectedId = sel;
+        _follow = p.getBool(k('follow')) ?? false;
+        _showTrack = p.getBool(k('track')) ?? false;
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() => _prefsReady = true);
+    if (widget.active) unawaited(_reload());
+    final sel = _selectedId;
+    if (sel != null && _showTrack) unawaited(_loadTrack(sel));
+  }
+
+  Future<void> _savePrefs() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      String k(String s) => '$_prefsPrefix$s';
+      await p.setString(k('filter'), _filterGroupId ?? '');
+      await p.setString(k('style'), _mapStyle);
+      await p.setBool(k('away'), _showAway);
+      await p.setBool(k('offline'), _showOffline);
+      await p.setBool(k('labels'), _labelsAlways);
+      await p.setBool(k('list'), _showList);
+      await p.setString(k('selected'), _selectedId ?? '');
+      await p.setBool(k('follow'), _follow);
+      await p.setBool(k('track'), _showTrack);
+    } catch (_) {}
+  }
+
+  void _saveViewSoon(MapCamera camera) {
+    _saveViewDebounce?.cancel();
+    _saveViewDebounce = Timer(const Duration(milliseconds: 900), () async {
+      try {
+        final p = await SharedPreferences.getInstance();
+        await p.setDouble('${_prefsPrefix}lat', camera.center.latitude);
+        await p.setDouble('${_prefsPrefix}lng', camera.center.longitude);
+        await p.setDouble('${_prefsPrefix}zoom', camera.zoom);
+      } catch (_) {}
+    });
   }
 
   bool get _shouldPoll => widget.active && _appResumed;
@@ -121,15 +203,7 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
       if (_shouldPoll) unawaited(_reload(silent: true));
       _syncPoll();
     }
-    if (oldWidget.channelGroupId != widget.channelGroupId) {
-      final oldGid = (oldWidget.channelGroupId ?? '').trim();
-      final newGid = (widget.channelGroupId ?? '').trim();
-      // Si el filtro seguía al canal activo, acompaña el cambio de radio.
-      if (_filterGroupId == oldGid) {
-        _filterGroupId = newGid.isNotEmpty ? newGid : null;
-      }
-      unawaited(_reload());
-    }
+    // El filtro es del usuario: ya no cambia solo al cambiar de canal en Radio.
   }
 
   String get _filterLabel {
@@ -150,119 +224,9 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
+    _saveViewDebounce?.cancel();
     _map.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadStates() async {
-    try {
-      final raw = await rootBundle.loadString('assets/geo/ivRmStates.json');
-      final data = jsonDecode(raw);
-      final features = data is Map ? data['features'] : null;
-      if (features is! List) return;
-      final polys = <Polygon>[];
-      for (final f in features) {
-        if (f is! Map) continue;
-        final props = f['properties'];
-        final id = props is Map ? props['id']?.toString() : null;
-        if (id == null || !_ivColors.containsKey(id)) continue;
-        final color = _ivColors[id]!;
-        final geom = f['geometry'];
-        if (geom is! Map) continue;
-        final type = geom['type']?.toString();
-        final coords = geom['coordinates'];
-        if (coords is! List) continue;
-        void addRing(List ring) {
-          final pts = <LatLng>[];
-          for (final c in ring) {
-            if (c is List && c.length >= 2) {
-              final lng = (c[0] as num).toDouble();
-              final lat = (c[1] as num).toDouble();
-              pts.add(LatLng(lat, lng));
-            }
-          }
-          if (pts.length >= 3) {
-            polys.add(
-              Polygon(
-                points: pts,
-                color: color.withValues(alpha: 0.12),
-                borderColor: color.withValues(alpha: 0.85),
-                borderStrokeWidth: 1.6,
-              ),
-            );
-          }
-        }
-
-        if (type == 'Polygon') {
-          if (coords.isNotEmpty && coords[0] is List) addRing(coords[0] as List);
-        } else if (type == 'MultiPolygon') {
-          for (final poly in coords) {
-            if (poly is List && poly.isNotEmpty && poly[0] is List) {
-              addRing(poly[0] as List);
-            }
-          }
-        }
-      }
-      if (mounted) setState(() => _statePolygons = polys);
-    } catch (_) {}
-  }
-
-  Future<void> _loadSites() async {
-    try {
-      final data = await widget.api.fetchTacticalSites();
-      final raw = data['sites'] ?? data['items'] ?? data;
-      final list = <_TacticalSite>[];
-      if (raw is List) {
-        for (final e in raw) {
-          if (e is! Map) continue;
-          final m = Map<String, dynamic>.from(e);
-          if (m['isActive'] == false) continue;
-          final lat = (m['latitude'] as num?)?.toDouble() ??
-              (m['lat'] as num?)?.toDouble();
-          final lng = (m['longitude'] as num?)?.toDouble() ??
-              (m['lng'] as num?)?.toDouble();
-          if (lat == null || lng == null) continue;
-          list.add(
-            _TacticalSite(
-              id: m['id']?.toString() ?? '$lat,$lng',
-              name: m['name']?.toString() ?? 'Sitio',
-              lat: lat,
-              lng: lng,
-              color: _parseColor(
-                    m['groupColor']?.toString() ?? m['color']?.toString(),
-                  ) ??
-                  kInstGold,
-              groupName: m['groupName']?.toString() ??
-                  m['group']?['name']?.toString(),
-              iconUrl: _absoluteApiUrl(
-                m['groupIconUrl']?.toString() ?? m['iconUrl']?.toString(),
-              ),
-            ),
-          );
-        }
-      }
-      if (mounted) setState(() => _sites = list);
-    } catch (_) {}
-  }
-
-  /// Rutas relativas del API (`/api/tactical-sites/groups/.../icon`) → URL absoluta.
-  String? _absoluteApiUrl(String? path) {
-    if (path == null || path.isEmpty || path == 'null') return null;
-    if (path.startsWith('http')) return path.split('?').first;
-    return '${AppConfig.apiBaseUrl}$path';
-  }
-
-  Color? _parseColor(String? hex) {
-    if (hex == null || hex.isEmpty) return null;
-    var s = hex.trim();
-    if (s.startsWith('#')) s = s.substring(1);
-    if (s.length == 3) {
-      s = '${s[0]}${s[0]}${s[1]}${s[1]}${s[2]}${s[2]}';
-    }
-    if (s.length != 6) return null;
-    final v = int.tryParse(s, radix: 16);
-    if (v == null) return null;
-    return Color(0xFF000000 | v);
   }
 
   Future<void> _reload({bool silent = false}) async {
@@ -295,18 +259,11 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
       if (_selectedId != null) {
         final still = list.where((p) => p.userId == _selectedId);
         if (still.isEmpty) {
-          setState(() {
-            _selectedId = null;
-            _trackPts = [];
-            _gapRoutes = [];
-            _gapPendingEnds = [];
-          });
+          _clearSelection();
         } else if (_follow) {
+          // Seguir: solo recentra; respeta el zoom que eligió el usuario.
           final p = still.first;
-          _map.move(
-            LatLng(p.lat, p.lng),
-            _map.camera.zoom < 14 ? 15 : _map.camera.zoom,
-          );
+          _moveMap(LatLng(p.lat, p.lng), null);
         }
       }
     } catch (e) {
@@ -318,47 +275,116 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
     }
   }
 
-  Future<void> _selectPeer(_GpsPeer p, {bool moveMap = true}) async {
+  void _moveMap(LatLng to, double? zoom) {
+    try {
+      _map.move(to, zoom ?? _map.camera.zoom);
+    } catch (_) {}
+  }
+
+  /// Toca a alguien: lo selecciona y lo sigue. Tocarlo de nuevo lo deselecciona.
+  void _selectPeer(_GpsPeer p) {
+    if (_selectedId == p.userId) {
+      _clearSelection();
+      return;
+    }
     setState(() {
       _selectedId = p.userId;
       _follow = true;
+      _showTrack = false;
+      _trackPts = [];
     });
-    if (moveMap) {
-      _map.move(LatLng(p.lat, p.lng), 15.5);
+    double zoom;
+    try {
+      zoom = _map.camera.zoom < 14 ? 15.5 : _map.camera.zoom;
+    } catch (_) {
+      zoom = 15.5;
     }
-    if (_showTrack) {
-      unawaited(_loadTrack(p.userId));
-    }
+    _moveMap(LatLng(p.lat, p.lng), zoom);
+    unawaited(_savePrefs());
   }
+
+  void _clearSelection() {
+    if (_selectedId == null) return;
+    setState(() {
+      _selectedId = null;
+      _follow = false;
+      _showTrack = false;
+      _trackPts = [];
+    });
+    unawaited(_savePrefs());
+  }
+
+  void _setFollow(bool v) {
+    if (_follow == v) return;
+    setState(() => _follow = v);
+    final s = _selected;
+    if (v && s != null) _moveMap(LatLng(s.lat, s.lng), null);
+    unawaited(_savePrefs());
+  }
+
+  void _toggleTrack() {
+    final id = _selectedId;
+    if (id == null) return;
+    final next = !_showTrack;
+    setState(() {
+      _showTrack = next;
+      if (!next) _trackPts = [];
+    });
+    if (next) unawaited(_loadTrack(id));
+    unawaited(_savePrefs());
+  }
+
+  /// Encuadra a todos los visibles (botón «Ver a todos»).
+  void _fitAll() {
+    final pts = _visiblePeers;
+    if (pts.isEmpty) return;
+    _setFollow(false);
+    if (pts.length == 1) {
+      _moveMap(LatLng(pts.first.lat, pts.first.lng), 15);
+      return;
+    }
+    try {
+      _map.fitCamera(
+        CameraFit.coordinates(
+          coordinates: [for (final p in pts) LatLng(p.lat, p.lng)],
+          padding: const EdgeInsets.all(56),
+          maxZoom: 16,
+        ),
+      );
+    } catch (_) {}
+  }
+
+  bool _isAwayOnly(String? presence) => presence == 'away';
+
+  bool _isOnlineNow(String? presence) =>
+      _isLive(presence) && !_isAwayOnly(presence);
+
+  /// Personas que pasan los filtros «Mostrar» (la seleccionada y pánico siempre).
+  List<_GpsPeer> get _visiblePeers => _peers.where((p) {
+        if (p.userId == _selectedId || p.panic) return true;
+        if (_isOnlineNow(p.presence)) return true;
+        if (_isAwayOnly(p.presence)) return _showAway;
+        return _showOffline;
+      }).toList();
 
   Future<void> _loadTrack(String userId) async {
     setState(() {
       _trackLoading = true;
       _trackPts = [];
-      _gapRoutes = [];
-      _gapPendingEnds = [];
     });
     try {
       final data = await widget.api.fetchUserTrack(userId, hours: 8);
       final raw = data['points'] ?? data['track'] ?? data['locations'];
       final pts = <LatLng>[];
-      final timed = <({LatLng ll, DateTime? at, bool gapBefore})>[];
       if (raw is List) {
         for (final e in raw) {
           if (e is! Map) continue;
-          final m = Map<String, dynamic>.from(e);
-          final lat = (m['latitude'] as num?)?.toDouble() ??
-              (m['lat'] as num?)?.toDouble();
-          final lng = (m['longitude'] as num?)?.toDouble() ??
-              (m['lng'] as num?)?.toDouble();
+          final lat = (e['latitude'] as num?)?.toDouble() ??
+              (e['lat'] as num?)?.toDouble();
+          final lng = (e['longitude'] as num?)?.toDouble() ??
+              (e['lng'] as num?)?.toDouble();
           if (lat == null || lng == null) continue;
-          final ll = LatLng(lat, lng);
-          pts.add(ll);
-          timed.add((
-            ll: ll,
-            at: _parseAt(m['recordedAt'] ?? m['at'] ?? m['t']),
-            gapBefore: m['gapBefore'] == true,
-          ));
+          pts.add(LatLng(lat, lng));
         }
       }
       if (!mounted || _selectedId != userId) return;
@@ -366,7 +392,11 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
         _trackPts = pts;
         _trackLoading = false;
       });
-      unawaited(_resolveGaps(timed));
+      if (pts.length < 2 && mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text('Sin recorrido en las últimas 8 h')),
+        );
+      }
     } catch (_) {
       if (mounted && _selectedId == userId) {
         setState(() => _trackLoading = false);
@@ -374,94 +404,6 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
     }
   }
 
-  DateTime? _parseAt(dynamic v) {
-    if (v == null) return null;
-    if (v is DateTime) return v;
-    var s = v.toString().trim();
-    if (RegExp(r'^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}').hasMatch(s) &&
-        !RegExp(r'[zZ]|[+-]\d{2}:?\d{2}$').hasMatch(s)) {
-      s = '${s.replaceFirst(' ', 'T')}Z';
-    }
-    return DateTime.tryParse(s);
-  }
-
-  double _haversineM(LatLng a, LatLng b) {
-    const r = 6371000.0;
-    final dLat = (b.latitude - a.latitude) * math.pi / 180;
-    final dLng = (b.longitude - a.longitude) * math.pi / 180;
-    final la1 = a.latitude * math.pi / 180;
-    final la2 = b.latitude * math.pi / 180;
-    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(la1) * math.cos(la2) * math.sin(dLng / 2) * math.sin(dLng / 2);
-    return 2 * r * math.asin(math.sqrt(h));
-  }
-
-  Future<void> _resolveGaps(
-    List<({LatLng ll, DateTime? at, bool gapBefore})> timed,
-  ) async {
-    if (timed.length < 2) return;
-    final gaps = <(LatLng, LatLng)>[];
-    for (var i = 1; i < timed.length; i++) {
-      final a = timed[i - 1];
-      final b = timed[i];
-      final meters = _haversineM(a.ll, b.ll);
-      var secs = 0;
-      if (a.at != null && b.at != null) {
-        secs = b.at!.difference(a.at!).inSeconds.abs();
-      }
-      final isGap = b.gapBefore ||
-          (secs >= 120 && meters >= 300) ||
-          meters >= 1500;
-      if (isGap) gaps.add((a.ll, b.ll));
-    }
-    if (gaps.isEmpty || !mounted) return;
-
-    final routes = <List<LatLng>>[];
-    final pending = <LatLng>[];
-    for (final g in gaps.take(12)) {
-      try {
-        final res = await widget.api.fetchTrackGapRoute(
-          fromLat: g.$1.latitude,
-          fromLng: g.$1.longitude,
-          toLat: g.$2.latitude,
-          toLng: g.$2.longitude,
-        );
-        final source = res['source']?.toString();
-        final estimated = res['estimated'] == true;
-        final geom = res['points'] ??
-            res['coordinates'] ??
-            res['geometry']?['coordinates'] ??
-            res['route'];
-        if (source == 'osrm' && !estimated && geom is List && geom.isNotEmpty) {
-          final line = <LatLng>[];
-          for (final c in geom) {
-            if (c is List && c.length >= 2 && c[0] is num && c[1] is num) {
-              // API routeHint: [lat, lng]
-              line.add(
-                LatLng((c[0] as num).toDouble(), (c[1] as num).toDouble()),
-              );
-            } else if (c is Map) {
-              final lat = (c['lat'] as num?)?.toDouble();
-              final lng = (c['lng'] as num?)?.toDouble();
-              if (lat != null && lng != null) line.add(LatLng(lat, lng));
-            }
-          }
-          if (line.length >= 2) {
-            routes.add(line);
-            continue;
-          }
-        }
-        pending.addAll([g.$1, g.$2]);
-      } catch (_) {
-        pending.addAll([g.$1, g.$2]);
-      }
-    }
-    if (!mounted) return;
-    setState(() {
-      _gapRoutes = routes;
-      _gapPendingEnds = pending;
-    });
-  }
 
   /// Colores de borde del pin (paridad web `--pin-green`).
   Color _presenceColor(String? presence) {
@@ -564,7 +506,7 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
 
   /// Mapa: dibujar offline abajo y en línea (verde) encima; selección al final.
   List<_GpsPeer> get _peersForMap {
-    final list = List<_GpsPeer>.from(_peers);
+    final list = _visiblePeers;
     list.sort((a, b) {
       int rank(_GpsPeer p) {
         if (p.userId == _selectedId) return 2;
@@ -590,6 +532,7 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
   void _onClusterTap(GpsMapClusterItem<_GpsPeer> cluster) {
     final members = cluster.members;
     if (members.isEmpty) return;
+    _setFollow(false);
 
     // Tope conservador (no 18): miembros cercanos no deben salir de frame.
     const maxZ = 16.5;
@@ -651,8 +594,6 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
     setState(() => _mapZoom = fitted);
   }
 
-  int get _liveCount => _peers.where((p) => _isLive(p.presence)).length;
-
   _GpsPeer? get _selected => _peers
       .cast<_GpsPeer?>()
       .firstWhere((p) => p?.userId == _selectedId, orElse: () => null);
@@ -667,112 +608,193 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
     return 'Hace ${d.inDays} d';
   }
 
+  int get _onlineCount => _peers.where((p) => _isOnlineNow(p.presence)).length;
+
+  int get _awayCount => _peers.where((p) => _isAwayOnly(p.presence)).length;
+
+  Future<void> _openMapSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: kInstSurface,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          void apply(VoidCallback fn) {
+            setState(fn);
+            setSheet(() {});
+            unawaited(_savePrefs());
+          }
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Opciones del mapa',
+                    style: TacticalFonts.display(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: kInstOlive,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const _SheetLabel('Estilo'),
+                  const SizedBox(height: 6),
+                  SegmentedButton<String>(
+                    showSelectedIcon: false,
+                    segments: [
+                      for (final e in _mapStyles.entries)
+                        ButtonSegment(
+                          value: e.key,
+                          label: Text(e.value.label),
+                          icon: Icon(
+                            switch (e.key) {
+                              'satelite' => Icons.satellite_alt_rounded,
+                              'claro' => Icons.light_mode_outlined,
+                              _ => Icons.map_outlined,
+                            },
+                            size: 18,
+                          ),
+                        ),
+                    ],
+                    selected: {_mapStyle},
+                    onSelectionChanged: (s) => apply(() => _mapStyle = s.first),
+                  ),
+                  const SizedBox(height: 18),
+                  const _SheetLabel('Mostrar en el mapa'),
+                  _SheetSwitch(
+                    color: const Color(0xFF1F5A2E),
+                    title: 'En línea',
+                    subtitle: '$_onlineCount · siempre visibles',
+                    value: true,
+                  ),
+                  _SheetSwitch(
+                    color: const Color(0xFFA16207),
+                    title: 'Ausentes',
+                    subtitle: '$_awayCount',
+                    value: _showAway,
+                    onChanged: (v) => apply(() => _showAway = v),
+                  ),
+                  _SheetSwitch(
+                    color: const Color(0xFF6B7280),
+                    title: 'Desconectados / fuera de línea',
+                    subtitle:
+                        '${_peers.length - _onlineCount - _awayCount} · última ubicación conocida',
+                    value: _showOffline,
+                    onChanged: (v) => apply(() => _showOffline = v),
+                  ),
+                  const SizedBox(height: 10),
+                  const _SheetLabel('Nombres en los pines'),
+                  _SheetSwitch(
+                    title: 'Mostrar siempre',
+                    subtitle: _labelsAlways
+                        ? 'Visibles a cualquier distancia'
+                        : 'Solo al acercar el mapa',
+                    value: _labelsAlways,
+                    onChanged: (v) => apply(() => _labelsAlways = v),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final selected = _selected;
     final headers = widget.api.avatarAuthHeaders();
+    final visible = _visiblePeers;
+    final hidden = _peers.length - visible.length;
 
     return ColoredBox(
       color: kInstPaper,
       child: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 8, 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Seguimiento GPS',
-                          style: TacticalFonts.display(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                            color: kInstOlive,
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: _clearSelection,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 6, 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Seguimiento GPS',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TacticalFonts.display(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: kInstOlive,
+                            ),
                           ),
                         ),
-                      ),
-                      _GpsToolbarAction(
-                        icon: Icons.layers_outlined,
-                        label: 'Capas',
-                        child: PopupMenuButton<String>(
-                          tooltip: 'Capas del mapa',
-                          padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.layers_outlined, size: 20, color: kInstOlive),
-                          onSelected: (v) {
-                            setState(() {
-                              switch (v) {
-                                case 'states':
-                                  _showStates = !_showStates;
-                                case 'sites':
-                                  _showSites = !_showSites;
-                                case 'track':
-                                  _showTrack = !_showTrack;
-                                  if (_showTrack && _selectedId != null) {
-                                    unawaited(_loadTrack(_selectedId!));
-                                  } else {
-                                    _trackPts = [];
-                                    _gapRoutes = [];
-                                    _gapPendingEnds = [];
-                                  }
-                              }
-                            });
-                          },
-                          itemBuilder: (ctx) => [
-                            CheckedPopupMenuItem(
-                              value: 'states',
-                              checked: _showStates,
-                              child: const Text('Estados IV R.M.'),
-                            ),
-                            CheckedPopupMenuItem(
-                              value: 'sites',
-                              checked: _showSites,
-                              child: const Text('Sitios tácticos'),
-                            ),
-                            CheckedPopupMenuItem(
-                              value: 'track',
-                              checked: _showTrack,
-                              child: const Text('Ruta / huecos OSRM'),
-                            ),
-                          ],
+                        _GpsToolbarAction(
+                          icon: Icons.tune_rounded,
+                          label: 'Mapa',
+                          onPressed: _openMapSheet,
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      _GpsToolbarAction(
-                        icon: Icons.refresh_rounded,
-                        label: 'Actualizar',
-                        onPressed: _loading ? null : () => _reload(),
-                        loading: _loading,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '$_liveCount en línea · ${_peers.length} en mapa',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TacticalFonts.label(
-                      fontSize: 12,
-                      color: kInstMuted,
+                        _GpsToolbarAction(
+                          icon: Icons.refresh_rounded,
+                          label: 'Actualizar',
+                          onPressed: _loading ? null : () => _reload(),
+                          loading: _loading,
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  _GpsScopeDropdown(
-                    label: _filterLabel,
-                    selectedId: _filterGroupId,
-                    groups: widget.groups,
-                    channelGroupId: widget.channelGroupId,
-                    channelName: widget.channelName,
-                    onChanged: (id) {
-                      setState(() => _filterGroupId = id);
-                      unawaited(_reload());
-                    },
-                  ),
-                ],
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _CountPill(
+                          color: const Color(0xFF1F5A2E),
+                          label: '$_onlineCount en línea',
+                        ),
+                        if (_awayCount > 0)
+                          _CountPill(
+                            color: const Color(0xFFA16207),
+                            label: '$_awayCount ausentes',
+                          ),
+                        _CountPill(
+                          color: kInstMuted,
+                          label: '${visible.length} en mapa',
+                        ),
+                        if (hidden > 0)
+                          _CountPill(
+                            color: kInstMuted,
+                            label: '$hidden ocultos',
+                            outlined: true,
+                            onTap: _openMapSheet,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    _GpsScopeDropdown(
+                      label: _filterLabel,
+                      selectedId: _filterGroupId,
+                      groups: widget.groups,
+                      channelGroupId: widget.channelGroupId,
+                      channelName: widget.channelName,
+                      onChanged: (id) {
+                        setState(() => _filterGroupId = id);
+                        unawaited(_savePrefs());
+                        unawaited(_reload());
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
             if (_error != null)
@@ -786,195 +808,200 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
             Expanded(
               flex: _showList ? 6 : 10,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+                padding: const EdgeInsets.fromLTRB(10, 2, 10, 6),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       border: Border.all(color: kInstBorder),
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(16),
                     ),
                     child: Stack(
                       children: [
-                        FlutterMap(
-                          mapController: _map,
-                          options: MapOptions(
-                            initialCenter: _defaultCenter,
-                            initialZoom: 11,
-                            interactionOptions: const InteractionOptions(
-                              flags:
-                                  InteractiveFlag.all & ~InteractiveFlag.rotate,
+                        if (!_prefsReady)
+                          const Center(
+                            child: SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             ),
-                            onPositionChanged: (camera, _) {
-                              final z = camera.zoom;
-                              final was = _mapZoom >= _labelMinZoom;
-                              final now = z >= _labelMinZoom;
-                              if ((z - _mapZoom).abs() > 0.15 || was != now) {
-                                setState(() => _mapZoom = z);
-                              } else {
-                                _mapZoom = z;
-                              }
-                            },
-                            onTap: (_, _) {
-                              setState(() {
-                                _selectedId = null;
-                                _trackPts = [];
-                                _gapRoutes = [];
-                                _gapPendingEnds = [];
-                              });
-                            },
-                          ),
-                          children: [
-                            TileLayer(
-                              urlTemplate:
-                                  'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                              userAgentPackageName: 'com.tacticalptx.app',
+                          )
+                        else
+                          FlutterMap(
+                            mapController: _map,
+                            options: MapOptions(
+                              initialCenter: _initialCenter,
+                              initialZoom: _initialZoom,
+                              maxZoom: 19,
+                              interactionOptions: const InteractionOptions(
+                                flags: InteractiveFlag.all &
+                                    ~InteractiveFlag.rotate,
+                              ),
+                              onPositionChanged: (camera, hasGesture) {
+                                if (hasGesture && _follow) {
+                                  _follow = false;
+                                  unawaited(_savePrefs());
+                                  setState(() {});
+                                }
+                                final z = camera.zoom;
+                                final was = _mapZoom >= _labelMinZoom;
+                                final now = z >= _labelMinZoom;
+                                if ((z - _mapZoom).abs() > 0.15 || was != now) {
+                                  setState(() => _mapZoom = z);
+                                } else {
+                                  _mapZoom = z;
+                                }
+                                _saveViewSoon(camera);
+                              },
+                              onTap: (_, _) => _clearSelection(),
                             ),
-                            if (_showStates && _statePolygons.isNotEmpty)
-                              PolygonLayer(polygons: _statePolygons),
-                            if (_showTrack && _trackPts.length >= 2)
-                              PolylineLayer(
-                                polylines: [
-                                  Polyline(
-                                    points: _trackPts,
-                                    color: const Color(0xFF1F5A2E)
-                                        .withValues(alpha: 0.75),
-                                    strokeWidth: 4.5,
-                                  ),
-                                ],
+                            children: [
+                              TileLayer(
+                                key: ValueKey(_mapStyle),
+                                urlTemplate: (_mapStyles[_mapStyle] ??
+                                        _mapStyles['natural']!)
+                                    .url,
+                                maxNativeZoom: (_mapStyles[_mapStyle] ??
+                                        _mapStyles['natural']!)
+                                    .maxNative,
+                                userAgentPackageName: 'com.tacticalptx.app',
                               ),
-                            if (_showTrack && _gapRoutes.isNotEmpty)
-                              PolylineLayer(
-                                polylines: _gapRoutes
-                                    .map(
-                                      (pts) => Polyline(
-                                        points: pts,
-                                        color: _gapOrange.withValues(alpha: 0.9),
-                                        strokeWidth: 5,
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                            if (_showTrack && _gapPendingEnds.isNotEmpty)
-                              CircleLayer(
-                                circles: _gapPendingEnds
-                                    .map(
-                                      (p) => CircleMarker(
-                                        point: p,
-                                        radius: 5,
-                                        color: _gapOrange,
-                                        borderColor: Colors.white,
-                                        borderStrokeWidth: 1.5,
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                            if (_showSites)
+                              if (_showTrack && _trackPts.length >= 2)
+                                PolylineLayer(
+                                  polylines: [
+                                    Polyline(
+                                      points: _trackPts,
+                                      color: const Color(0xFF2563EB)
+                                          .withValues(alpha: 0.85),
+                                      strokeWidth: 4.5,
+                                      borderStrokeWidth: 1.5,
+                                      borderColor: Colors.white70,
+                                    ),
+                                  ],
+                                ),
+                              if (_showTrack && _trackPts.length >= 2)
+                                CircleLayer(
+                                  circles: [
+                                    CircleMarker(
+                                      point: _trackPts.first,
+                                      radius: 6,
+                                      color: const Color(0xFF2563EB),
+                                      borderColor: Colors.white,
+                                      borderStrokeWidth: 2,
+                                    ),
+                                  ],
+                                ),
                               MarkerLayer(
-                                markers: _sites
-                                    .map(
-                                      (s) => Marker(
-                                        point: LatLng(s.lat, s.lng),
-                                        width: 36,
-                                        height: 36,
-                                        child: Tooltip(
-                                          message: s.name,
-                                          child: _TacticalSitePin(
-                                            color: s.color,
-                                            iconUrl: s.iconUrl,
-                                            headers: headers,
-                                          ),
+                                markers: _mapClusters.map((item) {
+                                  if (item.isCluster) {
+                                    final c = item.center!;
+                                    final face =
+                                        GpsClusterPin.sizeForCount(item.count);
+                                    final box = face + 36;
+                                    return Marker(
+                                      point: c,
+                                      width: box,
+                                      height: box,
+                                      alignment: Alignment.center,
+                                      child: GestureDetector(
+                                        onTap: () => _onClusterTap(item),
+                                        child: GpsClusterPin(
+                                          count: item.count,
+                                          size: face,
+                                          slices: _clusterSlices(item.members),
                                         ),
                                       ),
-                                    )
-                                    .toList(),
-                              ),
-                            MarkerLayer(
-                              markers: _mapClusters.map((item) {
-                                if (item.isCluster) {
-                                  final c = item.center!;
-                                  final face =
-                                      GpsClusterPin.sizeForCount(item.count);
-                                  final box = face + 36;
+                                    );
+                                  }
+                                  final p = item.point!;
+                                  final selectedPin = p.userId == _selectedId;
+                                  final showLabel = _labelsAlways ||
+                                      _mapZoom >= _labelMinZoom ||
+                                      selectedPin;
+                                  final labelText = () {
+                                    final cargo = p.cargo?.trim();
+                                    if (cargo != null && cargo.isNotEmpty) {
+                                      return cargo;
+                                    }
+                                    final n = p.displayName.trim();
+                                    if (n.isEmpty) return null;
+                                    return n.split(RegExp(r'\s+')).first;
+                                  }();
                                   return Marker(
-                                    point: c,
-                                    width: box,
-                                    height: box,
-                                    alignment: Alignment.center,
+                                    point: LatLng(p.lat, p.lng),
+                                    width: selectedPin ? 88 : 72,
+                                    height: selectedPin
+                                        ? (showLabel ? 100 : 86)
+                                        : (showLabel ? 92 : 78),
+                                    alignment: Alignment.bottomCenter,
                                     child: GestureDetector(
-                                      onTap: () => _onClusterTap(item),
-                                      child: GpsClusterPin(
-                                        count: item.count,
-                                        size: face,
-                                        slices: _clusterSlices(item.members),
+                                      onTap: () => _selectPeer(p),
+                                      child: GpsMapPin(
+                                        name: p.displayName,
+                                        photoUrl:
+                                            widget.api.peerAvatarNetworkUrl(
+                                          p.userId,
+                                          p.avatarUrl,
+                                        ),
+                                        headers: headers,
+                                        presenceColor:
+                                            _presenceColor(p.presence),
+                                        rimColor: _presenceRim(p.presence),
+                                        live: _isLive(p.presence),
+                                        selected: selectedPin,
+                                        panic: p.panic,
+                                        showLabel: showLabel,
+                                        cargo: labelText,
                                       ),
                                     ),
                                   );
-                                }
-                                final p = item.point!;
-                                final selectedPin = p.userId == _selectedId;
-                                final showLabel =
-                                    _mapZoom >= _labelMinZoom || selectedPin;
-                                final labelText = () {
-                                  final cargo = p.cargo?.trim();
-                                  if (cargo != null && cargo.isNotEmpty) {
-                                    return cargo;
-                                  }
-                                  final n = p.displayName.trim();
-                                  if (n.isEmpty) return null;
-                                  return n.split(RegExp(r'\s+')).first;
-                                }();
-                                return Marker(
-                                  point: LatLng(p.lat, p.lng),
-                                  width: selectedPin ? 88 : 72,
-                                  height: selectedPin
-                                      ? (showLabel ? 100 : 86)
-                                      : (showLabel ? 92 : 78),
-                                  alignment: Alignment.bottomCenter,
-                                  child: GestureDetector(
-                                    onTap: () => _selectPeer(p),
-                                    child: GpsMapPin(
-                                      name: p.displayName,
-                                      photoUrl: widget.api.peerAvatarNetworkUrl(
-                                        p.userId,
-                                        p.avatarUrl,
-                                      ),
-                                      headers: headers,
-                                      presenceColor:
-                                          _presenceColor(p.presence),
-                                      rimColor: _presenceRim(p.presence),
-                                      live: _isLive(p.presence),
-                                      selected: selectedPin,
-                                      panic: p.panic,
-                                      showLabel: showLabel,
-                                      cargo: labelText,
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ),
-                        if (_showStates)
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                        if (selected != null)
                           Positioned(
-                            left: 8,
-                            bottom: 8,
-                            child: _StatesLegend(colors: _ivColors),
+                            top: 10,
+                            left: 56,
+                            right: 56,
+                            child: Center(
+                              child: _MapPill(
+                                icon: _follow
+                                    ? Icons.gps_fixed_rounded
+                                    : Icons.my_location_rounded,
+                                label: _follow
+                                    ? 'Siguiendo a ${_firstName(selected.displayName)}'
+                                    : 'Volver a seguir',
+                                active: _follow,
+                                onTap: () => _setFollow(!_follow),
+                              ),
+                            ),
                           ),
                         if (_trackLoading)
                           const Positioned(
-                            right: 10,
+                            left: 10,
                             top: 10,
-                            child: Card(
-                              child: Padding(
-                                padding: EdgeInsets.all(8),
-                                child: SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
+                            child: _MapRoundBox(
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
                                 ),
+                              ),
+                            ),
+                          ),
+                        if (_prefsReady && visible.isNotEmpty)
+                          Positioned(
+                            right: 10,
+                            bottom: 10,
+                            child: _MapRoundBox(
+                              tooltip: 'Ver a todos',
+                              onTap: _fitAll,
+                              child: const Icon(
+                                Icons.zoom_out_map_rounded,
+                                size: 20,
+                                color: kInstOlive,
                               ),
                             ),
                           ),
@@ -984,28 +1011,33 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
                 ),
               ),
             ),
-            if (selected != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
-                child: _SelectedSheet(
-                  peer: selected,
-                  age: _ageLabel(selected),
-                  presence: _presenceLabel(selected.presence),
-                  presenceColor: _presenceColor(selected.presence),
-                  follow: _follow,
-                  api: widget.api,
-                  onFollowChanged: (v) => setState(() => _follow = v),
-                  onCenter: () {
-                    _map.move(LatLng(selected.lat, selected.lng), 16);
-                  },
-                  onClose: () => setState(() {
-                    _selectedId = null;
-                    _trackPts = [];
-                    _gapRoutes = [];
-                    _gapPendingEnds = [];
-                  }),
-                ),
-              ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              alignment: Alignment.topCenter,
+              child: selected == null
+                  ? const SizedBox(width: double.infinity)
+                  : Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+                      child: _SelectedSheet(
+                        peer: selected,
+                        age: _ageLabel(selected),
+                        presence: _presenceLabel(selected.presence),
+                        presenceColor: _presenceColor(selected.presence),
+                        follow: _follow,
+                        showTrack: _showTrack,
+                        trackLoading: _trackLoading,
+                        api: widget.api,
+                        onFollowChanged: _setFollow,
+                        onCenter: () {
+                          _setFollow(false);
+                          _moveMap(LatLng(selected.lat, selected.lng), 16.5);
+                        },
+                        onToggleTrack: _toggleTrack,
+                        onClose: _clearSelection,
+                      ),
+                    ),
+            ),
             Material(
               color: kInstSurface,
               child: GestureDetector(
@@ -1014,11 +1046,16 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
                   final vy = d.primaryVelocity ?? 0;
                   if (vy > 180 && _showList) {
                     setState(() => _showList = false);
+                    unawaited(_savePrefs());
                   } else if (vy < -180 && !_showList) {
                     setState(() => _showList = true);
+                    unawaited(_savePrefs());
                   }
                 },
-                onTap: () => setState(() => _showList = !_showList),
+                onTap: () {
+                  setState(() => _showList = !_showList);
+                  unawaited(_savePrefs());
+                },
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
                   child: Column(
@@ -1031,34 +1068,42 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _showList
-                                  ? 'Arrastra hacia abajo para ocultar lista'
-                                  : 'Arrastra hacia arriba o toca para ver lista',
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.people_alt_outlined,
+                            size: 18,
+                            color: kInstOlive,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              visible.isEmpty
+                                  ? 'Sin ubicaciones'
+                                  : 'Operadores (${visible.length})',
                               style: TacticalFonts.body(
-                                fontSize: 12,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w700,
                                 color: kInstInk,
                               ),
                             ),
-                            Text(
-                              _peers.isEmpty
-                                  ? 'Sin ubicaciones'
-                                  : '$_liveCount en línea · ${_peers.length} en mapa'
-                                      '${_mapZoom < _labelMinZoom ? ' · acerca para nombres' : ''}',
-                              style: TacticalFonts.label(
-                                fontSize: 11,
-                                color: kInstMuted,
-                              ),
+                          ),
+                          Text(
+                            _showList ? 'Ocultar' : 'Ver lista',
+                            style: TacticalFonts.label(
+                              fontSize: 12,
+                              color: kInstMuted,
                             ),
-                          ],
-                        ),
+                          ),
+                          Icon(
+                            _showList
+                                ? Icons.keyboard_arrow_down_rounded
+                                : Icons.keyboard_arrow_up_rounded,
+                            size: 20,
+                            color: kInstMuted,
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1068,7 +1113,7 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
             if (_showList)
               Expanded(
                 flex: 3,
-                child: _peers.isEmpty && !_loading
+                child: visible.isEmpty && !_loading
                     ? Center(
                         child: Text(
                           'Nadie con GPS en este alcance.\nLos operadores deben tener ubicación activa.',
@@ -1081,10 +1126,10 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
                       )
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
-                        itemCount: _peers.length,
+                        itemCount: visible.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 4),
                         itemBuilder: (context, i) {
-                          final p = _peers[i];
+                          final p = visible[i];
                           final sel = p.userId == _selectedId;
                           final fresh = _isLive(p.presence);
                           return Material(
@@ -1200,7 +1245,13 @@ class _GpsTrackScreenState extends State<GpsTrackScreen>
   }
 }
 
-/// Ficha compacta sobre el mapa al seleccionar un operador.
+String _firstName(String name) {
+  final n = name.trim();
+  if (n.isEmpty) return 'operador';
+  return n.split(RegExp(r'\s+')).first;
+}
+
+/// Ficha del operador seleccionado (debajo del mapa).
 class _SelectedSheet extends StatelessWidget {
   const _SelectedSheet({
     required this.peer,
@@ -1208,9 +1259,12 @@ class _SelectedSheet extends StatelessWidget {
     required this.presence,
     required this.presenceColor,
     required this.follow,
+    required this.showTrack,
+    required this.trackLoading,
     required this.api,
     required this.onFollowChanged,
     required this.onCenter,
+    required this.onToggleTrack,
     required this.onClose,
   });
 
@@ -1219,9 +1273,12 @@ class _SelectedSheet extends StatelessWidget {
   final String presence;
   final Color presenceColor;
   final bool follow;
+  final bool showTrack;
+  final bool trackLoading;
   final ApiClient api;
   final ValueChanged<bool> onFollowChanged;
   final VoidCallback onCenter;
+  final VoidCallback onToggleTrack;
   final VoidCallback onClose;
 
   @override
@@ -1234,27 +1291,39 @@ class _SelectedSheet extends StatelessWidget {
     final cargo = peer.cargo?.trim();
 
     return Material(
-      elevation: 0,
+      elevation: 2,
+      shadowColor: Colors.black26,
       color: kInstSurface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: kInstBorder),
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: peer.panic ? kInstDanger : presenceColor.withValues(alpha: 0.5),
+          width: peer.panic ? 2 : 1,
+        ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+        padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                UserAvatar(
-                  name: peer.displayName,
-                  userId: peer.userId,
-                  avatarUrl:
-                      api.peerAvatarNetworkUrl(peer.userId, peer.avatarUrl),
-                  headers: api.avatarAuthHeaders(),
-                  radius: 22,
+                Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: presenceColor, width: 2),
+                  ),
+                  child: UserAvatar(
+                    name: peer.displayName,
+                    userId: peer.userId,
+                    avatarUrl:
+                        api.peerAvatarNetworkUrl(peer.userId, peer.avatarUrl),
+                    headers: api.avatarAuthHeaders(),
+                    radius: 22,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -1266,12 +1335,11 @@ class _SelectedSheet extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TacticalFonts.body(
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      if (cargo != null && cargo.isNotEmpty) ...[
-                        const SizedBox(height: 1),
+                      if (cargo != null && cargo.isNotEmpty)
                         Text(
                           cargo,
                           maxLines: 1,
@@ -1282,12 +1350,17 @@ class _SelectedSheet extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ],
                       const SizedBox(height: 5),
                       Wrap(
                         spacing: 6,
                         runSpacing: 4,
                         children: [
+                          if (peer.panic)
+                            const _InfoChip(
+                              color: kInstDanger,
+                              label: 'PÁNICO',
+                              filled: true,
+                            ),
                           _InfoChip(
                             color: presenceColor,
                             label: presence,
@@ -1309,50 +1382,132 @@ class _SelectedSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Row(
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: coords));
+                ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                  const SnackBar(
+                    content: Text('Coordenadas copiadas'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                child: Row(
+                  children: [
+                    const Icon(Icons.place_outlined, size: 15, color: kInstMuted),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        coords,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TacticalFonts.label(
+                          fontSize: 12,
+                          color: kInstInk,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.copy_rounded, size: 14, color: kInstMuted),
+                    const SizedBox(width: 8),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Row(
+                children: [
+                  _SheetAction(
+                    icon: follow
+                        ? Icons.gps_fixed_rounded
+                        : Icons.gps_not_fixed_rounded,
+                    label: follow ? 'Siguiendo' : 'Seguir',
+                    active: follow,
+                    onTap: () => onFollowChanged(!follow),
+                  ),
+                  const SizedBox(width: 6),
+                  _SheetAction(
+                    icon: Icons.center_focus_strong_rounded,
+                    label: 'Centrar',
+                    onTap: onCenter,
+                  ),
+                  const SizedBox(width: 6),
+                  _SheetAction(
+                    icon: Icons.timeline_rounded,
+                    label: trackLoading ? 'Cargando' : 'Ruta 8 h',
+                    active: showTrack,
+                    onTap: onToggleTrack,
+                  ),
+                  const SizedBox(width: 6),
+                  _SheetAction(
+                    icon: Icons.contact_phone_rounded,
+                    label: 'Contactar',
+                    onTap: () => showChannelPeerActions(
+                      context: context,
+                      api: api,
+                      peerId: peer.userId,
+                      displayName: peer.displayName,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetAction extends StatelessWidget {
+  const _SheetAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = active ? Colors.white : kInstOlive;
+    return Expanded(
+      child: Material(
+        color: active ? kInstOlive : kInstOlive.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.place_outlined, size: 14, color: kInstMuted),
-                const SizedBox(width: 4),
-                Expanded(
+                Icon(icon, size: 20, color: fg),
+                const SizedBox(height: 3),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
                   child: Text(
-                    coords,
+                    label,
                     maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TacticalFonts.label(
                       fontSize: 11,
-                      color: kInstMuted,
+                      color: fg,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
-                Text(
-                  'Seguir',
-                  style: TacticalFonts.label(fontSize: 11),
-                ),
-                Switch(
-                  value: follow,
-                  onChanged: onFollowChanged,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                IconButton(
-                  tooltip: 'Contactar',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => showChannelPeerActions(
-                    context: context,
-                    api: api,
-                    peerId: peer.userId,
-                    displayName: peer.displayName,
-                  ),
-                  icon: const Icon(Icons.contact_phone_rounded, size: 22, color: kInstOlive),
-                ),
-                IconButton(
-                  tooltip: 'Centrar mapa',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: onCenter,
-                  icon: const Icon(Icons.center_focus_strong_rounded, size: 22),
-                ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1409,52 +1564,191 @@ class _InfoChip extends StatelessWidget {
   }
 }
 
-class _StatesLegend extends StatelessWidget {
-  const _StatesLegend({required this.colors});
-  final Map<String, Color> colors;
+class _CountPill extends StatelessWidget {
+  const _CountPill({
+    required this.color,
+    required this.label,
+    this.outlined = false,
+    this.onTap,
+  });
+
+  final Color color;
+  final String label;
+  final bool outlined;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: kInstSurface.withValues(alpha: 0.92),
-      borderRadius: BorderRadius.circular(8),
-      elevation: 1,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'IV R.M.',
-              style: TacticalFonts.label(fontSize: 10, color: kInstMuted),
-            ),
-            for (final e in colors.entries)
-              Padding(
-                padding: const EdgeInsets.only(top: 3),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: e.value.withValues(alpha: 0.35),
-                        border: Border.all(color: e.value, width: 1.5),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      e.key,
-                      style: TacticalFonts.body(fontSize: 11),
-                    ),
-                  ],
+      color: outlined ? Colors.transparent : color.withValues(alpha: 0.12),
+      shape: StadiumBorder(
+        side: BorderSide(color: color.withValues(alpha: outlined ? 0.5 : 0.3)),
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!outlined) ...[
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration:
+                      BoxDecoration(color: color, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 5),
+              ],
+              Text(
+                label,
+                style: TacticalFonts.label(
+                  fontSize: 11,
+                  color: outlined ? kInstMuted : color,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// Botón flotante tipo píldora sobre el mapa («Siguiendo» / «Volver a seguir»).
+class _MapPill extends StatelessWidget {
+  const _MapPill({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = active ? Colors.white : kInstOlive;
+    return Material(
+      elevation: 3,
+      shadowColor: Colors.black38,
+      color: active ? kInstOlive : kInstSurface,
+      shape: const StadiumBorder(),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: fg),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TacticalFonts.label(
+                    fontSize: 12,
+                    color: fg,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MapRoundBox extends StatelessWidget {
+  const _MapRoundBox({required this.child, this.onTap, this.tooltip});
+
+  final Widget child;
+  final VoidCallback? onTap;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final box = Material(
+      elevation: 3,
+      shadowColor: Colors.black38,
+      color: kInstSurface,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox(width: 42, height: 42, child: Center(child: child)),
+      ),
+    );
+    return tooltip == null ? box : Tooltip(message: tooltip!, child: box);
+  }
+}
+
+class _SheetLabel extends StatelessWidget {
+  const _SheetLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text.toUpperCase(),
+      style: TacticalFonts.label(
+        fontSize: 11,
+        color: kInstMuted,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
+class _SheetSwitch extends StatelessWidget {
+  const _SheetSwitch({
+    required this.title,
+    required this.value,
+    this.subtitle,
+    this.color,
+    this.onChanged,
+  });
+
+  final String title;
+  final String? subtitle;
+  final bool value;
+  final Color? color;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      value: value,
+      onChanged: onChanged,
+      secondary: color == null
+          ? null
+          : Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+      title: Text(
+        title,
+        style: TacticalFonts.body(fontSize: 14, fontWeight: FontWeight.w600),
+      ),
+      subtitle: subtitle == null
+          ? null
+          : Text(
+              subtitle!,
+              style: TacticalFonts.label(fontSize: 11, color: kInstMuted),
+            ),
     );
   }
 }
@@ -1667,14 +1961,12 @@ class _GpsToolbarAction extends StatelessWidget {
     required this.icon,
     required this.label,
     this.onPressed,
-    this.child,
     this.loading = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback? onPressed;
-  final Widget? child;
   final bool loading;
 
   @override
@@ -1685,8 +1977,7 @@ class _GpsToolbarAction extends StatelessWidget {
         SizedBox(
           height: 36,
           width: 40,
-          child: child ??
-              IconButton(
+          child: IconButton(
                 padding: EdgeInsets.zero,
                 tooltip: label,
                 onPressed: onPressed,
@@ -1704,130 +1995,6 @@ class _GpsToolbarAction extends StatelessWidget {
           style: TacticalFonts.label(fontSize: 10, color: kInstOlive),
         ),
       ],
-    );
-  }
-}
-
-class _TacticalSite {
-  _TacticalSite({
-    required this.id,
-    required this.name,
-    required this.lat,
-    required this.lng,
-    required this.color,
-    this.groupName,
-    this.iconUrl,
-  });
-
-  final String id;
-  final String name;
-  final double lat;
-  final double lng;
-  final Color color;
-  final String? groupName;
-  /// URL absoluta del icono de agrupación (auth Bearer), o null.
-  final String? iconUrl;
-}
-
-/// Pin de sitio táctico: icono de grupo con Bearer (como web `iconBlobs`).
-/// Sin icono o si falla la descarga → círculo de color del grupo (sin banderita).
-class _TacticalSitePin extends StatefulWidget {
-  const _TacticalSitePin({
-    required this.color,
-    this.iconUrl,
-    this.headers,
-  });
-
-  final Color color;
-  final String? iconUrl;
-  final Map<String, String>? headers;
-
-  @override
-  State<_TacticalSitePin> createState() => _TacticalSitePinState();
-}
-
-class _TacticalSitePinState extends State<_TacticalSitePin> {
-  Uint8List? _bytes;
-  bool _failed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_loadIcon());
-  }
-
-  @override
-  void didUpdateWidget(covariant _TacticalSitePin oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.iconUrl != widget.iconUrl) {
-      _bytes = null;
-      _failed = false;
-      unawaited(_loadIcon());
-    }
-  }
-
-  Future<void> _loadIcon() async {
-    final url = widget.iconUrl;
-    if (url == null || url.isEmpty) {
-      if (mounted) setState(() {
-        _bytes = null;
-        _failed = false;
-      });
-      return;
-    }
-    final cached = AvatarBytesCache.get(url);
-    if (cached != null) {
-      if (mounted) setState(() {
-        _bytes = cached;
-        _failed = false;
-      });
-      return;
-    }
-    try {
-      final bytes = await AvatarBytesCache.load(
-        url,
-        auth: widget.headers?['Authorization'],
-      );
-      if (!mounted || widget.iconUrl != url) return;
-      if (bytes != null) {
-        setState(() {
-          _bytes = bytes;
-          _failed = false;
-        });
-      } else {
-        setState(() => _failed = true);
-      }
-    } catch (_) {
-      if (mounted && widget.iconUrl == url) {
-        setState(() => _failed = true);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final hasIcon = _bytes != null && !_failed;
-    return Container(
-      decoration: BoxDecoration(
-        color: hasIcon ? Colors.white : widget.color,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 2),
-        boxShadow: const [
-          BoxShadow(color: Colors.black38, blurRadius: 3),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: hasIcon
-          ? Padding(
-              padding: const EdgeInsets.all(3),
-              child: Image.memory(
-                _bytes!,
-                fit: BoxFit.contain,
-                gaplessPlayback: true,
-                errorBuilder: (_, __, ___) => ColoredBox(color: widget.color),
-              ),
-            )
-          : null,
     );
   }
 }

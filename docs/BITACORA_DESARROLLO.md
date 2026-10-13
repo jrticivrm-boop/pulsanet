@@ -1,3 +1,15 @@
+## 2026-10-13 — Seguimiento GPS app rediseñado, avatares rápidos y deseleccionar en consola
+
+- **Tipo:** ux
+- **Área:** mobile | web | backend
+- **Qué:**
+  - App GPS (`gps_track_screen.dart`): seguir se apaga al arrastrar/pellizcar (píldora «Volver a seguir»); tocar mapa vacío, encabezado o la misma persona deselecciona; ficha nueva (foto, cargo, chips, coordenadas copiables, Seguir/Centrar/Ruta 8 h/Contactar); filtro, cámara, selección, seguir, estilo, filtros y lista persistidos en SharedPreferences (`gps_track_*`); el filtro ya no sigue al canal de Radio. «Capas» → hoja «Mapa» (Calles/Satélite/Claro, ausentes, desconectados, nombres siempre); fuera estados IV R.M., sitios tácticos y huecos OSRM; botón «Ver a todos»; contadores en chips.
+  - App avatares (`user_avatar.dart`, `gps_map_pin.dart`, `radio_shell.dart`): iniciales sin spinner, LRU 300 con clave por ruta (igual Wi-Fi/datos), disco primero + revalidación en segundo plano (7 días para `/avatars/file/`, 1 h resto), marca de «sin foto» 6 h, decodificación al tamaño del círculo; al cambiar la foto propia solo se invalida esa entrada.
+  - Consola web: `MapSelectionEvents` + `useDeselectOutside` (`mapLeafletUtils.jsx`) en `DispatchMap`/`LiveTrackMap`; clic en mapa vacío/fuera, Esc, re-clic o «×» en `OperatorRoster` deselecciona; arrastrar deja de seguir. Web reduce fotos antes de subir (`avatarResize.js`, máx. 640 px). API: `/api/avatars/file/*` con `Cache-Control` 7 días `immutable`.
+  - APK `C:\pulsanet_soporte\APK\SICOM-1.8.191+201.apk` (sin OTA). No desplegado a pruebas ni producción.
+- **Por qué / notas:** el usuario reportó avatares lentos, operador que no se deselecciona y GPS de la app que regresaba a la persona seguida y perdía la configuración al cambiar de pestaña. Miniaturas en servidor descartadas (sin `sharp` en la imagen de producción).
+- **Archivos / refs:** `mobile/lib/screens/gps_track_screen.dart`, `mobile/lib/widgets/user_avatar.dart`, `mobile/lib/widgets/gps_map_pin.dart`, `mobile/lib/screens/radio_shell.dart`, `frontend/src/dispatch/{mapLeafletUtils,DispatchMap,LiveTrackMap,OperatorRoster}.jsx`, `frontend/src/avatarResize.js`, `frontend/src/api.js`, `backend/src/routes/me.js`
+
 ## 2026-10-13 — Producción: alta masiva de integrantes y APK 1.8.190+200
 
 - **Tipo:** ops

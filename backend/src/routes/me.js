@@ -308,7 +308,8 @@ export function createAvatarsRouter() {
     }
     const disk = mediaDiskPath(stored);
     if (!fs.existsSync(disk)) return res.status(404).json({ ok: false, error: 'Archivo ausente' });
-    res.setHeader('Cache-Control', 'private, max-age=3600');
+    // Nombre único por subida: el contenido de esta URL no cambia.
+    res.setHeader('Cache-Control', 'private, max-age=604800, immutable');
     return res.sendFile(disk);
   });
 
