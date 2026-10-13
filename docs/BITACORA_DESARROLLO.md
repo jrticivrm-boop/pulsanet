@@ -1,3 +1,13 @@
+## 2026-10-13 — Producción: audio de consola (una conexión por canal, PTT solo a Hablar, LiveKit con IP LAN)
+
+- **Tipo:** ops
+- **Área:** infra | web
+- **Qué:**
+  - Por orden del usuario (08:37, **fuera de ventana**, aceptado expresamente; 18 usuarios activos): `PROMOVER -A pruebas` → `PRUEBAS.ps1` (`c3b73e9`) → VERIFICAR-PRUEBAS (listo; aviso BD 15 días) → `PROMOVER -A produccion`. `main` `861d6cf` → `c3b73e9`; `gen-sicom-env.py` regeneró `livekit.sicom.yaml` (`use_external_ip: true`) y se recrearon **livekit + api + web**; sin migraciones.
+  - Etiqueta `prod-v1.8.107-20261013-0838`. Health OK. LiveKit resolvió por STUN `189.175.87.253/192.168.1.150` (validado) + IPv6; anuncia pública y LAN (también 172.17/172.18 de Docker, inofensivos). Primeras sesiones: 55 pares elegidos por `192.168.1.150` (LAN) y 13 por la pública.
+  - 47 `DUPLICATE_IDENTITY` en el minuto del reinicio, todos de la consola `66fdf13a…` con el bundle anterior (identidad `:listen:`); 0 en el minuto siguiente. Requiere Ctrl+F5 en consolas abiertas.
+- **Archivos / refs:** `C:\pulsanet_soporte\Pruebas\_promover_20261013_audio_lan.log`, `/opt/respaldos/deploys.log`
+
 ## 2026-10-13 — Audio consola: una conexión por canal, PTT solo a Hablar, candidato LAN de LiveKit
 
 - **Tipo:** fix
