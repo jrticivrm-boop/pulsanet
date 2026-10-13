@@ -1,3 +1,12 @@
+## 2026-10-13 — Producción: corrección del bucle de reconexión LiveKit (consola)
+
+- **Tipo:** ops
+- **Área:** infra | web
+- **Qué:**
+  - Por orden del usuario (08:28, **fuera de ventana**, aceptado expresamente; 19 usuarios activos): `PROMOVER -A pruebas` → `PRUEBAS.ps1` (`861d6cf`) → VERIFICAR-PRUEBAS (listo; aviso BD 15 días) → `PROMOVER -A produccion` (respuesta «FUERA DE HORARIO»). `main` `32cc022` → `861d6cf`; solo se recreó **web**; sin migraciones.
+  - Etiqueta `prod-v1.8.107-20261013-0829`. Health OK; web 200 con el bundle nuevo.
+- **Archivos / refs:** `C:\pulsanet_soporte\Pruebas\_promover_20261013_lk_reconexion.log`, `/opt/respaldos/deploys.log`
+
 ## 2026-10-13 — Consola: bucle de reconexión LiveKit («Sin audio») tras cortes de red
 
 - **Tipo:** fix
