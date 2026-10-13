@@ -1,3 +1,11 @@
+## 2026-10-12 — Producción: zoom fluido de mapas (solo web)
+
+- **Tipo:** ops
+- **Área:** infra | web
+- **Qué:**
+  - Por orden del usuario (20:02, antes de ventana; solo web, sin corte de PTT): `PROMOVER -A pruebas` → `PRUEBAS.ps1` → VERIFICAR-PRUEBAS (listo; aviso: copia de BD con 14 días) → `PROMOVER -A produccion`. `main` → `e026354`; auto reconstruyó solo **web**. Etiqueta `prod-v1.8.107-20261012-2002`. Health OK.
+- **Archivos / refs:** `C:\pulsanet_soporte\Pruebas\_promover_20261012_mapas.log`, `/opt/respaldos/deploys.log`
+
 ## 2026-10-12 — Mapas web: zoom con rueda fluido (estilo Google Maps)
 
 - **Tipo:** ux

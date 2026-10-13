@@ -18,6 +18,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Presencia por socket:** `presence:ping` con `groupId` solo aplica a canales a los que el socket se unió.
 
 ### Changed
+- **Consola — mapas:** zoom con la rueda fluido estilo Google Maps (~1 nivel por muesca, sin pasos perdidos) y enfoque a operador en ~1 s (antes 2,2 s). Desplegado 2026-10-12 (`prod-v1.8.107-20261012-2002`).
 - **Alertas de pánico — confirmación y destino:** web y app piden confirmar antes de enviar: canales destino (uno, varios o todos los míos), «Todos (mi alcance)» solo para administradores, y motivo opcional. La alerta llega solo a los miembros de los canales elegidos y a las consolas cuyo alcance cubre al emisor; **ya no se difunde a toda la organización**.
 - **App móvil — radio bajo demanda (estilo WAVE):** las salas de voz ya no quedan abiertas en reposo; se conectan al recibir una transmisión o al pulsar PTT y se cierran tras un cuelgue configurable (5 s por defecto, en Ajustes › Sonidos). El servidor retrasa el permiso de hablar ~800 ms (`PTT_WAKE_GRANT_DELAY_MS`) solo si hay receptores en este modo.
 - **App móvil — batería:** servicio en segundo plano sin wifiLock ni wakelock permanentes; la CPU se mantiene despierta solo durante radio activa, llamada, cámara/micrófono remoto o video de grupo.
