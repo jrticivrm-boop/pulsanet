@@ -1,3 +1,14 @@
+## 2026-10-12 — App: hoja «Enviar alerta» rediseñada (celulares)
+
+- **Tipo:** ux | fix
+- **Área:** mobile
+- **Qué:**
+  - Encabezado rojo con ícono pulsante y «Con tu ubicación a …»; destino como píldoras seleccionables (se acomodan al ancho, nombres largos con «…»); motivo como tarjetas con ícono (2 columnas en celular, 4 en tablet); campo de detalle con borde y foco rojo.
+  - Celular: «Enviar alerta / Enviar a N canales» a todo el ancho (56 dp) y «Cancelar» debajo; tablet (≥ 600 dp): lado a lado con la misma altura. Toda la hoja se desplaza (teclado) y la letra del sistema se limita a 1.15× solo en esta hoja.
+  - Corrige «Cancela/r» partido en dos líneas y botones de distinta altura. Validado con prueba de widget temporal en 320/360/412/800 dp (escala de letra 1.3), sin desbordes.
+  - App **1.8.186+196**; APK `C:\pulsanet_soporte\APK\TacticalPtx-1.8.186+196.apk` (sin OTA).
+- **Archivos / refs:** `mobile/lib/widgets/panic_confirm_sheet.dart`, `mobile/pubspec.yaml`
+
 ## 2026-10-12 — Radio que despierta con PTT, notificaciones nuevas (web/app) y batería
 
 - **Tipo:** feature | ux | mejora
