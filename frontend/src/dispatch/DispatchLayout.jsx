@@ -11,7 +11,6 @@ import {
 import { usePtt } from '../usePtt';
 import PttModeSegment from '../PttModeSegment.jsx';
 import { useGpsReporter } from '../useGpsReporter';
-import { useDispatchListen } from '../useDispatchListen';
 import { unlockMediaAudio } from '../unlockMediaAudio';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
 import { esMsg } from '../esMsg';
@@ -388,15 +387,6 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
       cancelled = true;
     };
   }, [moduleSeg, session.token, location.pathname]);
-
-  const listenGroups = groups.filter((g) => listenIds.includes(g.id));
-  const skipListenIds = talkIds.length ? talkIds : group?.id ? [group.id] : [];
-  useDispatchListen({
-    token: session.token,
-    groups: listenGroups,
-    skipGroupIds: skipListenIds,
-    muted: ptt.listenMuted,
-  });
 
   useEffect(() => {
     const onOpen = (e) => {

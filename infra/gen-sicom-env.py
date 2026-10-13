@@ -114,7 +114,9 @@ lk = [
     "rtc:",
     "  tcp_port: 7881",
     "  udp_port: 7882",
-    "  use_external_ip: false",
+    # true: advertise_internal_ip solo actúa así (anuncia pública + 192.168.x para la consola LAN).
+    # Si STUN no resuelve, LiveKit cae a node_ip como antes; el keepalive reinicia al cambiar la IP.
+    "  use_external_ip: true",
 ]
 if public_ip:
     lk.append(f"  node_ip: {public_ip}")

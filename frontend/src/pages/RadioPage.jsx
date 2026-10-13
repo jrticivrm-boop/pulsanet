@@ -12,7 +12,6 @@ import { unlockPanicAudio } from '../panicSound';
 import { openPanicLocation, isValidMapCoord } from '../panicMaps';
 import { unlockMediaAudio } from '../unlockMediaAudio';
 import { startBackgroundKeepalive, stopBackgroundKeepalive } from '../backgroundKeepalive';
-import { useDispatchListen } from '../useDispatchListen';
 import { openDm, openPeoplePalette, startVoiceCall } from '../peerActions';
 import { PANIC_REASON_ICON, panicReasonOf } from '../panicReason';
 import PanicLiveViewer from '../PanicLiveViewer.jsx';
@@ -307,14 +306,6 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
     suppressChatNotify: !embedded,
   });
   const ptt = embedded ? dispatchCtx.ptt : localPtt;
-
-  const listenGroups = groups.filter((g) => listenIds.includes(g.id));
-  useDispatchListen({
-    token: embedded ? '' : session.token,
-    groups: embedded ? [] : listenGroups,
-    skipGroupIds: embedded ? [] : talkIds.length ? talkIds : group?.id ? [group.id] : [],
-    muted: ptt.listenMuted,
-  });
 
   useEffect(() => {
     if (embedded) return undefined;

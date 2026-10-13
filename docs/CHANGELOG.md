@@ -27,6 +27,8 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 - **Consola web — «Sin audio (LiveKit)» tras un corte de red:** al reconectar, la consola ya no reemplaza las salas que LiveKit está reanudando (eso expulsaba su propia sesión con «identidad duplicada» y provocaba ráfagas de reconexión en todos los canales). Cada sala que LiveKit da por perdida se reabre sola, y los canales de solo escucha ya no dejan conexiones huérfanas ni se quedan sin audio hasta recargar.
+- **Consola y Radio web — canales Escuchar:** cada canal se conecta una sola vez (antes dos: identidad de hablar + identidad de escucha), y el PTT ya no transmite a los canales que solo se escuchan; el micrófono solo se publica en los canales Hablar.
+- **LiveKit (servidor):** además de la IP pública anuncia la IP de la red local, para que la consola de la oficina no dependa del retorno del router (`use_external_ip: true` + `advertise_internal_ip`). Se aplica al desplegar (reinicia LiveKit y API).
 
 ### Security
 - **Cámara remota:** solo administradores de consola pueden activarla y solo sobre usuarios dentro de su alcance de seguimiento (antes cualquier usuario de la organización).

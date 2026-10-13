@@ -324,6 +324,8 @@ export function usePtt({
 
   const publishMicToRoom = useCallback(async (room, gid) => {
     if (!room || room.state !== 'connected') return null;
+    // Canales solo Escuchar: sin mic (si no, el PTT saldría también ahí sin turno).
+    if (!talkGroupIdsRef.current.includes(gid)) return null;
     if (micsByGroupRef.current.has(gid)) return micsByGroupRef.current.get(gid);
     assertMediaDevices();
     let track;
@@ -371,7 +373,8 @@ export function usePtt({
 
   const startPublishing = useCallback(async () => {
     await ensureMicReady();
-    for (const mic of micsByGroupRef.current.values()) {
+    for (const [gid, mic] of micsByGroupRef.current.entries()) {
+      if (!talkGroupIdsRef.current.includes(gid)) continue;
       try {
         await mic.unmute();
       } catch {
@@ -577,6 +580,23 @@ export function usePtt({
           .querySelectorAll(`[data-lk-audio][data-lk-group="${gid}"]`)
           .forEach((el) => el.remove());
         if (roomRef.current === room) roomRef.current = null;
+      }
+
+      // Canal que pasó de Hablar a solo Escuchar: sigue conectado, pero sin mic.
+      for (const [gid, mic] of [...micsByGroupRef.current.entries()]) {
+        if (talkIds.includes(gid)) continue;
+        try {
+          await roomsByGroupRef.current.get(gid)?.localParticipant?.unpublishTrack(mic);
+        } catch {
+          /* ignore */
+        }
+        try {
+          mic.stop();
+        } catch {
+          /* ignore */
+        }
+        micsByGroupRef.current.delete(gid);
+        if (micRef.current === mic) micRef.current = null;
       }
 
       // Tras un corte el SDK reanuda cada sala solo; esperar en paralelo en vez de reemplazarlas.

@@ -1,3 +1,14 @@
+## 2026-10-13 — Audio consola: una conexión por canal, PTT solo a Hablar, candidato LAN de LiveKit
+
+- **Tipo:** fix
+- **Área:** web | infra
+- **Qué:**
+  - Canales Escuchar se conectaban dos veces (`usePtt` con identidad de hablar + `useDispatchListen` con `:listen:`): se retiró `useDispatchListen` (llamadas en `DispatchLayout` y `RadioPage`, archivo eliminado); `usePtt` es el único dueño (reconexión, silencio de escucha, desbloqueo de audio).
+  - `usePtt`: mic solo se publica en canales Hablar; al presionar solo se desmutean esos; si un canal pasa de Hablar a Escuchar se retira su mic sin desconectar la sala. Antes el PTT salía también en canales de solo escucha sin pedir turno.
+  - LiveKit SICOM: `gen-sicom-env.py` genera `use_external_ip: true`. Verificado en el código de LiveKit 1.13.3 (`mediatransportutil` `webrtc_config.go`): `advertise_internal_ip` solo se aplica con `use_external_ip` (regla NAT1To1 «Append»); con `false` + `node_ip` se reescriben todos los candidatos a la IP pública y la consola LAN depende del hairpin del router. Si STUN falla, LiveKit cae a `node_ip` (comportamiento actual). El keepalive sigue reiniciando el contenedor al cambiar la IP.
+- **Por qué / notas:** no desplegado. Al desplegar, `sicom-deploy.sh` detecta el cambio en `gen-sicom-env.py`, regenera `livekit.sicom.yaml` y recrea **livekit + api** (corte de audio de unos segundos). En `DispatchLayout.jsx` solo se commiteó este cambio; los cambios ajenos sin commit siguen en el working tree.
+- **Archivos / refs:** `frontend/src/usePtt.js`, `frontend/src/dispatch/DispatchLayout.jsx`, `frontend/src/pages/RadioPage.jsx`, `frontend/src/useDispatchListen.js` (eliminado), `infra/gen-sicom-env.py`
+
 ## 2026-10-13 — Producción: corrección del bucle de reconexión LiveKit (consola)
 
 - **Tipo:** ops
