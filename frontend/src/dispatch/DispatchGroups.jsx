@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  addGroupMember,
+  addGroupMembersBulk,
   canManageUsers,
   createGroup,
   deleteAdminGroup,
@@ -29,6 +29,7 @@ import ThFilterMulti, {
   NEW_CHANNEL_BTN_SVG,
 } from './ThFilterMulti.jsx';
 import useAdminStickyToolbarHeight from './useAdminStickyToolbarHeight.js';
+import GroupMemberPicker from './GroupMemberPicker.jsx';
 
 const MEMBER_ROLES = [
   { value: 'member', label: 'Miembro' },
@@ -900,14 +901,6 @@ function roleTypeLabel(role) {
   return map[r] || r || 'Usuario';
 }
 
-/** Etiqueta clara: rol · adscripción */
-function memberAssignLabel(u) {
-  const role = roleTypeLabel(u.role);
-  const place = u.unitName || u.zoneName || '';
-  if (place) return `${u.displayName} — ${role} · ${place}`;
-  return `${u.displayName} — ${role}`;
-}
-
 
 
 export default function DispatchGroups({ session }) {
@@ -938,8 +931,6 @@ export default function DispatchGroups({ session }) {
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [detailsBusy, setDetailsBusy] = useState(false);
-  const [assignUserId, setAssignUserId] = useState('');
-  const [assignRole, setAssignRole] = useState('member');
   const [roleBusyId, setRoleBusyId] = useState('');
   const [filterQuery, setFilterQuery] = useState('');
   /** Filtros por columna (undefined = todos; [] = ninguno; string[] = parcial). Estilo PV / Usuarios. */
@@ -1088,6 +1079,11 @@ export default function DispatchGroups({ session }) {
     previewScope?.error,
     previewScope?.hint,
   ]);
+
+  const createPickerCandidates = useMemo(
+    () => createAssignableUsers.filter((u) => !createMemberIds.includes(String(u.id))),
+    [createAssignableUsers, createMemberIds]
+  );
 
   const detailsDirty = useMemo(() => {
     if (!selectedGroup) return false;
@@ -1257,10 +1253,10 @@ export default function DispatchGroups({ session }) {
     setError('');
   }
 
-  function addCreateMemberFromSelect(userId) {
-    const id = String(userId || '').trim();
-    if (!id) return;
-    setCreateMemberIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  function addCreateMembers(userIds) {
+    const ids = userIds.map((x) => String(x || '').trim()).filter(Boolean);
+    if (!ids.length) return;
+    setCreateMemberIds((prev) => [...prev, ...ids.filter((id) => !prev.includes(id))]);
   }
 
   function removeCreateMember(userId) {
@@ -1535,14 +1531,10 @@ export default function DispatchGroups({ session }) {
     if (!selectedGroup) {
       setEditName('');
       setEditDescription('');
-      setAssignUserId('');
-      setAssignRole('member');
       return;
     }
     setEditName(selectedGroup.name || '');
     setEditDescription(selectedGroup.description || '');
-    setAssignUserId('');
-    setAssignRole('member');
   }, [selectedGroupId, selectedGroup?.id, selectedGroup?.name, selectedGroup?.description]);
 
   useEffect(() => {
@@ -1722,16 +1714,20 @@ export default function DispatchGroups({ session }) {
 
       let memberWarn = '';
       if (newId && createFromTree && createMemberIds.length) {
-        const fails = [];
-        for (const uid of createMemberIds) {
-          try {
-            await addGroupMember(session.token, newId, uid, createMemberRole || 'member');
-          } catch (err) {
-            fails.push(err?.message || String(uid));
-          }
+        let failCount = 0;
+        try {
+          const res = await addGroupMembersBulk(
+            session.token,
+            newId,
+            createMemberIds,
+            createMemberRole || 'member'
+          );
+          failCount = res?.rejected?.length || 0;
+        } catch {
+          failCount = createMemberIds.length;
         }
-        if (fails.length) {
-          memberWarn = `Canal creado; ${fails.length} integrante(s) no se pudieron agregar.`;
+        if (failCount) {
+          memberWarn = `Canal creado; ${failCount} integrante(s) no se pudieron agregar.`;
         }
       }
 
@@ -1810,19 +1806,13 @@ export default function DispatchGroups({ session }) {
     }
   }
 
-  async function onAssignMember(e) {
-    e.preventDefault();
-    if (!selectedGroupId || !assignUserId) return;
-    try {
-      await addGroupMember(session.token, selectedGroupId, assignUserId, assignRole);
-      setAssignUserId('');
-      setAssignRole('member');
-      await reload();
-      await loadMembers(selectedGroupId);
-      setError('');
-    } catch (err) {
-      setError(err.message);
-    }
+  async function onAddMembersBulk(userIds, role) {
+    if (!selectedGroupId || !userIds.length) return null;
+    const res = await addGroupMembersBulk(session.token, selectedGroupId, userIds, role);
+    await reload();
+    await loadMembers(selectedGroupId);
+    setError('');
+    return res;
   }
 
   async function onChangeMemberRole(userId, nextRole) {
@@ -2179,44 +2169,31 @@ export default function DispatchGroups({ session }) {
           </label>
           <div className="cc-groups-field cc-groups-create-members cc-groups-create-members--compact">
             <span className="cc-groups-create-members-title">Integrantes (opcional)</span>
-            <div className="cc-groups-create-members-add">
-              <select
-                value=""
-                disabled={createBusy || !scopeOk || createAssignableUsers.length === 0}
-                aria-label="Agregar persona"
-                onChange={(e) => {
-                  addCreateMemberFromSelect(e.target.value);
-                  e.target.value = '';
-                }}
-              >
-                <option value="">
-                  {!scopeOk
-                    ? 'Alcance no válido'
-                    : createAssignableUsers.length === 0
-                      ? 'Sin personas elegibles'
-                      : 'Agregar persona…'}
-                </option>
-                {createAssignableUsers
-                  .filter((u) => !createMemberIds.includes(String(u.id)))
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {memberAssignLabel(u)}
-                    </option>
-                  ))}
-              </select>
-              <select
-                value={createMemberRole}
-                onChange={(e) => setCreateMemberRole(e.target.value)}
-                disabled={createBusy || createMemberIds.length === 0}
-                aria-label="Rol"
-              >
-                {MEMBER_ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <GroupMemberPicker
+              candidates={createPickerCandidates}
+              token={session.token}
+              roles={MEMBER_ROLES}
+              roleLabel={roleTypeLabel}
+              busy={createBusy}
+              disabled={!scopeOk}
+              emptyText={
+                !scopeOk
+                  ? 'Alcance no válido'
+                  : createMemberIds.length
+                    ? 'Ya están en la lista todas las personas elegibles.'
+                    : 'Sin personas elegibles'
+              }
+              submitLabel={(n) => (n === 1 ? 'Añadir 1 a la lista' : `Añadir ${n} a la lista`)}
+              onAdd={async (ids, role) => {
+                addCreateMembers(ids);
+                setCreateMemberRole(role);
+                return {
+                  added: ids,
+                  rejected: [],
+                  message: `${ids.length} en la lista; se agregan al crear el canal.`,
+                };
+              }}
+            />
             {createMemberIds.length > 0 ? (
               <ul className="cc-groups-create-member-chips">
                 {createMemberIds.map((id) => {
@@ -3072,35 +3049,21 @@ export default function DispatchGroups({ session }) {
                     {membersSectionOpen ? (
                       <div id="cc-groups-members-panel">
                         {canManage ? (
-                          <form className="cc-groups-assign-inline" onSubmit={onAssignMember}>
-                            <select
-                              value={assignUserId}
-                              onChange={(e) => setAssignUserId(e.target.value)}
-                              aria-label="Usuario"
-                            >
-                              <option value="">Agregar persona…</option>
-                              {assignableUsers.map((u) => (
-                                <option key={u.id} value={u.id}>
-                                  {memberAssignLabel(u)}
-                                </option>
-                              ))}
-                            </select>
-                            <select
-                              value={assignRole}
-                              onChange={(e) => setAssignRole(e.target.value)}
-                              disabled={!assignUserId}
-                              aria-label="Rol"
-                            >
-                              {MEMBER_ROLES.map((r) => (
-                                <option key={r.value} value={r.value}>
-                                  {r.label}
-                                </option>
-                              ))}
-                            </select>
-                            <button type="submit" className="cc-btn primary cc-btn-sm" disabled={!assignUserId}>
-                              +
-                            </button>
-                          </form>
+                          <details className="cc-groups-add-members" open={members.length === 0 || undefined}>
+                            <summary>
+                              <span aria-hidden>＋</span> Agregar integrantes
+                              <small>{assignableUsers.length} disponibles</small>
+                            </summary>
+                            <GroupMemberPicker
+                              key={selectedGroupId}
+                              candidates={assignableUsers}
+                              token={session.token}
+                              roles={MEMBER_ROLES}
+                              roleLabel={roleTypeLabel}
+                              emptyText="No hay más personas elegibles para este canal."
+                              onAdd={onAddMembersBulk}
+                            />
+                          </details>
                         ) : null}
                         {members.length === 0 ? (
                           <p className="cc-hint cc-groups-members-empty">Sin miembros.</p>

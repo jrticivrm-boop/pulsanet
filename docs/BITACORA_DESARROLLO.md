@@ -1,3 +1,14 @@
+## 2026-10-13 — Canales: agregar integrantes con buscador y alta masiva; app sin píldora de alerta activa
+
+- **Tipo:** ux
+- **Área:** web | backend | mobile
+- **Qué:**
+  - Componente nuevo `GroupMemberPicker`: busca por nombre, usuario, matrícula, teléfono, grado, cargo o adscripción (sin acentos ni mayúsculas), filtros por adscripción y tipo, «Seleccionar los N encontrados», «Pegar lista» (matrículas, usuarios o teléfonos; avisa los no encontrados), rol y botón «Agregar N personas»; muestra rechazos con motivo y los deja seleccionados. Sustituye al `<select>` en el panel del canal (sección plegable «Agregar integrantes») y en «Agregar canal» (lista previa con chips; al crear se manda en una sola llamada).
+  - Backend: `POST /api/admin/groups/:id/members/bulk` (`userIds[]` ≤ 500, `role`); valida a cada persona con `memberAddRejection` (misma lógica que el alta individual, ahora compartida: perfil del actor, alcance, ajuste geográfico) y responde `{added, rejected[{userId, error}]}`; actividad `group.member_add_bulk`. Probado en dev: alta + deduplicado + rechazos (ID inexistente, inválido, fuera del alcance del canal); datos restaurados.
+  - App 1.8.190+200: se quita la píldora «Alerta activa · transmitiendo cámara y micrófono al mando» de `radio_shell.dart` (tapaba controles). APK `C:\pulsanet_soporte\APK\SICOM-1.8.190+200.apk`; sin OTA.
+- **Por qué / notas:** sin migraciones. No desplegado a producción (pendiente de orden).
+- **Archivos / refs:** `frontend/src/dispatch/GroupMemberPicker.jsx`, `frontend/src/dispatch/DispatchGroups.jsx`, `frontend/src/dispatch/command-center.css`, `frontend/src/api.js`, `backend/src/routes/admin.js`, `mobile/lib/screens/radio_shell.dart`, `mobile/pubspec.yaml`
+
 ## 2026-10-13 — Producción: notificaciones nativas de mensajes y alerta con motivo/cámara en vivo
 
 - **Tipo:** ops

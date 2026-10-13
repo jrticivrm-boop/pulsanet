@@ -2236,6 +2236,84 @@ adminRouter.delete('/groups/:id', requireUserManager, async (req, res) => {
   res.json({ ok: true, hard: false });
 });
 
+/** null si el actor puede meter a `userId` en el grupo; si no, { status, error }. */
+async function memberAddRejection(user, scope, g, userId) {
+  const { rows: target } = await query(
+    `SELECT role, unit_id, admin_scope_unit_id FROM users
+     WHERE id = $1 AND organization_id = $2`,
+    [userId, user.orgId]
+  );
+  if (!target[0]) return { status: 404, error: 'Usuario no encontrado' };
+  const actorWhy = actorAssignRejectReason(user.role, target[0].role);
+  if (actorWhy) return { status: 403, error: actorWhy };
+  if (!scope.orgWide) {
+    const inScope =
+      (target[0].unit_id && scope.unitIds.includes(target[0].unit_id)) ||
+      (target[0].admin_scope_unit_id && scope.unitIds.includes(target[0].admin_scope_unit_id));
+    // region_* pueden estar fuera del unitIds del admin de zona/unidad: ya bloqueados por actorWhy
+    if (!inScope && !['region_admin', 'region_user', 'root'].includes(String(target[0].role || ''))) {
+      return { status: 403, error: 'Usuario fuera de tu alcance' };
+    }
+  }
+  const fits = await memberFitsGroupGeo(user.orgId, target[0], {
+    scopeLevel: g.scope_level || 'unit',
+    unitId: g.unit_id,
+  });
+  if (!fits) return { status: 400, error: groupGeoRejectReason() };
+  return null;
+}
+
+/** Alta masiva: valida a cada persona igual que el alta individual y reporta rechazos. */
+adminRouter.post('/groups/:id/members/bulk', requireUserManager, async (req, res) => {
+  const ids = [...new Set((Array.isArray(req.body?.userIds) ? req.body.userIds : []).map(String))]
+    .filter(Boolean);
+  const role = GROUP_MEMBER_ROLES.has(req.body?.role) ? req.body.role : 'member';
+  if (!ids.length) return res.status(400).json({ ok: false, error: 'Sin personas seleccionadas' });
+  if (ids.length > 500) {
+    return res.status(400).json({ ok: false, error: 'Máximo 500 personas por operación' });
+  }
+
+  const g = await loadGroupInOrg(req.user.orgId, req.params.id);
+  if (!g) return res.status(404).json({ ok: false, error: 'Grupo no encontrado' });
+  const scope = await loadAdminScope(req.user);
+  if (!groupInAdminScope(scope, g.unit_id)) {
+    return res.status(403).json({ ok: false, error: 'Grupo fuera de tu alcance' });
+  }
+
+  const added = [];
+  const rejected = [];
+  for (const userId of ids) {
+    let why;
+    try {
+      why = await memberAddRejection(req.user, scope, g, userId);
+    } catch {
+      why = { error: 'Identificador no válido' };
+    }
+    if (why) {
+      rejected.push({ userId, error: why.error });
+      continue;
+    }
+    await query(
+      `INSERT INTO group_members (group_id, user_id, role) VALUES ($1, $2, $3)
+       ON CONFLICT (group_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+      [req.params.id, userId, role]
+    );
+    added.push(userId);
+  }
+
+  if (added.length) {
+    await logActivity({
+      organizationId: req.user.orgId,
+      actorId: req.user.sub,
+      action: 'group.member_add_bulk',
+      entityType: 'group',
+      entityId: req.params.id,
+      meta: { count: added.length, role, rejected: rejected.length },
+    });
+  }
+  res.status(added.length ? 201 : 200).json({ ok: true, added, rejected });
+});
+
 adminRouter.post('/groups/:id/members', requireUserManager, async (req, res) => {
   const { userId, role = 'member' } = req.body || {};
   if (!userId) return res.status(400).json({ ok: false, error: 'userId requerido' });
@@ -2247,41 +2325,8 @@ adminRouter.post('/groups/:id/members', requireUserManager, async (req, res) => 
     return res.status(403).json({ ok: false, error: 'Grupo fuera de tu alcance' });
   }
 
-  if (!scope.orgWide) {
-    const { rows: target } = await query(
-      `SELECT role, unit_id, admin_scope_unit_id FROM users
-       WHERE id = $1 AND organization_id = $2`,
-      [userId, req.user.orgId]
-    );
-    if (!target[0]) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
-    const actorWhy = actorAssignRejectReason(req.user.role, target[0].role);
-    if (actorWhy) return res.status(403).json({ ok: false, error: actorWhy });
-    const inScope =
-      (target[0].unit_id && scope.unitIds.includes(target[0].unit_id)) ||
-      (target[0].admin_scope_unit_id && scope.unitIds.includes(target[0].admin_scope_unit_id));
-    // region_* pueden estar fuera del unitIds del admin de zona/unidad: ya bloqueados por actorWhy
-    if (!inScope && !['region_admin', 'region_user', 'root'].includes(String(target[0].role || ''))) {
-      return res.status(403).json({ ok: false, error: 'Usuario fuera de tu alcance' });
-    }
-    const fits = await memberFitsGroupGeo(req.user.orgId, target[0], {
-      scopeLevel: g.scope_level || 'unit',
-      unitId: g.unit_id,
-    });
-    if (!fits) return res.status(400).json({ ok: false, error: groupGeoRejectReason() });
-  } else {
-    const { rows: target } = await query(
-      `SELECT role, unit_id, admin_scope_unit_id FROM users WHERE id = $1 AND organization_id = $2`,
-      [userId, req.user.orgId]
-    );
-    if (!target[0]) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
-    const actorWhy = actorAssignRejectReason(req.user.role, target[0].role);
-    if (actorWhy) return res.status(403).json({ ok: false, error: actorWhy });
-    const fits = await memberFitsGroupGeo(req.user.orgId, target[0], {
-      scopeLevel: g.scope_level || 'unit',
-      unitId: g.unit_id,
-    });
-    if (!fits) return res.status(400).json({ ok: false, error: groupGeoRejectReason() });
-  }
+  const why = await memberAddRejection(req.user, scope, g, userId);
+  if (why) return res.status(why.status).json({ ok: false, error: why.error });
 
   await query(
     `INSERT INTO group_members (group_id, user_id, role) VALUES ($1, $2, $3)

@@ -23,7 +23,6 @@ import '../chat_message_banner.dart';
 import '../user_display.dart';
 import '../message_tone.dart';
 import '../nudge_shake.dart';
-import '../panic_live_session.dart';
 import '../panic_maps.dart';
 import '../panic_vibration.dart';
 import '../peer_actions.dart' show startPersonalCall;
@@ -2456,54 +2455,6 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
               ),
             ),
           ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: IgnorePointer(
-            child: ListenableBuilder(
-              listenable: PanicLiveSession.instance,
-              builder: (context, _) {
-                if (!PanicLiveSession.instance.isActive) return const SizedBox.shrink();
-                return SafeArea(
-                  top: false,
-                  child: Center(
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 84),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: kRadioDanger,
-                        borderRadius: BorderRadius.circular(999),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black38, blurRadius: 10, offset: Offset(0, 3)),
-                        ],
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.fiber_manual_record, color: Colors.white, size: 12),
-                          SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              'Alerta activa · transmitiendo cámara y micrófono al mando',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 12.5,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
         if (session.incomingPanicActive)
           Positioned.fill(
             child: Material(

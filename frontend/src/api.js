@@ -720,6 +720,15 @@ export function addGroupMember(token, groupId, userId, role = 'member') {
   });
 }
 
+/** Alta masiva → `{ added: [userId], rejected: [{ userId, error }] }`. */
+export function addGroupMembersBulk(token, groupId, userIds, role = 'member') {
+  return api(`/api/admin/groups/${groupId}/members/bulk`, {
+    token,
+    method: 'POST',
+    body: { userIds, role },
+  });
+}
+
 export function removeGroupMember(token, groupId, userId) {
   return api(`/api/admin/groups/${groupId}/members/${userId}`, {
     token,
