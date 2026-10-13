@@ -29,6 +29,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Usuarios — No. de teléfono:** obligatorio en el alta (10 dígitos o internacional con +), editable después; visible en la tabla, la búsqueda y el CSV. Migración `040_user_phone.sql`.
 
 ### Changed
+- **Notificaciones de mensajes nativas (app 1.8.189+199):** chat, DM y zumbidos llegan como notificación del sistema con el tono, la vibración y el modo silencio/No molestar del teléfono, aunque la app esté minimizada o dormida; un aviso por conversación. Se configuran desde Ajustes › Sonidos › Mensajes (abre los ajustes del sistema). Se quitan del aviso la foto y Responder/Marcar leído.
 - **App — Enviar alerta (1.8.186+196):** hoja rediseñada: encabezado rojo con ícono pulsante, destinos como píldoras, motivos con ícono, botón de envío a todo el ancho en celular; sin textos partidos ni desfases con letra grande.
 - **Batería de la app (calentamiento):** ping del socket cada 25 s (antes 10 s; la antena celular no descansaba), presencia renovada por el servidor con cada pong y ping de presencia de la app cada 60 s (antes 30 s), reconexión con espera creciente hasta 15 s sin cobertura, y el GPS ya no «despierta» a alta precisión por saltos de señal bajo techo (exige 2 lecturas seguidas y distancia ≥ 2× la precisión).
 - **Push Android data-only:** chat, DM, pánico, llamadas perdidas y anuncios llegan como datos y la app arma la notificación enriquecida. Las APK anteriores siguen mostrando su notificación simple.
