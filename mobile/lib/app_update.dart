@@ -158,7 +158,7 @@ class AppUpdateService {
     required void Function(double progress) onProgress,
   }) async {
     final dir = await getTemporaryDirectory();
-    final out = File(p.join(dir.path, 'tacticalptx-update-$versionCode.apk'));
+    final out = File(p.join(dir.path, 'sicom-update-$versionCode.apk'));
     if (await out.exists()) {
       try {
         await out.delete();

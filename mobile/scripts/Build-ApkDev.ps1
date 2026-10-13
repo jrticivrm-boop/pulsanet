@@ -51,6 +51,6 @@ $apkSrc = Join-Path $mobile 'build\app\outputs\flutter-apk\app-release.apk'
 if (-not (Test-Path $apkSrc)) { throw "No APK: $apkSrc" }
 $dest = 'C:\pulsanet_soporte\APK'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-$out = Join-Path $dest "TacticalPtx-DEV-$devName+$verCode.apk"
+$out = Join-Path $dest "SICOM-DEV-$devName+$verCode.apk"
 Copy-Item -Force $apkSrc $out
 Write-Host "APK DEV listo: $out" -ForegroundColor Green

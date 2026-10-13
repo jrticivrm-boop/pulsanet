@@ -208,12 +208,12 @@ if (-not $auxRoot) { $auxRoot = Join-Path $root 'var' }
 $soporte = Join-Path $auxRoot 'APK'
 New-Item -ItemType Directory -Force -Path $soporte | Out-Null
 
-Copy-Item -Force $apkSrc (Join-Path $soporte "TacticalPtx-$verName+$verCode.apk")
-Copy-Item -Force $apkSrc (Join-Path $soporte 'TacticalPtx-latest.apk')
+Copy-Item -Force $apkSrc (Join-Path $soporte "SICOM-$verName+$verCode.apk")
+Copy-Item -Force $apkSrc (Join-Path $soporte 'SICOM-latest.apk')
 
 Write-Host '========== APK LISTO ==========' -ForegroundColor Green
-Write-Host "Archivo: $soporte\TacticalPtx-$verName+$verCode.apk"
-Write-Host "Latest:  $soporte\TacticalPtx-latest.apk"
+Write-Host "Archivo: $soporte\SICOM-$verName+$verCode.apk"
+Write-Host "Latest:  $soporte\SICOM-latest.apk"
 
 if (-not $Ota) {
   Write-Host 'OTA: no publicada (usa -Ota solo si lo pides).' -ForegroundColor Yellow
@@ -223,7 +223,7 @@ if (-not $Ota) {
 $upDir = Join-Path $root 'backend\app-updates'
 $filesDir = Join-Path $upDir 'files'
 New-Item -ItemType Directory -Force -Path $filesDir | Out-Null
-$apkDst = Join-Path $filesDir 'TacticalPtx.apk'
+$apkDst = Join-Path $filesDir 'SICOM.apk'
 Copy-Item -Force $apkSrc $apkDst
 
 $sha = (Get-FileHash -Algorithm SHA256 -Path $apkDst).Hash.ToLower()
@@ -231,7 +231,7 @@ $manifest = @{
   package = 'com.tacticalptx.app'
   versionCode = [int]$verCode
   versionName = $verName
-  apkFile = 'TacticalPtx.apk'
+  apkFile = 'SICOM.apk'
   force = $false
   message = 'Actualización disponible (opcional).'
   sha256 = $sha
