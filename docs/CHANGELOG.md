@@ -18,6 +18,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > Deseleccionar operador en consola, avatares más rápidos y nuevo Seguimiento GPS en app desplegados el 2026-10-13 (`prod-v1.8.107-20261013-0655`, API + web). APK Android **1.8.191+201** (`SICOM-1.8.191+201.apk`).
 > Corrección del bucle de reconexión LiveKit de la consola desplegada el 2026-10-13 (`prod-v1.8.107-20261013-0829`, solo web).
 > Una conexión por canal Escuchar, PTT solo a Hablar y LiveKit con candidato LAN desplegados el 2026-10-13 (`prod-v1.8.107-20261013-0838`, LiveKit + API + web).
+> Menú «Más» de Usuarios y exportar a Excel desplegados el 2026-10-14 (`prod-v1.8.107-20261014-1058`, web).
 
 ### Changed
 - **App — Seguimiento GPS rediseñado:** seguir a alguien se suelta al mover o hacer zoom con el dedo (botón «Volver a seguir»); tocar el mapa vacío, el encabezado o de nuevo a la persona la deselecciona. La ficha muestra foto, cargo, estado, coordenadas (toque para copiar) y botones Seguir / Centrar / Ruta 8 h / Contactar. Filtro, cámara, selección, estilo y lista se conservan al cambiar a Chats o Radio y al reabrir la app; el filtro ya no cambia solo con el canal de Radio.

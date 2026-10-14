@@ -1,3 +1,9 @@
+## 2026-10-14 — Producción: Usuarios (menú «Más» y exportar a Excel)
+
+- **Tipo:** ops
+- **Área:** ops | web
+- **Qué:** por orden del usuario (10:57, **fuera de ventana**; 17 usuarios activos): VERIFICAR-PRUEBAS (listo; aviso BD de pruebas con 16 días) → `PROMOVER -A produccion`. `main` `c3b73e9` → `6fcaccc`; solo se reconstruyó **web**; sin migraciones. Etiqueta `prod-v1.8.107-20261014-1058`; health OK.
+- **Archivos / refs:** `C:\pulsanet_soporte\Pruebas\_promover_20261014_usuarios_excel.log`, `/opt/respaldos/deploys.log`
 ## 2026-10-14 — Usuarios: orden de columnas del Excel
 
 - **Tipo:** mejora
