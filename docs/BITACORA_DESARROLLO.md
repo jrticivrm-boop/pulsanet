@@ -1,3 +1,8 @@
+## 2026-10-14 — Pruebas: menú «Más» y exportar a Excel de Usuarios
+
+- **Tipo:** ops
+- **Área:** ops
+- **Qué:** `PROMOVER -A pruebas` + `PRUEBAS.ps1` con `8317ae2`; migraciones sobre la copia sin errores; pruebas arriba en https://localhost:5180 (API :4200).
 ## 2026-10-14 — Usuarios: menú «Más» ya no se encima y exportar a Excel
 
 - **Tipo:** fix | feature
