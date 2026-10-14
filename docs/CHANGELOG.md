@@ -27,6 +27,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Web — subida de fotos de perfil y canal:** se reducen en el navegador (máx. 640 px) antes de subirlas; el servidor sirve cada foto con caché de 7 días.
 
 ### Fixed
+- **Web — Usuarios, menú «Más»:** las opciones ya no quedan tapadas por la fila de abajo; el menú se cierra al hacer clic fuera o con Esc.
 - **Consola web — «Sin audio (LiveKit)» tras un corte de red:** al reconectar, la consola ya no reemplaza las salas que LiveKit está reanudando (eso expulsaba su propia sesión con «identidad duplicada» y provocaba ráfagas de reconexión en todos los canales). Cada sala que LiveKit da por perdida se reabre sola, y los canales de solo escucha ya no dejan conexiones huérfanas ni se quedan sin audio hasta recargar.
 - **Consola y Radio web — canales Escuchar:** cada canal se conecta una sola vez (antes dos: identidad de hablar + identidad de escucha), y el PTT ya no transmite a los canales que solo se escuchan; el micrófono solo se publica en los canales Hablar.
 - **LiveKit (servidor):** además de la IP pública anuncia la IP de la red local, para que la consola de la oficina no dependa del retorno del router (`use_external_ip: true` + `advertise_internal_ip`). Se aplica al desplegar (reinicia LiveKit y API).
@@ -38,6 +39,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Presencia por socket:** `presence:ping` con `groupId` solo aplica a canales a los que el socket se unió.
 
 ### Added
+- **Web — Usuarios, exportar a Excel:** botón «Excel» que descarga `usuarios_AAAA-MM-DD.xlsx` con la lista actual (búsqueda, filtros y orden aplicados, todas las páginas), todas las columnas + N.º y Matrícula, encabezado fijo y autofiltro.
 - **Alerta con motivo, acciones y cámara en vivo (app 1.8.188+198):** quien recibe la alerta ve en grande el motivo (Emergencia, Apoyo, Médica, Agresión) y el detalle, también en la notificación push y en la campana web. Tarjeta nueva en app y web con Ubicación, Cómo llegar, Llamar (SICOM), Mensaje, Celular y, para el mando, «Ver cámara». Al enviar la alerta, el teléfono del emisor pide una vez permiso de cámara/micrófono y transmite solo cámara trasera + micrófono (cifrado) a despacho/administradores con alcance sobre él, hasta que la alerta se resuelve o cancela (máx. 15 min); el mando puede cambiar a cámara frontal y silenciar el audio. Endpoints `POST /api/panic/:id/live/publish` y `/live/view`; evento `panic:live_end`.
 - **Radio que despierta con el PTT (app 1.8.185+195):** al pulsar PTT, los miembros del canal sin conexión activa reciben un aviso push que reconecta la app y activa la radio sola; el que habla espera un poco más antes de transmitir («Despertando radios…» en web). Si el teléfono llegó tarde, reproduce automáticamente la grabación de ese turno.
 - **Notificaciones web nuevas:** tarjetas apiladas (hasta 3 + «+N») con foto, canal, ícono del tipo, hora, cierre y barra de tiempo que se pausa con el mouse; campana con contador e historial filtrable (mensajes, alertas, llamadas perdidas/video de grupo, geocercas).

@@ -23,6 +23,7 @@ import { formatMatriculaInput, isValidMatricula, matriculaDigitMax, splitMatricu
 import { openPeerSheet } from '../peerActions';
 import { NEW_CHANNEL_BTN_SVG } from './ThFilterMulti.jsx';
 import useAdminStickyToolbarHeight from './useAdminStickyToolbarHeight.js';
+import { buildXlsx, downloadBlob } from '../xlsxExport.js';
 
 const ROLE_OPTIONS = [
   { value: 'root', label: 'Administrador' },
@@ -626,6 +627,14 @@ const USR_FILTER_BTN_SVG = (
   </svg>
 );
 
+/** Icono Excel (hoja con cuadrícula). */
+const USR_EXCEL_BTN_SVG = (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M3 9h18M3 15h18M9 3v18" />
+  </svg>
+);
+
 const USERS_PAGE_SIZE = 15;
 
 /** Ventana de botones numerados (estilo Parque Vehicular: hasta 5 páginas). */
@@ -669,6 +678,20 @@ function userTableCell(u, key) {
       return fmtWhen(u.lastSeenAt);
     default:
       return '—';
+  }
+}
+
+/** Texto plano de la celda para exportar a Excel. */
+function userExportValue(u, key) {
+  switch (key) {
+    case 'user':
+      return u.username || '';
+    case 'status':
+      return `${u.isActive ? 'Activo' : 'Inactivo'}${u.loginLocked ? ' · Bloqueado' : ''}`;
+    default: {
+      const v = userTableCell(u, key);
+      return typeof v === 'string' ? v : '';
+    }
   }
 }
 
@@ -1456,6 +1479,22 @@ export default function DispatchUsers({ session }) {
     return () => document.removeEventListener('click', onDocClick);
   }, [colsOpen]);
 
+  useEffect(() => {
+    if (moreUserId == null) return undefined;
+    function onDocDown(e) {
+      if (!e.target.closest?.('.usr-actions.is-more-open')) setMoreUserId(null);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setMoreUserId(null);
+    }
+    document.addEventListener('mousedown', onDocDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [moreUserId]);
+
   function commitColConfig(next) {
     setColConfig(next);
     saveUserColConfig(next);
@@ -2232,6 +2271,19 @@ export default function DispatchUsers({ session }) {
     }
   }
 
+  function exportUsersExcel() {
+    const cols = colConfig;
+    const headers = ['N.º', ...cols.map((c) => c.label), 'Matrícula'];
+    const rows = filteredUsers.map((u, i) => [
+      i + 1,
+      ...cols.map((c) => userExportValue(u, c.key)),
+      u.matricula || '',
+    ]);
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    downloadBlob(buildXlsx({ sheetName: 'Usuarios', headers, rows }), `usuarios_${stamp}.xlsx`);
+  }
+
   function downloadCsv() {
     fetch(usersCsvUrl(), {
       headers: { Authorization: `Bearer ${session.token}` },
@@ -2414,6 +2466,16 @@ export default function DispatchUsers({ session }) {
                   </div>
                 )}
               </div>
+              <button
+                type="button"
+                className="usr-btn-cols usr-btn-excel"
+                title="Exportar a Excel los usuarios de la lista (con búsqueda y filtros aplicados)"
+                disabled={loading || filteredUsers.length === 0}
+                onClick={exportUsersExcel}
+              >
+                {USR_EXCEL_BTN_SVG}
+                Excel
+              </button>
             </div>
             {canAddUser ? (
               <span className="cc-groups-new-channel-wrap">
@@ -2604,7 +2666,7 @@ export default function DispatchUsers({ session }) {
                           {userTableCell(u, c.key)}
                         </td>
                       ))}
-                      <td className="usr-actions">
+                      <td className={`usr-actions${moreUserId === u.id ? ' is-more-open' : ''}`}>
                         {canEdit && (
                           <button type="button" className="cc-btn primary cc-btn-sm" onClick={() => openEditModal(u)}>
                             Editar

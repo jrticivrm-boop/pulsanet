@@ -9188,6 +9188,10 @@ html.cc-cat-dragging .cc-cat-item {
 .cc-catalogs-body .cc-users-page .usr-users-table tbody .cc-gt-act-btns {
   z-index: 0;
 }
+/* Menú «Más» abierto: la celda sube sobre las filas siguientes (bajo el thead fijo, z 30) */
+.cc-catalogs-body .cc-users-page .usr-users-table tbody .usr-actions.is-more-open {
+  z-index: 20;
+}
 .cc-groups-toolbar-start {
   display: flex;
   align-items: baseline;
@@ -13183,6 +13187,10 @@ li.cc-states-row.on:hover {
   background: color-mix(in srgb, var(--cc-accent) 16%, var(--cc-panel));
   border-color: color-mix(in srgb, var(--cc-accent) 55%, var(--cc-border));
   color: var(--cc-accent);
+}
+.usr-btn-excel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .usr-btn-cols svg,
 .usr-btn-filters svg {

@@ -1,3 +1,12 @@
+## 2026-10-14 — Usuarios: menú «Más» ya no se encima y exportar a Excel
+
+- **Tipo:** fix | feature
+- **Área:** web
+- **Qué:**
+  - Menú «Más» de la tabla de Usuarios: la fila siguiente se dibujaba encima de las opciones (cada celda tenía su propia capa `z-index: 0`). Ahora la celda con el menú abierto sube a `z-index: 20` (debajo del encabezado fijo) y el menú se cierra al hacer clic fuera o con Esc.
+  - Botón **Excel** en la barra (junto a Filtros/Columnas): descarga `usuarios_AAAA-MM-DD.xlsx` con los usuarios de la lista actual (búsqueda, filtros y orden aplicados, todas las páginas), todas las columnas en el orden configurado + N.º y Matrícula; encabezado en negritas, fila 1 fija y autofiltro.
+  - Generador `.xlsx` propio sin dependencias (ZIP sin compresión + Office Open XML); validado abriéndolo en Excel.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`, `frontend/src/xlsxExport.js`
 ## 2026-10-13 — Producción: audio de consola (una conexión por canal, PTT solo a Hablar, LiveKit con IP LAN)
 
 - **Tipo:** ops
