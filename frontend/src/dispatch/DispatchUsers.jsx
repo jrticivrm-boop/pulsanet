@@ -2272,13 +2272,22 @@ export default function DispatchUsers({ session }) {
   }
 
   function exportUsersExcel() {
-    const cols = colConfig;
-    const headers = ['N.º', ...cols.map((c) => c.label), 'Matrícula'];
-    const rows = filteredUsers.map((u, i) => [
-      i + 1,
-      ...cols.map((c) => userExportValue(u, c.key)),
-      u.matricula || '',
-    ]);
+    const cols = [
+      ['Grado', (u) => u.grade || ''],
+      ['Especialidad', (u) => u.specialty || ''],
+      ['Nombre completo', (u) => u.fullName || u.displayName || ''],
+      ['Matrícula', (u) => (u.matricula ? formatMatriculaInput(u.matricula) : '')],
+      ['No. Tel.', (u) => (u.phone ? formatPhoneInput(u.phone) : '')],
+      ['Cargo', (u) => u.cargo || ''],
+      ['Usuario', (u) => u.username || ''],
+      ['Perfil', (u) => userExportValue(u, 'profile')],
+      ['Alcance', (u) => userExportValue(u, 'scope')],
+      ['Estado', (u) => userExportValue(u, 'status')],
+      ['Alta', (u) => userExportValue(u, 'created')],
+      ['Última conexión', (u) => userExportValue(u, 'seen')],
+    ];
+    const headers = ['N.º', ...cols.map(([label]) => label)];
+    const rows = filteredUsers.map((u, i) => [i + 1, ...cols.map(([, get]) => get(u))]);
     const d = new Date();
     const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     downloadBlob(buildXlsx({ sheetName: 'Usuarios', headers, rows }), `usuarios_${stamp}.xlsx`);

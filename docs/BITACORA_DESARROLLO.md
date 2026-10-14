@@ -1,3 +1,9 @@
+## 2026-10-14 — Usuarios: orden de columnas del Excel
+
+- **Tipo:** mejora
+- **Área:** web
+- **Qué:** el Excel de Usuarios sale con orden fijo: N.º, Grado, Especialidad, Nombre completo, Matrícula, No. Tel., Cargo, Usuario y luego Perfil, Alcance, Estado, Alta, Última conexión. Grado y Cargo van en columnas separadas (en la tabla se muestran juntos). Actualizado en pruebas.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx` (`exportUsersExcel`)
 ## 2026-10-14 — Pruebas: menú «Más» y exportar a Excel de Usuarios
 
 - **Tipo:** ops
