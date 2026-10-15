@@ -1,3 +1,13 @@
+## 2026-10-15 — «¿Qué hay aquí?»: el globo ya no parpadea
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - El `Popup` de react-leaflet cierra y reabre el globo cada vez que cambia la referencia de `position`; se pasaba un arreglo nuevo en cada render (al mostrar «Buscando dirección…» y al llegar la respuesta), así que parpadeaba y el mapa se reacomodaba (autoPan) varias veces.
+  - Posición y manejadores ahora son estables (`useMemo` por consulta); el evento `remove` solo limpia si corresponde a la consulta actual, para que un nuevo clic derecho no cierre el globo nuevo.
+  - Verificado en pruebas: un clic = el globo se abre una sola vez; un segundo clic lo reemplaza y queda abierto.
+- **Archivos / refs:** `frontend/src/dispatch/MapSearchPanel.jsx` (`MapReverseLookup`)
+
 ## 2026-10-15 — Despliegue a producción: globos del mapa con colores del tema
 
 - **Tipo:** otro

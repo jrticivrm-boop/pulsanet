@@ -28,6 +28,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 - Mapa (web): los globos usan los colores del tema (antes fondo claro fijo con botones casi invisibles en temas oscuros); «¿Qué hay aquí?» rediseñado con «Marcar este punto» como acción principal.
+- Mapa (web): el globo «¿Qué hay aquí?» ya no parpadea al abrirse (antes se cerraba y reabría mientras cargaba la dirección).
 - Mapa «Ruta» (web): con una sola ruta, el recuadro de tiempo/distancia ya no aparece como botón (sin manita); con alternativas sigue sirviendo para elegir ruta.
 - **Mapa «Buscar» y «Ruta» (web + API): búsqueda en línea + mapa propio de respaldo.** Se consulta a la vez el buscador en línea (Photon público, más actualizado) y el buscador propio de SICOM (Photon de México en la VM, ~30–120 ms, funciona sin internet). Lo propio aparece al instante; lo en línea, al llegar, toma el primer lugar (sin mover la lista si ya se eligió con flechas). Si ninguno responde, pasa sola a la búsqueda completa (Nominatim). «Mundo» sigue usando solo los servicios en línea. Pie de la lista: fecha del mapa propio (búsqueda y rutas). Nuevo `GEOCODER_LOCAL_URL` (API) y `GET /api/geo/estado`. Actualización automática en la VM: buscador semanal, rutas mensual (`infra/PHOTON-SICOM.ps1`, `infra/OSRM-SICOM.ps1 -Accion programar`).
 - Mapa «Buscar» (web): el pin de un municipio va a su cabecera y se dibuja el límite del municipio/estado/colonia elegido. Requiere migración 043 y `load-mx-postcodes.js`.
