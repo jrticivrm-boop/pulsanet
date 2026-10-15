@@ -879,59 +879,63 @@ export function MapReverseLookup({ token, enabled = true, onUse, onRoute }) {
   return (
     <Popup position={[probe.lat, probe.lng]} eventHandlers={{ remove: () => setProbe(null) }}>
       <div className="map-reverse-pop">
-        <strong>¿Qué hay aquí?</strong>
-        {probe.loading ? <div className="muted">Buscando dirección…</div> : null}
-        {!probe.loading && place ? (
-          <div>
-            {place.name}
-            {place.detail ? <div className="muted">{place.detail}</div> : null}
-          </div>
-        ) : null}
-        {!probe.loading && probe.ejido ? (
-          <div>
-            {SEARCH_KIND_LABELS[probe.ejido.kind] || 'Ejido'}: <strong>{probe.ejido.name}</strong>
-          </div>
-        ) : null}
-        {!probe.loading && !place && !probe.ejido ? (
-          <div className="muted">{probe.error ? 'No se pudo consultar.' : 'Sin dirección conocida.'}</div>
-        ) : null}
-        <MapCoordsLink lat={probe.lat} lng={probe.lng} decimals={6} />
-        {onUse && !probe.loading ? (
-          <div>
-            <button
-              type="button"
-              className="cc-btn ghost cc-btn-sm"
-              onClick={() => {
-                onUse({ ...probePlace(), noFly: true });
-                setProbe(null);
-              }}
-            >
-              Marcar este punto
-            </button>
-          </div>
-        ) : null}
-        {onRoute && !probe.loading ? (
-          <div className="map-reverse-route">
-            <button
-              type="button"
-              className="cc-btn ghost cc-btn-sm"
-              onClick={() => {
-                onRoute('from', probePlace());
-                setProbe(null);
-              }}
-            >
-              Ruta desde aquí
-            </button>
-            <button
-              type="button"
-              className="cc-btn ghost cc-btn-sm"
-              onClick={() => {
-                onRoute('to', probePlace());
-                setProbe(null);
-              }}
-            >
-              Ruta hasta aquí
-            </button>
+        <div className="map-reverse-title">¿Qué hay aquí?</div>
+        <div className="map-reverse-body">
+          {probe.loading ? <div className="muted">Buscando dirección…</div> : null}
+          {!probe.loading && place ? (
+            <div>
+              <div className="map-reverse-name">{place.name}</div>
+              {place.detail ? <div className="muted">{place.detail}</div> : null}
+            </div>
+          ) : null}
+          {!probe.loading && probe.ejido ? (
+            <div>
+              {SEARCH_KIND_LABELS[probe.ejido.kind] || 'Ejido'}: <strong>{probe.ejido.name}</strong>
+            </div>
+          ) : null}
+          {!probe.loading && !place && !probe.ejido ? (
+            <div className="muted">{probe.error ? 'No se pudo consultar.' : 'Sin dirección conocida.'}</div>
+          ) : null}
+          <MapCoordsLink lat={probe.lat} lng={probe.lng} decimals={6} />
+        </div>
+        {(onUse || onRoute) && !probe.loading ? (
+          <div className="map-reverse-actions">
+            {onUse ? (
+              <button
+                type="button"
+                className="is-primary map-reverse-wide"
+                onClick={() => {
+                  onUse({ ...probePlace(), noFly: true });
+                  setProbe(null);
+                }}
+              >
+                Marcar este punto
+              </button>
+            ) : null}
+            {onRoute ? (
+              <>
+                <button
+                  type="button"
+                  title="Usar este punto como origen (A) de la ruta"
+                  onClick={() => {
+                    onRoute('from', probePlace());
+                    setProbe(null);
+                  }}
+                >
+                  Ruta desde aquí
+                </button>
+                <button
+                  type="button"
+                  title="Usar este punto como destino (B) de la ruta"
+                  onClick={() => {
+                    onRoute('to', probePlace());
+                    setProbe(null);
+                  }}
+                >
+                  Ruta hasta aquí
+                </button>
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>
