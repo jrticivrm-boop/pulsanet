@@ -17,6 +17,7 @@ export const SEARCH_KIND_LABELS = {
   pueblo: 'Pueblo',
   localidad: 'Localidad',
   colonia: 'Colonia',
+  codigo_postal: 'Código postal',
   calle: 'Calle',
   carretera: 'Carretera',
   direccion: 'Dirección',
@@ -37,6 +38,7 @@ const KIND_ZOOM = {
   pueblo: 14,
   localidad: 15,
   colonia: 15,
+  codigo_postal: 15,
   calle: 17,
   carretera: 13,
   direccion: 18,
@@ -594,7 +596,7 @@ export default function MapSearchPanel({
               </li>
             ) : null}
             {trimmed && !coords ? (
-              <li className="map-search-attrib">Datos © OpenStreetMap · ejidos: RAN</li>
+              <li className="map-search-attrib">Datos © OpenStreetMap · ejidos: RAN · C.P.: SEPOMEX e INEGI (DENUE)</li>
             ) : null}
           </ul>
         ) : null}

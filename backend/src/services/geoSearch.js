@@ -180,23 +180,281 @@ function mxStateCode(state, iso) {
   return MX_STATE_BY_NAME.get(normalizeText(state)) || null;
 }
 
-/**
- * OSM casi nunca etiqueta el C.P. en calles: Nominatim/Photon lo calculan con las direcciones
- * más cercanas y en límites estatales cae el de enfrente (p. ej. Tampico 89080 en Pueblo Viejo, Ver.).
- * Se devuelve solo un C.P. coherente con el estado; si ninguno lo es, null (no se muestra).
- */
-export function coherentPostcode(postcode, { state, iso, countryCode } = {}) {
-  const raw = String(postcode || '').trim();
-  if (!raw) return null;
-  if (countryCode && String(countryCode).toUpperCase() !== 'MX') return raw;
-  const code = mxStateCode(state, iso);
+function postcodeInState(cp, code) {
   const range = code ? MX_POSTCODE_RANGES[code] : null;
-  for (const pc of raw.split(/[;,]/).map((s) => s.trim())) {
-    if (!/^\d{5}$/.test(pc)) continue;
-    const prefix = Number(pc.slice(0, 2));
-    if (!range || (prefix >= range[0] && prefix <= range[1])) return pc;
+  if (!range) return true;
+  const prefix = Number(String(cp).slice(0, 2));
+  return prefix >= range[0] && prefix <= range[1];
+}
+
+/* ------------------------ Código postal: SEPOMEX + DENUE (nunca el de OSM) */
+/*
+ * OSM casi nunca etiqueta el C.P.: Nominatim/Photon lo calculan con la dirección más cercana
+ * que sí lo tenga (p. ej. 89080 de Tampico en Pueblo Viejo, Ver., o en la Zona Centro de Tampico,
+ * que es 89000). En México el C.P. se toma de:
+ *  1) Ubicación: C.P. que declaran los negocios del DENUE alrededor del punto (`mx_postcode_grid`).
+ *  2) Nombre: colonia/localidad + municipio en el catálogo SEPOMEX (`mx_postcodes`).
+ * Si no se puede determinar, no se muestra C.P.
+ */
+
+/** Clave INEGI del estado (la que usan SEPOMEX y DENUE). */
+const INEGI_STATE = {
+  AGU: 1, BCN: 2, BCS: 3, CAM: 4, COA: 5, COL: 6, CHP: 7, CHH: 8, CMX: 9, DUR: 10, GUA: 11,
+  GRO: 12, HID: 13, JAL: 14, MEX: 15, MIC: 16, MOR: 17, NAY: 18, NLE: 19, OAX: 20, PUE: 21,
+  QUE: 22, ROO: 23, SLP: 24, SIN: 25, SON: 26, TAB: 27, TAM: 28, TLA: 29, VER: 30, YUC: 31, ZAC: 32,
+};
+
+/** Tipos de resultado donde el C.P. tiene sentido (en una ciudad entera o un estado, no). */
+const POSTCODE_KINDS = new Set(['calle', 'direccion', 'colonia', 'localidad', 'pueblo', 'lugar']);
+
+const PC_CACHE_MAX = 2000;
+/** @type {Map<string, any>} */
+const pcCache = new Map();
+async function pcCached(key, fn) {
+  if (pcCache.has(key)) {
+    const v = pcCache.get(key);
+    pcCache.delete(key);
+    pcCache.set(key, v);
+    return v;
   }
+  const v = await fn();
+  pcCache.set(key, v);
+  while (pcCache.size > PC_CACHE_MAX) pcCache.delete(pcCache.keys().next().value);
+  return v;
+}
+
+function tableMissing(err) {
+  return err?.code === '42P01';
+}
+
+/**
+ * Votos por C.P. de los negocios en un radio de `r` celdas (~110 m c/u); pesan más los cercanos.
+ * @returns {Promise<{ votes: [string, number][], points: number }>}
+ */
+async function gridVotes(lat, lng, r) {
+  const la = Math.round(lat * 1000);
+  const lo = Math.round(lng * 1000);
+  return pcCached(`g:${la},${lo},${r}`, async () => {
+    const { rows } = await query(
+      `SELECT lat_i, lng_i, cp, n FROM mx_postcode_grid
+        WHERE lat_i BETWEEN $1 AND $2 AND lng_i BETWEEN $3 AND $4`,
+      [la - r, la + r, lo - r, lo + r]
+    );
+    const kx = Math.cos((lat * Math.PI) / 180);
+    const maxD = r * 111 + 60;
+    const votes = new Map();
+    let points = 0;
+    for (const row of rows) {
+      const dy = (row.lat_i / 1000 - lat) * 111000;
+      const dx = (row.lng_i / 1000 - lng) * 111000 * kx;
+      const d = Math.hypot(dx, dy);
+      if (d > maxD) continue;
+      votes.set(row.cp, (votes.get(row.cp) || 0) + row.n / (1 + (d / 120) ** 2));
+      points += row.n;
+    }
+    return { votes: [...votes.entries()].sort((a, b) => b[1] - a[1]), points };
+  });
+}
+
+/** C.P. por ubicación: exacto si una mayoría clara de negocios cercanos lo declara. */
+async function postcodeByLocation(lat, lng, stateCode) {
+  let possible = null;
+  for (const [r, exactShare] of [
+    [3, 0.6],
+    [8, 0.75],
+  ]) {
+    const { votes, points } = await gridVotes(lat, lng, r);
+    const list = votes.filter(([cp]) => postcodeInState(cp, stateCode));
+    if (points < 3 || !list.length) continue;
+    const total = list.reduce((s, [, w]) => s + w, 0);
+    const share = list[0][1] / total;
+    if (share >= exactShare) return { cps: [list[0][0]], exact: true };
+    if (!possible) {
+      const top = list.slice(0, 2).filter(([, w]) => w / total >= 0.15);
+      if (top.reduce((s, [, w]) => s + w, 0) / total >= 0.7) possible = { cps: top.map(([cp]) => cp), exact: false };
+    }
+  }
+  return possible;
+}
+
+const PC_GENERIC = new Set(['colonia', 'col', 'fraccionamiento', 'fracc', 'frac', 'barrio', 'zona', 'conjunto', 'unidad', 'habitacional']);
+
+function coreName(s, drop) {
+  return normalizeText(s)
+    .replace(/[.#\-]/g, ' ')
+    .split(' ')
+    .filter((t) => t && !PC_GENERIC.has(t) && !drop.has(t))
+    .join(' ');
+}
+
+/** «Anahuac - Col. Centro» → nombres a probar: completo y cada parte. */
+function nameVariants(names) {
+  const out = [];
+  for (const n of names) {
+    const s = String(n || '').trim();
+    if (!s) continue;
+    out.push(s);
+    if (/\s[-–/]\s|,/.test(s)) out.push(...s.split(/\s[-–/]\s|,/).map((x) => x.trim()).filter(Boolean));
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * C.P. por nombre: colonia o localidad dentro del municipio (SEPOMEX).
+ * @param {string} stateCode
+ * @param {{ colonias: string[], localities: string[], munis: string[] }} meta
+ */
+async function postcodeByNames(stateCode, meta) {
+  const cEstado = INEGI_STATE[stateCode];
+  const munis = [...new Set(meta.munis.map(normalizeText).filter(Boolean))];
+  if (!cEstado || !munis.length) return null;
+  const rows = await pcCached(`m:${cEstado}:${munis.sort().join('|')}`, async () => {
+    const res = await query(
+      `SELECT cp, asentamiento, municipio, ciudad, mnpio_norm, ciudad_norm FROM mx_postcodes
+        WHERE c_estado = $1 AND (mnpio_norm = ANY($2::text[]) OR ciudad_norm = ANY($2::text[]))
+        LIMIT 4000`,
+      [cEstado, munis]
+    );
+    return res.rows;
+  });
+  if (!rows.length) return null;
+  // El nombre de la ciudad/municipio no distingue colonias («Tampico Centro» ≈ «Zona Centro»).
+  const drop = new Set(
+    rows
+      .flatMap((r) => [r.mnpio_norm, r.ciudad_norm])
+      .concat(munis)
+      .join(' ')
+      .split(' ')
+      .filter(Boolean)
+  );
+  const byCore = new Map();
+  for (const r of rows) {
+    const k = coreName(r.asentamiento, drop);
+    if (!k) continue;
+    if (!byCore.has(k)) byCore.set(k, new Set());
+    byCore.get(k).add(r.cp);
+  }
+  for (const group of [meta.colonias, meta.localities]) {
+    const cps = new Set();
+    for (const v of nameVariants(group)) {
+      const k = coreName(v, drop);
+      if (k && byCore.has(k)) byCore.get(k).forEach((cp) => cps.add(cp));
+    }
+    if (cps.size === 1) return { cps: [...cps], exact: true };
+    if (cps.size > 1 && cps.size <= 3) return { cps: [...cps].sort(), exact: false };
+  }
+  const all = [...new Set(rows.map((r) => r.cp))].sort();
+  if (all.length === 1) return { cps: all, exact: true };
   return null;
+}
+
+/** @returns {Promise<{ cps: string[], exact: boolean } | null>} */
+async function resolvePostcode(r) {
+  const meta = r._pc;
+  if (!meta || (!meta.anyKind && !POSTCODE_KINDS.has(r.kind))) return null;
+  if (r.countryCode && r.countryCode !== 'MX') return null;
+  const stateCode = mxStateCode(meta.state, meta.iso);
+  try {
+    const near = await postcodeByLocation(r.lat, r.lng, stateCode);
+    if (near?.exact) return near;
+    const named = stateCode ? await postcodeByNames(stateCode, meta) : null;
+    if (named?.exact) return named;
+    return near || named;
+  } catch (err) {
+    if (tableMissing(err)) return null;
+    throw err;
+  }
+}
+
+/** Añade el C.P. (SEPOMEX/DENUE) al detalle y quita los datos internos. */
+async function attachPostcodes(results) {
+  return Promise.all(
+    results.map(async (r) => {
+      if (!r?._pc) return r;
+      const { _pc, ...clean } = r;
+      const pc = await resolvePostcode(r).catch(() => null);
+      if (!pc) return clean;
+      const label = pc.exact ? `C.P. ${pc.cps[0]}` : `C.P. posible ${pc.cps.join(' / ')}`;
+      return {
+        ...clean,
+        postcode: pc.cps[0],
+        postcodeExact: pc.exact,
+        detail: [clean.detail, label].filter(Boolean).join(' · '),
+      };
+    })
+  );
+}
+
+/** Ubicación de un C.P.: donde se concentran sus negocios (DENUE). */
+async function postcodeCenter(cp) {
+  const { rows } = await query('SELECT lat_i, lng_i, n FROM mx_postcode_grid WHERE cp = $1', [cp]);
+  if (!rows.length) return null;
+  const top = rows.reduce((a, b) => (b.n > a.n ? b : a));
+  // Negocios con el C.P. mal capturado lejos del resto no deben mover el punto.
+  const cluster = rows.filter((r) => Math.abs(r.lat_i - top.lat_i) <= 30 && Math.abs(r.lng_i - top.lng_i) <= 30);
+  const sum = cluster.reduce((s, r) => s + r.n, 0);
+  const lat = cluster.reduce((s, r) => s + r.lat_i * r.n, 0) / sum / 1000;
+  const lng = cluster.reduce((s, r) => s + r.lng_i * r.n, 0) / sum / 1000;
+  const lats = cluster.map((r) => r.lat_i / 1000);
+  const lngs = cluster.map((r) => r.lng_i / 1000);
+  const pad = 0.0015;
+  return {
+    lat,
+    lng,
+    bbox: [
+      [Math.min(...lats) - pad, Math.min(...lngs) - pad],
+      [Math.max(...lats) + pad, Math.max(...lngs) + pad],
+    ],
+  };
+}
+
+/**
+ * Búsqueda por C.P.: colonias del catálogo SEPOMEX; el punto sale del DENUE o, si no hay
+ * negocios, de buscar la colonia en OSM.
+ */
+async function searchPostcode(cp, opts) {
+  let rows;
+  try {
+    ({ rows } = await query(
+      `SELECT asentamiento, tipo, municipio, estado, c_estado FROM mx_postcodes
+        WHERE cp = $1 ORDER BY asentamiento`,
+      [cp]
+    ));
+  } catch (err) {
+    if (tableMissing(err)) return null;
+    throw err;
+  }
+  if (!rows.length) return { results: [], status: 'ok' };
+  const first = rows[0];
+  let place = await postcodeCenter(cp);
+  if (!place && !opts.localOnly) {
+    const prep = prepareQuery(`${first.asentamiento}, ${first.municipio}, ${first.estado}`);
+    const found = await searchPhoton(prep, { limit: 3, signal: opts.signal });
+    const hit = found.results.find((r) => normalizeText(r.detail).includes(normalizeText(first.municipio))) || found.results[0];
+    if (hit) place = { lat: hit.lat, lng: hit.lng, bbox: hit.bbox || null };
+  }
+  if (!place) return { results: [], status: 'ok' };
+  const names = rows.map((r) => r.asentamiento);
+  const shown = names.slice(0, 4).join(', ') + (names.length > 4 ? ` y ${names.length - 4} más` : '');
+  const munis = [...new Set(rows.map((r) => r.municipio))].join(', ');
+  return {
+    results: [
+      {
+        id: `cp:${cp}`,
+        source: 'sepomex',
+        kind: 'codigo_postal',
+        name: `C.P. ${cp}`,
+        detail: [shown, munis, first.estado].join(' · '),
+        lat: place.lat,
+        lng: place.lng,
+        bbox: place.bbox,
+        countryCode: 'MX',
+        postcode: cp,
+        postcodeExact: true,
+      },
+    ],
+    status: 'ok',
+  };
 }
 
 /* ------------------------------------------------- Interpretar la consulta */
@@ -335,10 +593,7 @@ function photonFeatureToResult(f) {
   push(p.county);
   push(p.state);
   if (p.countrycode && p.countrycode !== 'MX') push(p.country);
-  const postcode = coherentPostcode(p.postcode, { state: p.state, countryCode: p.countrycode });
-  const detail = [parts.join(' · '), postcode ? `C.P. ${postcode}` : '']
-    .filter(Boolean)
-    .join(' · ');
+  const detail = parts.join(' · ');
 
   let bbox = null;
   if (Array.isArray(p.extent) && p.extent.length === 4) {
@@ -364,6 +619,13 @@ function photonFeatureToResult(f) {
     road: p.osm_key === 'highway' ? p.osm_value : null,
     houseNumber: p.housenumber ? String(p.housenumber).toLowerCase() : null,
     area: p.city || p.county || p.state || '',
+    _pc: {
+      state: p.state,
+      iso: null,
+      colonias: [p.district, p.locality, kind === 'colonia' ? name : null].filter(Boolean),
+      localities: [p.city, kind === 'pueblo' || kind === 'localidad' ? name : null].filter(Boolean),
+      munis: [p.county, p.city].filter(Boolean),
+    },
   };
 }
 
@@ -450,13 +712,8 @@ function nominatimToResult(r) {
   if (a.house_number && a.road) name = `${a.road} ${a.house_number}`;
   else if (!name) name = a.road || String(r.display_name || '').split(',')[0].trim();
   if (!name) return null;
-  const postcode = coherentPostcode(a.postcode, {
-    state: a.state,
-    iso: a['ISO3166-2-lvl4'],
-    countryCode: a.country_code,
-  });
-  if (r.addresstype === 'postcode' && a.postcode && !postcode) return null;
-  if (r.addresstype === 'postcode' && /^\d{5}$/.test(name)) name = `C.P. ${name}`;
+  // Las «zonas de C.P.» de OSM son calculadas; el C.P. se busca con SEPOMEX.
+  if (r.addresstype === 'postcode') return null;
   const city = a.city || a.town || a.village || a.hamlet || '';
   const parts = [];
   const push = (v) => {
@@ -471,7 +728,7 @@ function nominatimToResult(r) {
   push(a.municipality || a.county || a.city_district);
   push(a.state);
   if (a.country_code && a.country_code !== 'mx') push(a.country);
-  const detail = [parts.join(' · '), postcode ? `C.P. ${postcode}` : ''].filter(Boolean).join(' · ');
+  const detail = parts.join(' · ');
   let bbox = null;
   if (Array.isArray(r.boundingbox) && r.boundingbox.length === 4) {
     const [minLat, maxLat, minLng, maxLng] = r.boundingbox.map(Number);
@@ -494,6 +751,13 @@ function nominatimToResult(r) {
     countryCode: a.country_code ? a.country_code.toUpperCase() : null,
     houseNumber: a.house_number ? String(a.house_number).toLowerCase() : null,
     area: city || a.municipality || a.county || a.state || '',
+    _pc: {
+      state: a.state,
+      iso: a['ISO3166-2-lvl4'],
+      colonias: [a.neighbourhood, a.suburb, a.quarter, kind === 'colonia' ? name : null].filter(Boolean),
+      localities: [city, kind === 'pueblo' || kind === 'localidad' ? name : null].filter(Boolean),
+      munis: [a.municipality, a.county, a.city_district, a.city, a.town].filter(Boolean),
+    },
   };
 }
 
@@ -632,19 +896,20 @@ export async function geoSearch(q, opts = {}) {
   if (text.length < 2) return { ok: true, results: [], status: 'ok' };
   const src = opts.src || 'all';
 
+  // Solo un C.P.: catálogo SEPOMEX (OSM no los tiene o los calcula mal).
+  if (prep.postcode && !prep.words.length && !opts.world) {
+    const pc = await searchPostcode(prep.postcode, { ...opts, localOnly: src === 'local' });
+    if (pc) return { ok: true, results: pc.results, status: pc.status };
+  }
+
   if (src === 'local') {
     const local = await searchLocal(text, 6);
     return { ok: true, results: local.results, forced: local.forced, status: 'ok' };
   }
 
   if (src === 'osm') {
-    // Solo código postal: Photon no lo resuelve bien; se usa Nominatim (una consulta).
-    const remote = prep.postcode && !prep.words.length
-      ? await searchNominatim(prep, opts)
-      : text.length >= 3
-        ? await searchPhoton(prep, opts)
-        : { results: [], status: 'ok' };
-    return { ok: true, results: remote.results, status: remote.status };
+    const remote = text.length >= 3 ? await searchPhoton(prep, opts) : { results: [], status: 'ok' };
+    return { ok: true, results: await attachPostcodes(remote.results), status: remote.status };
   }
 
   if (src === 'full') {
@@ -655,7 +920,7 @@ export async function geoSearch(q, opts = {}) {
       if (!merged.some((m) => normalizeText(m.name) === normalizeText(r.name) && near(m, r))) merged.push(r);
     }
     const status = nom.status === 'ok' || pho.status === 'ok' ? 'ok' : nom.status;
-    return { ok: true, results: rerank(merged, prep).slice(0, 14), status };
+    return { ok: true, results: await attachPostcodes(rerank(merged, prep).slice(0, 14)), status };
   }
 
   const [local, remote] = await Promise.all([
@@ -665,7 +930,7 @@ export async function geoSearch(q, opts = {}) {
   const results = local.forced
     ? [...local.results, ...remote.results]
     : [...remote.results.slice(0, 3), ...local.results.slice(0, 4), ...remote.results.slice(3)];
-  return { ok: true, results: results.slice(0, 14), status: remote.status };
+  return { ok: true, results: await attachPostcodes(results.slice(0, 14)), status: remote.status };
 }
 
 function pointInRing(lat, lng, ring) {
@@ -704,7 +969,15 @@ async function localAt(lat, lng) {
 }
 
 export async function geoReverse(lat, lng) {
-  const [place, ejido] = await Promise.all([reversePhoton(lat, lng), localAt(lat, lng)]);
+  const [found, ejido] = await Promise.all([reversePhoton(lat, lng), localAt(lat, lng)]);
+  // «¿Qué hay aquí?»: el C.P. es el del punto pedido, sea cual sea el tipo de lugar.
+  const [place] = found
+    ? await attachPostcodes([{ ...found, lat, lng, _pc: found._pc && { ...found._pc, anyKind: true } }])
+    : [null];
+  if (place) {
+    place.lat = found.lat;
+    place.lng = found.lng;
+  }
   return { ok: true, lat, lng, place, ejido };
 }
 
