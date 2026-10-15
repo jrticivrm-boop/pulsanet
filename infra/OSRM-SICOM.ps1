@@ -83,7 +83,7 @@ if [ -d data ]; then mv data data.old; fi
 mv build data
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 docker run -d --name "$NAME" --restart unless-stopped \
-  --network "$NET" --network-alias osrm --memory 6g \
+  --network "$NET" --network-alias osrm --memory 10g --memory-swap 10g \
   -v "$D/data:/data" "$IMG" \
   osrm-routed --algorithm mld --max-table-size 200 --max-alternatives 3 /data/mexico.osrm > /dev/null
 sleep 20
