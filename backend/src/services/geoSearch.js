@@ -146,6 +146,59 @@ export function titleCaseEs(s) {
     .replace(/\b(Ii|Iii|Iv|Vi|Vii|Viii|Ix|Xi)\b/g, (m) => m.toUpperCase());
 }
 
+/* --------------------------------------------- Código postal vs. estado */
+
+/** Primeros 2 dígitos del C.P. por estado (SEPOMEX), clave ISO 3166-2:MX. */
+const MX_POSTCODE_RANGES = {
+  CMX: [1, 16], AGU: [20, 20], BCN: [21, 22], BCS: [23, 23], CAM: [24, 24], COA: [25, 27],
+  COL: [28, 28], CHP: [29, 30], CHH: [31, 33], DUR: [34, 35], GUA: [36, 38], GRO: [39, 41],
+  HID: [42, 43], JAL: [44, 49], MEX: [50, 57], MIC: [58, 61], MOR: [62, 62], NAY: [63, 63],
+  NLE: [64, 67], OAX: [68, 71], PUE: [72, 75], QUE: [76, 76], ROO: [77, 77], SLP: [78, 79],
+  SIN: [80, 82], SON: [83, 85], TAB: [86, 86], TAM: [87, 89], TLA: [90, 90], VER: [91, 96],
+  YUC: [97, 97], ZAC: [98, 99],
+};
+
+const MX_STATE_BY_NAME = new Map(
+  [
+    ['aguascalientes', 'AGU'], ['baja california', 'BCN'], ['baja california sur', 'BCS'],
+    ['campeche', 'CAM'], ['chiapas', 'CHP'], ['chihuahua', 'CHH'], ['ciudad de mexico', 'CMX'],
+    ['distrito federal', 'CMX'], ['coahuila', 'COA'], ['coahuila de zaragoza', 'COA'],
+    ['colima', 'COL'], ['durango', 'DUR'], ['guanajuato', 'GUA'], ['guerrero', 'GRO'],
+    ['hidalgo', 'HID'], ['jalisco', 'JAL'], ['mexico', 'MEX'], ['estado de mexico', 'MEX'],
+    ['michoacan', 'MIC'], ['michoacan de ocampo', 'MIC'], ['morelos', 'MOR'], ['nayarit', 'NAY'],
+    ['nuevo leon', 'NLE'], ['oaxaca', 'OAX'], ['puebla', 'PUE'], ['queretaro', 'QUE'],
+    ['queretaro de arteaga', 'QUE'], ['quintana roo', 'ROO'], ['san luis potosi', 'SLP'],
+    ['sinaloa', 'SIN'], ['sonora', 'SON'], ['tabasco', 'TAB'], ['tamaulipas', 'TAM'],
+    ['tlaxcala', 'TLA'], ['veracruz', 'VER'], ['veracruz de ignacio de la llave', 'VER'],
+    ['yucatan', 'YUC'], ['zacatecas', 'ZAC'],
+  ]
+);
+
+function mxStateCode(state, iso) {
+  const m = String(iso || '').match(/^MX-([A-Z]{3})$/);
+  if (m) return m[1] === 'DIF' ? 'CMX' : m[1];
+  return MX_STATE_BY_NAME.get(normalizeText(state)) || null;
+}
+
+/**
+ * OSM casi nunca etiqueta el C.P. en calles: Nominatim/Photon lo calculan con las direcciones
+ * más cercanas y en límites estatales cae el de enfrente (p. ej. Tampico 89080 en Pueblo Viejo, Ver.).
+ * Se devuelve solo un C.P. coherente con el estado; si ninguno lo es, null (no se muestra).
+ */
+export function coherentPostcode(postcode, { state, iso, countryCode } = {}) {
+  const raw = String(postcode || '').trim();
+  if (!raw) return null;
+  if (countryCode && String(countryCode).toUpperCase() !== 'MX') return raw;
+  const code = mxStateCode(state, iso);
+  const range = code ? MX_POSTCODE_RANGES[code] : null;
+  for (const pc of raw.split(/[;,]/).map((s) => s.trim())) {
+    if (!/^\d{5}$/.test(pc)) continue;
+    const prefix = Number(pc.slice(0, 2));
+    if (!range || (prefix >= range[0] && prefix <= range[1])) return pc;
+  }
+  return null;
+}
+
 /* ------------------------------------------------- Interpretar la consulta */
 
 /** Abreviaturas comunes en direcciones de México. */
@@ -282,7 +335,8 @@ function photonFeatureToResult(f) {
   push(p.county);
   push(p.state);
   if (p.countrycode && p.countrycode !== 'MX') push(p.country);
-  const detail = [parts.join(' · '), p.postcode ? `C.P. ${p.postcode}` : '']
+  const postcode = coherentPostcode(p.postcode, { state: p.state, countryCode: p.countrycode });
+  const detail = [parts.join(' · '), postcode ? `C.P. ${postcode}` : '']
     .filter(Boolean)
     .join(' · ');
 
@@ -396,6 +450,12 @@ function nominatimToResult(r) {
   if (a.house_number && a.road) name = `${a.road} ${a.house_number}`;
   else if (!name) name = a.road || String(r.display_name || '').split(',')[0].trim();
   if (!name) return null;
+  const postcode = coherentPostcode(a.postcode, {
+    state: a.state,
+    iso: a['ISO3166-2-lvl4'],
+    countryCode: a.country_code,
+  });
+  if (r.addresstype === 'postcode' && a.postcode && !postcode) return null;
   if (r.addresstype === 'postcode' && /^\d{5}$/.test(name)) name = `C.P. ${name}`;
   const city = a.city || a.town || a.village || a.hamlet || '';
   const parts = [];
@@ -411,7 +471,7 @@ function nominatimToResult(r) {
   push(a.municipality || a.county || a.city_district);
   push(a.state);
   if (a.country_code && a.country_code !== 'mx') push(a.country);
-  const detail = [parts.join(' · '), a.postcode ? `C.P. ${a.postcode}` : ''].filter(Boolean).join(' · ');
+  const detail = [parts.join(' · '), postcode ? `C.P. ${postcode}` : ''].filter(Boolean).join(' · ');
   let bbox = null;
   if (Array.isArray(r.boundingbox) && r.boundingbox.length === 4) {
     const [minLat, maxLat, minLng, maxLng] = r.boundingbox.map(Number);

@@ -30,6 +30,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Web — subida de fotos de perfil y canal:** se reducen en el navegador (máx. 640 px) antes de subirlas; el servidor sirve cada foto con caché de 7 días.
 
 ### Fixed
+- **Web — mapa «Buscar», código postal:** ya no se muestra un C.P. de otro estado (p. ej. 89080 de Tampico en Pueblo Viejo, Ver.); el C.P. calculado por OpenStreetMap se valida contra el prefijo del estado y, si no coincide, se oculta (también en «¿Qué hay aquí?» y en la búsqueda por C.P.).
 - **Web — mapa maximizado:** los selectores de las pestañas Operadores, Ruta, Geocerca y Sitios vuelven a desplegarse y responder con el mapa en pantalla completa.
 - **Web — Usuarios, menú «Más»:** las opciones ya no quedan tapadas por la fila de abajo; el menú se cierra al hacer clic fuera o con Esc.
 - **Consola web — «Sin audio (LiveKit)» tras un corte de red:** al reconectar, la consola ya no reemplaza las salas que LiveKit está reanudando (eso expulsaba su propia sesión con «identidad duplicada» y provocaba ráfagas de reconexión en todos los canales). Cada sala que LiveKit da por perdida se reabre sola, y los canales de solo escucha ya no dejan conexiones huérfanas ni se quedan sin audio hasta recargar.

@@ -1,3 +1,12 @@
+## 2026-10-14 — Mapa «Buscar»: C.P. validado contra el estado
+
+- **Tipo:** fix
+- **Área:** backend
+- **Qué:**
+  - El C.P. que devuelven Photon/Nominatim se valida contra el prefijo de 2 dígitos del estado (tabla SEPOMEX, clave ISO 3166-2:MX o nombre del estado); si no corresponde, no se muestra. No se inventa C.P.
+  - Aplica a autocompletado, búsqueda completa (Enter), «¿Qué hay aquí?» (reverse) y búsqueda por C.P. (se descartan resultados de C.P. ubicados en otro estado).
+- **Por qué / notas:** «calle rosa anahuac veracruz 15» mostraba C.P. 89080 (Tampico, Tamps.). La calle (OSM way 277402159) no tiene addr:postcode, ni la colonia (relation 2694695), el pueblo (node 472257805) o el municipio Pueblo Viejo (relation 5573199): Nominatim lo calcula por cercanía (calculated_postcode) y toma el de Tampico al otro lado del río Pánuco; Photon hereda el mismo dato. El usuario indica que el correcto es 92035; puede corregirse en openstreetmap.org (addr:postcode / boundary=postal_code). Verificado: Calle Rosa ya sin C.P.; Insurgentes Sur 1602 → 03940, 64000 → Monterrey, Guadalajara Centro → 44100.
+- **Archivos / refs:** backend/src/services/geoSearch.js (coherentPostcode, photonFeatureToResult, nominatimToResult), docs/CHANGELOG.md
 ## 2026-10-14 — Mapa «Buscar»: más rápido, dirección exacta y color según el tema
 
 - **Tipo:** mejora
