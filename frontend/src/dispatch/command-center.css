@@ -6121,6 +6121,36 @@ html.map-viewport-max .lt-page--maximized,
   cursor: not-allowed;
 }
 
+/* Agarradera para mover sin hablar: solo con pantalla táctil (con mouse: clic derecho y arrastrar). */
+.lt-ptt-float-grip {
+  display: none;
+}
+@media (pointer: coarse) {
+  .lt-ptt-float-grip {
+    position: absolute;
+    top: -1.55rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.6rem;
+    height: 1.45rem;
+    border-radius: 999px;
+    background: rgba(15, 20, 25, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    color: #fff;
+    font-size: 0.95rem;
+    line-height: 1;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    pointer-events: auto;
+    touch-action: none;
+    user-select: none;
+    cursor: grab;
+    z-index: 1;
+  }
+}
+
 .lt-ptt-float-label {
   font-size: 1.05rem;
   font-weight: 800;

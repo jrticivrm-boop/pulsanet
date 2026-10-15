@@ -164,9 +164,13 @@ function clampPos(x, y, hostEl) {
   const h = hostEl?.clientHeight || window.innerHeight;
   const maxX = Math.max(EDGE_PAD, w - BTN_SIZE - EDGE_PAD);
   const maxY = Math.max(EDGE_PAD, h - BTN_SIZE - EDGE_PAD);
+  // Táctil: deja sitio arriba para la agarradera (.lt-ptt-float-grip).
+  const coarse =
+    typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches;
+  const minY = EDGE_PAD + (coarse ? 28 : 0);
   return {
     x: Math.min(maxX, Math.max(EDGE_PAD, x)),
-    y: Math.min(maxY, Math.max(EDGE_PAD, y)),
+    y: Math.min(Math.max(minY, maxY), Math.max(minY, y)),
   };
 }
 
@@ -208,6 +212,7 @@ export default function MapPttFloat({
   const rootRef = useRef(null);
   const menuRef = useRef(null);
   const dragRef = useRef(null);
+  const ctxSwallowRef = useRef(null);
   const [pos, setPos] = useState(() => readStoredPos());
   const [menu, setMenu] = useState(null); // { x, y } | null
   const [busyPanic, setBusyPanic] = useState(false);
@@ -240,6 +245,8 @@ export default function MapPttFloat({
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [pos, hostEl]);
+
+  useEffect(() => () => ctxSwallowRef.current?.(), []);
 
   useEffect(() => {
     const sync = (e) => {
@@ -430,9 +437,75 @@ export default function MapPttFloat({
     }
   }
 
+  /** Arrastre que solo mueve el botón (clic derecho o agarradera táctil): nunca abre el micrófono. */
+  function startMoveOnlyDrag(e, { menuOnTap = false } = {}) {
+    const el = rootRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const hostRect = hostEl?.getBoundingClientRect?.() || {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: pos ? pos.x : rect.left - hostRect.left,
+      origY: pos ? pos.y : rect.top - hostRect.top,
+      moved: false,
+      hostRect,
+      moveOnly: true,
+      menuOnTap,
+    };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /**
+   * El menú del clic derecho se abre al soltar (onPointerUp). El evento contextmenu
+   * llega al presionar (macOS/Linux) o al soltar (Windows), a veces sobre el mapa si
+   * el puntero terminó fuera del botón: se descarta una vez para no duplicar el menú
+   * ni mostrar el del navegador tras arrastrar.
+   */
+  function swallowNextContextMenu() {
+    ctxSwallowRef.current?.();
+    let timer = null;
+    const handler = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      cleanup();
+    };
+    const cleanup = () => {
+      window.removeEventListener('contextmenu', handler, true);
+      if (timer) clearTimeout(timer);
+      if (ctxSwallowRef.current === cleanup) ctxSwallowRef.current = null;
+    };
+    cleanup.armTimeout = () => {
+      if (!timer) timer = setTimeout(cleanup, 600);
+    };
+    window.addEventListener('contextmenu', handler, true);
+    ctxSwallowRef.current = cleanup;
+  }
+
+  function onGripPointerDown(e) {
+    e.stopPropagation();
+    startMoveOnlyDrag(e);
+  }
+
   function onPointerDown(e) {
-    if (e.button !== 0) return;
     if (e.target.closest('.lt-ptt-float-menu')) return;
+    if (e.button === 2) {
+      // Clic derecho: mantener y arrastrar = mover sin hablar; soltar sin mover = menú.
+      swallowNextContextMenu();
+      startMoveOnlyDrag(e, { menuOnTap: true });
+      return;
+    }
+    if (e.button !== 0) return;
     const latch = ptt.usesLatch !== false;
     // Hold (operadores): pulsar = al aire; soltar = liberar (también permite arrastre).
     if (!latch && canTalk) {
@@ -520,6 +593,17 @@ export default function MapPttFloat({
       fireTogglePtt();
       return;
     }
+    if (d.moveOnly) {
+      ctxSwallowRef.current?.armTimeout?.();
+      if (d.moved) {
+        const dx = e.clientX - d.startX;
+        const dy = e.clientY - d.startY;
+        persistPos(clampPos(d.origX + dx, d.origY + dy, hostEl));
+      } else if (d.menuOnTap && e.type === 'pointerup') {
+        openMenuAt(e.clientX, e.clientY);
+      }
+      return;
+    }
     if (d.holdMode) {
       ptt.release();
       if (d.moved) {
@@ -538,19 +622,25 @@ export default function MapPttFloat({
     fireTogglePtt();
   }
 
-  function onContextMenu(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    // Cancelar drag pendiente para no mezclar con el menú
-    dragRef.current = null;
+  function openMenuAt(clientX, clientY) {
     const menuW = 280;
     const menuH = 320;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     setMenu({
-      x: Math.min(Math.max(8, e.clientX), Math.max(8, vw - menuW - 8)),
-      y: Math.min(Math.max(8, e.clientY), Math.max(8, vh - menuH - 8)),
+      x: Math.min(Math.max(8, clientX), Math.max(8, vw - menuW - 8)),
+      y: Math.min(Math.max(8, clientY), Math.max(8, vh - menuH - 8)),
     });
+  }
+
+  /** Toque largo (táctil) o tecla de menú: abre canales / alarma. */
+  function onContextMenu(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragRef.current?.moveOnly) return;
+    // Cancelar drag pendiente para no mezclar con el menú
+    dragRef.current = null;
+    openMenuAt(e.clientX, e.clientY);
   }
 
   function resetPosition() {
@@ -611,6 +701,21 @@ export default function MapPttFloat({
         role="group"
         aria-label="PTT en pantalla completa"
       >
+        <span
+          className="lt-ptt-float-grip"
+          title="Arrastra para mover el botón (sin hablar)"
+          aria-hidden="true"
+          onPointerDown={onGripPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          ⠿
+        </span>
         <button
           type="button"
           className={`lt-ptt-float-btn${holding ? ' holding' : ''}`}
@@ -625,7 +730,7 @@ export default function MapPttFloat({
           title={
             holding
               ? 'Toca para soltar · click derecho: canales'
-              : 'Click: hablar · arrastrar: mover · click derecho: canales / alarma'
+              : 'Click: hablar · click derecho y arrastrar: mover sin hablar · click derecho: canales / alarma'
           }
         >
           <span className="lt-ptt-float-label">{holding ? 'AL AIRE' : 'PTT'}</span>

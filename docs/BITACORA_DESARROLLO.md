@@ -1,3 +1,12 @@
+## 2026-10-14 — Botón PTT flotante: mover sin hablar (clic derecho / agarradera táctil)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Mapa (Consola/Seguimiento y Radio): **clic derecho mantenido y arrastrar** mueve el botón PTT flotante sin encender el micrófono; clic derecho sin mover sigue abriendo el menú de canales/alarma (ahora se abre al soltar). El clic izquierdo no cambia (en modo «mantener» sigue hablando mientras se arrastra).
+  - **Agarradera ⠿** arriba del botón solo en pantallas táctiles (`@media (pointer: coarse)`): arrastrarla mueve el botón sin hablar; con mouse no aparece. En táctil el botón deja sitio arriba para que la agarradera no quede fuera de pantalla.
+  - Se descarta el menú del navegador que podía aparecer al terminar un arrastre con clic derecho fuera del botón.
+- **Archivos / refs:** `frontend/src/dispatch/MapPttFloat.jsx`, `frontend/src/dispatch/command-center.css`
 ## 2026-10-14 — Pruebas: arreglo de listas con mapa maximizado
 
 - **Tipo:** ops
