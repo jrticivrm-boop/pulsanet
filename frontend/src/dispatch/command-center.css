@@ -3339,9 +3339,12 @@ html.map-ops-tabs-dragging .map-ops-tab {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  min-width: 14rem;
-  max-width: 17rem;
+  min-width: 16.5rem;
+  max-width: 19rem;
   font-size: 0.85rem;
+}
+.map-reverse-actions button {
+  white-space: nowrap;
 }
 .map-reverse-title {
   font-weight: 700;
