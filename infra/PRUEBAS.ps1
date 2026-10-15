@@ -172,6 +172,11 @@ try {
   $stamp = 'node_modules\.pruebas-lock'
   if (-not (Test-Path $stamp) -or (Get-Content $stamp) -ne $lockHash) {
     Write-Host 'npm ci (frontend)...' -ForegroundColor Cyan
+    # vite preview mantiene abierto esbuild.exe: npm ci no podria reemplazarlo (EPERM).
+    Stop-Port $WebPort
+    Get-CimInstance Win32_Process -Filter "Name='esbuild.exe'" |
+      Where-Object { $_.ExecutablePath -like "$Wt\*" } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     cmd /c "npm ci --no-audit --no-fund --loglevel=error 2>&1" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'npm ci frontend fallo' }
     Set-Content $stamp $lockHash
@@ -187,6 +192,10 @@ try {
 
 # 6) Levantar API + web (ventanas propias)
 Stop-Port $ApiPort; Stop-Port $WebPort
+# Ventanas de corridas anteriores (quedan abiertas tras detener su proceso).
+Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" |
+  Where-Object { $_.CommandLine -match 'title PRUEBAS (API|WEB) :' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 $tlsCert = Get-EnvValue $envPath 'TLS_CERT'
 $apiScheme = if ($tlsCert -and (Test-Path $tlsCert)) { 'https' } else { 'http' }
 Start-Process cmd -ArgumentList '/k', "title PRUEBAS API :$ApiPort && cd /d `"$Wt\backend`" && node src/server.js"

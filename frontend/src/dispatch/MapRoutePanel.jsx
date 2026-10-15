@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Marker, Polyline, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { qrcode } from 'qrcode-generator';
@@ -64,6 +64,20 @@ function haversineM(a, b) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Metros de `c` al segmento a–b (proyección local; válido para tramos de pocos km). */
+function segmentDistM(c, a, b) {
+  const k = Math.cos((c.lat * Math.PI) / 180);
+  const ax = (a.lng - c.lng) * k;
+  const ay = a.lat - c.lat;
+  const bx = (b.lng - c.lng) * k;
+  const by = b.lat - c.lat;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+  return Math.hypot(ax + t * dx, ay + t * dy) * 111320;
 }
 
 /** Punto A/B a partir de un clic en el mapa o de un marcador arrastrado. */
@@ -148,7 +162,16 @@ function fencesCrossed(route, geofences) {
     const c = { lat: Number(g.centerLat), lng: Number(g.centerLng) };
     const r = Number(g.radiusM);
     if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng) || !(r > 0)) continue;
-    if (route.points.some(([lat, lng]) => haversineM(c, { lat, lng }) <= r)) out.push(g);
+    const pts = route.points;
+    const hit =
+      pts.length === 1
+        ? haversineM(c, { lat: pts[0][0], lng: pts[0][1] }) <= r
+        : pts.some(
+            (p, i) =>
+              i > 0 &&
+              segmentDistM(c, { lat: pts[i - 1][0], lng: pts[i - 1][1] }, { lat: p[0], lng: p[1] }) <= r
+          );
+    if (hit) out.push(g);
   }
   return out;
 }
@@ -967,6 +990,26 @@ export default function MapRoutePanel({
     return () => {
       document.removeEventListener('pointerdown', onDown);
       document.removeEventListener('keydown', onKey);
+    };
+  }, [pop]);
+
+  // La ventana flotante abre hacia donde haya más espacio y nunca se sale de la pantalla.
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!pop || !el) return undefined;
+    const place = () => {
+      const r = el.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom - 12;
+      const above = r.top - 12;
+      const up = below < 320 && above > below;
+      el.classList.toggle('is-pop-up', up);
+      el.style.setProperty('--route-pop-max', `${Math.max(160, Math.floor(up ? above : below))}px`);
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('resize', place);
+      el.classList.remove('is-pop-up');
     };
   }, [pop]);
 
