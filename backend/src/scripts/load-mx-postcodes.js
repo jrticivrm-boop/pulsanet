@@ -2,7 +2,8 @@
  * Carga los códigos postales de México para la pestaña «Buscar» del mapa:
  *  1) Catálogo oficial de Correos de México (SEPOMEX) → `mx_postcodes`.
  *  2) Establecimientos del DENUE (INEGI) con coordenadas y C.P. → `mx_postcode_grid`
- *     (cuántos negocios declaran cada C.P. en celdas de ~110 m; así se sabe el C.P. de un punto).
+ *     (cuántos negocios declaran cada C.P. en celdas de ~110 m; así se sabe el C.P. de un punto)
+ *     y `mx_cabeceras` (centro de la cabecera de cada municipio, para poner ahí su pin).
  *
  * Uso (desde backend/):
  *   node src/scripts/load-mx-postcodes.js                    # todo (descarga ~2 MB + ~450 MB)
@@ -238,24 +239,47 @@ async function validPostcodes() {
   return set;
 }
 
-async function aggregateCsv(file, valid, cells) {
+/**
+ * @param {Map<string, number>} cells C.P. por celda
+ * @param {Map<string, Map<string, { n: number, lat: number, lng: number }>>} heads negocios de la
+ *   localidad 0001 (cabecera) por municipio, en celdas de ~220 m
+ */
+async function aggregateCsv(file, valid, cells, heads) {
   const rl = readline.createInterface({ input: fs.createReadStream(file, { encoding: 'latin1' }), crlfDelay: Infinity });
   let idx = null;
   let used = 0;
   for await (const line of rl) {
     if (!idx) {
       const h = parseCsvLine(line.replace(/^\uFEFF/, '')).map((s) => s.trim().toLowerCase());
-      idx = { cp: h.indexOf('cod_postal'), ent: h.indexOf('cve_ent'), lat: h.indexOf('latitud'), lng: h.indexOf('longitud') };
+      idx = {
+        cp: h.indexOf('cod_postal'),
+        ent: h.indexOf('cve_ent'),
+        mun: h.indexOf('cve_mun'),
+        loc: h.indexOf('cve_loc'),
+        lat: h.indexOf('latitud'),
+        lng: h.indexOf('longitud'),
+      };
       if (Object.values(idx).some((v) => v < 0)) throw new Error(`Encabezado DENUE inesperado en ${file}`);
       continue;
     }
     const f = parseCsvLine(line);
-    const cp = (f[idx.cp] || '').trim().padStart(5, '0');
     const ent = Number(f[idx.ent]);
-    if (!/^\d{5}$/.test(cp) || cp === '00000' || !valid.has(`${ent}|${cp}`)) continue;
     const lat = Number(f[idx.lat]);
     const lng = Number(f[idx.lng]);
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < 14 || lat > 33 || lng < -119 || lng > -86) continue;
+    const mun = Number(f[idx.mun]);
+    if (mun && Number(f[idx.loc]) === 1) {
+      const mk = `${ent},${mun}`;
+      if (!heads.has(mk)) heads.set(mk, new Map());
+      const ck = `${Math.round(lat * 500)},${Math.round(lng * 500)}`;
+      const c = heads.get(mk).get(ck) || { n: 0, lat: 0, lng: 0 };
+      c.n += 1;
+      c.lat += lat;
+      c.lng += lng;
+      heads.get(mk).set(ck, c);
+    }
+    const cp = (f[idx.cp] || '').trim().padStart(5, '0');
+    if (!/^\d{5}$/.test(cp) || cp === '00000' || !valid.has(`${ent}|${cp}`)) continue;
     const key = `${Math.round(lat * 1000)},${Math.round(lng * 1000)},${cp}`;
     cells.set(key, (cells.get(key) || 0) + 1);
     used += 1;
@@ -283,6 +307,29 @@ async function saveCells(cells, additive) {
   }
 }
 
+/** Cabecera = celda con más negocios de la localidad 0001 (el centro, no las orillas). */
+async function saveCabeceras(heads) {
+  const rows = [];
+  for (const [mk, cellsOfMun] of heads) {
+    let best = null;
+    for (const c of cellsOfMun.values()) if (!best || c.n > best.n) best = c;
+    if (!best) continue;
+    const [ent, mun] = mk.split(',').map(Number);
+    rows.push([ent, mun, best.lat / best.n, best.lng / best.n, best.n]);
+  }
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH);
+    const params = chunk.flat();
+    const values = chunk.map((_, k) => `(${[1, 2, 3, 4, 5].map((j) => `$${k * 5 + j}`).join(',')})`);
+    await query(
+      `INSERT INTO mx_cabeceras (c_estado, c_mnpio, lat, lng, n) VALUES ${values.join(',')}
+       ON CONFLICT (c_estado, c_mnpio) DO UPDATE SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, n = EXCLUDED.n`,
+      params
+    );
+  }
+  return rows.length;
+}
+
 async function loadDenue(dir) {
   const all = Array.from({ length: 32 }, (_, i) => String(i + 1).padStart(2, '0'));
   const wanted = arg('states')
@@ -303,10 +350,14 @@ async function loadDenue(dir) {
       const files = listFiles(work, '.csv').filter((f) => !/diccionario/i.test(f));
       if (!files.length) throw new Error('el ZIP no trae CSV de datos');
       const cells = new Map();
+      const heads = new Map();
       let used = 0;
-      for (const f of files) used += await aggregateCsv(f, valid, cells);
+      for (const f of files) used += await aggregateCsv(f, valid, cells, heads);
       await saveCells(cells, full);
-      console.log(`[OK] DENUE ${st}: ${used} negocios con C.P. válido → ${cells.size} celdas (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+      const nHeads = await saveCabeceras(heads);
+      console.log(
+        `[OK] DENUE ${st}: ${used} negocios con C.P. válido → ${cells.size} celdas · ${nHeads} cabeceras (${((Date.now() - t0) / 1000).toFixed(1)} s)`
+      );
     } catch (err) {
       failed += 1;
       console.error(`[ERROR] DENUE ${st}: ${err.message}`);
@@ -326,9 +377,12 @@ async function main() {
   const { rows } = await query(
     `SELECT (SELECT COUNT(*)::int FROM mx_postcodes) AS asentamientos,
             (SELECT COUNT(*)::int FROM mx_postcode_grid) AS celdas,
+            (SELECT COUNT(*)::int FROM mx_cabeceras) AS cabeceras,
             pg_size_pretty(pg_total_relation_size('mx_postcodes') + pg_total_relation_size('mx_postcode_grid')) AS size`
   );
-  console.log(`En tabla: ${rows[0].asentamientos} asentamientos · ${rows[0].celdas} celdas · ${rows[0].size} · errores: ${failed}`);
+  console.log(
+    `En tabla: ${rows[0].asentamientos} asentamientos · ${rows[0].celdas} celdas · ${rows[0].cabeceras} cabeceras · ${rows[0].size} · errores: ${failed}`
+  );
   await pool.end();
   if (failed) process.exit(1);
 }

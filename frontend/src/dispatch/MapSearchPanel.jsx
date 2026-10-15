@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Marker, Polygon, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { geoSearch, geoReverse, fetchGeoPlaceOutline } from '../api';
+import { geoSearch, geoReverse, fetchGeoPlaceOutline, fetchGeoOsmOutline } from '../api';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 
 const RECENT_KEY = 'tacticalptx_map_search_recent';
@@ -613,6 +613,7 @@ export default function MapSearchPanel({
               <em className={`map-search-item-kind${selected.approx ? ' is-approx' : ''}`}>
                 {SEARCH_KIND_LABELS[selected.kind] || 'Lugar'}
                 {selected.approx ? ' · sin número exacto' : ''}
+                {selected.pinAt === 'cabecera' ? ' · pin en la cabecera' : ''}
               </em>
             </span>
             <span className="map-search-item-detail">
@@ -666,6 +667,9 @@ const SEARCH_PIN_ICON = L.divIcon({
  * Capa del resultado elegido: marcador, contorno (ejidos) y vuelo al lugar.
  * También expone el mapa a la pestaña (sesgo por cercanía) vía `mapRef`.
  */
+/** Resultados de OSM cuyo límite se dibuja al elegirlos (municipio, estado, colonia…). */
+const OSM_OUTLINE_KINDS = new Set(['pais', 'estado', 'municipio', 'ciudad', 'pueblo', 'localidad', 'colonia']);
+
 export function MapSearchLayer({ token, selected, flyToken, mapRef }) {
   const map = useMap();
   const [outline, setOutline] = useState(null);
@@ -676,9 +680,15 @@ export function MapSearchLayer({ token, selected, flyToken, mapRef }) {
 
   useEffect(() => {
     setOutline(null);
-    if (!selected?.placeId || !selected.hasOutline) return undefined;
+    const osmRef = OSM_OUTLINE_KINDS.has(selected?.kind) ? String(selected?.id || '').match(/^osm:([RW]\d+)$/)?.[1] : null;
+    const request = selected?.placeId && selected.hasOutline
+      ? fetchGeoPlaceOutline(token, selected.placeId)
+      : osmRef
+        ? fetchGeoOsmOutline(token, osmRef)
+        : null;
+    if (!request) return undefined;
     let alive = true;
-    fetchGeoPlaceOutline(token, selected.placeId)
+    request
       .then((d) => {
         if (alive && Array.isArray(d?.outline)) setOutline(d.outline);
       })
@@ -686,7 +696,7 @@ export function MapSearchLayer({ token, selected, flyToken, mapRef }) {
     return () => {
       alive = false;
     };
-  }, [token, selected?.placeId, selected?.hasOutline]);
+  }, [token, selected?.placeId, selected?.hasOutline, selected?.id, selected?.kind]);
 
   useEffect(() => {
     if (!selected || !flyToken) return;

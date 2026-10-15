@@ -366,12 +366,44 @@ async function resolvePostcode(r) {
   }
 }
 
-/** Añade el C.P. (SEPOMEX/DENUE) al detalle y quita los datos internos. */
+/**
+ * El centro geométrico de un municipio puede caer en lagunas o despoblado (Tampico):
+ * el pin va a su cabecera (centro comercial de la localidad 0001 según el DENUE).
+ */
+async function cabeceraFor(r) {
+  if (r.kind !== 'municipio' || !r._pc || (r.countryCode && r.countryCode !== 'MX')) return null;
+  const cEstado = INEGI_STATE[mxStateCode(r._pc.state, r._pc.iso)];
+  const name = normalizeText(r.name).replace(/^municipio (de |del )?/, '');
+  if (!cEstado || !name) return null;
+  const rows = await pcCached(`c:${cEstado}:${name}`, async () => {
+    const res = await query(
+      `SELECT lat, lng FROM mx_cabeceras
+        WHERE c_estado = $1
+          AND c_mnpio IN (SELECT DISTINCT c_mnpio FROM mx_postcodes WHERE c_estado = $1 AND mnpio_norm = $2)
+        LIMIT 2`,
+      [cEstado, name]
+    );
+    return res.rows;
+  });
+  if (rows.length !== 1) return null;
+  const { lat, lng } = rows[0];
+  const b = r.bbox;
+  if (b && (lat < b[0][0] || lat > b[1][0] || lng < b[0][1] || lng > b[1][1])) return null;
+  return { lat, lng };
+}
+
+/** Añade el C.P. (SEPOMEX/DENUE) al detalle, pone el pin de los municipios en su cabecera y quita los datos internos. */
 async function attachPostcodes(results) {
   return Promise.all(
     results.map(async (r) => {
       if (!r?._pc) return r;
       const { _pc, ...clean } = r;
+      const head = await cabeceraFor(r).catch(() => null);
+      if (head) {
+        clean.lat = head.lat;
+        clean.lng = head.lng;
+        clean.pinAt = 'cabecera';
+      }
       const pc = await resolvePostcode(r).catch(() => null);
       if (!pc) return clean;
       const label = pc.exact ? `C.P. ${pc.cps[0]}` : `C.P. posible ${pc.cps.join(' / ')}`;
@@ -990,6 +1022,109 @@ export async function geoPlaceOutline(id) {
   } catch (err) {
     if (err?.code === '42P01') return null;
     throw err;
+  }
+}
+
+const OUTLINE_MAX_POINTS = 4000;
+const OUTLINE_MAX_PARTS = 20;
+
+function sqSegDist(p, a, b) {
+  let [x, y] = a;
+  let dx = b[0] - x;
+  let dy = b[1] - y;
+  if (dx !== 0 || dy !== 0) {
+    const t = ((p[0] - x) * dx + (p[1] - y) * dy) / (dx * dx + dy * dy);
+    if (t > 1) [x, y] = b;
+    else if (t > 0) {
+      x += dx * t;
+      y += dy * t;
+    }
+  }
+  dx = p[0] - x;
+  dy = p[1] - y;
+  return dx * dx + dy * dy;
+}
+
+/** Douglas-Peucker iterativo sobre [lng, lat]. */
+function simplifyRing(points, tol) {
+  if (points.length <= 4) return points;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  const stack = [[0, points.length - 1]];
+  const sq = tol * tol;
+  while (stack.length) {
+    const [first, last] = stack.pop();
+    let maxD = 0;
+    let idx = -1;
+    for (let i = first + 1; i < last; i += 1) {
+      const d = sqSegDist(points[i], points[first], points[last]);
+      if (d > maxD) {
+        maxD = d;
+        idx = i;
+      }
+    }
+    if (idx > 0 && maxD > sq) {
+      keep[idx] = 1;
+      stack.push([first, idx], [idx, last]);
+    }
+  }
+  return points.filter((_, i) => keep[i]);
+}
+
+function ringSpan(ring) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of ring) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return (maxX - minX) * (maxY - minY);
+}
+
+/**
+ * Límite de un municipio/estado/colonia de OSM («R5606424» o «W123»), para dibujarlo al elegirlo.
+ * Formato Leaflet multipolígono: [[[lat, lng], …]] por parte (solo anillos exteriores).
+ */
+export async function geoOsmOutline(ref) {
+  const m = String(ref || '').match(/^([RW])(\d{1,12})$/);
+  if (!m || !NOMINATIM_ENABLED) return null;
+  const key = `o:${m[0]}`;
+  const cached = cacheGet(key);
+  if (cached !== undefined) return cached;
+  try {
+    const params = new URLSearchParams({
+      osm_ids: m[0],
+      format: 'json',
+      polygon_geojson: '1',
+      polygon_threshold: '0.0003',
+    });
+    const data = await nominatimLimiter(() => jsonFetch(`${NOMINATIM_URL}/lookup?${params}`));
+    const g = Array.isArray(data) ? data[0]?.geojson : null;
+    let parts = [];
+    if (g?.type === 'Polygon') parts = [g.coordinates[0]];
+    else if (g?.type === 'MultiPolygon') parts = g.coordinates.map((p) => p[0]);
+    parts = parts
+      .filter((r) => Array.isArray(r) && r.length >= 4)
+      .sort((a, b) => ringSpan(b) - ringSpan(a))
+      .slice(0, OUTLINE_MAX_PARTS);
+    let tol = 0.0002;
+    let out = parts;
+    while (out.reduce((s, r) => s + r.length, 0) > OUTLINE_MAX_POINTS && tol < 0.1) {
+      out = parts.map((r) => simplifyRing(r, tol));
+      tol *= 1.8;
+    }
+    const outline = out.length
+      ? out.map((r) => [r.map(([lng, lat]) => [Math.round(lat * 1e5) / 1e5, Math.round(lng * 1e5) / 1e5])])
+      : null;
+    cacheSet(key, outline, OK_TTL_MS);
+    return outline;
+  } catch {
+    return null;
   }
 }
 

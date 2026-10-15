@@ -918,6 +918,11 @@ export function fetchGeoPlaceOutline(token, placeId) {
   return api(`/api/geo/places/${encodeURIComponent(placeId)}/outline`, { token });
 }
 
+/** Límite de un municipio/estado/colonia de OpenStreetMap (ref «R5606424»). */
+export function fetchGeoOsmOutline(token, ref) {
+  return api(`/api/geo/osm/${encodeURIComponent(ref)}/outline`, { token });
+}
+
 export function createGeofence(token, body) {
   return api('/api/geofences', { token, method: 'POST', body });
 }
