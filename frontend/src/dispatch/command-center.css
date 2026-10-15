@@ -2590,9 +2590,47 @@ html.map-ops-tabs-dragging .map-ops-tab {
   align-items: center;
   gap: 0.55rem;
   border: 1px solid var(--cc-border);
+  border-left: 3px solid var(--cc-accent);
   border-radius: 8px;
   padding: 0.3rem 0.55rem;
-  background: color-mix(in srgb, #d93025 6%, var(--cc-panel));
+  background: var(--cc-panel);
+}
+.cc-shell .map-search-selected .map-coords-link {
+  color: var(--cc-accent);
+}
+.cc-shell .map-search-selected .map-search-item-kind {
+  color: var(--cc-accent);
+  border-color: color-mix(in srgb, var(--cc-accent) 45%, var(--cc-border));
+}
+.cc-shell .map-search-item-kind.is-approx {
+  color: #b7791f;
+  border-color: color-mix(in srgb, #b7791f 50%, var(--cc-border));
+}
+.cc-shell .map-search-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.cc-shell .map-search-action {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.84rem;
+  color: var(--cc-accent);
+  cursor: pointer;
+  border-top: 1px solid var(--cc-border);
+}
+.cc-shell .map-search-action:hover {
+  background: color-mix(in srgb, var(--cc-accent) 12%, transparent);
+}
+.cc-shell .map-search-action kbd {
+  font-size: 0.7rem;
+  border: 1px solid var(--cc-border);
+  border-radius: 4px;
+  padding: 0 0.3rem;
+  margin-left: 0.3rem;
+  color: var(--cc-muted);
 }
 .cc-shell .map-search-actions {
   display: inline-flex;

@@ -6,7 +6,7 @@ import { MapCoordsLink } from './MapCoordsLink.jsx';
 
 const RECENT_KEY = 'tacticalptx_map_search_recent';
 const RECENT_MAX = 8;
-const DEBOUNCE_MS = 260;
+const DEBOUNCE_MS = 150;
 
 export const SEARCH_KIND_LABELS = {
   coordenadas: 'Coordenadas',
@@ -216,53 +216,147 @@ export default function MapSearchPanel({
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [remote, setRemote] = useState([]);
-  const [status, setStatus] = useState('ok');
+  /** Resultados por etapa; cada uno recuerda para qué texto llegó. */
+  const [localRes, setLocalRes] = useState({ key: '', results: [], forced: false });
+  const [osmRes, setOsmRes] = useState({ key: '', results: [], status: 'ok' });
+  const [fullRes, setFullRes] = useState({ key: '', results: [], status: 'ok' });
+  const [osmLoading, setOsmLoading] = useState(false);
+  const [fullLoading, setFullLoading] = useState(false);
   const [active, setActive] = useState(-1);
   const [world, setWorld] = useState(false);
   const [recent, setRecent] = useState(() => readRecent());
   const [copied, setCopied] = useState(false);
-  const seqRef = useRef(0);
+  const cacheRef = useRef(new Map());
+  const abortRef = useRef({ local: null, osm: null, full: null });
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
 
   const trimmed = q.trim();
   const coords = useMemo(() => parseCoordinates(trimmed), [trimmed]);
+  const qKey = `${world ? 'w' : 'mx'}|${normalize(trimmed).replace(/\s+/g, ' ')}`;
+
+  const fetchStage = useCallback(
+    async (src, text, key) => {
+      const cacheKey = `${src}|${key}`;
+      const hit = cacheRef.current.get(cacheKey);
+      if (hit) return hit;
+      abortRef.current[src]?.abort();
+      const ac = new AbortController();
+      abortRef.current[src] = ac;
+      const bias = getBias?.() || null;
+      const data = await geoSearch(token, { q: text, lat: bias?.lat, lng: bias?.lng, world, src }, ac.signal);
+      const value = {
+        results: Array.isArray(data?.results) ? data.results : [],
+        forced: Boolean(data?.forced),
+        status: data?.status || 'ok',
+      };
+      if (value.status === 'ok') {
+        cacheRef.current.set(cacheKey, value);
+        if (cacheRef.current.size > 300) cacheRef.current.delete(cacheRef.current.keys().next().value);
+      }
+      return value;
+    },
+    // getBias se lee al disparar; no debe relanzar búsquedas.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [token, world]
+  );
 
   useEffect(() => {
-    const seq = ++seqRef.current;
+    abortRef.current.full?.abort();
+    setFullLoading(false);
     if (coords || trimmed.length < 2) {
-      setRemote([]);
-      setLoading(false);
-      setStatus('ok');
+      abortRef.current.local?.abort();
+      abortRef.current.osm?.abort();
+      setOsmLoading(false);
       return undefined;
     }
-    setLoading(true);
-    const id = window.setTimeout(async () => {
-      try {
-        const bias = getBias?.() || null;
-        const data = await geoSearch(token, {
-          q: trimmed,
-          lat: bias?.lat,
-          lng: bias?.lng,
-          world,
-        });
-        if (seq !== seqRef.current) return;
-        setRemote(Array.isArray(data?.results) ? data.results : []);
-        setStatus(data?.status || 'ok');
-      } catch {
-        if (seq !== seqRef.current) return;
-        setRemote([]);
-        setStatus('sin_servicio');
-      } finally {
-        if (seq === seqRef.current) setLoading(false);
+    const key = qKey;
+    const timers = [];
+    // Ejidos: casi inmediato (consulta local en el servidor).
+    timers.push(
+      window.setTimeout(() => {
+        fetchStage('local', trimmed, key)
+          .then((v) => setLocalRes({ key, results: v.results, forced: v.forced }))
+          .catch(() => {});
+      }, 90)
+    );
+    if (trimmed.length >= 3) {
+      const cached = cacheRef.current.get(`osm|${key}`);
+      if (cached) {
+        setOsmRes({ key, results: cached.results, status: cached.status });
+        setOsmLoading(false);
+      } else {
+        // Lo pedido para el texto anterior ya no sirve: liberar la fila del servidor.
+        abortRef.current.osm?.abort();
+        setOsmLoading(true);
+        timers.push(
+          window.setTimeout(() => {
+            fetchStage('osm', trimmed, key)
+              .then((v) => {
+                setOsmRes({ key, results: v.results, status: v.status });
+                setOsmLoading(false);
+              })
+              .catch((err) => {
+                if (err?.name === 'AbortError') return;
+                setOsmRes({ key, results: [], status: 'sin_servicio' });
+                setOsmLoading(false);
+              });
+          }, DEBOUNCE_MS)
+        );
       }
-    }, DEBOUNCE_MS);
-    return () => clearTimeout(id);
-    // getBias se lee al disparar; no debe relanzar la búsqueda.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trimmed, coords, world, token]);
+    } else {
+      abortRef.current.osm?.abort();
+      setOsmLoading(false);
+    }
+    return () => timers.forEach((id) => clearTimeout(id));
+  }, [qKey, trimmed, coords, fetchStage]);
+
+  useEffect(
+    () => () => {
+      Object.values(abortRef.current).forEach((ac) => ac?.abort());
+    },
+    []
+  );
+
+  /** Mientras llega la respuesta: lo ya encontrado para un texto anterior que sigue coincidiendo. */
+  const provisionalOsm = useMemo(() => {
+    if (osmRes.key === qKey) return osmRes.results;
+    const [scope, text] = qKey.split('|');
+    let best = null;
+    for (const [k, v] of cacheRef.current) {
+      if (!k.startsWith(`osm|${scope}|`)) continue;
+      const prev = k.slice(`osm|${scope}|`.length);
+      if (prev.length >= 3 && text.startsWith(prev) && (!best || prev.length > best.len)) {
+        best = { len: prev.length, results: v.results };
+      }
+    }
+    if (!best) return [];
+    const words = text.split(' ').filter((w) => w && !/^\d+$/.test(w));
+    return best.results.filter((r) => {
+      const hay = normalize(`${r.name} ${r.detail || ''}`);
+      return words.every((w) => hay.includes(w));
+    });
+  }, [osmRes, qKey]);
+
+  const runFull = useCallback(() => {
+    if (coords || trimmed.length < 3) return;
+    const key = qKey;
+    setFullLoading(true);
+    setOpen(true);
+    fetchStage('full', trimmed, key)
+      .then((v) => {
+        setFullRes({ key, results: v.results, status: v.status });
+        setFullLoading(false);
+        setActive(v.results.length ? 0 : -1);
+      })
+      .catch((err) => {
+        if (err?.name === 'AbortError') return;
+        setFullRes({ key, results: [], status: 'sin_servicio' });
+        setFullLoading(false);
+      });
+  }, [coords, trimmed, qKey, fetchStage]);
+
+  const hasFull = fullRes.key === qKey;
 
   const options = useMemo(() => {
     if (!trimmed) return recent.map((r) => ({ ...r, recent: true }));
@@ -279,13 +373,30 @@ export default function MapSearchPanel({
       return out;
     }
     out.push(...localMatches(localItems || [], trimmed));
-    out.push(...remote);
-    return out;
-  }, [trimmed, coords, recent, localItems, remote]);
+    const ejidos = localRes.key === qKey ? localRes.results : [];
+    const forced = localRes.key === qKey && localRes.forced;
+    let remote;
+    if (hasFull) {
+      const ids = new Set(fullRes.results.map((r) => r.id));
+      remote = [...fullRes.results, ...ejidos, ...provisionalOsm.filter((r) => !ids.has(r.id))];
+    } else if (forced) {
+      remote = [...ejidos, ...provisionalOsm];
+    } else {
+      remote = [...provisionalOsm.slice(0, 3), ...ejidos.slice(0, 4), ...provisionalOsm.slice(3)];
+    }
+    const seen = new Set(out.map((r) => r.id));
+    for (const r of remote) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push(r);
+    }
+    return out.slice(0, 18);
+  }, [trimmed, coords, recent, localItems, localRes, qKey, provisionalOsm, hasFull, fullRes]);
 
+  // Al escribir no se resalta nada: Enter = búsqueda completa; flechas = elegir sugerencia.
   useEffect(() => {
-    setActive(options.length ? 0 : -1);
-  }, [options]);
+    setActive(-1);
+  }, [qKey]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -326,7 +437,9 @@ export default function MapSearchPanel({
       setActive((i) => (options.length ? (i - 1 + options.length) % options.length : -1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (open && active >= 0) choose(options[active]);
+      if (open && active >= 0 && options[active]) choose(options[active]);
+      else if (coords && options[0]) choose(options[0]);
+      else if (trimmed.length >= 3) runFull();
       else setOpen(true);
     } else if (e.key === 'Escape') {
       if (open) {
@@ -338,7 +451,6 @@ export default function MapSearchPanel({
 
   const clearAll = () => {
     setQ('');
-    setRemote([]);
     onClear();
     inputRef.current?.focus();
     setOpen(true);
@@ -356,13 +468,19 @@ export default function MapSearchPanel({
     }
   };
 
+  const loading = osmLoading || fullLoading;
   const showList = open && (options.length > 0 || (trimmed.length >= 2 && !coords));
+  const status = hasFull ? fullRes.status : osmRes.key === qKey ? osmRes.status : 'ok';
   const statusMsg =
     status === 'timeout' || status === 'sin_servicio'
       ? 'Sin conexión con el buscador en línea; solo datos propios y ejidos.'
       : status === 'ocupado'
         ? 'Buscador ocupado, intenta de nuevo en un momento.'
         : '';
+  const canFull = trimmed.length >= 3 && !coords && !hasFull;
+  const fullStartIdx = hasFull
+    ? options.findIndex((o) => fullRes.results.some((r) => r.id === o.id))
+    : -1;
 
   return (
     <div className="map-search" ref={wrapRef}>
@@ -406,7 +524,12 @@ export default function MapSearchPanel({
         {showList ? (
           <ul className="map-search-list" id="map-search-list" role="listbox">
             {!trimmed && options.length ? <li className="map-search-section">Recientes</li> : null}
-            {options.map((opt, i) => (
+            {options.map((opt, i) => [
+              i === fullStartIdx ? (
+                <li key="full-section" className="map-search-section">
+                  Búsqueda completa
+                </li>
+              ) : null,
               <li
                 key={`${opt.id}-${i}`}
                 role="option"
@@ -425,13 +548,51 @@ export default function MapSearchPanel({
                   <span className="map-search-item-name">{opt.name}</span>
                   {opt.detail ? <span className="map-search-item-detail">{opt.detail}</span> : null}
                 </span>
-                <span className="map-search-item-kind">{SEARCH_KIND_LABELS[opt.kind] || 'Lugar'}</span>
+                <span
+                  className={`map-search-item-kind${opt.approx ? ' is-approx' : ''}`}
+                  title={opt.approx ? 'La calle existe, pero ese número no está registrado; el punto es aproximado' : undefined}
+                >
+                  {SEARCH_KIND_LABELS[opt.kind] || 'Lugar'}
+                  {opt.approx ? ' · sin número exacto' : ''}
+                </span>
+              </li>,
+            ])}
+            {loading && trimmed.length >= 3 && !coords ? (
+              <li className="map-search-empty map-search-loading">
+                <span className="map-search-spinner" aria-hidden />
+                {fullLoading ? 'Buscando dirección completa…' : 'Buscando direcciones…'}
               </li>
-            ))}
+            ) : null}
             {trimmed.length >= 2 && !coords && !loading && !options.length ? (
               <li className="map-search-empty">Sin resultados. Prueba con menos palabras o agrega el municipio/estado.</li>
             ) : null}
             {statusMsg && trimmed ? <li className="map-search-empty">{statusMsg}</li> : null}
+            {canFull && !fullLoading ? (
+              <li
+                className="map-search-action"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  runFull();
+                }}
+              >
+                <SearchKindIcon kind="direccion" />
+                <span>
+                  Buscar dirección completa «{trimmed}» <kbd>Enter</kbd>
+                </span>
+              </li>
+            ) : null}
+            {trimmed.length >= 3 && !coords && !world && !loading && options.length < 3 ? (
+              <li
+                className="map-search-action"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setWorld(true);
+                }}
+              >
+                <SearchKindIcon kind="pais" />
+                <span>Buscar también fuera de México</span>
+              </li>
+            ) : null}
             {trimmed && !coords ? (
               <li className="map-search-attrib">Datos © OpenStreetMap · ejidos: RAN</li>
             ) : null}
@@ -447,7 +608,10 @@ export default function MapSearchPanel({
           <span className="map-search-item-text">
             <span className="map-search-item-name">
               {selected.name}
-              <em className="map-search-item-kind">{SEARCH_KIND_LABELS[selected.kind] || 'Lugar'}</em>
+              <em className={`map-search-item-kind${selected.approx ? ' is-approx' : ''}`}>
+                {SEARCH_KIND_LABELS[selected.kind] || 'Lugar'}
+                {selected.approx ? ' · sin número exacto' : ''}
+              </em>
             </span>
             <span className="map-search-item-detail">
               {selected.detail ? `${selected.detail} · ` : ''}
@@ -478,7 +642,7 @@ export default function MapSearchPanel({
         </div>
       ) : (
         <p className="map-ops-hint muted map-search-hint">
-          Escribe parte del nombre y elige una sugerencia. Clic derecho en el mapa: «¿Qué hay aquí?».
+          Escribe y elige una sugerencia; Enter busca la dirección completa. Clic derecho en el mapa: «¿Qué hay aquí?».
         </p>
       )}
     </div>

@@ -5,7 +5,7 @@ import { shrinkAvatarFile } from './avatarResize.js';
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const STORAGE_KEY = 'tacticalptx_session';
 
-export async function api(path, { token, method = 'GET', body, _retried, cache } = {}) {
+export async function api(path, { token, method = 'GET', body, _retried, cache, signal } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -14,6 +14,7 @@ export async function api(path, { token, method = 'GET', body, _retried, cache }
     headers,
     body: body ? JSON.stringify(body) : undefined,
     ...(cache ? { cache } : {}),
+    ...(signal ? { signal } : {}),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -21,7 +22,7 @@ export async function api(path, { token, method = 'GET', body, _retried, cache }
   if (res.status === 401 && !_retried && !path.includes('/auth/')) {
     const refreshed = await tryRefreshStoredSession();
     if (refreshed?.token) {
-      return api(path, { token: refreshed.token, method, body, _retried: true });
+      return api(path, { token: refreshed.token, method, body, _retried: true, signal });
     }
   }
 
@@ -898,14 +899,15 @@ export function fetchGeofences(token) {
   return api('/api/geofences', { token });
 }
 
-export function geoSearch(token, { q, lat, lng, world } = {}) {
+export function geoSearch(token, { q, lat, lng, world, src } = {}, signal) {
   const params = new URLSearchParams({ q: String(q || '') });
   if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    params.set('lat', lat.toFixed(4));
-    params.set('lng', lng.toFixed(4));
+    params.set('lat', lat.toFixed(2));
+    params.set('lng', lng.toFixed(2));
   }
   if (world) params.set('world', '1');
-  return api(`/api/geo/search?${params}`, { token });
+  if (src) params.set('src', src);
+  return api(`/api/geo/search?${params}`, { token, signal });
 }
 
 export function geoReverse(token, lat, lng) {

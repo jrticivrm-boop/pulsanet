@@ -15,10 +15,18 @@ const GEOCODER_URL = (process.env.GEOCODER_URL || 'https://photon.komoot.io')
   .replace(/\/$/, '');
 const GEOCODER_ENABLED = String(process.env.GEOCODER_ENABLED ?? '1').trim() !== '0';
 const TIMEOUT_MS = parseInt(process.env.GEOCODER_TIMEOUT_MS || '6000', 10);
-/** Espaciado mínimo entre peticiones salientes (todas las consolas comparten IP). */
-const MIN_GAP_MS = parseInt(process.env.GEOCODER_MIN_GAP_MS || '200', 10);
-/** Si hay más de esto en cola, se responde vacío en vez de acumular. */
-const MAX_QUEUE = 12;
+/** Espaciado mínimo entre arranques de peticiones a Photon (todas las consolas comparten IP). */
+const MIN_GAP_MS = parseInt(process.env.GEOCODER_MIN_GAP_MS || '100', 10);
+/**
+ * Búsqueda completa (Enter): Nominatim es más preciso con «calle + número + colonia»,
+ * pero su servicio público exige ≤ 1 petición/s y no admite autocompletado.
+ */
+const NOMINATIM_URL = (process.env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org')
+  .trim()
+  .replace(/\/$/, '');
+const NOMINATIM_ENABLED = String(process.env.NOMINATIM_ENABLED ?? '1').trim() !== '0';
+const NOMINATIM_GAP_MS = parseInt(process.env.NOMINATIM_MIN_GAP_MS || '1100', 10);
+const USER_AGENT = 'SICOM-TacticalPtx/1.0 (consola de despacho)';
 
 /** Recuadro de México (lon/lat) para sesgar y filtrar resultados. */
 const MX_BBOX = '-118.6,14.3,-86.5,32.8';
@@ -51,26 +59,63 @@ function cacheSet(key, value, ttl) {
   }
 }
 
-let queueTail = Promise.resolve();
-let queued = 0;
-let lastAt = 0;
+function abortError() {
+  const err = new Error('cancelado');
+  err.name = 'AbortError';
+  return err;
+}
 
-/** Serializa peticiones salientes con MIN_GAP_MS entre cada una. */
-function throttled(fn) {
-  if (queued >= MAX_QUEUE) return Promise.reject(new Error('geocoder_busy'));
-  queued += 1;
-  const run = queueTail.then(async () => {
-    const wait = lastAt + MIN_GAP_MS - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    lastAt = Date.now();
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(abortError());
+    const id = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(id);
+      reject(abortError());
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * Espacia los ARRANQUES de peticiones (no espera a que termine la anterior).
+ * Si quien pidió ya se fue (tecleó otra letra), su turno se descarta sin salir a internet.
+ */
+function makeLimiter(gapMs, maxPending) {
+  let nextAt = 0;
+  let pending = 0;
+  return async function run(fn, signal) {
+    if (pending >= maxPending) throw new Error('geocoder_busy');
+    const now = Date.now();
+    const slot = Math.max(now, nextAt);
+    nextAt = slot + gapMs;
+    pending += 1;
     try {
+      if (slot > now) await sleep(slot - now, signal);
+      if (signal?.aborted) throw abortError();
       return await fn();
     } finally {
-      queued -= 1;
+      pending -= 1;
     }
-  });
-  queueTail = run.catch(() => {});
-  return run;
+  };
+}
+
+const photonLimiter = makeLimiter(MIN_GAP_MS, 40);
+const nominatimLimiter = makeLimiter(NOMINATIM_GAP_MS, 4);
+
+function withTimeout(signal) {
+  const t = AbortSignal.timeout(TIMEOUT_MS);
+  return signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([t, signal]) : t;
+}
+
+function errorStatus(err) {
+  if (err?.message === 'geocoder_busy') return 'ocupado';
+  if (err?.message === 'cancelado') return 'cancelado';
+  if (err?.name === 'TimeoutError' || err?.name === 'AbortError') return 'timeout';
+  return 'sin_servicio';
 }
 
 export function normalizeText(s) {
@@ -99,6 +144,87 @@ export function titleCaseEs(s) {
     })
     .join(' ')
     .replace(/\b(Ii|Iii|Iv|Vi|Vii|Viii|Ix|Xi)\b/g, (m) => m.toUpperCase());
+}
+
+/* ------------------------------------------------- Interpretar la consulta */
+
+/** Abreviaturas comunes en direcciones de México. */
+const ABBREVIATIONS = [
+  [/\bav(?:da)?\.?(?=\s)/gi, 'avenida'],
+  [/\bcalz\.?(?=\s)/gi, 'calzada'],
+  [/\bblvd?\.?(?=\s)/gi, 'boulevard'],
+  [/\bprol\.?(?=\s)/gi, 'prolongación'],
+  [/\bcarr\.?(?=\s)/gi, 'carretera'],
+  [/\bfracc?\.?(?=\s)/gi, 'fraccionamiento'],
+  [/\bcol\.?(?=\s)/gi, 'colonia'],
+  [/\bcdmx\b/gi, 'ciudad de méxico'],
+  [/\bedomex\b/gi, 'estado de méxico'],
+  [/\bno\.\s*(?=\d)/gi, ''],
+  [/#\s*(?=\d)/g, ''],
+];
+
+const POSTCODE_RE = /^(?:c\.?\s*p\.?\s*)?(\d{5})$/i;
+
+/**
+ * @returns {{ text: string, words: string[], houseNumber: string|null, postcode: string|null }}
+ */
+export function prepareQuery(raw) {
+  const trimmed = String(raw || '').trim().replace(/\s+/g, ' ').slice(0, 160);
+  const pc = trimmed.match(POSTCODE_RE);
+  if (pc) return { text: trimmed, words: [], houseNumber: null, postcode: pc[1] };
+  let text = ` ${trimmed} `;
+  for (const [re, rep] of ABBREVIATIONS) text = text.replace(re, rep);
+  text = text.replace(/\s+/g, ' ').trim();
+  let postcode = null;
+  const pcInside = text.match(/(?:c\.?\s*p\.?\s*)(\d{5})\b/i);
+  if (pcInside) postcode = pcInside[1];
+  const norm = normalizeText(text);
+  const tokens = norm.split(' ').filter(Boolean);
+  const houseNumber =
+    tokens.find((t) => /^\d{1,5}[a-z]?$/.test(t) && t !== postcode && !/^\d{5}$/.test(t)) || null;
+  const words = tokens.filter((t) => !/^\d/.test(t) && t.length > 1);
+  return { text, words, houseNumber, postcode };
+}
+
+/** Prioriza coincidencias reales del nombre sin romper el orden de relevancia de OSM. */
+function rerank(results, prep) {
+  if (!prep.words.length) return results;
+  const first = prep.words[0];
+  return results
+    .map((r, i) => {
+      const name = normalizeText(r.name);
+      let score = i;
+      if (prep.words.every((w) => name.includes(w))) score -= 3;
+      if (name.startsWith(first) || name.includes(` ${first}`)) score -= 1.5;
+      if (prep.houseNumber && r.houseNumber === prep.houseNumber) score -= 4;
+      return { r, score };
+    })
+    .sort((a, b) => a.score - b.score)
+    .map((x) => x.r);
+}
+
+/** Una calle partida en tramos sale una sola vez por municipio/ciudad. */
+function dedupeResults(list) {
+  const out = [];
+  const seen = new Set();
+  for (const r of list) {
+    const street = (r.kind === 'calle' || r.kind === 'carretera') && !r.houseNumber;
+    const k = street
+      ? `${r.kind}|${normalizeText(r.name)}|${normalizeText(r.area)}`
+      : `${r.kind}|${normalizeText(r.name)}|${normalizeText(r.detail)}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(r);
+  }
+  return out;
+}
+
+/** Si pidió número exterior y el resultado es la calle sin número, se avisa que es aproximado. */
+function markApprox(results, prep) {
+  if (!prep.houseNumber) return results;
+  return results.map((r) =>
+    r.kind === 'calle' && !r.houseNumber ? { ...r, approx: true } : r
+  );
 }
 
 /* ------------------------------------------------------------------ Photon */
@@ -182,39 +308,27 @@ function photonFeatureToResult(f) {
     bbox,
     countryCode: p.countrycode || null,
     road: p.osm_key === 'highway' ? p.osm_value : null,
+    houseNumber: p.housenumber ? String(p.housenumber).toLowerCase() : null,
+    area: p.city || p.county || p.state || '',
   };
 }
 
-async function photonFetch(path) {
-  const res = await fetch(`${GEOCODER_URL}${path}`, {
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'SICOM-TacticalPtx/1.0 (consola de despacho)',
-    },
+async function jsonFetch(url, signal) {
+  const res = await fetch(url, {
+    signal: withTimeout(signal),
+    headers: { Accept: 'application/json', 'User-Agent': USER_AGENT, 'Accept-Language': 'es' },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
-function dedupeResults(list) {
-  const out = [];
-  const seen = new Set();
-  for (const r of list) {
-    const k = `${r.kind}|${normalizeText(r.name)}|${normalizeText(r.detail)}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(r);
-  }
-  return out;
-}
-
 /**
- * @param {string} q
- * @param {{ lat?: number|null, lng?: number|null, world?: boolean, limit?: number }} opts
+ * @param {ReturnType<typeof prepareQuery>} prep
+ * @param {{ lat?: number|null, lng?: number|null, world?: boolean, limit?: number, signal?: AbortSignal }} opts
  */
-async function searchPhoton(q, opts) {
+async function searchPhoton(prep, opts) {
   if (!GEOCODER_ENABLED) return { results: [], status: 'deshabilitado' };
+  const q = prep.text;
   const limit = Math.min(Math.max(opts.limit || 8, 1), 15);
   const bias =
     Number.isFinite(opts.lat) && Number.isFinite(opts.lng)
@@ -224,7 +338,7 @@ async function searchPhoton(q, opts) {
   const cached = cacheGet(key);
   if (cached) return { ...cached, cached: true };
 
-  const params = new URLSearchParams({ q, limit: String(opts.world ? limit : limit + 7), lang: 'default' });
+  const params = new URLSearchParams({ q, limit: String(opts.world ? limit + 4 : limit + 8), lang: 'default' });
   if (!opts.world) params.set('bbox', MX_BBOX);
   if (bias) {
     // Cercanía como desempate: ciudades/estados importantes no deben quedar tapados.
@@ -234,23 +348,127 @@ async function searchPhoton(q, opts) {
     params.set('location_bias_scale', '0.6');
   }
   try {
-    const data = await throttled(() => photonFetch(`/api/?${params}`));
+    const data = await photonLimiter(
+      () => jsonFetch(`${GEOCODER_URL}/api/?${params}`, opts.signal),
+      opts.signal
+    );
     let results = (data?.features || []).map(photonFeatureToResult).filter(Boolean);
     if (!opts.world) results = results.filter((r) => !r.countryCode || r.countryCode === 'MX');
-    results = dedupeResults(results).slice(0, limit);
+    results = markApprox(dedupeResults(rerank(results, prep)), prep).slice(0, limit);
     const value = { results, status: 'ok' };
     cacheSet(key, value, OK_TTL_MS);
     return value;
   } catch (err) {
-    const status =
-      err?.message === 'geocoder_busy'
-        ? 'ocupado'
-        : err?.name === 'TimeoutError' || err?.name === 'AbortError'
-          ? 'timeout'
-          : 'sin_servicio';
+    const status = errorStatus(opts.signal?.aborted ? { message: 'cancelado' } : err);
     const value = { results: [], status };
-    if (status !== 'ocupado') cacheSet(key, value, FAIL_TTL_MS);
+    if (status === 'timeout' || status === 'sin_servicio') cacheSet(key, value, FAIL_TTL_MS);
     return value;
+  }
+}
+
+/* --------------------------------------------- Nominatim (búsqueda completa) */
+
+function nominatimKind(r) {
+  const t = r.addresstype || r.type;
+  const a = r.address || {};
+  if (a.house_number) return 'direccion';
+  if (t === 'country') return 'pais';
+  if (t === 'state') return 'estado';
+  if (t === 'municipality' || t === 'county') return 'municipio';
+  if (t === 'city' || t === 'town') return 'ciudad';
+  if (t === 'village') return 'pueblo';
+  if (t === 'hamlet' || t === 'isolated_dwelling' || t === 'farm' || t === 'locality') return 'localidad';
+  if (t === 'suburb' || t === 'neighbourhood' || t === 'quarter' || t === 'city_district') return 'colonia';
+  if (t === 'postcode') return 'colonia';
+  if (r.category === 'highway' || t === 'road') {
+    return HIGHWAY_ROAD.has(r.type) ? 'carretera' : 'calle';
+  }
+  return 'lugar';
+}
+
+function nominatimToResult(r) {
+  const lat = Number(r.lat);
+  const lng = Number(r.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const a = r.address || {};
+  const kind = nominatimKind(r);
+  let name = String(r.name || '').trim();
+  if (a.house_number && a.road) name = `${a.road} ${a.house_number}`;
+  else if (!name) name = a.road || String(r.display_name || '').split(',')[0].trim();
+  if (!name) return null;
+  if (r.addresstype === 'postcode' && /^\d{5}$/.test(name)) name = `C.P. ${name}`;
+  const city = a.city || a.town || a.village || a.hamlet || '';
+  const parts = [];
+  const push = (v) => {
+    const s = String(v || '').trim();
+    if (!s || normalizeText(s) === normalizeText(name)) return;
+    if (parts.some((x) => normalizeText(x) === normalizeText(s))) return;
+    parts.push(s);
+  };
+  if (!a.house_number && a.road && kind !== 'calle') push(a.road);
+  push(a.neighbourhood || a.suburb || a.quarter);
+  push(city);
+  push(a.municipality || a.county || a.city_district);
+  push(a.state);
+  if (a.country_code && a.country_code !== 'mx') push(a.country);
+  const detail = [parts.join(' · '), a.postcode ? `C.P. ${a.postcode}` : ''].filter(Boolean).join(' · ');
+  let bbox = null;
+  if (Array.isArray(r.boundingbox) && r.boundingbox.length === 4) {
+    const [minLat, maxLat, minLng, maxLng] = r.boundingbox.map(Number);
+    if ([minLat, maxLat, minLng, maxLng].every(Number.isFinite)) {
+      bbox = [
+        [minLat, minLng],
+        [maxLat, maxLng],
+      ];
+    }
+  }
+  return {
+    id: `osm:${String(r.osm_type || '').charAt(0).toUpperCase()}${r.osm_id || `${lat},${lng}`}`,
+    source: 'osm',
+    kind,
+    name,
+    detail,
+    lat,
+    lng,
+    bbox: kind === 'direccion' ? null : bbox,
+    countryCode: a.country_code ? a.country_code.toUpperCase() : null,
+    houseNumber: a.house_number ? String(a.house_number).toLowerCase() : null,
+    area: city || a.municipality || a.county || a.state || '',
+  };
+}
+
+/**
+ * Enter / «Buscar dirección completa» y búsqueda por código postal.
+ * @param {ReturnType<typeof prepareQuery>} prep
+ */
+async function searchNominatim(prep, opts) {
+  if (!NOMINATIM_ENABLED) return { results: [], status: 'deshabilitado' };
+  const params = new URLSearchParams({ format: 'jsonv2', addressdetails: '1', limit: '8' });
+  if (prep.postcode && !prep.words.length) params.set('postalcode', prep.postcode);
+  else params.set('q', prep.text);
+  if (!opts.world) params.set('countrycodes', 'mx');
+  if (Number.isFinite(opts.lat) && Number.isFinite(opts.lng)) {
+    const d = 1.5;
+    params.set('viewbox', `${opts.lng - d},${opts.lat + d},${opts.lng + d},${opts.lat - d}`);
+  }
+  const key = `n:${params}`;
+  const cached = cacheGet(key);
+  if (cached) return { ...cached, cached: true };
+  try {
+    const data = await nominatimLimiter(
+      () => jsonFetch(`${NOMINATIM_URL}/search?${params}`, opts.signal),
+      opts.signal
+    );
+    const results = markApprox(
+      dedupeResults(rerank((Array.isArray(data) ? data : []).map(nominatimToResult).filter(Boolean), prep)),
+      prep
+    );
+    const value = { results, status: 'ok' };
+    cacheSet(key, value, OK_TTL_MS);
+    return value;
+  } catch (err) {
+    const status = errorStatus(opts.signal?.aborted ? { message: 'cancelado' } : err);
+    return { results: [], status };
   }
 }
 
@@ -261,7 +479,7 @@ async function reversePhoton(lat, lng) {
   if (cached !== undefined) return cached;
   try {
     const params = new URLSearchParams({ lat: String(lat), lon: String(lng), limit: '1', lang: 'default' });
-    const data = await throttled(() => photonFetch(`/reverse?${params}`));
+    const data = await photonLimiter(() => jsonFetch(`${GEOCODER_URL}/reverse?${params}`));
     const r = photonFeatureToResult((data?.features || [])[0]);
     cacheSet(key, r, OK_TTL_MS);
     return r;
@@ -340,23 +558,53 @@ async function searchLocal(q, limit = 6) {
 }
 
 /**
+ * La consola pide por partes para mostrar algo de inmediato:
+ *  - `local`: ejidos/comunidades del catálogo propio (milisegundos).
+ *  - `osm`: autocompletado Photon (≈ 1 s con el servicio público).
+ *  - `full`: Enter / «dirección completa»: Nominatim + Photon (más preciso con número exterior).
+ *  - sin `src`: local + osm combinados (compatibilidad).
  * @param {string} q
- * @param {{ lat?: number|null, lng?: number|null, world?: boolean }} opts
+ * @param {{ lat?: number|null, lng?: number|null, world?: boolean, src?: string, signal?: AbortSignal }} opts
  */
 export async function geoSearch(q, opts = {}) {
-  const text = String(q || '').trim().slice(0, 160);
+  const prep = prepareQuery(q);
+  const text = prep.text;
   if (text.length < 2) return { ok: true, results: [], status: 'ok' };
+  const src = opts.src || 'all';
+
+  if (src === 'local') {
+    const local = await searchLocal(text, 6);
+    return { ok: true, results: local.results, forced: local.forced, status: 'ok' };
+  }
+
+  if (src === 'osm') {
+    // Solo código postal: Photon no lo resuelve bien; se usa Nominatim (una consulta).
+    const remote = prep.postcode && !prep.words.length
+      ? await searchNominatim(prep, opts)
+      : text.length >= 3
+        ? await searchPhoton(prep, opts)
+        : { results: [], status: 'ok' };
+    return { ok: true, results: remote.results, status: remote.status };
+  }
+
+  if (src === 'full') {
+    const [nom, pho] = await Promise.all([searchNominatim(prep, opts), searchPhoton(prep, opts)]);
+    const near = (a, b) => Math.abs(a.lat - b.lat) < 0.0015 && Math.abs(a.lng - b.lng) < 0.0015;
+    const merged = [...nom.results];
+    for (const r of pho.results) {
+      if (!merged.some((m) => normalizeText(m.name) === normalizeText(r.name) && near(m, r))) merged.push(r);
+    }
+    const status = nom.status === 'ok' || pho.status === 'ok' ? 'ok' : nom.status;
+    return { ok: true, results: rerank(merged, prep).slice(0, 14), status };
+  }
+
   const [local, remote] = await Promise.all([
     searchLocal(text, 6),
-    text.length >= 3 ? searchPhoton(text, opts) : Promise.resolve({ results: [], status: 'ok' }),
+    text.length >= 3 ? searchPhoton(prep, opts) : Promise.resolve({ results: [], status: 'ok' }),
   ]);
-  let results;
-  if (local.forced) {
-    results = [...local.results, ...remote.results];
-  } else {
-    // Lo de OSM manda (más general); los ejidos se intercalan tras los 3 primeros.
-    results = [...remote.results.slice(0, 3), ...local.results.slice(0, 4), ...remote.results.slice(3)];
-  }
+  const results = local.forced
+    ? [...local.results, ...remote.results]
+    : [...remote.results.slice(0, 3), ...local.results.slice(0, 4), ...remote.results.slice(3)];
   return { ok: true, results: results.slice(0, 14), status: remote.status };
 }
 

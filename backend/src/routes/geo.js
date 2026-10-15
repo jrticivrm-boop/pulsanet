@@ -25,11 +25,20 @@ router.get('/search', async (req, res) => {
   const lat = num(req.query.lat);
   const lng = num(req.query.lng);
   const biasOk = lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+  const src = ['local', 'osm', 'full'].includes(req.query.src) ? req.query.src : undefined;
+  // La consola cancela al teclear otra letra: no seguir esperando turno ni salir a internet.
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) ac.abort();
+  });
   const out = await geoSearch(q, {
     lat: biasOk ? lat : null,
     lng: biasOk ? lng : null,
     world: req.query.world === '1',
+    src,
+    signal: ac.signal,
   });
+  if (ac.signal.aborted) return;
   res.json(out);
 });
 
