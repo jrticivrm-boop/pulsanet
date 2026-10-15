@@ -1,3 +1,13 @@
+## 2026-10-15 — Despliegue a producción: Ruta A→B, Buscar con ejidos/C.P., OSRM propio conectado
+
+- **Tipo:** otro
+- **Área:** ops
+- **Qué:**
+  - Por orden del usuario («pasa ya todo a … producción», solo web, sin APK): `PROMOVER.ps1 -A produccion -Migrate -Si`. 19 commits (`decebcc`…`29622d5`), etiqueta `prod-v1.8.107-20261015-0700`. Respaldo previo `/opt/respaldos/pre_deploy_20261015_130003.dump`; migraciones 041–044 aplicadas; API y web reconstruidas; health ok (LAN y dominio).
+  - API conectada al servidor de rutas propio: `ROUTING_OSRM_URL=http://osrm:5000` en `infra/.env.sicom` de la VM (respaldo `/opt/respaldos/env.sicom.pre_osrm_20261015-125925`). Verificado: ruta Tampico→CDMX 443 km en 125 ms y «¿Quién llega primero?» con fuente `propio`; ya no aparece el aviso de servicio público.
+  - Catálogos de «Buscar» cargados en producción dentro del contenedor de la API: 30 398 ejidos/comunidades del RAN (38 MB) y SEPOMEX + DENUE (159 363 asentamientos, 1 288 991 celdas, 2 473 cabeceras, 159 MB), sin errores. Caché de descargas en `/app/data/geo-cache`.
+- **Por qué / notas:** 19 usuarios activos durante el despliegue (corte de PTT/video de unos segundos). Pruebas (PC) sigue con el servicio público de rutas: el OSRM propio solo es accesible dentro de la red Docker de la VM. Photon público sigue sin responder; la búsqueda usa catálogo propio y Nominatim.
+- **Archivos / refs:** `infra/PROMOVER.ps1`, `/opt/pulsanet/infra/.env.sicom` (VM), `backend/src/scripts/load-ran-ejidos.js`, `backend/src/scripts/load-mx-postcodes.js`
 ## 2026-10-15 — Ruta: el buscador de A/B ya no depende solo de Photon
 
 - **Tipo:** fix

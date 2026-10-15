@@ -19,6 +19,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > Corrección del bucle de reconexión LiveKit de la consola desplegada el 2026-10-13 (`prod-v1.8.107-20261013-0829`, solo web).
 > Una conexión por canal Escuchar, PTT solo a Hablar y LiveKit con candidato LAN desplegados el 2026-10-13 (`prod-v1.8.107-20261013-0838`, LiveKit + API + web).
 > Menú «Más» de Usuarios y exportar a Excel desplegados el 2026-10-14 (`prod-v1.8.107-20261014-1058`, web).
+> Pestañas «Ruta» (A→B, Google Maps, ¿Quién llega primero?, rutas frecuentes) y «Buscar» (ejidos RAN, C.P. SEPOMEX/DENUE), migraciones 041–044 y servidor de rutas propio desplegados el 2026-10-15 (`prod-v1.8.107-20261015-0700`, API + web).
 
 ### Changed
 - Mapa «Buscar» (web): el pin de un municipio va a su cabecera y se dibuja el límite del municipio/estado/colonia elegido. Requiere migración 043 y `load-mx-postcodes.js`.
