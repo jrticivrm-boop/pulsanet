@@ -28,6 +28,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Web — subida de fotos de perfil y canal:** se reducen en el navegador (máx. 640 px) antes de subirlas; el servidor sirve cada foto con caché de 7 días.
 
 ### Fixed
+- **Web — mapa maximizado:** los selectores de las pestañas Operadores, Ruta, Geocerca y Sitios vuelven a desplegarse y responder con el mapa en pantalla completa.
 - **Web — Usuarios, menú «Más»:** las opciones ya no quedan tapadas por la fila de abajo; el menú se cierra al hacer clic fuera o con Esc.
 - **Consola web — «Sin audio (LiveKit)» tras un corte de red:** al reconectar, la consola ya no reemplaza las salas que LiveKit está reanudando (eso expulsaba su propia sesión con «identidad duplicada» y provocaba ráfagas de reconexión en todos los canales). Cada sala que LiveKit da por perdida se reabre sola, y los canales de solo escucha ya no dejan conexiones huérfanas ni se quedan sin audio hasta recargar.
 - **Consola y Radio web — canales Escuchar:** cada canal se conecta una sola vez (antes dos: identidad de hablar + identidad de escucha), y el PTT ya no transmite a los canales que solo se escuchan; el micrófono solo se publica en los canales Hablar.

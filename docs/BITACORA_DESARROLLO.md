@@ -1,3 +1,11 @@
+## 2026-10-14 — Mapa maximizado: las listas de filtros vuelven a desplegarse
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - Con el mapa maximizado (Consola/Seguimiento y Seguimiento de Radio), los selectores de las pestañas Operadores, Ruta, Geocerca y Sitios no abrían o no respondían: al maximizar, la página se movía a `<body>`, fuera de `#root`, donde React 17+ recibe los eventos; solo funcionaban las pestañas y «Ocultar panel» (con delegación nativa).
+  - Ahora la página maximizada se mueve dentro de `#root` (sigue escapando del shell y del recorte), así que todos los `onClick`/`onChange` funcionan en las cuatro pestañas. La delegación nativa queda para «Ocultar/Mostrar panel» y estilo de mapa; las pestañas ya no se procesan dos veces (respeta el arrastre para reordenar).
+- **Archivos / refs:** `frontend/src/dispatch/useMapViewportMaximize.js`, `frontend/src/dispatch/DispatchMap.jsx`, `frontend/src/dispatch/command-center.css`
 ## 2026-10-14 — Producción: Usuarios (menú «Más» y exportar a Excel)
 
 - **Tipo:** ops

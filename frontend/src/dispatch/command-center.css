@@ -3457,7 +3457,8 @@ html.map-ops-tabs-dragging .map-ops-tab {
  * flex + overflow en .cc-shell / .cc-shell-main / .cc-body / .cc-main /
  * .cc-outlet-panel siguen actuando como containing block de position:fixed,
  * así que inset:0 solo llenaba el outlet (label «Restaurar», rail/topbar
- * visibles). Solución: JS reparenta el nodo a document.body + clase
+ * visibles). Solución: JS reparenta el nodo a #root (no a body: React 17+ delega
+ * eventos en #root y fuera de él los onClick dejan de llegar) + clase
  * html.map-viewport-max + element.requestFullscreen() (useMapViewportMaximize.js).
  * invalidateSize escalonado mitiga el freeze Leaflet al entrar/salir de FS.
  */
@@ -3507,7 +3508,8 @@ html.map-viewport-max .cc-phone-more-backdrop {
 }
 
 /* Gana a .cc-shell .dispatch-page.map-page--fill (altura/padding del área central).
-   body > …: tras reparent; .cc-shell …: fallback si reparent falla. */
+   #root > …: tras reparent; .cc-shell …: fallback si reparent falla. */
+#root > .dispatch-page.map-page--maximized,
 body > .dispatch-page.map-page--maximized,
 .cc-shell .dispatch-page.map-page--fill.map-page--maximized,
 .dispatch-page.map-page--maximized,
@@ -5964,6 +5966,7 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   background: rgba(26, 29, 39, 0.98);
 }
 
+#root > .lt-page--maximized,
 body > .lt-page--maximized,
 .lt-page--maximized,
 html.map-viewport-max .lt-page--maximized,

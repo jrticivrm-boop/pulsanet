@@ -2892,10 +2892,8 @@ export default function DispatchMap({ session }) {
   }
 
   /*
-   * Tras reparent a body (useMapViewportMaximize), los onClick de React 17+
-   * dejan de llegar: la delegación vive en #root y el page ya no es descendiente.
-   * Delegación nativa en el propio page (Ocultar/Mostrar panel + pestañas ops
-   * + estilo de mapa .lt-layers).
+   * Delegación nativa en el propio page: Ocultar/Mostrar panel (sin onClick de React)
+   * y estilo de mapa .lt-layers; pestañas ops solo si el page quedara fuera de #root.
    */
   useEffect(() => {
     const el = pageRef.current;
@@ -2921,6 +2919,8 @@ export default function DispatchMap({ session }) {
       }
       const tabBtn = e.target?.closest?.('[data-ops-tab-id]');
       if (!tabBtn || !el.contains(tabBtn) || tabBtn.disabled) return;
+      // Dentro de #root el onClick de React ya cambia la pestaña (y respeta el arrastre).
+      if (document.getElementById('root')?.contains(el)) return;
       if (opsSuppressClickRef.current) {
         opsSuppressClickRef.current = false;
         return;
@@ -2944,7 +2944,7 @@ export default function DispatchMap({ session }) {
         'ops-console',
         maximized ? 'map-page--maximized' : '',
         /*
-         * Al maximizar, useMapViewportMaximize reparenta este nodo a body.
+         * Al maximizar, useMapViewportMaximize reparenta este nodo a #root.
          * Las reglas `.cc-shell .map-*` dejan de aplicar sin ancestro shell;
          * marcamos el page como `.cc-shell` solo en maximizado (mismo patrón
          * que documenta command-center.css para body > .map-page--maximized).

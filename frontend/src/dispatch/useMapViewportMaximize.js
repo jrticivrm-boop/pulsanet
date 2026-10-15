@@ -3,6 +3,16 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 /** Class on <html> while a map page is viewport-maximized (CSS + body lock). */
 export const MAP_VIEWPORT_MAX_CLASS = 'map-viewport-max';
 
+/**
+ * Destino del reparent: el contenedor raíz de React (#root), no <body>.
+ * React 17+ delega los eventos en #root; fuera de él los onClick/onChange de la
+ * página maximizada (listas de Operadores, Ruta, Geocerca, Sitios) dejan de responder.
+ */
+export function mapMaximizeHost() {
+  if (typeof document === 'undefined') return null;
+  return document.getElementById('root') || document.body;
+}
+
 function requestElFullscreen(el) {
   if (!el || typeof document === 'undefined') return Promise.resolve();
   if (document.fullscreenElement === el) return Promise.resolve();
@@ -52,13 +62,11 @@ export function invalidateLeafletUnder(el) {
 /**
  * Escape shell clipping + true OS/browser fullscreen (F11-like).
  *
- * 1) Reparent page node under document.body (same DOM node → no Leaflet remount)
+ * 1) Reparent page node under #root (same DOM node → no Leaflet remount)
  * 2) html.map-viewport-max for full-bleed CSS inside the fullscreen element
  * 3) element.requestFullscreen() so Edge tabs/address bar + Windows taskbar hide
  *
- * Note: after reparent, React 17+ synthetic events on the page no longer reach
- * #root. Controls that must work maximized (ops Ocultar/Mostrar, etc.) need
- * native listeners on the page node, a createPortal into the page, or both.
+ * Note: the page stays inside #root so React 17+ synthetic events keep working.
  *
  * Call enterMaximize from a click handler (user activation required for Fullscreen API).
  */
@@ -72,7 +80,7 @@ export function useMapViewportMaximize(pageRef, maximized, setMaximized) {
       homeRef.current = { parent: null, next: null };
       return;
     }
-    if (el.parentElement === document.body || el.parentElement !== parent) {
+    if (el.parentElement === mapMaximizeHost() || el.parentElement !== parent) {
       try {
         parent.insertBefore(el, next && next.parentNode === parent ? next : null);
       } catch {
@@ -84,9 +92,10 @@ export function useMapViewportMaximize(pageRef, maximized, setMaximized) {
 
   const applyEnterDom = useCallback((el) => {
     if (!el) return;
-    if (el.parentElement !== document.body) {
+    const host = mapMaximizeHost();
+    if (host && el.parentElement !== host) {
       homeRef.current = { parent: el.parentElement, next: el.nextSibling };
-      document.body.appendChild(el);
+      host.appendChild(el);
     }
     document.documentElement.classList.add(MAP_VIEWPORT_MAX_CLASS);
     try {
