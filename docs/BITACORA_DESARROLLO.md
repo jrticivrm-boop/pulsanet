@@ -1,3 +1,13 @@
+## 2026-10-15 — Despliegue a producción: Ruta sin manita con una sola ruta
+
+- **Tipo:** otro
+- **Área:** ops
+- **Qué:**
+  - Por orden del usuario («ya implementaste los cambios recientes a produccion en cuanto a web? si no es asi implementalos»): `PROMOVER.ps1 -A pruebas` → `PRUEBAS.ps1` → `VERIFICAR-PRUEBAS.ps1` (listo para subir) → `PROMOVER.ps1 -A produccion -Si`. Commits `f523fbe`, `136c940`, `e0496c2`; etiqueta `prod-v1.8.107-20261015-0802`.
+  - Solo se reconstruyó el contenedor web (la API no se reinició); health ok.
+- **Por qué / notas:** `136c940` (app 1.8.192+202) llega a `main` solo como código; la APK no se publicó por OTA.
+- **Archivos / refs:** `infra/PROMOVER.ps1`, `frontend/src/dispatch/MapRoutePanel.jsx`
+
 ## 2026-10-15 — Ruta: sin manita cuando solo hay una ruta
 
 - **Tipo:** ux

@@ -21,6 +21,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > Menú «Más» de Usuarios y exportar a Excel desplegados el 2026-10-14 (`prod-v1.8.107-20261014-1058`, web).
 > Pestañas «Ruta» (A→B, Google Maps, ¿Quién llega primero?, rutas frecuentes) y «Buscar» (ejidos RAN, C.P. SEPOMEX/DENUE), migraciones 041–044 y servidor de rutas propio desplegados el 2026-10-15 (`prod-v1.8.107-20261015-0700`, API + web).
 > Búsqueda híbrida (en línea + buscador propio de SICOM como respaldo) desplegada el 2026-10-15 (`prod-v1.8.107-20261015-0733`, API + web).
+> «Ruta» sin manita con una sola ruta desplegado el 2026-10-15 (`prod-v1.8.107-20261015-0802`, solo web). APK Android **1.8.192+202** (`SICOM-1.8.192+202.apk`, arreglo de Wi‑Fi) lista para distribuir, sin OTA.
 
 ### Fixed
 - **App Android 1.8.192+202 — en Wi‑Fi no conectaba (con datos móviles sí).** La conexión directa por LAN seguía apuntando al PC (`192.168.1.77`, que ya no corre SICOM) con su certificado, y el Wi‑Fi del router no llega al dominio (sin hairpin). Ahora la app prueba la VM SICOM (`192.168.1.150`, confía en la CA raíz de su Caddy y verifica que responda la API de producción) y, si el Wi‑Fi no llega ni a la LAN ni al dominio, usa datos móviles aunque el Wi‑Fi siga encendido.
