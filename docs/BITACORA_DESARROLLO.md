@@ -1,3 +1,8 @@
+## 2026-10-14 — Pruebas: arreglo de listas con mapa maximizado
+
+- **Tipo:** ops
+- **Área:** ops
+- **Qué:** `PROMOVER -A pruebas` + `PRUEBAS.ps1` con `3f7b931`; migraciones sobre la copia sin errores; web y API de pruebas responden (https://localhost:5180, API :4200).
 ## 2026-10-14 — Mapa maximizado: las listas de filtros vuelven a desplegarse
 
 - **Tipo:** fix
