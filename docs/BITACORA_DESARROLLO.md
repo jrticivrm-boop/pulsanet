@@ -1,3 +1,12 @@
+## 2026-10-15 — Ruta: sin manita cuando solo hay una ruta
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - En la pestaña «Ruta», el recuadro de tiempo/distancia salía como botón (manita al pasar el cursor) aunque solo hubiera una ruta y no hubiera nada que elegir.
+  - Con una sola ruta ahora es un recuadro informativo (mismo aspecto, cursor normal); con alternativas siguen siendo botones para cambiar de ruta.
+- **Archivos / refs:** `frontend/src/dispatch/MapRoutePanel.jsx`, `frontend/src/dispatch/command-center.css`
+
 ## 2026-10-15 — App: en Wi‑Fi no conectaba (con datos móviles sí) — APK 1.8.192+202
 
 - **Tipo:** fix

@@ -1275,6 +1275,17 @@ export default function MapRoutePanel({
             <span className="map-route-status is-error">{ROUTE_ERRORS[plan.reason] || ROUTE_ERRORS.sin_servicio}</span>
           ) : routes.length ? (
             <>
+              {routes.length === 1 ? (
+                <div className="map-route-options">
+                  <div
+                    className="map-route-option is-active is-single"
+                    title={routes[0].via?.length ? `Vía ${routes[0].via.join(' y ')}` : undefined}
+                  >
+                    <strong>{formatDuration(routes[0].durationS)}</strong>
+                    <span>{formatDistance(routes[0].distanceM)}</span>
+                  </div>
+                </div>
+              ) : (
               <div className="map-route-options" role="radiogroup" aria-label="Rutas">
                 {routes.map((r, i) => {
                   const extra = Math.round((r.durationS - fastest) / 60);
@@ -1297,6 +1308,7 @@ export default function MapRoutePanel({
                   );
                 })}
               </div>
+              )}
               {current ? (
                 <span className="map-route-eta muted" title="Tiempo estimado sin tráfico en tiempo real">
                   {current.via?.length ? `Vía ${current.via[0]} · ` : ''}

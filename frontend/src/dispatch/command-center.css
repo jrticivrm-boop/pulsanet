@@ -2834,6 +2834,9 @@ html.map-ops-tabs-dragging .map-ops-tab {
   cursor: pointer;
   white-space: nowrap;
 }
+.cc-shell .map-route-option.is-single {
+  cursor: default;
+}
 .cc-shell .map-route-option span {
   font-size: 0.72rem;
   color: var(--cc-muted);
