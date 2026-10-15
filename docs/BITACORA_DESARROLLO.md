@@ -1,3 +1,14 @@
+## 2026-10-15 — Mapa: globos con los colores del tema y nuevo «¿Qué hay aquí?»
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Los globos (popups) del mapa estaban forzados a fondo claro en todos los temas, pero sus botones usaban el color de texto del tema: en «obscuro» y «verde» se veían casi blancos/transparentes.
+  - Ahora todos los globos usan los colores del tema (fondo sólido del panel, texto, borde, sombra, punta y botón de cerrar); los botones dentro de un globo son sólidos y legibles en cualquier tema, con resalte al pasar el cursor.
+  - «¿Qué hay aquí?» rediseñado: encabezado con separador, dirección en negritas, «Marcar este punto» como botón principal (color de acento) y «Ruta desde aquí» / «Ruta hasta aquí» lado a lado.
+  - Probado en pruebas con los temas claro, obscuro y verde.
+- **Archivos / refs:** `frontend/src/theme-contrast.css`, `frontend/src/dispatch/command-center.css`, `frontend/src/dispatch/MapSearchPanel.jsx`
+
 ## 2026-10-15 — Despliegue a producción: Ruta sin manita con una sola ruta
 
 - **Tipo:** otro
