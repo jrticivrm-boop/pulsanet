@@ -1,3 +1,8 @@
+## 2026-10-14 — Pruebas: botón PTT flotante (mover sin hablar)
+
+- **Tipo:** ops
+- **Área:** ops
+- **Qué:** `PROMOVER -A pruebas` + `PRUEBAS.ps1` con `5c7d8e0` (incluye el arreglo de listas con mapa maximizado `3f7b931`); migraciones sin errores; pruebas en https://localhost:5180.
 ## 2026-10-14 — Botón PTT flotante: mover sin hablar (clic derecho / agarradera táctil)
 
 - **Tipo:** ux
