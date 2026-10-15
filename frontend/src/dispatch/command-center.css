@@ -2606,6 +2606,46 @@ html.map-ops-tabs-dragging .map-ops-tab {
   color: #b7791f;
   border-color: color-mix(in srgb, #b7791f 50%, var(--cc-border));
 }
+@media (max-width: 760px) {
+  .cc-shell .map-search-item {
+    flex-wrap: wrap;
+    row-gap: 0.2rem;
+  }
+  .cc-shell .map-search-item-text {
+    flex-basis: calc(100% - 28px - 0.6rem);
+  }
+  .cc-shell .map-search-list .map-search-item-kind {
+    margin-left: calc(28px + 0.6rem);
+  }
+  .cc-shell .map-search-box {
+    flex: 1 1 40%;
+    min-width: 9rem;
+  }
+  .cc-shell .map-search-selected {
+    flex: 1 1 60%;
+    gap: 0.4rem;
+  }
+  .cc-shell .map-search-selected .map-search-item-icon {
+    display: none;
+  }
+  .cc-shell .map-search-selected .map-search-item-kind {
+    display: none;
+  }
+  .cc-shell .map-search-selected .map-search-actions .cc-btn {
+    white-space: nowrap;
+  }
+  .cc-shell .map-search-selected .map-search-item-text {
+    flex: 1 0 6rem;
+  }
+  .cc-shell .map-search-selected .map-search-actions {
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+}
 .cc-shell .map-search-loading {
   display: flex;
   align-items: center;

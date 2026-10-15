@@ -1,3 +1,13 @@
+## 2026-10-14 — Mapa «Buscar»: más rápido, dirección exacta y color según el tema
+
+- **Tipo:** mejora
+- **Área:** web | backend
+- **Qué:**
+  - Búsqueda por etapas: ejidos/sitios locales al instante (~30 ms), sugerencias de OpenStreetMap (Photon) a los 150 ms y resultados provisionales desde la caché mientras llega la respuesta; cada tecla cancela la petición anterior (también en el servidor). Se quitó la cola que serializaba las peticiones (causa principal de la lentitud).
+  - Enter = «Búsqueda completa» (Nominatim + Photon) para la dirección exacta; entiende abreviaturas (Av., Calz., Blvd., Col., Fracc., No., #, CDMX, Edomex) y C.P. Si la calle existe pero no el número, se marca «sin número exacto» (punto aproximado).
+  - Tarjeta del lugar y etiquetas con el color de acento del tema (verde en claro, azul en oscuro); se quitó el café rojizo. Se conserva la casilla «Mundo». En pantallas angostas la etiqueta baja de línea y la tarjeta se compacta.
+- **Por qué / notas:** pedido del usuario (más rápido y eficaz, solo web). Se descartó pg_trgm: la búsqueda local ya tarda ~30 ms. Para respuesta instantánea real haría falta un Photon propio (GEOCODER_URL). Variables nuevas opcionales NOMINATIM_URL, NOMINATIM_ENABLED, NOMINATIM_MIN_GAP_MS.
+- **Archivos / refs:** rontend/src/dispatch/MapSearchPanel.jsx, rontend/src/dispatch/command-center.css, rontend/src/api.js, ackend/src/services/geoSearch.js, ackend/src/routes/geo.js, ackend/.env.example
 ## 2026-10-14 — Mapa: pestaña «Buscar» con autocompletado y ejidos del RAN
 
 - **Tipo:** feature

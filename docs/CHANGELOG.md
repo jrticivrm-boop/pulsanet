@@ -21,6 +21,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > Menú «Más» de Usuarios y exportar a Excel desplegados el 2026-10-14 (`prod-v1.8.107-20261014-1058`, web).
 
 ### Changed
+- Mapa «Buscar» (web): búsqueda por etapas más rápida con cancelación, Enter = búsqueda completa de dirección exacta (Nominatim), aviso «sin número exacto», abreviaturas y C.P.; tarjeta con el color de acento del tema.
 - **Web — botón PTT flotante del mapa:** clic derecho mantenido y arrastrar lo mueve sin encender el micrófono (clic derecho sin mover abre el menú de canales/alarma); en pantallas táctiles aparece una agarradera ⠿ para moverlo sin hablar.
 - **App — Seguimiento GPS rediseñado:** seguir a alguien se suelta al mover o hacer zoom con el dedo (botón «Volver a seguir»); tocar el mapa vacío, el encabezado o de nuevo a la persona la deselecciona. La ficha muestra foto, cargo, estado, coordenadas (toque para copiar) y botones Seguir / Centrar / Ruta 8 h / Contactar. Filtro, cámara, selección, estilo y lista se conservan al cambiar a Chats o Radio y al reabrir la app; el filtro ya no cambia solo con el canal de Radio.
 - **App — «Capas» sustituido por «Mapa»:** estilos Calles / Satélite / Claro, mostrar u ocultar ausentes y desconectados, y nombres siempre o al acercar. Se retiraron estados IV R.M., sitios tácticos y huecos OSRM; la ruta de 8 h se pide desde la ficha. Botón «Ver a todos».
