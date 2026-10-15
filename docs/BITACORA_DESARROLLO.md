@@ -1,3 +1,12 @@
+## 2026-10-15 — Despliegue a producción: «¿Qué hay aquí?» sin parpadeo
+
+- **Tipo:** otro
+- **Área:** ops
+- **Qué:**
+  - Por orden del usuario («subelo»): `PROMOVER.ps1 -A pruebas` → `PRUEBAS.ps1` → `VERIFICAR-PRUEBAS.ps1` (listo para subir; aviso: copia de BD de pruebas con 17 días) → `PROMOVER.ps1 -A produccion -Si`. Commits `569ccda`, `10ce56e`; etiqueta `prod-v1.8.107-20261015-0824`.
+  - Solo se reconstruyó el contenedor web, sin migraciones; health ok.
+- **Archivos / refs:** `infra/PROMOVER.ps1`, `frontend/src/dispatch/MapSearchPanel.jsx`
+
 ## 2026-10-15 — «¿Qué hay aquí?»: el globo ya no parpadea
 
 - **Tipo:** fix
