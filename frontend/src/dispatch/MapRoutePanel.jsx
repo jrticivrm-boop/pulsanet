@@ -378,10 +378,11 @@ function PlaceField({ letter, tone, placeholder, token, value, onChange, localIt
       }));
     let catalog = [];
     let remote = [];
+    let own = [];
     const show = () => {
       const seen = new Set();
       setItems(
-        [...local, ...remote, ...catalog]
+        [...local, ...remote, ...own, ...catalog]
           .filter((o) => (seen.has(o.id) ? false : seen.add(o.id)))
           .slice(0, 10)
       );
@@ -396,14 +397,25 @@ function PlaceField({ letter, tone, placeholder, token, value, onChange, localIt
         .catch(() => {});
     }, 90);
     if (trimmed.length < 3) return () => window.clearTimeout(tLocal);
+    // Mapa propio de SICOM: rápido y sin internet; lo en línea, al llegar, va primero.
+    let ownDone = Promise.resolve();
+    const tOwn = window.setTimeout(() => {
+      ownDone = ask('propio')
+        .then((r) => {
+          own = r.results;
+          show();
+        })
+        .catch(() => {});
+    }, 110);
     const t = window.setTimeout(async () => {
       setLoading(true);
       try {
         const osm = await ask('osm');
         remote = osm.results;
         show();
-        // Sugerencias de calles caídas: la búsqueda completa (Nominatim) sigue respondiendo.
-        if (osm.status !== 'ok' && !osm.results.length && !ac.signal.aborted) {
+        await ownDone;
+        // Sin servicio en línea ni propio: la búsqueda completa (Nominatim) sigue respondiendo.
+        if (osm.status !== 'ok' && !osm.results.length && !own.length && !ac.signal.aborted) {
           setNote('Sugerencias de calles sin servicio: búsqueda completa…');
           const full = await ask('full');
           remote = full.results;
@@ -418,6 +430,7 @@ function PlaceField({ letter, tone, placeholder, token, value, onChange, localIt
     }, DEBOUNCE_MS);
     return () => {
       window.clearTimeout(tLocal);
+      window.clearTimeout(tOwn);
       window.clearTimeout(t);
     };
     // getBias se lee al disparar.

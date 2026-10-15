@@ -910,6 +910,10 @@ export function geoSearch(token, { q, lat, lng, world, src } = {}, signal) {
   return api(`/api/geo/search?${params}`, { token, signal });
 }
 
+export function geoMapStatus(token) {
+  return api('/api/geo/estado', { token });
+}
+
 export function geoReverse(token, lat, lng) {
   return api(`/api/geo/reverse?lat=${lat.toFixed(6)}&lng=${lng.toFixed(6)}`, { token });
 }

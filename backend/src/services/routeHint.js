@@ -525,6 +525,18 @@ export async function routeEta(to, origins) {
   return { ok: false, reason };
 }
 
+/** Servidor de rutas propio: ¿responde? y fecha del mapa (si se procesó con --data_version=osmosis). */
+export async function ownRoutingStatus() {
+  if (!PRIMARY) return { configurado: false };
+  try {
+    const r = await fetch(`${PRIMARY}/nearest/v1/driving/-99.13,19.43?number=1`, { signal: AbortSignal.timeout(2000) });
+    const j = await r.json();
+    return { configurado: true, ok: j?.code === 'Ok', fecha: j?.data_version || null };
+  } catch {
+    return { configurado: true, ok: false, fecha: null };
+  }
+}
+
 export const routingInfo = {
   enabled: ROUTING_ENABLED,
   baseUrl: OSRM_BASES[0] || '',

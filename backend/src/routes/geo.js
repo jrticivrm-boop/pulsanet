@@ -3,8 +3,8 @@ import { authMiddleware } from '../middleware/auth.js';
 import { query } from '../db.js';
 import { logActivity } from '../services/activity.js';
 import { isAdmin, isDispatch } from '../services/roles.js';
-import { geoSearch, geoReverse, geoPlaceOutline, geoOsmOutline } from '../services/geoSearch.js';
-import { ETA_MAX_ORIGINS, PLAN_MAX_STOPS, routeEta, routeOptions } from '../services/routeHint.js';
+import { geoSearch, geoReverse, geoPlaceOutline, geoOsmOutline, ownGeocoderStatus } from '../services/geoSearch.js';
+import { ETA_MAX_ORIGINS, PLAN_MAX_STOPS, ownRoutingStatus, routeEta, routeOptions } from '../services/routeHint.js';
 
 export const geoRouter = Router();
 const router = geoRouter;
@@ -28,7 +28,7 @@ router.get('/search', async (req, res) => {
   const lat = num(req.query.lat);
   const lng = num(req.query.lng);
   const biasOk = lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
-  const src = ['local', 'osm', 'full'].includes(req.query.src) ? req.query.src : undefined;
+  const src = ['local', 'osm', 'propio', 'full'].includes(req.query.src) ? req.query.src : undefined;
   // La consola cancela al teclear otra letra: no seguir esperando turno ni salir a internet.
   const ac = new AbortController();
   res.on('close', () => {
@@ -43,6 +43,17 @@ router.get('/search', async (req, res) => {
   });
   if (ac.signal.aborted) return;
   res.json(out);
+});
+
+let mapStatusCache = { at: 0, value: null };
+
+/** Mapa propio de SICOM (respaldo sin internet): ¿responde? y de qué fecha son los datos. */
+router.get('/estado', async (_req, res) => {
+  if (!mapStatusCache.value || Date.now() - mapStatusCache.at > 5 * 60_000) {
+    const [buscador, rutas] = await Promise.all([ownGeocoderStatus(), ownRoutingStatus()]);
+    mapStatusCache = { at: Date.now(), value: { ok: true, buscador, rutas } };
+  }
+  res.json(mapStatusCache.value);
 });
 
 /** «¿Qué hay aquí?»: dirección aproximada y ejido que contiene el punto. */

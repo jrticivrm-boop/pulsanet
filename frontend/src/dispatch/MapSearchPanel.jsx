@@ -1,12 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Marker, Polygon, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { geoSearch, geoReverse, fetchGeoPlaceOutline, fetchGeoOsmOutline } from '../api';
+import { geoSearch, geoReverse, geoMapStatus, fetchGeoPlaceOutline, fetchGeoOsmOutline } from '../api';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 
 const RECENT_KEY = 'tacticalptx_map_search_recent';
 const RECENT_MAX = 8;
 const DEBOUNCE_MS = 150;
+const OWN_DEBOUNCE_MS = 110;
+
+function shortDate(iso) {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime())
+    ? d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+    : '';
+}
+
+/** «Mapa propio: búsqueda 12 oct 2026 · rutas 01 oct 2026» (o aviso si no responde). */
+function ownMapLabel(st) {
+  const b = st?.buscador;
+  const r = st?.rutas;
+  if (!b?.configurado && !r?.configurado) return '';
+  const part = (label, s) => {
+    if (!s?.configurado) return null;
+    if (!s.ok) return `${label} sin respuesta`;
+    return shortDate(s.fecha) ? `${label} ${shortDate(s.fecha)}` : label;
+  };
+  return `Mapa propio: ${[part('búsqueda', b), part('rutas', r)].filter(Boolean).join(' · ')}`;
+}
 
 export const SEARCH_KIND_LABELS = {
   coordenadas: 'Coordenadas',
@@ -223,6 +244,8 @@ export default function MapSearchPanel({
   /** Resultados por etapa; cada uno recuerda para qué texto llegó. */
   const [localRes, setLocalRes] = useState({ key: '', results: [], forced: false });
   const [osmRes, setOsmRes] = useState({ key: '', results: [], status: 'ok' });
+  /** Photon propio de SICOM (México): responde al instante y sin internet. */
+  const [ownRes, setOwnRes] = useState({ key: '', results: [], status: 'ok' });
   const [fullRes, setFullRes] = useState({ key: '', results: [], status: 'ok' });
   const [osmLoading, setOsmLoading] = useState(false);
   const [fullLoading, setFullLoading] = useState(false);
@@ -230,8 +253,11 @@ export default function MapSearchPanel({
   const [world, setWorld] = useState(false);
   const [recent, setRecent] = useState(() => readRecent());
   const [copied, setCopied] = useState(false);
+  const [mapStatus, setMapStatus] = useState(null);
   const cacheRef = useRef(new Map());
-  const abortRef = useRef({ local: null, osm: null, full: null });
+  const abortRef = useRef({ local: null, osm: null, propio: null, full: null });
+  const autoFullRef = useRef('');
+  const shownRef = useRef({ key: '', ids: [] });
   const wrapRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -271,6 +297,7 @@ export default function MapSearchPanel({
     if (coords || trimmed.length < 2) {
       abortRef.current.local?.abort();
       abortRef.current.osm?.abort();
+      abortRef.current.propio?.abort();
       setOsmLoading(false);
       return undefined;
     }
@@ -284,6 +311,25 @@ export default function MapSearchPanel({
           .catch(() => {});
       }, 90)
     );
+    if (trimmed.length >= 3 && !world) {
+      const ownCached = cacheRef.current.get(`propio|${key}`);
+      if (ownCached) setOwnRes({ key, results: ownCached.results, status: ownCached.status });
+      else {
+        abortRef.current.propio?.abort();
+        timers.push(
+          window.setTimeout(() => {
+            fetchStage('propio', trimmed, key)
+              .then((v) => setOwnRes({ key, results: v.results, status: v.status }))
+              .catch((err) => {
+                if (err?.name === 'AbortError') return;
+                setOwnRes({ key, results: [], status: 'sin_servicio' });
+              });
+          }, OWN_DEBOUNCE_MS)
+        );
+      }
+    } else {
+      abortRef.current.propio?.abort();
+    }
     if (trimmed.length >= 3) {
       const cached = cacheRef.current.get(`osm|${key}`);
       if (cached) {
@@ -313,7 +359,7 @@ export default function MapSearchPanel({
       setOsmLoading(false);
     }
     return () => timers.forEach((id) => clearTimeout(id));
-  }, [qKey, trimmed, coords, fetchStage]);
+  }, [qKey, trimmed, coords, fetchStage, world]);
 
   useEffect(
     () => () => {
@@ -321,6 +367,13 @@ export default function MapSearchPanel({
     },
     []
   );
+
+  useEffect(() => {
+    if (!open || mapStatus || !token) return;
+    geoMapStatus(token)
+      .then((d) => setMapStatus(d))
+      .catch(() => setMapStatus({}));
+  }, [open, mapStatus, token]);
 
   /** Mientras llega la respuesta: lo ya encontrado para un texto anterior que sigue coincidiendo. */
   const provisionalOsm = useMemo(() => {
@@ -342,16 +395,17 @@ export default function MapSearchPanel({
     });
   }, [osmRes, qKey]);
 
-  const runFull = useCallback(() => {
+  const runFull = useCallback((auto) => {
     if (coords || trimmed.length < 3) return;
     const key = qKey;
+    const manual = auto !== true;
     setFullLoading(true);
-    setOpen(true);
+    if (manual) setOpen(true);
     fetchStage('full', trimmed, key)
       .then((v) => {
         setFullRes({ key, results: v.results, status: v.status });
         setFullLoading(false);
-        setActive(v.results.length ? 0 : -1);
+        if (manual) setActive(v.results.length ? 0 : -1);
       })
       .catch((err) => {
         if (err?.name === 'AbortError') return;
@@ -361,8 +415,23 @@ export default function MapSearchPanel({
   }, [coords, trimmed, qKey, fetchStage]);
 
   const hasFull = fullRes.key === qKey;
+  const own = ownRes.key === qKey ? ownRes.results : [];
+  /** En línea manda (más actualizado); lo propio cubre mientras llega o si no hay internet. */
+  const photonList = useMemo(() => {
+    const ids = new Set(provisionalOsm.map((r) => r.id));
+    return [...provisionalOsm, ...own.filter((r) => !ids.has(r.id))];
+  }, [provisionalOsm, own]);
 
-  const options = useMemo(() => {
+  // Sin servicio en línea ni propio: búsqueda completa (Nominatim) sin esperar el Enter.
+  const osmFailed = osmRes.key === qKey && osmRes.status !== 'ok' && !osmRes.results.length;
+  const ownFailed = world || (ownRes.key === qKey && !own.length);
+  useEffect(() => {
+    if (!osmFailed || !ownFailed || hasFull || fullLoading || autoFullRef.current === qKey) return;
+    autoFullRef.current = qKey;
+    runFull(true);
+  }, [osmFailed, ownFailed, hasFull, fullLoading, qKey, runFull]);
+
+  const rawOptions = useMemo(() => {
     if (!trimmed) return recent.map((r) => ({ ...r, recent: true }));
     const out = [];
     if (coords) {
@@ -382,11 +451,11 @@ export default function MapSearchPanel({
     let remote;
     if (hasFull) {
       const ids = new Set(fullRes.results.map((r) => r.id));
-      remote = [...fullRes.results, ...ejidos, ...provisionalOsm.filter((r) => !ids.has(r.id))];
+      remote = [...fullRes.results, ...ejidos, ...photonList.filter((r) => !ids.has(r.id))];
     } else if (forced) {
-      remote = [...ejidos, ...provisionalOsm];
+      remote = [...ejidos, ...photonList];
     } else {
-      remote = [...provisionalOsm.slice(0, 3), ...ejidos.slice(0, 4), ...provisionalOsm.slice(3)];
+      remote = [...photonList.slice(0, 3), ...ejidos.slice(0, 4), ...photonList.slice(3)];
     }
     const seen = new Set(out.map((r) => r.id));
     for (const r of remote) {
@@ -395,7 +464,19 @@ export default function MapSearchPanel({
       out.push(r);
     }
     return out.slice(0, 18);
-  }, [trimmed, coords, recent, localItems, localRes, qKey, provisionalOsm, hasFull, fullRes]);
+  }, [trimmed, coords, recent, localItems, localRes, qKey, photonList, hasFull, fullRes]);
+
+  // Si ya se está eligiendo con flechas, lo que llega después se agrega al final: la lista no salta.
+  const options = useMemo(() => {
+    const prev = shownRef.current;
+    if (active < 0 || prev.key !== qKey) return rawOptions;
+    const byId = new Map(rawOptions.map((o) => [o.id, o]));
+    const kept = prev.ids.map((id) => byId.get(id)).filter(Boolean);
+    const keptIds = new Set(kept.map((o) => o.id));
+    return [...kept, ...rawOptions.filter((o) => !keptIds.has(o.id))].slice(0, 18);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawOptions, qKey]);
+  shownRef.current = { key: qKey, ids: options.map((o) => o.id) };
 
   // Al escribir no se resalta nada: Enter = búsqueda completa; flechas = elegir sugerencia.
   useEffect(() => {
@@ -475,8 +556,11 @@ export default function MapSearchPanel({
   const loading = osmLoading || fullLoading;
   const showList = open && (options.length > 0 || (trimmed.length >= 2 && !coords));
   const status = hasFull ? fullRes.status : osmRes.key === qKey ? osmRes.status : 'ok';
+  const offline = status === 'timeout' || status === 'sin_servicio';
   const statusMsg =
-    status === 'timeout' || status === 'sin_servicio'
+    offline && !hasFull && own.length
+      ? 'Buscador en línea sin respuesta: resultados del mapa propio de SICOM.'
+      : offline
       ? 'Sin conexión con el buscador en línea; solo datos propios y ejidos.'
       : status === 'ocupado'
         ? 'Buscador ocupado, intenta de nuevo en un momento.'
@@ -598,7 +682,10 @@ export default function MapSearchPanel({
               </li>
             ) : null}
             {trimmed && !coords ? (
-              <li className="map-search-attrib">Datos © OpenStreetMap · ejidos: RAN · C.P.: SEPOMEX e INEGI (DENUE)</li>
+              <li className="map-search-attrib">
+                Datos © OpenStreetMap · ejidos: RAN · C.P.: SEPOMEX e INEGI (DENUE)
+                {ownMapLabel(mapStatus) ? <span title="Respaldo en el servidor de SICOM cuando no hay internet"> · {ownMapLabel(mapStatus)}</span> : null}
+              </li>
             ) : null}
           </ul>
         ) : null}

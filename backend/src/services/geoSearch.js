@@ -5,7 +5,8 @@
  *   (las consolas pueden estar en LAN sin internet) con caché compartida y
  *   espaciado mínimo entre peticiones: todas las consolas salen con la IP del
  *   servidor y el Photon público pide uso razonable.
- *   GEOCODER_URL permite apuntar a un Photon propio (p. ej. http://127.0.0.1:2322).
+ *   GEOCODER_URL es el Photon principal (público por defecto); GEOCODER_LOCAL_URL el Photon
+ *   propio de México en la red de SICOM (p. ej. http://photon:2322), que responde sin internet.
  * - Catálogo propio `geo_places`: ejidos y comunidades del RAN (funciona sin internet).
  */
 import { query } from '../db.js';
@@ -14,7 +15,12 @@ const GEOCODER_URL = (process.env.GEOCODER_URL || 'https://photon.komoot.io')
   .trim()
   .replace(/\/$/, '');
 const GEOCODER_ENABLED = String(process.env.GEOCODER_ENABLED ?? '1').trim() !== '0';
-const TIMEOUT_MS = parseInt(process.env.GEOCODER_TIMEOUT_MS || '6000', 10);
+const TIMEOUT_MS = parseInt(process.env.GEOCODER_TIMEOUT_MS || '2500', 10);
+/** Photon propio (solo México, se actualiza cada semana): respaldo cuando no hay internet. */
+const GEOCODER_LOCAL_URL = String(process.env.GEOCODER_LOCAL_URL || '')
+  .trim()
+  .replace(/\/$/, '');
+const LOCAL_TIMEOUT_MS = parseInt(process.env.GEOCODER_LOCAL_TIMEOUT_MS || '3000', 10);
 /** Espaciado mínimo entre arranques de peticiones a Photon (todas las consolas comparten IP). */
 const MIN_GAP_MS = parseInt(process.env.GEOCODER_MIN_GAP_MS || '100', 10);
 /**
@@ -103,13 +109,18 @@ function makeLimiter(gapMs, maxPending) {
   };
 }
 
-const photonLimiter = makeLimiter(MIN_GAP_MS, 40);
 const PHOTON_DOWN_MS = 60_000;
-let photonDownUntil = 0;
+/** Photon público (principal, el más actualizado) y Photon propio en la red de SICOM (respaldo sin internet). */
+const PHOTON_PUBLIC = GEOCODER_ENABLED
+  ? { name: 'publico', url: GEOCODER_URL, timeoutMs: TIMEOUT_MS, limiter: makeLimiter(MIN_GAP_MS, 40), downUntil: 0, local: false }
+  : null;
+const PHOTON_LOCAL = GEOCODER_LOCAL_URL
+  ? { name: 'propio', url: GEOCODER_LOCAL_URL, timeoutMs: LOCAL_TIMEOUT_MS, limiter: makeLimiter(0, 80), downUntil: 0, local: true }
+  : null;
 const nominatimLimiter = makeLimiter(NOMINATIM_GAP_MS, 4);
 
-function withTimeout(signal) {
-  const t = AbortSignal.timeout(TIMEOUT_MS);
+function withTimeout(signal, timeoutMs = TIMEOUT_MS) {
+  const t = AbortSignal.timeout(timeoutMs);
   return signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([t, signal]) : t;
 }
 
@@ -463,7 +474,8 @@ async function searchPostcode(cp, opts) {
   let place = await postcodeCenter(cp);
   if (!place && !opts.localOnly) {
     const prep = prepareQuery(`${first.asentamiento}, ${first.municipio}, ${first.estado}`);
-    const found = await searchPhoton(prep, { limit: 3, signal: opts.signal });
+    let found = await searchPhoton(prep, { limit: 3, signal: opts.signal }, PHOTON_LOCAL);
+    if (!found.results.length) found = await searchPhoton(prep, { limit: 3, signal: opts.signal }, PHOTON_PUBLIC);
     const hit = found.results.find((r) => normalizeText(r.detail).includes(normalizeText(first.municipio))) || found.results[0];
     if (hit) place = { lat: hit.lat, lng: hit.lng, bbox: hit.bbox || null };
   }
@@ -663,9 +675,9 @@ function photonFeatureToResult(f) {
   };
 }
 
-async function jsonFetch(url, signal) {
+async function jsonFetch(url, signal, timeoutMs = TIMEOUT_MS) {
   const res = await fetch(url, {
-    signal: withTimeout(signal),
+    signal: withTimeout(signal, timeoutMs),
     headers: { Accept: 'application/json', 'User-Agent': USER_AGENT, 'Accept-Language': 'es' },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -676,17 +688,18 @@ async function jsonFetch(url, signal) {
  * @param {ReturnType<typeof prepareQuery>} prep
  * @param {{ lat?: number|null, lng?: number|null, world?: boolean, limit?: number, signal?: AbortSignal }} opts
  */
-async function searchPhoton(prep, opts) {
-  if (!GEOCODER_ENABLED) return { results: [], status: 'deshabilitado' };
-  // Photon caído: no hacer esperar TIMEOUT_MS a cada búsqueda; se reintenta pasado el lapso.
-  if (Date.now() < photonDownUntil) return { results: [], status: 'sin_servicio' };
+async function searchPhoton(prep, opts, ph = PHOTON_PUBLIC) {
+  if (!ph) return { results: [], status: 'deshabilitado' };
+  // Photon caído: no hacer esperar su timeout a cada búsqueda; se reintenta pasado el lapso.
+  if (Date.now() < ph.downUntil) return { results: [], status: 'sin_servicio' };
+  if (ph.local && opts.world) return { results: [], status: 'ok' };
   const q = prep.text;
   const limit = Math.min(Math.max(opts.limit || 8, 1), 15);
   const bias =
     Number.isFinite(opts.lat) && Number.isFinite(opts.lng)
       ? `${opts.lat.toFixed(1)},${opts.lng.toFixed(1)}`
       : '';
-  const key = `s:${opts.world ? 'w' : 'mx'}:${bias}:${normalizeText(q)}`;
+  const key = `s:${ph.name}:${opts.world ? 'w' : 'mx'}:${bias}:${normalizeText(q)}`;
   const cached = cacheGet(key);
   if (cached) return { ...cached, cached: true };
 
@@ -700,10 +713,7 @@ async function searchPhoton(prep, opts) {
     params.set('location_bias_scale', '0.6');
   }
   try {
-    const data = await photonLimiter(
-      () => jsonFetch(`${GEOCODER_URL}/api/?${params}`, opts.signal),
-      opts.signal
-    );
+    const data = await ph.limiter(() => jsonFetch(`${ph.url}/api/?${params}`, opts.signal, ph.timeoutMs), opts.signal);
     let results = (data?.features || []).map(photonFeatureToResult).filter(Boolean);
     if (!opts.world) results = results.filter((r) => !r.countryCode || r.countryCode === 'MX');
     results = markApprox(dedupeResults(rerank(results, prep)), prep).slice(0, limit);
@@ -715,7 +725,7 @@ async function searchPhoton(prep, opts) {
     const value = { results: [], status };
     if (status === 'timeout' || status === 'sin_servicio') {
       cacheSet(key, value, FAIL_TTL_MS);
-      photonDownUntil = Date.now() + PHOTON_DOWN_MS;
+      ph.downUntil = Date.now() + PHOTON_DOWN_MS;
     }
     return value;
   }
@@ -836,19 +846,23 @@ async function searchNominatim(prep, opts) {
 }
 
 async function reversePhoton(lat, lng) {
-  if (!GEOCODER_ENABLED) return null;
   const key = `r:${lat.toFixed(4)},${lng.toFixed(4)}`;
   const cached = cacheGet(key);
   if (cached !== undefined) return cached;
-  try {
-    const params = new URLSearchParams({ lat: String(lat), lon: String(lng), limit: '1', lang: 'default' });
-    const data = await photonLimiter(() => jsonFetch(`${GEOCODER_URL}/reverse?${params}`));
-    const r = photonFeatureToResult((data?.features || [])[0]);
-    cacheSet(key, r, OK_TTL_MS);
-    return r;
-  } catch {
-    return null;
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lng), limit: '1', lang: 'default' });
+  for (const ph of [PHOTON_PUBLIC, PHOTON_LOCAL]) {
+    if (!ph || Date.now() < ph.downUntil) continue;
+    try {
+      const data = await ph.limiter(() => jsonFetch(`${ph.url}/reverse?${params}`, undefined, ph.timeoutMs));
+      const r = photonFeatureToResult((data?.features || [])[0]);
+      cacheSet(key, r, OK_TTL_MS);
+      return r;
+    } catch (err) {
+      const status = errorStatus(err);
+      if (status === 'timeout' || status === 'sin_servicio') ph.downUntil = Date.now() + PHOTON_DOWN_MS;
+    }
   }
+  return null;
 }
 
 /* ------------------------------------------------- Catálogo propio (RAN) */
@@ -920,6 +934,16 @@ async function searchLocal(q, limit = 6) {
   }
 }
 
+/** `a` manda (más actualizado); de `b` solo lo que no esté ya (mismo id, o mismo nombre a ~150 m). */
+function mergeUnique(a, b) {
+  const near = (x, y) => Math.abs(x.lat - y.lat) < 0.0015 && Math.abs(x.lng - y.lng) < 0.0015;
+  const out = [...a];
+  for (const r of b) {
+    if (!out.some((m) => m.id === r.id || (normalizeText(m.name) === normalizeText(r.name) && near(m, r)))) out.push(r);
+  }
+  return out;
+}
+
 /**
  * La consola pide por partes para mostrar algo de inmediato:
  *  - `local`: ejidos/comunidades del catálogo propio (milisegundos).
@@ -946,26 +970,32 @@ export async function geoSearch(q, opts = {}) {
     return { ok: true, results: local.results, forced: local.forced, status: 'ok' };
   }
 
-  if (src === 'osm') {
-    const remote = text.length >= 3 ? await searchPhoton(prep, opts) : { results: [], status: 'ok' };
+  if (src === 'osm' || src === 'propio') {
+    const ph = src === 'osm' ? PHOTON_PUBLIC : PHOTON_LOCAL;
+    const remote = text.length >= 3 ? await searchPhoton(prep, opts, ph) : { results: [], status: 'ok' };
     return { ok: true, results: await attachPostcodes(remote.results), status: remote.status };
   }
 
   if (src === 'full') {
-    const [nom, pho] = await Promise.all([searchNominatim(prep, opts), searchPhoton(prep, opts)]);
-    const near = (a, b) => Math.abs(a.lat - b.lat) < 0.0015 && Math.abs(a.lng - b.lng) < 0.0015;
-    const merged = [...nom.results];
-    for (const r of pho.results) {
-      if (!merged.some((m) => normalizeText(m.name) === normalizeText(r.name) && near(m, r))) merged.push(r);
-    }
-    const status = nom.status === 'ok' || pho.status === 'ok' ? 'ok' : nom.status;
+    const [nom, pho, own] = await Promise.all([
+      searchNominatim(prep, opts),
+      searchPhoton(prep, opts, PHOTON_PUBLIC),
+      searchPhoton(prep, opts, PHOTON_LOCAL),
+    ]);
+    const merged = mergeUnique(mergeUnique(nom.results, pho.results), own.results);
+    const status = [nom, pho, own].some((s) => s.status === 'ok') ? 'ok' : nom.status;
     return { ok: true, results: await attachPostcodes(rerank(merged, prep).slice(0, 14)), status };
   }
 
-  const [local, remote] = await Promise.all([
+  const [local, pub, own] = await Promise.all([
     searchLocal(text, 6),
-    text.length >= 3 ? searchPhoton(prep, opts) : Promise.resolve({ results: [], status: 'ok' }),
+    text.length >= 3 ? searchPhoton(prep, opts, PHOTON_PUBLIC) : Promise.resolve({ results: [], status: 'ok' }),
+    text.length >= 3 ? searchPhoton(prep, opts, PHOTON_LOCAL) : Promise.resolve({ results: [], status: 'ok' }),
   ]);
+  const remote = {
+    results: mergeUnique(pub.results, own.results),
+    status: pub.status === 'ok' || own.status === 'ok' ? 'ok' : pub.status,
+  };
   const results = local.forced
     ? [...local.results, ...remote.results]
     : [...remote.results.slice(0, 3), ...local.results.slice(0, 4), ...remote.results.slice(3)];
@@ -1135,7 +1165,19 @@ export async function geoOsmOutline(ref) {
   }
 }
 
+/** Buscador propio: ¿responde? y fecha del índice de OpenStreetMap que trae. */
+export async function ownGeocoderStatus() {
+  if (!PHOTON_LOCAL) return { configurado: false };
+  try {
+    const j = await jsonFetch(`${PHOTON_LOCAL.url}/status`, undefined, 2000);
+    return { configurado: true, ok: String(j?.status || '').toLowerCase() === 'ok', fecha: j?.import_date || null };
+  } catch {
+    return { configurado: true, ok: false, fecha: null };
+  }
+}
+
 export const geocoderInfo = {
   enabled: GEOCODER_ENABLED,
   baseUrl: GEOCODER_URL,
+  localUrl: GEOCODER_LOCAL_URL || null,
 };

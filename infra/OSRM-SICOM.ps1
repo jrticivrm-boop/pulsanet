@@ -12,7 +12,10 @@
                      mientras procesa, el contenedor anterior sigue respondiendo.
                      Corre en segundo plano en la VM (~20-40 min); ver avance con -Accion estado.
   -Accion estado     Avance del procesamiento, estado del contenedor y una ruta de prueba.
-  -Accion quitar     Detiene y elimina el contenedor (los datos quedan en disco).
+  -Accion programar  Actualización automática mensual (cron del usuario pulsanet, día 1 a las 01:00).
+                     Si la RAM libre no alcanza, pausa el servidor propio mientras procesa
+                     (la consola usa el OSRM público ese rato) y lo regresa al terminar o si falla.
+  -Accion quitar     Detiene y elimina el contenedor y la actualización programada (los datos quedan en disco).
 
   Modifica la VM: solo con orden explícita del usuario.
 
@@ -21,11 +24,13 @@
   .\infra\OSRM-SICOM.ps1 -Accion estado
 #>
 param(
-  [ValidateSet('instalar', 'estado', 'quitar')]
+  [ValidateSet('instalar', 'estado', 'programar', 'quitar')]
   [string]$Accion = 'estado'
 )
 
 $ErrorActionPreference = 'Stop'
+$OutputEncoding = New-Object Text.UTF8Encoding $false
+[Console]::OutputEncoding = $OutputEncoding
 $VmHost = 'pulsanet@192.168.1.150'
 $Key = Join-Path $env:USERPROFILE '.ssh\id_ed25519_sicom'
 $SshOpts = @('-i', $Key, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10')
@@ -43,6 +48,11 @@ cd "$D"
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
 log "Inicio. Imagen $IMG"
+FREE_GB=$(df -BG --output=avail "$D" | tail -1 | tr -dc '0-9')
+if [ "$FREE_GB" -lt 14 ]; then
+  log "ERROR: solo ${FREE_GB} GB libres en disco (se necesitan 14 para procesar el mapa nuevo). No se tocó el actual."
+  exit 1
+fi
 docker pull -q "$IMG"
 # Restos de una corrida anterior (pueden ser de root si la imagen corrió sin --user).
 docker run --rm -v "$D:/w" "$IMG" sh -c 'rm -rf /w/build.old; [ -d /w/build ] && mv /w/build /w/build.old || true'
@@ -61,15 +71,24 @@ docker run --rm -v "$D:/w" "$IMG" rm -rf /w/build.old
 # Topes para no quitarle CPU/RAM a SICOM mientras procesa: se reservan 4 GB para SICOM.
 # El extract de México rebasa 13.5 GB: con menos de 18 GB de tope no termina.
 TOTAL_GB=$(free -g | awk '/^Mem:/{print $2}')
+AVAIL_GB=$(free -g | awk '/^Mem:/{print $7}')
+if [ "$AVAIL_GB" -lt 22 ] && [ -n "$(docker ps -q -f name=^${NAME}$)" ]; then
+  log "RAM libre ${AVAIL_GB} GB: se pausa el servidor de rutas propio mientras procesa (la consola usa el público)."
+  docker stop "$NAME" >/dev/null
+  trap 'docker start "$NAME" >/dev/null 2>&1 || true' EXIT
+  sleep 3
+  AVAIL_GB=$(free -g | awk '/^Mem:/{print $7}')
+fi
 MEM_GB=$(( TOTAL_GB - 4 ))
+if [ "$MEM_GB" -gt $(( AVAIL_GB - 2 )) ]; then MEM_GB=$(( AVAIL_GB - 2 )); fi
 if [ "$MEM_GB" -lt 18 ]; then
-  log "ERROR: la VM tiene ${TOTAL_GB} GB; México necesita al menos 22 GB de RAM (18 para OSRM + 4 para SICOM)."
+  log "ERROR: RAM libre ${AVAIL_GB} GB (VM: ${TOTAL_GB} GB); México necesita al menos 18 GB para OSRM + margen para SICOM."
   exit 1
 fi
 log "Tope de memoria para el procesamiento: ${MEM_GB} GB (VM: ${TOTAL_GB} GB)"
 RUN="docker run --rm --user $(id -u):$(id -g) --cpus 4 --memory ${MEM_GB}g --memory-swap ${MEM_GB}g -v $D/build:/data $IMG"
 log "1/3 osrm-extract (perfil vehículo)…"
-nice -n 10 $RUN osrm-extract -p /opt/car.lua /data/mexico.osm.pbf > build/extract.log 2>&1 || { tail -20 build/extract.log; exit 1; }
+nice -n 10 $RUN osrm-extract -p /opt/car.lua --data_version=osmosis /data/mexico.osm.pbf > build/extract.log 2>&1 || { tail -20 build/extract.log; exit 1; }
 log "2/3 osrm-partition…"
 nice -n 10 $RUN osrm-partition /data/mexico.osrm > build/partition.log 2>&1 || { tail -20 build/partition.log; exit 1; }
 log "3/3 osrm-customize…"
@@ -120,7 +139,19 @@ du -sh data 2>/dev/null || true
 docker stats --no-stream --format '{{.Name}} RAM {{.MemUsage}}' sicom-osrm 2>/dev/null || true
 "@
   }
+  'programar' {
+    Invoke-Vm "test -f $Dir/data/MAPA_FECHA || { echo 'Primero: -Accion instalar'; exit 1; }"
+    ($build -replace "`r`n", "`n") | & ssh @SshOpts $VmHost "sed '1s/^\xEF\xBB\xBF//' > $Dir/osrm-build.sh && chmod +x $Dir/osrm-build.sh"
+    $cron = @"
+LINE='0 1 1 * * cd $Dir && ! pgrep -f "^bash \./(osrm|photon)-build\.sh" >/dev/null && bash ./osrm-build.sh > osrm-build.log 2>&1'
+{ crontab -l 2>/dev/null | grep -v 'osrm-build.sh' || true; echo "`$LINE"; } | crontab -
+crontab -l | grep osrm-build
+"@
+    $cron | & ssh @SshOpts $VmHost "tr -d '\015' | bash"
+    if ($LASTEXITCODE -ne 0) { throw "Falló en la VM (código $LASTEXITCODE)." }
+    Write-Host 'Actualización mensual programada (día 1, 01:00).'
+  }
   'quitar' {
-    Invoke-Vm "docker rm -f sicom-osrm >/dev/null 2>&1; echo 'Contenedor sicom-osrm eliminado (datos en $Dir/data).'"
+    Invoke-Vm "(crontab -l 2>/dev/null | grep -v 'osrm-build.sh') | crontab -; docker rm -f sicom-osrm >/dev/null 2>&1; echo 'Contenedor sicom-osrm eliminado (datos en $Dir/data).'"
   }
 }

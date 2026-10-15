@@ -1,3 +1,15 @@
+## 2026-10-15 — Búsqueda híbrida: en línea primero, mapa propio de SICOM como respaldo
+
+- **Tipo:** feature
+- **Área:** backend | web | infra
+- **Qué:**
+  - Buscador propio en la VM: contenedor `sicom-photon` (Photon 1.3.0, índice de México de GraphHopper del 2026-10-10, 1.1 GB, ~360 MB de RAM) en la red Docker de SICOM con alias `photon`, sin puertos al exterior. Responde en 30–120 ms (Tampico: municipio y ciudad primero). Script `infra/PHOTON-SICOM.ps1` (`instalar`, `estado`, `programar`, `quitar`).
+  - API: dos fuentes Photon (`GEOCODER_URL` en línea, timeout 2.5 s; `GEOCODER_LOCAL_URL` propia, solo México), cada una con su corte de 60 s si falla. Nueva etapa `src=propio`; la búsqueda completa y la combinada suman también la propia (lo en línea manda). «¿Qué hay aquí?» usa el público y, si no responde, el propio. Nuevo `GET /api/geo/estado` (¿responde? y fecha de datos del buscador y del servidor de rutas propios).
+  - Consola («Buscar» y campos A/B de «Ruta»): se consulta a la vez en línea y propio; lo propio aparece al instante y lo en línea toma el primer lugar al llegar (si ya se eligió con flechas, la lista no se reordena). Si ninguno responde, pasa sola a la búsqueda completa (Nominatim). «Mundo» no usa el propio. Pie de la lista: «Mapa propio: búsqueda <fecha> · rutas <fecha>».
+  - Actualización automática (cron del usuario `pulsanet` en la VM): buscador cada domingo 03:30; rutas (OSRM) el día 1 de cada mes a las 01:00, nunca a la vez. Ambos revisan espacio en disco antes de empezar y no tocan lo actual si falla; OSRM pausa su servidor si falta RAM (la consola usa el público ese rato) y graba la fecha del mapa (`--data_version=osmosis`).
+- **Por qué / notas:** el Photon público (photon.komoot.io) sigue caído; con el propio la búsqueda no depende de internet. Producción aún NO usa el buscador propio: falta `GEOCODER_LOCAL_URL=http://photon:2322` en `.env.sicom` y desplegar (solo con orden). Disco de la VM al ~75%: conviene ampliarlo. Pendiente a futuro: mapa base «Calles» sin internet (PMTiles en la VM).
+- **Archivos / refs:** `backend/src/services/geoSearch.js`, `backend/src/services/routeHint.js`, `backend/src/routes/geo.js`, `frontend/src/api.js`, `frontend/src/dispatch/MapSearchPanel.jsx`, `frontend/src/dispatch/MapRoutePanel.jsx`, `infra/PHOTON-SICOM.ps1`, `infra/OSRM-SICOM.ps1`
+
 ## 2026-10-15 — Despliegue a producción: Ruta A→B, Buscar con ejidos/C.P., OSRM propio conectado
 
 - **Tipo:** otro
