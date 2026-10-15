@@ -1,3 +1,13 @@
+## 2026-10-15 — Ruta: el buscador de A/B ya no depende solo de Photon
+
+- **Tipo:** fix
+- **Área:** web | backend
+- **Qué:**
+  - En la pestaña «Ruta» no aparecía «Tampico» (en «Buscar» sí): los campos A/B solo consultaban Photon público (photon.komoot.io), que dejó de responder (timeout de 6 s).
+  - Los campos A/B ahora consultan también el catálogo propio (municipios, ejidos, C.P.) y, si Photon falla, pasan solos a la búsqueda completa (Nominatim), con aviso en la lista.
+  - Backend: si Photon falla, se omite 60 s (antes cada búsqueda esperaba 6 s); «Buscar» y la búsqueda completa responden en 0.3–1.5 s mientras tanto.
+- **Por qué / notas:** opción a futuro: Photon propio en la VM (como OSRM) para no depender de servicios públicos.
+- **Archivos / refs:** `frontend/src/dispatch/MapRoutePanel.jsx`, `backend/src/services/geoSearch.js`
 ## 2026-10-15 — VM SICOM a 32 GB de RAM y servidor de rutas propio (OSRM) listo
 
 - **Tipo:** infra

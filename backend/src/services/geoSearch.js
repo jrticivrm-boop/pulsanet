@@ -104,6 +104,8 @@ function makeLimiter(gapMs, maxPending) {
 }
 
 const photonLimiter = makeLimiter(MIN_GAP_MS, 40);
+const PHOTON_DOWN_MS = 60_000;
+let photonDownUntil = 0;
 const nominatimLimiter = makeLimiter(NOMINATIM_GAP_MS, 4);
 
 function withTimeout(signal) {
@@ -676,6 +678,8 @@ async function jsonFetch(url, signal) {
  */
 async function searchPhoton(prep, opts) {
   if (!GEOCODER_ENABLED) return { results: [], status: 'deshabilitado' };
+  // Photon caído: no hacer esperar TIMEOUT_MS a cada búsqueda; se reintenta pasado el lapso.
+  if (Date.now() < photonDownUntil) return { results: [], status: 'sin_servicio' };
   const q = prep.text;
   const limit = Math.min(Math.max(opts.limit || 8, 1), 15);
   const bias =
@@ -709,7 +713,10 @@ async function searchPhoton(prep, opts) {
   } catch (err) {
     const status = errorStatus(opts.signal?.aborted ? { message: 'cancelado' } : err);
     const value = { results: [], status };
-    if (status === 'timeout' || status === 'sin_servicio') cacheSet(key, value, FAIL_TTL_MS);
+    if (status === 'timeout' || status === 'sin_servicio') {
+      cacheSet(key, value, FAIL_TTL_MS);
+      photonDownUntil = Date.now() + PHOTON_DOWN_MS;
+    }
     return value;
   }
 }

@@ -338,6 +338,7 @@ function PlaceField({ letter, tone, placeholder, token, value, onChange, localIt
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(-1);
+  const [note, setNote] = useState('');
   const abortRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -350,8 +351,10 @@ function PlaceField({ letter, tone, placeholder, token, value, onChange, localIt
 
   useEffect(() => {
     if (!editing || !trimmed) {
+      abortRef.current?.abort();
       setItems([]);
       setLoading(false);
+      setNote('');
       return undefined;
     }
     setActive(-1);
@@ -362,24 +365,61 @@ function PlaceField({ letter, tone, placeholder, token, value, onChange, localIt
     }
     const local = localMatches(localItems || [], trimmed).slice(0, 4);
     setItems(local);
-    if (trimmed.length < 3) return undefined;
-    const t = window.setTimeout(() => {
-      abortRef.current?.abort();
-      const ac = new AbortController();
-      abortRef.current = ac;
-      setLoading(true);
-      const bias = getBias?.() || null;
-      geoSearch(token, { q: trimmed, lat: bias?.lat, lng: bias?.lng, src: 'osm' }, ac.signal)
-        .then((d) => {
-          const remote = Array.isArray(d?.results) ? d.results : [];
-          setItems([...local, ...remote].slice(0, 10));
+    setNote('');
+    if (trimmed.length < 2) return undefined;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    const bias = getBias?.() || null;
+    const ask = (src) =>
+      geoSearch(token, { q: trimmed, lat: bias?.lat, lng: bias?.lng, src }, ac.signal).then((d) => ({
+        results: Array.isArray(d?.results) ? d.results : [],
+        status: d?.status || 'ok',
+      }));
+    let catalog = [];
+    let remote = [];
+    const show = () => {
+      const seen = new Set();
+      setItems(
+        [...local, ...remote, ...catalog]
+          .filter((o) => (seen.has(o.id) ? false : seen.add(o.id)))
+          .slice(0, 10)
+      );
+    };
+    // Catálogo propio (municipios, ejidos, C.P.): responde en milisegundos.
+    const tLocal = window.setTimeout(() => {
+      ask('local')
+        .then((r) => {
+          catalog = r.results.slice(0, 4);
+          show();
         })
-        .catch(() => {})
-        .finally(() => {
-          if (abortRef.current === ac) setLoading(false);
-        });
+        .catch(() => {});
+    }, 90);
+    if (trimmed.length < 3) return () => window.clearTimeout(tLocal);
+    const t = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const osm = await ask('osm');
+        remote = osm.results;
+        show();
+        // Sugerencias de calles caídas: la búsqueda completa (Nominatim) sigue respondiendo.
+        if (osm.status !== 'ok' && !osm.results.length && !ac.signal.aborted) {
+          setNote('Sugerencias de calles sin servicio: búsqueda completa…');
+          const full = await ask('full');
+          remote = full.results;
+          show();
+          setNote(full.results.length ? '' : 'Sin resultados. Prueba con otro nombre, o elige el punto en el mapa.');
+        }
+      } catch {
+        /* cancelada al seguir escribiendo */
+      } finally {
+        if (abortRef.current === ac) setLoading(false);
+      }
     }, DEBOUNCE_MS);
-    return () => window.clearTimeout(t);
+    return () => {
+      window.clearTimeout(tLocal);
+      window.clearTimeout(t);
+    };
     // getBias se lee al disparar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trimmed, editing, token, localItems]);
@@ -454,7 +494,7 @@ function PlaceField({ letter, tone, placeholder, token, value, onChange, localIt
           <Icon name="close" />
         </button>
       ) : null}
-      {editing && (items.length || loading) ? (
+      {editing && (items.length || loading || note) ? (
         <ul className="map-search-list map-route-list" role="listbox">
           {items.map((opt, i) => (
             <li
@@ -478,7 +518,8 @@ function PlaceField({ letter, tone, placeholder, token, value, onChange, localIt
               <span className="map-search-item-kind">{SEARCH_KIND_LABELS[opt.kind] || 'Lugar'}</span>
             </li>
           ))}
-          {loading ? <li className="map-search-empty muted">Buscando…</li> : null}
+          {note ? <li className="map-search-empty muted">{note}</li> : null}
+          {loading && !note ? <li className="map-search-empty muted">Buscando…</li> : null}
         </ul>
       ) : null}
     </div>

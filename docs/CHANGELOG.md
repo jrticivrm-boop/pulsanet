@@ -31,6 +31,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Web — subida de fotos de perfil y canal:** se reducen en el navegador (máx. 640 px) antes de subirlas; el servidor sirve cada foto con caché de 7 días.
 
 ### Fixed
+- **Web — mapa, «Ruta»:** los campos de origen/destino encuentran ciudades y direcciones aunque el servicio público de sugerencias (Photon) no responda: usan también el catálogo propio y la búsqueda completa (Nominatim). Si Photon falla, se omite 60 s en vez de esperar 6 s en cada búsqueda.
 - Mapa «Buscar» (web): el C.P. sale del catálogo oficial SEPOMEX y de la ubicación de negocios del DENUE (INEGI), no del calculado por OpenStreetMap; búsqueda directa por C.P. Requiere migración 042 y `load-mx-postcodes.js`.
 - **Web — mapa «Buscar», código postal:** ya no se muestra un C.P. de otro estado (p. ej. 89080 de Tampico en Pueblo Viejo, Ver.); el C.P. calculado por OpenStreetMap se valida contra el prefijo del estado y, si no coincide, se oculta (también en «¿Qué hay aquí?» y en la búsqueda por C.P.).
 - **Web — mapa maximizado:** los selectores de las pestañas Operadores, Ruta, Geocerca y Sitios vuelven a desplegarse y responder con el mapa en pantalla completa.
