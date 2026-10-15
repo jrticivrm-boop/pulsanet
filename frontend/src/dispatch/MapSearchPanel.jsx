@@ -853,16 +853,29 @@ export function MapReverseLookup({ token, enabled = true, onUse, onRoute }) {
       if (!enabled) return;
       const { lat, lng } = e.latlng;
       const seq = ++seqRef.current;
-      setProbe({ lat, lng, loading: true });
+      setProbe({ seq, lat, lng, loading: true });
       geoReverse(token, lat, lng)
         .then((d) => {
-          if (seq === seqRef.current) setProbe({ lat, lng, loading: false, place: d?.place, ejido: d?.ejido });
+          if (seq === seqRef.current) setProbe({ seq, lat, lng, loading: false, place: d?.place, ejido: d?.ejido });
         })
         .catch(() => {
-          if (seq === seqRef.current) setProbe({ lat, lng, loading: false, error: true });
+          if (seq === seqRef.current) setProbe({ seq, lat, lng, loading: false, error: true });
         });
     },
   });
+
+  // react-leaflet cierra y reabre el Popup si cambia la referencia de `position`.
+  const probeSeq = probe?.seq;
+  const probeLat = probe?.lat;
+  const probeLng = probe?.lng;
+  const popupPos = useMemo(
+    () => (probeLat == null ? null : [probeLat, probeLng]),
+    [probeSeq, probeLat, probeLng]
+  );
+  const popupHandlers = useMemo(
+    () => ({ remove: () => setProbe((p) => (p && p.seq === probeSeq ? null : p)) }),
+    [probeSeq]
+  );
 
   if (!probe) return null;
   const place = probe.place;
@@ -877,7 +890,7 @@ export function MapReverseLookup({ token, enabled = true, onUse, onRoute }) {
     lng: probe.lng,
   });
   return (
-    <Popup position={[probe.lat, probe.lng]} eventHandlers={{ remove: () => setProbe(null) }}>
+    <Popup position={popupPos} eventHandlers={popupHandlers}>
       <div className="map-reverse-pop">
         <div className="map-reverse-title">¿Qué hay aquí?</div>
         <div className="map-reverse-body">
