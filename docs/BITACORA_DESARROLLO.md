@@ -1,3 +1,12 @@
+## 2026-10-15 — Despliegue a producción: globos del mapa con colores del tema
+
+- **Tipo:** otro
+- **Área:** ops
+- **Qué:**
+  - Por orden del usuario («sube esos cambios a produccion»): `VERIFICAR-PRUEBAS.ps1` (listo para subir; aviso: copia de BD de pruebas con 17 días) → `PROMOVER.ps1 -A produccion -Si`. Commits `eeb88b6`, `5d2b590`; etiqueta `prod-v1.8.107-20261015-0809`.
+  - Solo se reconstruyó el contenedor web, sin migraciones; health ok.
+- **Archivos / refs:** `infra/PROMOVER.ps1`, `frontend/src/theme-contrast.css`, `frontend/src/dispatch/command-center.css`, `frontend/src/dispatch/MapSearchPanel.jsx`
+
 ## 2026-10-15 — Mapa: globos con los colores del tema y nuevo «¿Qué hay aquí?»
 
 - **Tipo:** ux
