@@ -1,3 +1,13 @@
+## 2026-10-15 — Presentación ejecutiva de funcionalidades de SICOM
+
+- **Tipo:** docs
+- **Área:** docs
+- **Qué:**
+  - Presentación de 24 diapositivas sobre la plantilla institucional «Sala de Ops.»: introducción, recorrido por módulos (consola, GPS/geocercas, búsqueda, rutas, radio PTT, mensajería, alerta, video/RESERVADO, administración, avisos/sitios, configuración, app Android, seguridad) y conclusiones/siguientes pasos.
+  - Interactiva: índice con tarjetas que saltan a cada tema y botón «Índice» en cada diapositiva; transiciones, entradas animadas automáticas y notas del orador.
+  - Capturas tomadas del ambiente de **desarrollo con datos ficticios** (se agregaron en `tacticalptx_db` ubicaciones, 2 geocercas, 3 sitios tácticos y mensajes, todos marcados «(ficticio)»).
+- **Archivos / refs:** `C:\pulsanet_soporte\Documentos\presentacion_sicom\` (generador `generar_presentacion.py`, capturas `shots\`); copia en `Documents\RUTINARIOS\sala\SICOM - Funcionalidades actuales.pptx`
+
 ## 2026-10-15 — Despliegue a producción: «¿Qué hay aquí?» sin parpadeo
 
 - **Tipo:** otro
