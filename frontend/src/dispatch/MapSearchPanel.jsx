@@ -106,7 +106,7 @@ function writeRecent(list) {
   }
 }
 
-function SearchKindIcon({ kind }) {
+export function SearchKindIcon({ kind }) {
   const common = {
     width: 16,
     height: 16,
@@ -181,7 +181,7 @@ function SearchKindIcon({ kind }) {
   );
 }
 
-function localMatches(items, q) {
+export function localMatches(items, q) {
   const words = normalize(q).split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   return items
@@ -204,6 +204,7 @@ function localMatches(items, q) {
  *   onClear: () => void,
  *   onRecenter: () => void,
  *   onCreateGeofence?: (result: object) => void,
+ *   onRouteTo?: (result: object) => void,
  * }} props
  */
 export default function MapSearchPanel({
@@ -215,6 +216,7 @@ export default function MapSearchPanel({
   onClear,
   onRecenter,
   onCreateGeofence,
+  onRouteTo,
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -638,6 +640,16 @@ export default function MapSearchPanel({
                 Crear geocerca
               </button>
             ) : null}
+            {onRouteTo ? (
+              <button
+                type="button"
+                className="cc-btn ghost cc-btn-sm"
+                onClick={() => onRouteTo(selected)}
+                title="Trazar la ruta hasta este lugar (pestaña Ruta)"
+              >
+                Cómo llegar
+              </button>
+            ) : null}
             <button type="button" className="cc-btn ghost cc-btn-sm" onClick={clearAll} title="Quitar marcador">
               Quitar
             </button>
@@ -745,7 +757,7 @@ export function MapSearchLayer({ token, selected, flyToken, mapRef }) {
 }
 
 /** Clic derecho (o pulsación larga) en el mapa: «¿Qué hay aquí?». */
-export function MapReverseLookup({ token, enabled = true, onUse }) {
+export function MapReverseLookup({ token, enabled = true, onUse, onRoute }) {
   const [probe, setProbe] = useState(null);
   const seqRef = useRef(0);
 
@@ -767,6 +779,16 @@ export function MapReverseLookup({ token, enabled = true, onUse }) {
 
   if (!probe) return null;
   const place = probe.place;
+  const probePlace = () => ({
+    id: `coord:${probe.lat},${probe.lng}`,
+    kind: place ? place.kind : 'coordenadas',
+    name: place?.name || `${probe.lat.toFixed(6)}, ${probe.lng.toFixed(6)}`,
+    detail: [place?.detail, probe.ejido ? `${SEARCH_KIND_LABELS[probe.ejido.kind] || 'Ejido'} ${probe.ejido.name}` : '']
+      .filter(Boolean)
+      .join(' · '),
+    lat: probe.lat,
+    lng: probe.lng,
+  });
   return (
     <Popup position={[probe.lat, probe.lng]} eventHandlers={{ remove: () => setProbe(null) }}>
       <div className="map-reverse-pop">
@@ -793,21 +815,35 @@ export function MapReverseLookup({ token, enabled = true, onUse }) {
               type="button"
               className="cc-btn ghost cc-btn-sm"
               onClick={() => {
-                onUse({
-                  id: `coord:${probe.lat},${probe.lng}`,
-                  kind: place ? place.kind : 'coordenadas',
-                  name: place?.name || `${probe.lat.toFixed(6)}, ${probe.lng.toFixed(6)}`,
-                  detail: [place?.detail, probe.ejido ? `${SEARCH_KIND_LABELS[probe.ejido.kind] || 'Ejido'} ${probe.ejido.name}` : '']
-                    .filter(Boolean)
-                    .join(' · '),
-                  lat: probe.lat,
-                  lng: probe.lng,
-                  noFly: true,
-                });
+                onUse({ ...probePlace(), noFly: true });
                 setProbe(null);
               }}
             >
               Marcar este punto
+            </button>
+          </div>
+        ) : null}
+        {onRoute && !probe.loading ? (
+          <div className="map-reverse-route">
+            <button
+              type="button"
+              className="cc-btn ghost cc-btn-sm"
+              onClick={() => {
+                onRoute('from', probePlace());
+                setProbe(null);
+              }}
+            >
+              Ruta desde aquí
+            </button>
+            <button
+              type="button"
+              className="cc-btn ghost cc-btn-sm"
+              onClick={() => {
+                onRoute('to', probePlace());
+                setProbe(null);
+              }}
+            >
+              Ruta hasta aquí
             </button>
           </div>
         ) : null}

@@ -36,6 +36,7 @@ import {
   updateGeofence,
   deleteGeofence,
   fetchPanicEvents,
+  geoReverse,
 } from '../api';
 import { socketWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
 import { socketIoOptions, socketUrl } from '../socketConfig';
@@ -101,6 +102,7 @@ import {
 } from './ivRmStatesConfig.js';
 import HighlighterTrack, { PREDICTED_COLOR } from './HighlighterTrack.jsx';
 import MapSearchPanel, { MapSearchLayer, MapReverseLookup } from './MapSearchPanel.jsx';
+import MapRoutePanel, { MapRouteLayer, routePointAt, useRoutePlan } from './MapRoutePanel.jsx';
 import {
   RouteTrackPicker,
   TRACK_HIGHLIGHT_COLORS,
@@ -249,7 +251,7 @@ function normalizeOperatorUserIds(raw) {
 
 const OPS_TAB_KEY = 'tacticalptx_map_ops_tab';
 const OPS_TAB_ORDER_KEY = 'tacticalptx_map_ops_tab_order';
-const OPS_TAB_DEFAULT_ORDER = ['sitios', 'operadores', 'ruta', 'geocerca', 'buscar'];
+const OPS_TAB_DEFAULT_ORDER = ['sitios', 'operadores', 'ruta', 'geocerca', 'buscar', 'rutaab'];
 const OPS_TAB_IDS = new Set(OPS_TAB_DEFAULT_ORDER);
 const OPS_TAB_DRAG_THRESHOLD_PX = 8;
 
@@ -426,6 +428,15 @@ function OpsTabIcon({ name }) {
       <svg {...common}>
         <circle cx="11" cy="11" r="6.5" />
         <path d="m16 16 4.5 4.5" />
+      </svg>
+    );
+  }
+  if (name === 'rutaab') {
+    return (
+      <svg {...common}>
+        <path d="M12 3v18" />
+        <path d="M12 5h6l2 2.5L18 10h-6" />
+        <path d="M12 12H6l-2 2.5L6 17h6" />
       </svg>
     );
   }
@@ -1525,6 +1536,14 @@ export default function DispatchMap({ session }) {
   const [searchSelected, setSearchSelected] = useState(null);
   const [searchFlyToken, setSearchFlyToken] = useState(0);
   const searchMapRef = useRef(null);
+  /** Pestaña «Ruta»: cómo llegar de A a B. */
+  const [routeFrom, setRouteFrom] = useState(null);
+  const [routeTo, setRouteTo] = useState(null);
+  const [routeActive, setRouteActive] = useState(0);
+  const [routePick, setRoutePick] = useState(null);
+  const [routeFitToken, setRouteFitToken] = useState(0);
+  const [routeFocus, setRouteFocus] = useState(null);
+  const routePlan = useRoutePlan(session.token, routeFrom, routeTo);
   const [opsTabOrder, setOpsTabOrder] = useState(() => readOpsTabOrder());
   const [opsDragId, setOpsDragId] = useState(null);
   const [opsOverId, setOpsOverId] = useState(null);
@@ -2171,9 +2190,10 @@ export default function DispatchMap({ session }) {
     const defs = [
       { id: 'sitios', label: 'Sitios' },
       { id: 'operadores', label: 'Operadores', disabled: !canSeeOperators },
-      { id: 'ruta', label: 'Ruta', disabled: !canSeeOperators },
+      { id: 'ruta', label: 'Trayecto', disabled: !canSeeOperators },
       { id: 'geocerca', label: 'Geocerca' },
       { id: 'buscar', label: 'Buscar' },
+      { id: 'rutaab', label: 'Ruta' },
     ];
     const byId = new Map(defs.map((t) => [t.id, t]));
     const next = [];
@@ -2327,6 +2347,62 @@ export default function DispatchMap({ session }) {
       setSearchFlyToken((n) => n + 1);
     }
   }, []);
+
+  useEffect(() => {
+    setRouteActive(0);
+    setRouteFocus(null);
+  }, [routePlan?.key]);
+
+  /** Punto A/B desde el mapa (clic, arrastre): primero coordenadas, luego su dirección. */
+  const setRoutePoint = useCallback(
+    (which, latlng) => {
+      const pt = routePointAt(latlng.lat, latlng.lng);
+      const set = which === 'from' ? setRouteFrom : setRouteTo;
+      set(pt);
+      geoReverse(session.token, latlng.lat, latlng.lng)
+        .then((d) => {
+          const name = d?.place?.name;
+          if (!name) return;
+          set((cur) => (cur && cur.id === pt.id ? { ...cur, name, detail: d.place.detail || cur.detail } : cur));
+        })
+        .catch(() => {});
+    },
+    [session.token]
+  );
+
+  const pickRoutePoint = useCallback(
+    (which, latlng) => {
+      setRoutePoint(which, latlng);
+      // Tras fijar A sin B, seguir con B.
+      setRoutePick(which === 'from' && !routeTo ? 'to' : null);
+    },
+    [setRoutePoint, routeTo]
+  );
+
+  /** «Cómo llegar» desde Buscar / «¿Qué hay aquí?». */
+  function sendToRoute(which, place) {
+    if (!place) return;
+    const pt = {
+      id: place.id || `coord:${place.lat},${place.lng}`,
+      kind: place.kind || 'coordenadas',
+      name: place.name || `${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}`,
+      detail: place.detail || '',
+      lat: place.lat,
+      lng: place.lng,
+    };
+    if (which === 'from') setRouteFrom(pt);
+    else setRouteTo(pt);
+    setRoutePick(null);
+    setFollow(false);
+    setOpsTab('rutaab');
+  }
+
+  function clearRoute() {
+    setRouteFrom(null);
+    setRouteTo(null);
+    setRoutePick(null);
+    setRouteFocus(null);
+  }
 
   function openFenceAtSearch(r) {
     if (!r) return;
@@ -3403,6 +3479,48 @@ export default function DispatchMap({ session }) {
                   setSearchFlyToken((n) => n + 1);
                 }}
                 onCreateGeofence={openFenceAtSearch}
+                onRouteTo={(r) => sendToRoute('to', r)}
+              />
+            </div>
+          ) : null}
+
+          {opsTab === 'rutaab' ? (
+            <div
+              className="map-ops-panel map-ops-panel--rutaab"
+              role="tabpanel"
+              id="map-ops-panel-rutaab"
+              aria-labelledby="map-ops-tab-rutaab"
+            >
+              <MapRoutePanel
+                token={session.token}
+                localItems={searchLocalItems}
+                getBias={getSearchBias}
+                from={routeFrom}
+                to={routeTo}
+                onFrom={(p) => {
+                  setRouteFrom(p);
+                  setRoutePick(null);
+                  setFollow(false);
+                }}
+                onTo={(p) => {
+                  setRouteTo(p);
+                  setRoutePick(null);
+                  setFollow(false);
+                }}
+                plan={routePlan}
+                active={routeActive}
+                onActive={setRouteActive}
+                pick={routePick}
+                onPick={setRoutePick}
+                onClear={clearRoute}
+                onFit={() => {
+                  setFollow(false);
+                  setRouteFitToken((n) => n + 1);
+                }}
+                onFocusStep={(s) => {
+                  setFollow(false);
+                  setRouteFocus({ lat: s.lat, lng: s.lng, at: Date.now() });
+                }}
               />
             </div>
           ) : null}
@@ -3553,6 +3671,18 @@ export default function DispatchMap({ session }) {
             flyToken={searchFlyToken}
             mapRef={searchMapRef}
           />
+          <MapRouteLayer
+            from={routeFrom}
+            to={routeTo}
+            plan={routePlan}
+            active={routeActive}
+            onActive={setRouteActive}
+            fitToken={routeFitToken}
+            focus={routeFocus}
+            pick={opsTab === 'rutaab' && !(fenceFormOpen && fixOnMap) ? routePick : null}
+            onPicked={pickRoutePoint}
+            onMove={setRoutePoint}
+          />
           <MapReverseLookup
             token={session.token}
             enabled={!(fenceFormOpen && fixOnMap)}
@@ -3560,6 +3690,7 @@ export default function DispatchMap({ session }) {
               selectSearchResult(r);
               setOpsTab('buscar');
             }}
+            onRoute={sendToRoute}
           />
           <FollowSelected
             target={followTarget}

@@ -918,6 +918,12 @@ export function fetchGeoPlaceOutline(token, placeId) {
   return api(`/api/geo/places/${encodeURIComponent(placeId)}/outline`, { token });
 }
 
+/** Cómo llegar de A a B: ruta recomendada + alternativas con indicaciones. */
+export function geoRoute(token, from, to, signal) {
+  const p = (pt) => `${pt.lat.toFixed(6)},${pt.lng.toFixed(6)}`;
+  return api(`/api/geo/route?from=${p(from)}&to=${p(to)}`, { token, signal });
+}
+
 /** Límite de un municipio/estado/colonia de OpenStreetMap (ref «R5606424»). */
 export function fetchGeoOsmOutline(token, ref) {
   return api(`/api/geo/osm/${encodeURIComponent(ref)}/outline`, { token });

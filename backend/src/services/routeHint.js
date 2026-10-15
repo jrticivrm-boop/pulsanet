@@ -356,6 +356,162 @@ export async function routeBetween(from, to, opts = {}) {
   }
 }
 
+/* ------------------------------------------- Ruta A → B (pestaña «Ruta») */
+
+const PLAN_TTL_MS = 30 * 60 * 1000;
+const PLAN_MAX_POINTS = 1500;
+const PLAN_MAX_STEPS = 120;
+
+const TURN_ES = {
+  left: 'a la izquierda',
+  right: 'a la derecha',
+  'slight left': 'ligeramente a la izquierda',
+  'slight right': 'ligeramente a la derecha',
+  'sharp left': 'cerrado a la izquierda',
+  'sharp right': 'cerrado a la derecha',
+  straight: 'recto',
+  uturn: 'en U',
+};
+
+function ordinalEs(n) {
+  const k = Number(n);
+  return Number.isFinite(k) && k > 0 ? `${k}.ª` : '';
+}
+
+/** Indicación en español a partir de la maniobra de OSRM. */
+function stepText(step) {
+  const m = step.maneuver || {};
+  const road = String(step.name || step.ref || '').trim();
+  const onto = road ? ` hacia ${road}` : '';
+  const along = road ? ` por ${road}` : '';
+  const turn = TURN_ES[m.modifier] || '';
+  switch (m.type) {
+    case 'depart':
+      return `Sal${along}`;
+    case 'arrive':
+      return 'Llegas a tu destino';
+    case 'turn':
+    case 'end of road':
+      if (m.modifier === 'uturn') return `Da vuelta en U${onto}`;
+      if (m.modifier === 'straight') return `Sigue recto${along}`;
+      return `Gira ${turn}${onto}`.trim();
+    case 'merge':
+      return `Incorpórate${onto}`;
+    case 'on ramp':
+      return `Toma la rampa${onto}`;
+    case 'off ramp':
+      return `Toma la salida${onto}`;
+    case 'fork':
+      return `En la bifurcación, mantente ${String(m.modifier || '').includes('left') ? 'a la izquierda' : 'a la derecha'}${onto}`;
+    case 'roundabout':
+    case 'rotary':
+      return `En la glorieta toma la ${ordinalEs(m.exit) || 'siguiente'} salida${onto}`;
+    case 'roundabout turn':
+      return `En la glorieta gira ${turn}${onto}`.trim();
+    default:
+      return `Continúa${along}`;
+  }
+}
+
+function buildSteps(route) {
+  const out = [];
+  for (const leg of route.legs || []) {
+    for (const s of leg.steps || []) {
+      const [lng, lat] = s.maneuver?.location || [];
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const text = stepText(s);
+      const distanceM = Math.round(Number(s.distance) || 0);
+      const prev = out[out.length - 1];
+      // «Continúa por X» seguido de otro tramo de X: un solo paso.
+      if (prev && prev.text === text && s.maneuver?.type !== 'arrive') {
+        prev.distanceM += distanceM;
+        continue;
+      }
+      if (!distanceM && s.maneuver?.type !== 'arrive' && s.maneuver?.type !== 'depart') continue;
+      out.push({ text, distanceM, lat, lng });
+    }
+  }
+  return out.slice(0, PLAN_MAX_STEPS);
+}
+
+/** Vías principales del recorrido (las de más kilómetros). */
+function mainRoads(route) {
+  const km = new Map();
+  for (const leg of route.legs || []) {
+    for (const s of leg.steps || []) {
+      const name = String(s.name || s.ref || '').trim();
+      if (!name) continue;
+      km.set(name, (km.get(name) || 0) + (Number(s.distance) || 0));
+    }
+  }
+  return [...km.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([n]) => n);
+}
+
+async function fetchPlanOnce(base, from, to, timeoutMs) {
+  const url =
+    `${base}/route/v1/${encodeURIComponent(PROFILE)}/` +
+    `${from.lng},${from.lat};${to.lng},${to.lat}` +
+    `?overview=full&geometries=geojson&alternatives=2&steps=true&annotations=false`;
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if (data?.code === 'NoRoute') return { ok: false, reason: 'sin_ruta' };
+  if (data?.code !== 'Ok' || !Array.isArray(data.routes) || !data.routes.length) {
+    return { ok: false, reason: 'sin_ruta' };
+  }
+  const routes = data.routes
+    .map((r) => ({
+      distanceM: Math.round(Number(r.distance) || 0),
+      durationS: Math.round(Number(r.duration) || 0),
+      via: mainRoads(r),
+      points: thin(
+        (r.geometry?.coordinates || []).map(([lng, lat]) => [lat, lng]),
+        PLAN_MAX_POINTS
+      ),
+      steps: buildSteps(r),
+    }))
+    .filter((r) => r.points.length >= 2);
+  if (!routes.length) return { ok: false, reason: 'sin_ruta' };
+  return { ok: true, source: 'osrm', routes };
+}
+
+/**
+ * Cómo llegar de A a B en vehículo: ruta recomendada (la más rápida) y hasta 2 alternativas,
+ * con indicaciones en español. Tiempos sin tráfico en tiempo real.
+ * @param {{ lat: number, lng: number }} from
+ * @param {{ lat: number, lng: number }} to
+ */
+export async function routeOptions(from, to) {
+  if (!ROUTING_ENABLED) return { ok: false, reason: 'routing_deshabilitado' };
+  if (haversineKm(from, to) > MAX_SPAN_KM) return { ok: false, reason: 'fuera_de_rango' };
+  const r5 = (n) => n.toFixed(5);
+  const key = `plan:${PROFILE}:${r5(from.lat)},${r5(from.lng)}>${r5(to.lat)},${r5(to.lng)}`;
+  const cached = cacheGet(key);
+  if (cached) return { ...cached, cached: true };
+  const perBase = Math.max(6_000, Math.floor(TIMEOUT_MS / Math.max(1, OSRM_BASES.length)));
+  let reason = 'sin_servicio';
+  for (const base of OSRM_BASES) {
+    try {
+      const value = await fetchPlanOnce(base, from, to, perBase);
+      if (value.ok) {
+        cacheSet(key, value, PLAN_TTL_MS);
+        return value;
+      }
+      reason = value.reason || reason;
+      if (reason === 'sin_ruta') break;
+    } catch (err) {
+      reason = err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'sin_servicio';
+    }
+  }
+  return { ok: false, reason };
+}
+
 export const routingInfo = {
   enabled: ROUTING_ENABLED,
   baseUrl: OSRM_BASES[0] || '',

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { isDispatch } from '../services/roles.js';
 import { geoSearch, geoReverse, geoPlaceOutline, geoOsmOutline } from '../services/geoSearch.js';
+import { routeOptions } from '../services/routeHint.js';
 
 export const geoRouter = Router();
 const router = geoRouter;
@@ -58,6 +59,20 @@ router.get('/places/:id/outline', async (req, res) => {
   if (!outline) return res.status(404).json({ ok: false, error: 'Sin contorno' });
   res.set('Cache-Control', 'private, max-age=86400');
   res.json({ ok: true, outline });
+});
+
+function latLngParam(raw) {
+  const [lat, lng] = String(raw || '').split(',').map(num);
+  if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+}
+
+/** Pestaña «Ruta»: cómo llegar de A a B (recomendada + alternativas, con indicaciones). */
+router.get('/route', async (req, res) => {
+  const from = latLngParam(req.query.from);
+  const to = latLngParam(req.query.to);
+  if (!from || !to) return res.status(400).json({ ok: false, error: 'from y to requeridos (lat,lng)' });
+  res.json(await routeOptions(from, to));
 });
 
 /** Límite de un municipio/estado/colonia de OpenStreetMap (ref «R5606424» / «W123»). */

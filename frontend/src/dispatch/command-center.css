@@ -2175,6 +2175,11 @@ html.cc-ops-kpi-dragging .cc-kpi-item {
 .cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panel--buscar .map-search {
   flex-wrap: nowrap;
 }
+.cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panel.map-ops-panel--rutaab {
+  overflow: visible;
+  align-items: center;
+  z-index: 8;
+}
 /* Por encima de los panes de Leaflet (z 400–700) solo mientras hay sugerencias. */
 .cc-shell .map-toolbar.map-toolbar--ops-tabs:has(.map-search-list) {
   position: relative;
@@ -2646,6 +2651,214 @@ html.map-ops-tabs-dragging .map-ops-tab {
     scrollbar-width: none;
   }
 }
+/* Ruta A → B */
+.cc-shell .map-route {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  width: 100%;
+  min-width: 0;
+}
+.cc-shell .map-route-fields {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 1 1 34rem;
+  max-width: 46rem;
+  min-width: 0;
+}
+.cc-shell .map-route-field {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--cc-border);
+  border-radius: 8px;
+  background: var(--cc-panel);
+  padding: 0 0.3rem 0 0.4rem;
+}
+.cc-shell .map-route-field:focus-within,
+.cc-shell .map-route-field.is-picking {
+  border-color: var(--cc-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-accent) 25%, transparent);
+}
+.cc-shell .map-route-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--cc-text);
+  font-size: 0.88rem;
+  padding: 0.5rem 0.1rem;
+  text-overflow: ellipsis;
+}
+.cc-shell .map-route-letter,
+.map-route-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  flex: 0 0 auto;
+}
+.cc-shell .map-route-letter.is-a,
+.map-route-pin.is-a {
+  background: #188038;
+}
+.cc-shell .map-route-letter.is-b,
+.map-route-pin.is-b {
+  background: #d93025;
+}
+.map-route-pin-wrap {
+  background: none;
+  border: 0;
+}
+.map-route-pin {
+  width: 26px;
+  height: 26px;
+  font-size: 0.85rem;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+}
+.leaflet-container.map-route-picking {
+  cursor: crosshair;
+}
+.cc-shell .map-route-pick,
+.cc-shell .map-route-swap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--cc-muted);
+  border-radius: 6px;
+  padding: 0.25rem;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.cc-shell .map-route-pick:hover,
+.cc-shell .map-route-swap:hover:not(:disabled) {
+  color: var(--cc-text);
+  background: color-mix(in srgb, var(--cc-accent) 12%, transparent);
+}
+.cc-shell .map-route-pick.is-on {
+  color: #fff;
+  background: var(--cc-accent);
+}
+.cc-shell .map-route-swap:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cc-shell .map-route-list {
+  min-width: min(26rem, 80vw);
+}
+.cc-shell .map-route-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 18rem;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.cc-shell .map-route-hint {
+  margin: 0;
+  flex: 1 1 auto;
+}
+.cc-shell .map-route-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.84rem;
+}
+.cc-shell .map-route-status.is-error {
+  color: #c5221f;
+}
+.cc-shell .map-route-options {
+  display: inline-flex;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+.cc-shell .map-route-option {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+  border: 1px solid var(--cc-border);
+  border-radius: 8px;
+  background: var(--cc-panel);
+  color: var(--cc-text);
+  padding: 0.25rem 0.55rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cc-shell .map-route-option span {
+  font-size: 0.72rem;
+  color: var(--cc-muted);
+}
+.cc-shell .map-route-option.is-active {
+  border-color: var(--cc-accent);
+  box-shadow: inset 3px 0 0 var(--cc-accent);
+}
+.cc-shell .map-route-option.is-active strong {
+  color: var(--cc-accent);
+}
+.cc-shell .map-route-eta {
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 4rem;
+  flex: 0 1 auto;
+}
+.cc-shell .map-route-actions {
+  display: inline-flex;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+}
+.cc-shell .map-route-actions .cc-btn.is-on {
+  border-color: var(--cc-accent);
+  color: var(--cc-accent);
+}
+.cc-shell .map-route-steps {
+  left: auto;
+  right: 0;
+  width: min(30rem, 92vw);
+  padding-left: 0;
+}
+.cc-shell .map-route-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--cc-accent);
+  border: 1px solid color-mix(in srgb, var(--cc-accent) 45%, var(--cc-border));
+  flex: 0 0 auto;
+}
+@media (max-width: 760px) {
+  .cc-shell .map-route-fields {
+    flex: 1 1 60%;
+  }
+  .cc-shell .map-route-summary {
+    flex: 1 1 40%;
+  }
+  .cc-shell .map-route-eta {
+    display: none;
+  }
+}
 .cc-shell .map-search-loading {
   display: flex;
   align-items: center;
@@ -2685,6 +2898,12 @@ html.map-ops-tabs-dragging .map-ops-tab {
   background: none;
   border: 0;
 }
+.map-reverse-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
 .map-reverse-pop {
   display: flex;
   flex-direction: column;
