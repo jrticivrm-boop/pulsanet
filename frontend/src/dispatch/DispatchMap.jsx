@@ -37,6 +37,7 @@ import {
   deleteGeofence,
   fetchPanicEvents,
   geoReverse,
+  isAdminUser,
 } from '../api';
 import { socketWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
 import { socketIoOptions, socketUrl } from '../socketConfig';
@@ -102,7 +103,7 @@ import {
 } from './ivRmStatesConfig.js';
 import HighlighterTrack, { PREDICTED_COLOR } from './HighlighterTrack.jsx';
 import MapSearchPanel, { MapSearchLayer, MapReverseLookup } from './MapSearchPanel.jsx';
-import MapRoutePanel, { MapRouteLayer, routePointAt, useRoutePlan } from './MapRoutePanel.jsx';
+import MapRoutePanel, { MapRouteLayer, routePointAt, routePointFrom, useRoutePlan } from './MapRoutePanel.jsx';
 import {
   RouteTrackPicker,
   TRACK_HIGHLIGHT_COLORS,
@@ -1542,8 +1543,13 @@ export default function DispatchMap({ session }) {
   const [routeActive, setRouteActive] = useState(0);
   const [routePick, setRoutePick] = useState(null);
   const [routeFitToken, setRouteFitToken] = useState(0);
-  const [routeFocus, setRouteFocus] = useState(null);
-  const routePlan = useRoutePlan(session.token, routeFrom, routeTo);
+  /** Paradas intermedias (null = campo vacío aún sin lugar). */
+  const [routeStops, setRouteStops] = useState([]);
+  const routePoints = useMemo(
+    () => (routeFrom && routeTo ? [routeFrom, ...routeStops.filter(Boolean), routeTo] : []),
+    [routeFrom, routeTo, routeStops]
+  );
+  const routePlan = useRoutePlan(session.token, routePoints);
   const [opsTabOrder, setOpsTabOrder] = useState(() => readOpsTabOrder());
   const [opsDragId, setOpsDragId] = useState(null);
   const [opsOverId, setOpsOverId] = useState(null);
@@ -2350,14 +2356,23 @@ export default function DispatchMap({ session }) {
 
   useEffect(() => {
     setRouteActive(0);
-    setRouteFocus(null);
   }, [routePlan?.key]);
 
-  /** Punto A/B desde el mapa (clic, arrastre): primero coordenadas, luego su dirección. */
+  /** Punto A/B/parada desde el mapa (clic, arrastre): primero coordenadas, luego su dirección. */
   const setRoutePoint = useCallback(
     (which, latlng) => {
       const pt = routePointAt(latlng.lat, latlng.lng);
-      const set = which === 'from' ? setRouteFrom : setRouteTo;
+      let set;
+      if (which === 'from') set = setRouteFrom;
+      else if (which === 'to') set = setRouteTo;
+      else {
+        const idx = Number(String(which).split(':')[1]);
+        if (!Number.isInteger(idx)) return;
+        set = (v) =>
+          setRouteStops((list) =>
+            list.map((s, k) => (k === idx ? (typeof v === 'function' ? v(s) : v) : s))
+          );
+      }
       set(pt);
       geoReverse(session.token, latlng.lat, latlng.lng)
         .then((d) => {
@@ -2378,6 +2393,42 @@ export default function DispatchMap({ session }) {
     },
     [setRoutePoint, routeTo]
   );
+
+  /** Operadores para «¿Quién llega primero?», «Desde operador…» y «Enviar». */
+  const routeOperators = useMemo(() => {
+    if (!canSeeOperators) return [];
+    const now = Date.now();
+    const out = [];
+    for (const loc of locations) {
+      const lat = Number(loc.latitude);
+      const lng = Number(loc.longitude);
+      if (!loc.userId || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      if (loc.userId === session.user?.id) continue;
+      out.push({
+        userId: loc.userId,
+        name: loc.displayName || '',
+        cargo: loc.cargo || '',
+        lat,
+        lng,
+        recordedAt: loc.recordedAt,
+        status: statusOfLoc(loc, now),
+        photo: listPhoto(loc) || '',
+      });
+    }
+    return out;
+  }, [canSeeOperators, locations, statusOfLoc, listPhoto, session.user?.id]);
+
+  function loadSavedRoute(r) {
+    const pts = (r?.points || []).map((p, i) =>
+      routePointFrom({ ...p, id: `saved:${r.id}:${i}` }, 'lugar')
+    );
+    if (pts.length < 2) return;
+    setRouteFrom(pts[0]);
+    setRouteTo(pts[pts.length - 1]);
+    setRouteStops(pts.slice(1, -1));
+    setRoutePick(null);
+    setFollow(false);
+  }
 
   /** «Cómo llegar» desde Buscar / «¿Qué hay aquí?». */
   function sendToRoute(which, place) {
@@ -2400,8 +2451,8 @@ export default function DispatchMap({ session }) {
   function clearRoute() {
     setRouteFrom(null);
     setRouteTo(null);
+    setRouteStops([]);
     setRoutePick(null);
-    setRouteFocus(null);
   }
 
   function openFenceAtSearch(r) {
@@ -3507,6 +3558,12 @@ export default function DispatchMap({ session }) {
                   setRoutePick(null);
                   setFollow(false);
                 }}
+                stops={routeStops}
+                onStops={(list) => {
+                  setRouteStops(list);
+                  setFollow(false);
+                }}
+                onLoadSaved={loadSavedRoute}
                 plan={routePlan}
                 active={routeActive}
                 onActive={setRouteActive}
@@ -3517,10 +3574,11 @@ export default function DispatchMap({ session }) {
                   setFollow(false);
                   setRouteFitToken((n) => n + 1);
                 }}
-                onFocusStep={(s) => {
-                  setFollow(false);
-                  setRouteFocus({ lat: s.lat, lng: s.lng, at: Date.now() });
-                }}
+                operators={routeOperators}
+                freshMinutes={offlineRedMinutes}
+                geofences={geofences}
+                isAdmin={Boolean(isAdminUser(session.user))}
+                userId={session.user?.id}
               />
             </div>
           ) : null}
@@ -3674,11 +3732,11 @@ export default function DispatchMap({ session }) {
           <MapRouteLayer
             from={routeFrom}
             to={routeTo}
+            stops={routeStops}
             plan={routePlan}
             active={routeActive}
             onActive={setRouteActive}
             fitToken={routeFitToken}
-            focus={routeFocus}
             pick={opsTab === 'rutaab' && !(fenceFormOpen && fixOnMap) ? routePick : null}
             onPicked={pickRoutePoint}
             onMove={setRoutePoint}

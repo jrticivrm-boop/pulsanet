@@ -360,78 +360,14 @@ export async function routeBetween(from, to, opts = {}) {
 
 const PLAN_TTL_MS = 30 * 60 * 1000;
 const PLAN_MAX_POINTS = 1500;
-const PLAN_MAX_STEPS = 120;
+/** Paradas intermedias entre A y B (el enlace de Google Maps admite 9). */
+export const PLAN_MAX_STOPS = 9;
+/** «¿Quién llega primero?»: operadores por consulta (los más cercanos en línea recta). */
+export const ETA_MAX_ORIGINS = 25;
+const ETA_TTL_MS = 60 * 1000;
 
-const TURN_ES = {
-  left: 'a la izquierda',
-  right: 'a la derecha',
-  'slight left': 'ligeramente a la izquierda',
-  'slight right': 'ligeramente a la derecha',
-  'sharp left': 'cerrado a la izquierda',
-  'sharp right': 'cerrado a la derecha',
-  straight: 'recto',
-  uturn: 'en U',
-};
-
-function ordinalEs(n) {
-  const k = Number(n);
-  return Number.isFinite(k) && k > 0 ? `${k}.ª` : '';
-}
-
-/** Indicación en español a partir de la maniobra de OSRM. */
-function stepText(step) {
-  const m = step.maneuver || {};
-  const road = String(step.name || step.ref || '').trim();
-  const onto = road ? ` hacia ${road}` : '';
-  const along = road ? ` por ${road}` : '';
-  const turn = TURN_ES[m.modifier] || '';
-  switch (m.type) {
-    case 'depart':
-      return `Sal${along}`;
-    case 'arrive':
-      return 'Llegas a tu destino';
-    case 'turn':
-    case 'end of road':
-      if (m.modifier === 'uturn') return `Da vuelta en U${onto}`;
-      if (m.modifier === 'straight') return `Sigue recto${along}`;
-      return `Gira ${turn}${onto}`.trim();
-    case 'merge':
-      return `Incorpórate${onto}`;
-    case 'on ramp':
-      return `Toma la rampa${onto}`;
-    case 'off ramp':
-      return `Toma la salida${onto}`;
-    case 'fork':
-      return `En la bifurcación, mantente ${String(m.modifier || '').includes('left') ? 'a la izquierda' : 'a la derecha'}${onto}`;
-    case 'roundabout':
-    case 'rotary':
-      return `En la glorieta toma la ${ordinalEs(m.exit) || 'siguiente'} salida${onto}`;
-    case 'roundabout turn':
-      return `En la glorieta gira ${turn}${onto}`.trim();
-    default:
-      return `Continúa${along}`;
-  }
-}
-
-function buildSteps(route) {
-  const out = [];
-  for (const leg of route.legs || []) {
-    for (const s of leg.steps || []) {
-      const [lng, lat] = s.maneuver?.location || [];
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-      const text = stepText(s);
-      const distanceM = Math.round(Number(s.distance) || 0);
-      const prev = out[out.length - 1];
-      // «Continúa por X» seguido de otro tramo de X: un solo paso.
-      if (prev && prev.text === text && s.maneuver?.type !== 'arrive') {
-        prev.distanceM += distanceM;
-        continue;
-      }
-      if (!distanceM && s.maneuver?.type !== 'arrive' && s.maneuver?.type !== 'depart') continue;
-      out.push({ text, distanceM, lat, lng });
-    }
-  }
-  return out.slice(0, PLAN_MAX_STEPS);
+function isPublicBase(base) {
+  return PUBLIC_DEMOS.includes(base);
 }
 
 /** Vías principales del recorrido (las de más kilómetros). */
@@ -450,18 +386,22 @@ function mainRoads(route) {
     .map(([n]) => n);
 }
 
-async function fetchPlanOnce(base, from, to, timeoutMs) {
+function coordList(points) {
+  return points.map((p) => `${p.lng},${p.lat}`).join(';');
+}
+
+async function fetchPlanOnce(base, points, timeoutMs) {
+  // OSRM solo calcula alternativas entre 2 puntos.
+  const alternatives = points.length === 2 ? '2' : 'false';
   const url =
-    `${base}/route/v1/${encodeURIComponent(PROFILE)}/` +
-    `${from.lng},${from.lat};${to.lng},${to.lat}` +
-    `?overview=full&geometries=geojson&alternatives=2&steps=true&annotations=false`;
+    `${base}/route/v1/${encodeURIComponent(PROFILE)}/${coordList(points)}` +
+    `?overview=full&geometries=geojson&alternatives=${alternatives}&steps=true&annotations=false`;
   const res = await fetch(url, {
     signal: AbortSignal.timeout(timeoutMs),
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  if (data?.code === 'NoRoute') return { ok: false, reason: 'sin_ruta' };
   if (data?.code !== 'Ok' || !Array.isArray(data.routes) || !data.routes.length) {
     return { ok: false, reason: 'sin_ruta' };
   }
@@ -474,37 +414,110 @@ async function fetchPlanOnce(base, from, to, timeoutMs) {
         (r.geometry?.coordinates || []).map(([lng, lat]) => [lat, lng]),
         PLAN_MAX_POINTS
       ),
-      steps: buildSteps(r),
+      legs: (r.legs || []).map((l) => ({
+        distanceM: Math.round(Number(l.distance) || 0),
+        durationS: Math.round(Number(l.duration) || 0),
+      })),
     }))
     .filter((r) => r.points.length >= 2);
   if (!routes.length) return { ok: false, reason: 'sin_ruta' };
-  return { ok: true, source: 'osrm', routes };
+  return {
+    ok: true,
+    source: isPublicBase(base) ? 'publico' : 'propio',
+    // Metros entre cada punto pedido y el camino donde OSRM lo «pegó».
+    snapM: (data.waypoints || []).map((w) => Math.round(Number(w.distance) || 0)),
+    routes,
+  };
 }
 
 /**
- * Cómo llegar de A a B en vehículo: ruta recomendada (la más rápida) y hasta 2 alternativas,
- * con indicaciones en español. Tiempos sin tráfico en tiempo real.
- * @param {{ lat: number, lng: number }} from
- * @param {{ lat: number, lng: number }} to
+ * Cómo llegar en vehículo de A a B, con paradas intermedias opcionales.
+ * Entre 2 puntos: ruta recomendada (la más rápida) y hasta 2 alternativas.
+ * Tiempos sin tráfico en tiempo real.
+ * @param {Array<{ lat: number, lng: number }>} points A, paradas…, B
  */
-export async function routeOptions(from, to) {
+export async function routeOptions(points) {
   if (!ROUTING_ENABLED) return { ok: false, reason: 'routing_deshabilitado' };
-  if (haversineKm(from, to) > MAX_SPAN_KM) return { ok: false, reason: 'fuera_de_rango' };
+  if (!Array.isArray(points) || points.length < 2) return { ok: false, reason: 'sin_ruta' };
+  for (let i = 1; i < points.length; i++) {
+    if (haversineKm(points[i - 1], points[i]) > MAX_SPAN_KM) return { ok: false, reason: 'fuera_de_rango' };
+  }
   const r5 = (n) => n.toFixed(5);
-  const key = `plan:${PROFILE}:${r5(from.lat)},${r5(from.lng)}>${r5(to.lat)},${r5(to.lng)}`;
+  const key = `plan:${PROFILE}:${points.map((p) => `${r5(p.lat)},${r5(p.lng)}`).join('>')}`;
   const cached = cacheGet(key);
   if (cached) return { ...cached, cached: true };
   const perBase = Math.max(6_000, Math.floor(TIMEOUT_MS / Math.max(1, OSRM_BASES.length)));
   let reason = 'sin_servicio';
   for (const base of OSRM_BASES) {
     try {
-      const value = await fetchPlanOnce(base, from, to, perBase);
+      const value = await fetchPlanOnce(base, points, perBase);
       if (value.ok) {
         cacheSet(key, value, PLAN_TTL_MS);
         return value;
       }
       reason = value.reason || reason;
       if (reason === 'sin_ruta') break;
+    } catch (err) {
+      reason = err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'sin_servicio';
+    }
+  }
+  return { ok: false, reason };
+}
+
+async function fetchEtaOnce(base, to, origins, timeoutMs) {
+  const sources = origins.map((_, i) => i).join(';');
+  const url =
+    `${base}/table/v1/${encodeURIComponent(PROFILE)}/${coordList([...origins, to])}` +
+    `?sources=${sources}&destinations=${origins.length}&annotations=duration,distance`;
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if (data?.code !== 'Ok' || !Array.isArray(data.durations)) return { ok: false, reason: 'sin_ruta' };
+  const results = origins.map((o, i) => {
+    const d = data.durations[i]?.[0];
+    const m = data.distances?.[i]?.[0];
+    return {
+      id: o.id,
+      durationS: Number.isFinite(d) ? Math.round(d) : null,
+      distanceM: Number.isFinite(m) ? Math.round(m) : null,
+      snapM: Math.round(Number(data.sources?.[i]?.distance) || 0),
+    };
+  });
+  return {
+    ok: true,
+    source: isPublicBase(base) ? 'publico' : 'propio',
+    destSnapM: Math.round(Number(data.destinations?.[0]?.distance) || 0),
+    results,
+  };
+}
+
+/**
+ * «¿Quién llega primero?»: tiempo y distancia por carretera de cada origen hasta `to`
+ * (una sola consulta /table de OSRM).
+ * @param {{ lat: number, lng: number }} to
+ * @param {Array<{ id: string, lat: number, lng: number }>} origins
+ */
+export async function routeEta(to, origins) {
+  if (!ROUTING_ENABLED) return { ok: false, reason: 'routing_deshabilitado' };
+  const list = (origins || []).slice(0, ETA_MAX_ORIGINS);
+  if (!list.length) return { ok: true, source: null, destSnapM: 0, results: [] };
+  const r4 = (n) => n.toFixed(4);
+  const key = `eta:${PROFILE}:${r4(to.lat)},${r4(to.lng)}<${list.map((o) => `${o.id}@${r4(o.lat)},${r4(o.lng)}`).join('|')}`;
+  const cached = cacheGet(key);
+  if (cached) return { ...cached, cached: true };
+  const perBase = Math.max(6_000, Math.floor(TIMEOUT_MS / Math.max(1, OSRM_BASES.length)));
+  let reason = 'sin_servicio';
+  for (const base of OSRM_BASES) {
+    try {
+      const value = await fetchEtaOnce(base, to, list, perBase);
+      if (value.ok) {
+        cacheSet(key, value, ETA_TTL_MS);
+        return value;
+      }
+      reason = value.reason || reason;
     } catch (err) {
       reason = err?.name === 'TimeoutError' || err?.name === 'AbortError' ? 'timeout' : 'sin_servicio';
     }

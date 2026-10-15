@@ -2180,8 +2180,17 @@ html.cc-ops-kpi-dragging .cc-kpi-item {
   align-items: center;
   z-index: 8;
 }
+/* Ruta: A, paradas, B y el resumen pueden ocupar varias filas. */
+.cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panels:has(> .map-ops-panel--rutaab),
+.cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panel.map-ops-panel--rutaab {
+  height: auto;
+  max-height: none;
+  padding-bottom: 0.15rem;
+}
 /* Por encima de los panes de Leaflet (z 400–700) solo mientras hay sugerencias. */
-.cc-shell .map-toolbar.map-toolbar--ops-tabs:has(.map-search-list) {
+.cc-shell .map-toolbar.map-toolbar--ops-tabs:has(.map-search-list),
+.cc-shell .map-toolbar.map-toolbar--ops-tabs:has(.map-route-pop),
+.cc-shell .map-toolbar.map-toolbar--ops-tabs:has(.map-route-notice) {
   position: relative;
   z-index: 1100;
 }
@@ -2657,29 +2666,35 @@ html.map-ops-tabs-dragging .map-ops-tab {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 0.75rem;
+  gap: 0.45rem 0.75rem;
   width: 100%;
   min-width: 0;
 }
 .cc-shell .map-route-fields {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.3rem;
-  flex: 1 1 34rem;
-  max-width: 46rem;
+  gap: 0.35rem;
+  flex: 1 1 100%;
   min-width: 0;
 }
 .cc-shell .map-route-field {
   position: relative;
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 1 15rem;
+  max-width: 24rem;
+  min-width: 11rem;
   display: flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.2rem;
   border: 1px solid var(--cc-border);
   border-radius: 8px;
   background: var(--cc-panel);
-  padding: 0 0.3rem 0 0.4rem;
+  padding: 0 0.2rem 0 0.4rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cc-shell .map-route-field.is-stop {
+  flex-basis: 11rem;
+  max-width: 17rem;
 }
 .cc-shell .map-route-field:focus-within,
 .cc-shell .map-route-field.is-picking {
@@ -2718,6 +2733,10 @@ html.map-ops-tabs-dragging .map-ops-tab {
 .map-route-pin.is-b {
   background: #d93025;
 }
+.cc-shell .map-route-letter.is-stop,
+.map-route-pin.is-stop {
+  background: #e37400;
+}
 .map-route-pin-wrap {
   background: none;
   border: 0;
@@ -2733,8 +2752,7 @@ html.map-ops-tabs-dragging .map-ops-tab {
 .leaflet-container.map-route-picking {
   cursor: crosshair;
 }
-.cc-shell .map-route-pick,
-.cc-shell .map-route-swap {
+.cc-shell .map-route-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2742,34 +2760,48 @@ html.map-ops-tabs-dragging .map-ops-tab {
   background: transparent;
   color: var(--cc-muted);
   border-radius: 6px;
-  padding: 0.25rem;
+  padding: 0.28rem;
   cursor: pointer;
   flex: 0 0 auto;
 }
-.cc-shell .map-route-pick:hover,
-.cc-shell .map-route-swap:hover:not(:disabled) {
+.cc-shell .map-route-icon-btn:hover:not(:disabled) {
   color: var(--cc-text);
   background: color-mix(in srgb, var(--cc-accent) 12%, transparent);
 }
-.cc-shell .map-route-pick.is-on {
+.cc-shell .map-route-icon-btn.is-on {
   color: #fff;
   background: var(--cc-accent);
 }
-.cc-shell .map-route-swap:disabled {
+.cc-shell .map-route-icon-btn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+.cc-shell .map-route-tools {
+  display: inline-flex;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+}
+.cc-shell .map-route-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+.cc-shell .map-route-btn.is-on {
+  border-color: var(--cc-accent);
+  color: var(--cc-accent);
+  background: color-mix(in srgb, var(--cc-accent) 10%, transparent);
 }
 .cc-shell .map-route-list {
   min-width: min(26rem, 80vw);
 }
 .cc-shell .map-route-summary {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
-  flex: 1 1 18rem;
+  gap: 0.4rem 0.55rem;
+  flex: 1 1 100%;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
 }
 .cc-shell .map-route-hint {
   margin: 0;
@@ -2798,7 +2830,7 @@ html.map-ops-tabs-dragging .map-ops-tab {
   border-radius: 8px;
   background: var(--cc-panel);
   color: var(--cc-text);
-  padding: 0.25rem 0.55rem;
+  padding: 0.25rem 0.6rem;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -2823,56 +2855,438 @@ html.map-ops-tabs-dragging .map-ops-tab {
 }
 .cc-shell .map-route-actions {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 0.3rem;
+  margin-left: auto;
+}
+
+/* Avisos: puntos lejos del camino, geocercas cruzadas, servicio público */
+.cc-shell .map-route-alerts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1 1 100%;
+}
+.cc-shell .map-route-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  padding: 0.3rem 0.55rem;
+  border-radius: 7px;
+  border: 1px solid transparent;
+}
+.cc-shell .map-route-alert > svg {
   flex: 0 0 auto;
+  margin-top: 0.1rem;
 }
-.cc-shell .map-route-actions .cc-btn.is-on {
-  border-color: var(--cc-accent);
-  color: var(--cc-accent);
+.cc-shell .map-route-alert.is-warn {
+  color: #8a4b00;
+  background: #fff4e0;
+  border-color: #f5c46b;
 }
-.cc-shell .map-route-steps {
-  left: auto;
+.cc-shell .map-route-alert.is-fence {
+  color: #7a1f1a;
+  background: #fdecea;
+  border-color: #f2a9a2;
+}
+.cc-shell .map-route-alert.is-info {
+  color: #174ea6;
+  background: #e8f0fe;
+  border-color: #aecbfa;
+}
+.cc-shell .map-route-fence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: 0.4rem;
+  font-weight: 600;
+}
+.cc-shell .map-route-fence-chip i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px currentColor;
+}
+
+/* Aviso breve (copiado / enviado) */
+.cc-shell .map-route-notice {
+  position: absolute;
   right: 0;
-  width: min(30rem, 92vw);
-  padding-left: 0;
+  top: calc(100% + 6px);
+  z-index: 1250;
+  max-width: min(26rem, 92vw);
+  padding: 0.5rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  color: #fff;
+  background: #1e8e3e;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+  animation: map-route-notice-in 0.18s ease-out;
 }
-.cc-shell .map-route-step-n {
+.cc-shell .map-route-notice.is-warn {
+  background: #b06000;
+}
+@keyframes map-route-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Ventanas (¿Quién llega primero?, Enviar, QR, Frecuentes, Desde operador) */
+.cc-shell .map-route-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1200;
+  width: min(34rem, 94vw);
+  max-height: min(70vh, 34rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--cc-panel);
+  color: var(--cc-text);
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
+}
+.cc-shell .map-route-pop--qr {
+  width: min(20rem, 94vw);
+}
+.cc-shell .map-route-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.6rem 0.6rem 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--cc-border);
+}
+.cc-shell .map-route-pop-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  font-size: 0.72rem;
-  font-weight: 700;
   color: var(--cc-accent);
-  border: 1px solid color-mix(in srgb, var(--cc-accent) 45%, var(--cc-border));
+  background: color-mix(in srgb, var(--cc-accent) 13%, transparent);
   flex: 0 0 auto;
 }
+.cc-shell .map-route-pop-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+  line-height: 1.2;
+}
+.cc-shell .map-route-pop-title strong {
+  font-size: 0.95rem;
+}
+.cc-shell .map-route-pop-title span {
+  font-size: 0.76rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-shell .map-route-pop-body {
+  overflow-y: auto;
+  padding: 0.45rem 0.6rem 0.6rem;
+  flex: 1 1 auto;
+}
+.cc-shell .map-route-pop-foot {
+  font-size: 0.74rem;
+  line-height: 1.35;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--cc-border);
+  background: color-mix(in srgb, var(--cc-border) 22%, transparent);
+}
+.cc-shell .map-route-pop-warn {
+  color: #b06000;
+}
+.cc-shell .map-route-pop-status {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.5rem 0.2rem;
+  font-size: 0.84rem;
+}
+.cc-shell .map-route-pop-status.is-error {
+  color: #c5221f;
+}
+.cc-shell .map-route-pop-note {
+  margin: 0.45rem 0.2rem 0.2rem;
+  font-size: 0.76rem;
+}
+.cc-shell .map-route-pop-search,
+.cc-shell .map-route-save input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--cc-border);
+  border-radius: 7px;
+  background: var(--cc-panel);
+  color: var(--cc-text);
+  padding: 0.45rem 0.6rem;
+  font-size: 0.86rem;
+  margin-bottom: 0.4rem;
+}
+
+/* Filas de operador */
+.cc-shell .map-route-eta-list,
+.cc-shell .map-route-op-list,
+.cc-shell .map-route-stale ul,
+.cc-shell .map-route-saved-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cc-shell .map-route-eta-list.is-busy {
+  opacity: 0.55;
+}
+.cc-shell .map-route-eta-row,
+.cc-shell .map-route-op-list li,
+.cc-shell .map-route-stale li {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.35rem;
+  border-radius: 8px;
+}
+.cc-shell .map-route-eta-row + .map-route-eta-row,
+.cc-shell .map-route-op-list li + li {
+  border-top: 1px solid color-mix(in srgb, var(--cc-border) 60%, transparent);
+}
+.cc-shell .map-route-eta-row.is-first {
+  background: color-mix(in srgb, #1e8e3e 9%, transparent);
+  box-shadow: inset 3px 0 0 #1e8e3e;
+}
+.cc-shell .map-route-op-list li.is-stale,
+.cc-shell .map-route-stale li {
+  opacity: 0.62;
+}
+.cc-shell .map-route-eta-rank {
+  width: 1.3rem;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--cc-muted);
+  flex: 0 0 auto;
+}
+.cc-shell .map-route-eta-row.is-first .map-route-eta-rank {
+  color: #1e8e3e;
+}
+.cc-shell .map-route-avatar {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--cc-accent);
+  background: color-mix(in srgb, var(--cc-accent) 14%, var(--cc-panel));
+}
+.cc-shell .map-route-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.cc-shell .map-route-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--cc-panel);
+  background: #9aa0a6;
+}
+.cc-shell .map-route-dot.is-online {
+  background: #1e8e3e;
+}
+.cc-shell .map-route-dot.is-away {
+  background: #f9ab00;
+}
+.cc-shell .map-route-dot.is-stale {
+  background: #d93025;
+}
+.cc-shell .map-route-eta-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+  line-height: 1.25;
+}
+.cc-shell .map-route-eta-who strong {
+  font-size: 0.86rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-shell .map-route-eta-who span {
+  font-size: 0.73rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-shell .map-route-eta-age {
+  color: var(--cc-muted);
+}
+.cc-shell .map-route-eta-age.is-old {
+  color: #b06000;
+}
+.cc-shell .map-route-eta-time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+  flex: 0 0 auto;
+  min-width: 4.6rem;
+}
+.cc-shell .map-route-eta-time strong {
+  font-size: 0.98rem;
+}
+.cc-shell .map-route-eta-row.is-first .map-route-eta-time strong {
+  color: #1e8e3e;
+}
+.cc-shell .map-route-eta-time span {
+  font-size: 0.72rem;
+  color: var(--cc-muted);
+}
+.cc-shell .map-route-eta-actions {
+  display: inline-flex;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+.cc-shell .map-route-send {
+  min-width: 5.2rem;
+}
+.cc-shell .map-route-send.is-sent {
+  border-color: #1e8e3e;
+  color: #1e8e3e;
+}
+.cc-shell .map-route-stale {
+  margin-top: 0.4rem;
+  border-top: 1px dashed var(--cc-border);
+  padding-top: 0.3rem;
+}
+.cc-shell .map-route-stale-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--cc-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.3rem 0.2rem;
+}
+.cc-shell .map-route-stale-toggle:hover {
+  color: var(--cc-text);
+}
+
+/* QR */
+.cc-shell .map-route-qr-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+}
+.cc-shell .map-route-qr {
+  width: 15rem;
+  max-width: 100%;
+  padding: 0.4rem;
+  background: #fff;
+  border-radius: 8px;
+}
+.cc-shell .map-route-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Rutas frecuentes */
+.cc-shell .map-route-save {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+.cc-shell .map-route-save input {
+  flex: 1 1 auto;
+  margin: 0;
+}
+.cc-shell .map-route-saved-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.cc-shell .map-route-saved-list li + li {
+  border-top: 1px solid color-mix(in srgb, var(--cc-border) 60%, transparent);
+}
+.cc-shell .map-route-saved-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  background: transparent;
+  color: var(--cc-text);
+  text-align: left;
+  padding: 0.5rem 0.4rem;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.cc-shell .map-route-saved-item:hover {
+  background: color-mix(in srgb, var(--cc-accent) 9%, transparent);
+}
+.cc-shell .map-route-saved-item strong {
+  font-size: 0.88rem;
+}
+.cc-shell .map-route-saved-item span {
+  font-size: 0.74rem;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-shell .map-route-saved-confirm {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
 @media (max-width: 760px) {
-  .cc-shell .map-route-fields {
+  .cc-shell .map-route-field,
+  .cc-shell .map-route-field.is-stop {
     flex: 1 1 100%;
     max-width: none;
   }
-  .cc-shell .map-route-summary {
-    flex: 1 1 100%;
-    flex-wrap: wrap;
-    row-gap: 0.35rem;
-    overflow-x: visible;
+  .cc-shell .map-route-swap {
+    margin: -0.2rem auto;
   }
-  .cc-shell .map-route-steps .map-search-item {
-    flex-wrap: nowrap;
-  }
-  .cc-shell .map-route-steps .map-search-item-text {
-    flex: 1 1 auto;
-  }
-  .cc-shell .map-route-steps .map-search-item-kind {
+  .cc-shell .map-route-actions {
     margin-left: 0;
   }
-  .cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panels:has(> .map-ops-panel--rutaab),
-  .cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panel.map-ops-panel--rutaab {
-    height: auto;
-    max-height: none;
+  .cc-shell .map-route-pop {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+  .cc-shell .map-route-eta-row {
+    flex-wrap: wrap;
+  }
+  .cc-shell .map-route-eta-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 .cc-shell .map-search-loading {

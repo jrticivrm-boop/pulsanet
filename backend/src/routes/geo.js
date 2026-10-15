@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
-import { isDispatch } from '../services/roles.js';
+import { query } from '../db.js';
+import { logActivity } from '../services/activity.js';
+import { isAdmin, isDispatch } from '../services/roles.js';
 import { geoSearch, geoReverse, geoPlaceOutline, geoOsmOutline } from '../services/geoSearch.js';
-import { routeOptions } from '../services/routeHint.js';
+import { ETA_MAX_ORIGINS, PLAN_MAX_STOPS, routeEta, routeOptions } from '../services/routeHint.js';
 
 export const geoRouter = Router();
 const router = geoRouter;
@@ -67,12 +69,121 @@ function latLngParam(raw) {
   return { lat, lng };
 }
 
-/** Pestaña «Ruta»: cómo llegar de A a B (recomendada + alternativas, con indicaciones). */
+/**
+ * Pestaña «Ruta»: cómo llegar de A a B (recomendada + alternativas).
+ * `points=lat,lng;lat,lng;…` (A, paradas…, B) o `from` + `to`.
+ */
 router.get('/route', async (req, res) => {
-  const from = latLngParam(req.query.from);
-  const to = latLngParam(req.query.to);
-  if (!from || !to) return res.status(400).json({ ok: false, error: 'from y to requeridos (lat,lng)' });
-  res.json(await routeOptions(from, to));
+  let points;
+  if (typeof req.query.points === 'string') {
+    points = req.query.points.split(';').map(latLngParam);
+  } else {
+    points = [latLngParam(req.query.from), latLngParam(req.query.to)];
+  }
+  if (points.length < 2 || points.length > PLAN_MAX_STOPS + 2 || points.some((p) => !p)) {
+    return res.status(400).json({ ok: false, error: `De 2 a ${PLAN_MAX_STOPS + 2} puntos (lat,lng)` });
+  }
+  res.json(await routeOptions(points));
+});
+
+/** «¿Quién llega primero?»: tiempo por carretera de cada operador hasta el destino. */
+router.post('/eta', async (req, res) => {
+  const { to, origins } = req.body || {};
+  const dest = to && latLngParam(`${to.lat},${to.lng}`);
+  if (!dest || !Array.isArray(origins)) {
+    return res.status(400).json({ ok: false, error: 'to {lat,lng} y origins [] requeridos' });
+  }
+  const list = [];
+  for (const o of origins.slice(0, ETA_MAX_ORIGINS)) {
+    const p = o && latLngParam(`${o.lat},${o.lng}`);
+    if (p && typeof o.id === 'string' && o.id.length <= 64) list.push({ id: o.id, ...p });
+  }
+  res.json(await routeEta(dest, list));
+});
+
+/* --------------------------------------------- Rutas frecuentes (compartidas) */
+
+function cleanRoutePoints(raw) {
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length > PLAN_MAX_STOPS + 2) return null;
+  const out = [];
+  for (const p of raw) {
+    const ll = p && latLngParam(`${p.lat},${p.lng}`);
+    if (!ll) return null;
+    out.push({
+      name: String(p.name || '').trim().slice(0, 160),
+      detail: String(p.detail || '').trim().slice(0, 240),
+      ...ll,
+    });
+  }
+  return out;
+}
+
+function mapSavedRoute(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    points: r.points,
+    createdBy: r.created_by,
+    createdByName: r.created_by_name || '',
+    createdAt: r.created_at,
+  };
+}
+
+router.get('/saved-routes', async (req, res) => {
+  const { rows } = await query(
+    `SELECT s.id, s.name, s.points, s.created_by, s.created_at, u.display_name AS created_by_name
+     FROM saved_routes s LEFT JOIN users u ON u.id = s.created_by
+     WHERE s.organization_id = $1
+     ORDER BY lower(s.name)`,
+    [req.user.orgId]
+  );
+  res.json({ ok: true, routes: rows.map(mapSavedRoute) });
+});
+
+router.post('/saved-routes', async (req, res) => {
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (!name || name.length > 120) {
+    return res.status(400).json({ ok: false, error: 'Nombre requerido (máx. 120)' });
+  }
+  const points = cleanRoutePoints(req.body?.points);
+  if (!points) return res.status(400).json({ ok: false, error: 'Puntos inválidos' });
+  const { rows } = await query(
+    `INSERT INTO saved_routes (organization_id, name, points, created_by)
+     VALUES ($1, $2, $3::jsonb, $4)
+     RETURNING id, name, points, created_by, created_at`,
+    [req.user.orgId, name, JSON.stringify(points), req.user.sub]
+  );
+  await logActivity({
+    organizationId: req.user.orgId,
+    actorId: req.user.sub,
+    action: 'saved_route.create',
+    entityType: 'saved_route',
+    entityId: rows[0].id,
+    meta: { name, points: points.length },
+  });
+  res.status(201).json({ ok: true, route: mapSavedRoute({ ...rows[0], created_by_name: req.user.displayName }) });
+});
+
+router.delete('/saved-routes/:id', async (req, res) => {
+  const { rows } = await query(
+    `SELECT id, name, created_by FROM saved_routes WHERE id = $1 AND organization_id = $2`,
+    [req.params.id, req.user.orgId]
+  );
+  const row = rows[0];
+  if (!row) return res.status(404).json({ ok: false, error: 'No encontrada' });
+  if (row.created_by !== req.user.sub && !isAdmin(req.user.role)) {
+    return res.status(403).json({ ok: false, error: 'Solo quien la guardó o un administrador puede borrarla' });
+  }
+  await query(`DELETE FROM saved_routes WHERE id = $1`, [row.id]);
+  await logActivity({
+    organizationId: req.user.orgId,
+    actorId: req.user.sub,
+    action: 'saved_route.delete',
+    entityType: 'saved_route',
+    entityId: row.id,
+    meta: { name: row.name },
+  });
+  res.json({ ok: true });
 });
 
 /** Límite de un municipio/estado/colonia de OpenStreetMap (ref «R5606424» / «W123»). */

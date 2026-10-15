@@ -918,10 +918,27 @@ export function fetchGeoPlaceOutline(token, placeId) {
   return api(`/api/geo/places/${encodeURIComponent(placeId)}/outline`, { token });
 }
 
-/** Cómo llegar de A a B: ruta recomendada + alternativas con indicaciones. */
-export function geoRoute(token, from, to, signal) {
-  const p = (pt) => `${pt.lat.toFixed(6)},${pt.lng.toFixed(6)}`;
-  return api(`/api/geo/route?from=${p(from)}&to=${p(to)}`, { token, signal });
+/** Cómo llegar: A, paradas…, B → ruta recomendada (+ alternativas si solo hay A y B). */
+export function geoRoute(token, points, signal) {
+  const list = points.map((pt) => `${pt.lat.toFixed(6)},${pt.lng.toFixed(6)}`).join(';');
+  return api(`/api/geo/route?points=${list}`, { token, signal });
+}
+
+/** «¿Quién llega primero?»: tiempo por carretera de cada origen ({ id, lat, lng }) hasta `to`. */
+export function geoEta(token, to, origins, signal) {
+  return api('/api/geo/eta', { token, method: 'POST', body: { to, origins }, signal });
+}
+
+export function fetchSavedRoutes(token) {
+  return api('/api/geo/saved-routes', { token });
+}
+
+export function createSavedRoute(token, body) {
+  return api('/api/geo/saved-routes', { token, method: 'POST', body });
+}
+
+export function deleteSavedRoute(token, id) {
+  return api(`/api/geo/saved-routes/${encodeURIComponent(id)}`, { token, method: 'DELETE' });
 }
 
 /** Límite de un municipio/estado/colonia de OpenStreetMap (ref «R5606424»). */
