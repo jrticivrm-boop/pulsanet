@@ -898,6 +898,24 @@ export function fetchGeofences(token) {
   return api('/api/geofences', { token });
 }
 
+export function geoSearch(token, { q, lat, lng, world } = {}) {
+  const params = new URLSearchParams({ q: String(q || '') });
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    params.set('lat', lat.toFixed(4));
+    params.set('lng', lng.toFixed(4));
+  }
+  if (world) params.set('world', '1');
+  return api(`/api/geo/search?${params}`, { token });
+}
+
+export function geoReverse(token, lat, lng) {
+  return api(`/api/geo/reverse?lat=${lat.toFixed(6)}&lng=${lng.toFixed(6)}`, { token });
+}
+
+export function fetchGeoPlaceOutline(token, placeId) {
+  return api(`/api/geo/places/${encodeURIComponent(placeId)}/outline`, { token });
+}
+
 export function createGeofence(token, body) {
   return api('/api/geofences', { token, method: 'POST', body });
 }

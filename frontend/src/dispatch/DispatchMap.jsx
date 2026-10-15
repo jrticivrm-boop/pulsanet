@@ -100,6 +100,7 @@ import {
   useIvRmStatesConfig,
 } from './ivRmStatesConfig.js';
 import HighlighterTrack, { PREDICTED_COLOR } from './HighlighterTrack.jsx';
+import MapSearchPanel, { MapSearchLayer, MapReverseLookup } from './MapSearchPanel.jsx';
 import {
   RouteTrackPicker,
   TRACK_HIGHLIGHT_COLORS,
@@ -248,7 +249,7 @@ function normalizeOperatorUserIds(raw) {
 
 const OPS_TAB_KEY = 'tacticalptx_map_ops_tab';
 const OPS_TAB_ORDER_KEY = 'tacticalptx_map_ops_tab_order';
-const OPS_TAB_DEFAULT_ORDER = ['sitios', 'operadores', 'ruta', 'geocerca'];
+const OPS_TAB_DEFAULT_ORDER = ['sitios', 'operadores', 'ruta', 'geocerca', 'buscar'];
 const OPS_TAB_IDS = new Set(OPS_TAB_DEFAULT_ORDER);
 const OPS_TAB_DRAG_THRESHOLD_PX = 8;
 
@@ -417,6 +418,14 @@ function OpsTabIcon({ name }) {
         <circle cx="6.5" cy="6.5" r="2.2" />
         <circle cx="17.5" cy="17.5" r="2.2" />
         <path d="M8.4 8.2c2.2 1.1 5 6.5 7.2 7.6" />
+      </svg>
+    );
+  }
+  if (name === 'buscar') {
+    return (
+      <svg {...common}>
+        <circle cx="11" cy="11" r="6.5" />
+        <path d="m16 16 4.5 4.5" />
       </svg>
     );
   }
@@ -1512,6 +1521,10 @@ export default function DispatchMap({ session }) {
   const [opsKpiHost, setOpsKpiHost] = useState(null);
   const [mapLayer, setMapLayer] = useState(() => loadStoredMapLayer());
   const [opsTab, setOpsTab] = useState(() => readOpsTab());
+  /** Pestaña «Buscar»: resultado marcado en el mapa y disparador de vuelo. */
+  const [searchSelected, setSearchSelected] = useState(null);
+  const [searchFlyToken, setSearchFlyToken] = useState(0);
+  const searchMapRef = useRef(null);
   const [opsTabOrder, setOpsTabOrder] = useState(() => readOpsTabOrder());
   const [opsDragId, setOpsDragId] = useState(null);
   const [opsOverId, setOpsOverId] = useState(null);
@@ -2160,6 +2173,7 @@ export default function DispatchMap({ session }) {
       { id: 'operadores', label: 'Operadores', disabled: !canSeeOperators },
       { id: 'ruta', label: 'Ruta', disabled: !canSeeOperators },
       { id: 'geocerca', label: 'Geocerca' },
+      { id: 'buscar', label: 'Buscar' },
     ];
     const byId = new Map(defs.map((t) => [t.id, t]));
     const next = [];
@@ -2251,6 +2265,78 @@ export default function DispatchMap({ session }) {
   function openFenceForm() {
     setEditingFenceId('');
     setDraft(emptyFenceDraft());
+    setFixOnMap(false);
+    setError('');
+    setFenceFormOpen(true);
+    setOpsTab('geocerca');
+  }
+
+  const searchLocalItems = useMemo(() => {
+    const out = [];
+    for (const s of tacticalSites || []) {
+      if (!Number.isFinite(s.latitude) || !Number.isFinite(s.longitude)) continue;
+      out.push({
+        id: `site:${s.id}`,
+        kind: 'sitio',
+        name: s.name,
+        detail: [s.groupName, s.locationText].filter(Boolean).join(' · '),
+        lat: s.latitude,
+        lng: s.longitude,
+      });
+    }
+    for (const g of geofences) {
+      const lat = Number(g.centerLat);
+      const lng = Number(g.centerLng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      out.push({ id: `fence:${g.id}`, kind: 'geocerca', name: g.name, detail: '', lat, lng });
+    }
+    if (canSeeOperators) {
+      for (const p of gpsPeople) {
+        const lat = Number(p.latitude);
+        const lng = Number(p.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        out.push({
+          id: `op:${p.userId}`,
+          kind: 'operador',
+          name: p.displayName || '',
+          detail: [p.cargo, 'última posición GPS'].filter(Boolean).join(' · '),
+          lat,
+          lng,
+        });
+      }
+    }
+    return out;
+  }, [tacticalSites, geofences, gpsPeople, canSeeOperators]);
+
+  const getSearchBias = useCallback(() => {
+    const m = searchMapRef.current;
+    if (!m) return null;
+    try {
+      const c = m.getCenter();
+      return { lat: c.lat, lng: c.lng };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const selectSearchResult = useCallback((r) => {
+    if (!r) return;
+    setSearchSelected(r);
+    if (!r.noFly) {
+      setFollow(false);
+      setSearchFlyToken((n) => n + 1);
+    }
+  }, []);
+
+  function openFenceAtSearch(r) {
+    if (!r) return;
+    setEditingFenceId('');
+    setDraft({
+      ...emptyFenceDraft(),
+      name: String(r.name || '').slice(0, 80),
+      centerLat: formatFenceCoord(r.lat),
+      centerLng: formatFenceCoord(r.lng),
+    });
     setFixOnMap(false);
     setError('');
     setFenceFormOpen(true);
@@ -3297,6 +3383,29 @@ export default function DispatchMap({ session }) {
               )}
             </div>
           ) : null}
+
+          {opsTab === 'buscar' ? (
+            <div
+              className="map-ops-panel map-ops-panel--buscar"
+              role="tabpanel"
+              id="map-ops-panel-buscar"
+              aria-labelledby="map-ops-tab-buscar"
+            >
+              <MapSearchPanel
+                token={session.token}
+                localItems={searchLocalItems}
+                getBias={getSearchBias}
+                selected={searchSelected}
+                onSelect={selectSearchResult}
+                onClear={() => setSearchSelected(null)}
+                onRecenter={() => {
+                  setFollow(false);
+                  setSearchFlyToken((n) => n + 1);
+                }}
+                onCreateGeofence={openFenceAtSearch}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -3438,6 +3547,20 @@ export default function DispatchMap({ session }) {
             }
           />
           <FlyToFocus target={focusPin} />
+          <MapSearchLayer
+            token={session.token}
+            selected={searchSelected}
+            flyToken={searchFlyToken}
+            mapRef={searchMapRef}
+          />
+          <MapReverseLookup
+            token={session.token}
+            enabled={!(fenceFormOpen && fixOnMap)}
+            onUse={(r) => {
+              selectSearchResult(r);
+              setOpsTab('buscar');
+            }}
+          />
           <FollowSelected
             target={followTarget}
             enabled={Boolean(selectedId && follow && !focusLock)}
