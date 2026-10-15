@@ -1,3 +1,14 @@
+## 2026-10-15 — App: en Wi‑Fi no conectaba (con datos móviles sí) — APK 1.8.192+202
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Causa: la vía directa por LAN de la app seguía apuntando al PC (`192.168.1.77`, `SERVER_LAN_IP` salía de la IP del PC) y fijaba el certificado del PC; producción ya está en la VM `192.168.1.150`. En un Wi‑Fi que no llega al dominio (router sin hairpin / Wi‑Fi aislado del cable) la app no tenía ruta: probaba `.77` (nada), luego DuckDNS (no llega), y otra vez `.77`. `preferCellular` (usar datos móviles con Wi‑Fi encendido) existía en Android pero no se llamaba.
+  - Ahora: candidatos LAN = VM SICOM (`192.168.1.150`); el probe pide `/api/health` y solo acepta la API de producción (antes bastaba un puerto 443 abierto). TLS LAN confía en la CA raíz del Caddy de la VM (`assets/certs/sicom-lan-root.pem`, vence 2036; el cert del servidor se renueva cada 12 h). Si no hay LAN ni dominio por esa red → datos móviles (`preferCellular`); si fallan los datos móviles, vuelve a la red normal; reintento de datos móviles como máximo cada 60 s.
+  - `Publish-ApkUpdate.ps1`: `SERVER_LAN_IP` por defecto = VM SICOM (ya no la IP del PC). APK `SICOM-1.8.192+202.apk` en `C:\pulsanet_soporte\APK\` (sin OTA, sin emulador).
+- **Por qué / notas:** verificado en PC con Dart: con solo el cert viejo del PC la conexión a la VM falla; con la CA de la VM valida (incluida la IP). Si se regenera la CA de Caddy en la VM hay que actualizar el `.pem` y sacar APK.
+- **Archivos / refs:** `mobile/lib/duckdns_hairpin.dart`, `mobile/lib/lan_tls.dart`, `mobile/lib/config.dart`, `mobile/lib/screens/login_screen.dart`, `mobile/assets/certs/sicom-lan-root.pem`, `mobile/pubspec.yaml`, `mobile/scripts/Publish-ApkUpdate.ps1`
+
 ## 2026-10-15 — Despliegue a producción: búsqueda híbrida con buscador propio
 
 - **Tipo:** otro

@@ -22,6 +22,9 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > Pestañas «Ruta» (A→B, Google Maps, ¿Quién llega primero?, rutas frecuentes) y «Buscar» (ejidos RAN, C.P. SEPOMEX/DENUE), migraciones 041–044 y servidor de rutas propio desplegados el 2026-10-15 (`prod-v1.8.107-20261015-0700`, API + web).
 > Búsqueda híbrida (en línea + buscador propio de SICOM como respaldo) desplegada el 2026-10-15 (`prod-v1.8.107-20261015-0733`, API + web).
 
+### Fixed
+- **App Android 1.8.192+202 — en Wi‑Fi no conectaba (con datos móviles sí).** La conexión directa por LAN seguía apuntando al PC (`192.168.1.77`, que ya no corre SICOM) con su certificado, y el Wi‑Fi del router no llega al dominio (sin hairpin). Ahora la app prueba la VM SICOM (`192.168.1.150`, confía en la CA raíz de su Caddy y verifica que responda la API de producción) y, si el Wi‑Fi no llega ni a la LAN ni al dominio, usa datos móviles aunque el Wi‑Fi siga encendido.
+
 ### Changed
 - **Mapa «Buscar» y «Ruta» (web + API): búsqueda en línea + mapa propio de respaldo.** Se consulta a la vez el buscador en línea (Photon público, más actualizado) y el buscador propio de SICOM (Photon de México en la VM, ~30–120 ms, funciona sin internet). Lo propio aparece al instante; lo en línea, al llegar, toma el primer lugar (sin mover la lista si ya se eligió con flechas). Si ninguno responde, pasa sola a la búsqueda completa (Nominatim). «Mundo» sigue usando solo los servicios en línea. Pie de la lista: fecha del mapa propio (búsqueda y rutas). Nuevo `GEOCODER_LOCAL_URL` (API) y `GET /api/geo/estado`. Actualización automática en la VM: buscador semanal, rutas mensual (`infra/PHOTON-SICOM.ps1`, `infra/OSRM-SICOM.ps1 -Accion programar`).
 - Mapa «Buscar» (web): el pin de un municipio va a su cabecera y se dibuja el límite del municipio/estado/colonia elegido. Requiere migración 043 y `load-mx-postcodes.js`.

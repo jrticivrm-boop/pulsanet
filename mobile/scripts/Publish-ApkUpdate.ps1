@@ -172,26 +172,12 @@ if ($LASTEXITCODE -ne 0) { throw 'flutter pub get failed' }
 $defines = @("--dart-define=API_BASE=$apiBase")
 if ($secret) { $defines += "--dart-define=APP_UPDATE_SECRET=$secret" }
 
-# LAN del host para bypass hairpin en el APK (teléfono en Wi‑Fi / subred cruzada).
-$serverLan = $env:SERVER_LAN_IP
-if (-not $serverLan) {
-  . (Join-Path $root 'infra\Sync-PublicIp.ps1')
-  $serverLan = Get-TpxPreferredLanIp
-  if (-not $serverLan) {
-    $line = Get-Content (Join-Path $root 'backend\.env') -EA SilentlyContinue |
-      Where-Object { $_ -match '^PUBLIC_LAN_IP=' } | Select-Object -First 1
-    if ($line) { $serverLan = (($line -split '=', 2)[1].Trim().Trim('"').Trim("'")) }
-  }
-}
-if ($serverLan) {
-  $defines += "--dart-define=SERVER_LAN_IP=$serverLan"
-  # Solo Ethernet canónico (+ override). Sin mesh 68.x legacy.
-  $extras = @($serverLan, '192.168.1.77') |
-    Where-Object { $_ -and $_.Trim() } |
-    Select-Object -Unique
-  $defines += ("--dart-define=SERVER_LAN_IPS=" + ($extras -join ','))
-  Write-Host "SERVER_LAN_IP=$serverLan"
-}
+# LAN del servidor de producción (VM SICOM) para Wi‑Fi sin hairpin. No la IP del PC:
+# la app solo la usa si ahí responde la API de producción.
+$serverLan = if ($env:SERVER_LAN_IP) { $env:SERVER_LAN_IP } else { '192.168.1.150' }
+$defines += "--dart-define=SERVER_LAN_IP=$serverLan"
+$defines += "--dart-define=SERVER_LAN_IPS=$serverLan"
+Write-Host "SERVER_LAN_IP=$serverLan"
 
 & flutter build apk --release @defines
 if ($LASTEXITCODE -ne 0) { throw 'flutter build apk failed' }

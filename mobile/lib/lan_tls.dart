@@ -8,8 +8,10 @@ import 'config.dart';
 /// TLS para API/Socket.
 ///
 /// - DuckDNS/4G: trust del sistema (Let's Encrypt).
-/// - LAN `https://192.168.1.77`: solo el cert Caddy `tls internal` embebido
-///   (`assets/certs/lan-cert.pem`). No se acepta un certificado arbitrario en LAN.
+/// - LAN VM SICOM `https://192.168.1.150`: cadena hasta la CA raíz de su Caddy
+///   (`assets/certs/sicom-lan-root.pem`; el cert del servidor se renueva cada 12 h).
+/// - LAN PC `https://192.168.1.77`: solo el cert embebido (`assets/certs/lan-cert.pem`).
+/// No se acepta un certificado arbitrario en LAN.
 class LanTls {
   static bool _ready = false;
   static SecurityContext? _ctx;
@@ -24,16 +26,19 @@ class LanTls {
   }
 
   static Future<void> _loadPin() async {
+    final ctx = SecurityContext(withTrustedRoots: true);
     try {
       final pem = await rootBundle.loadString('assets/certs/lan-cert.pem');
-      final ctx = SecurityContext(withTrustedRoots: true);
       ctx.setTrustedCertificatesBytes(utf8.encode(pem));
-      _ctx = ctx;
       _pinnedPemNorm = _normalizePem(pem);
     } catch (_) {
-      _ctx = SecurityContext(withTrustedRoots: true);
       _pinnedPemNorm = null;
     }
+    try {
+      final root = await rootBundle.loadString('assets/certs/sicom-lan-root.pem');
+      ctx.setTrustedCertificatesBytes(utf8.encode(root));
+    } catch (_) {}
+    _ctx = ctx;
   }
 
   static String _normalizePem(String pem) {

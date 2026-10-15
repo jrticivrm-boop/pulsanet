@@ -17,7 +17,7 @@ class AppConfig {
   static const _prefsKey = 'api_base_override';
   static String? _override;
 
-  /// Base LAN en runtime (Wi‑Fi → https://192.168.1.77). No se persiste.
+  /// Base LAN en runtime (Wi‑Fi → https://192.168.1.150). No se persiste.
   static String? _lanDirectBase;
 
   /// Base lógica (override usuario o DuckDNS). No cambia con LAN directa.

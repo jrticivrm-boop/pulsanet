@@ -315,7 +315,7 @@ class _LoginScreenState extends State<LoginScreen>
                                               decoration: const InputDecoration(
                                                 labelText: 'URL del servidor',
                                                 hintText:
-                                                    'https://192.168.1.77 o DuckDNS',
+                                                    'https://192.168.1.150 o DuckDNS',
                                                 prefixIcon: Icon(Icons.dns_outlined),
                                               ),
                                               keyboardType: TextInputType.url,
