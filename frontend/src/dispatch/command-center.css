@@ -2655,6 +2655,7 @@ html.map-ops-tabs-dragging .map-ops-tab {
 .cc-shell .map-route {
   position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem 0.75rem;
   width: 100%;
@@ -2850,13 +2851,28 @@ html.map-ops-tabs-dragging .map-ops-tab {
 }
 @media (max-width: 760px) {
   .cc-shell .map-route-fields {
-    flex: 1 1 60%;
+    flex: 1 1 100%;
+    max-width: none;
   }
   .cc-shell .map-route-summary {
-    flex: 1 1 40%;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+    overflow-x: visible;
   }
-  .cc-shell .map-route-eta {
-    display: none;
+  .cc-shell .map-route-steps .map-search-item {
+    flex-wrap: nowrap;
+  }
+  .cc-shell .map-route-steps .map-search-item-text {
+    flex: 1 1 auto;
+  }
+  .cc-shell .map-route-steps .map-search-item-kind {
+    margin-left: 0;
+  }
+  .cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panels:has(> .map-ops-panel--rutaab),
+  .cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panel.map-ops-panel--rutaab {
+    height: auto;
+    max-height: none;
   }
 }
 .cc-shell .map-search-loading {
