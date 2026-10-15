@@ -58,8 +58,16 @@ else
 fi
 docker run --rm -v "$D:/w" "$IMG" rm -rf /w/build.old
 
-# Topes para no quitarle CPU/RAM a SICOM mientras procesa (México pide ~11 GB en extract).
-RUN="docker run --rm --user $(id -u):$(id -g) --cpus 4 --memory 13g --memory-swap 13g -v $D/build:/data $IMG"
+# Topes para no quitarle CPU/RAM a SICOM mientras procesa: se reservan 4 GB para SICOM.
+# El extract de México rebasa 13.5 GB: con menos de 18 GB de tope no termina.
+TOTAL_GB=$(free -g | awk '/^Mem:/{print $2}')
+MEM_GB=$(( TOTAL_GB - 4 ))
+if [ "$MEM_GB" -lt 18 ]; then
+  log "ERROR: la VM tiene ${TOTAL_GB} GB; México necesita al menos 22 GB de RAM (18 para OSRM + 4 para SICOM)."
+  exit 1
+fi
+log "Tope de memoria para el procesamiento: ${MEM_GB} GB (VM: ${TOTAL_GB} GB)"
+RUN="docker run --rm --user $(id -u):$(id -g) --cpus 4 --memory ${MEM_GB}g --memory-swap ${MEM_GB}g -v $D/build:/data $IMG"
 log "1/3 osrm-extract (perfil vehículo)…"
 nice -n 10 $RUN osrm-extract -p /opt/car.lua /data/mexico.osm.pbf > build/extract.log 2>&1 || { tail -20 build/extract.log; exit 1; }
 log "2/3 osrm-partition…"
