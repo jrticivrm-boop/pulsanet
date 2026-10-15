@@ -2167,6 +2167,20 @@ html.cc-ops-kpi-dragging .cc-kpi-item {
   overflow-y: hidden;
 }
 
+/* Buscar: la lista de sugerencias cae sobre el mapa; no recortarla. */
+.cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panel.map-ops-panel--buscar {
+  overflow: visible;
+  align-items: center;
+}
+.cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-panel--buscar .map-search {
+  flex-wrap: nowrap;
+}
+/* Por encima de los panes de Leaflet (z 400–700) solo mientras hay sugerencias. */
+.cc-shell .map-toolbar.map-toolbar--ops-tabs:has(.map-search-list) {
+  position: relative;
+  z-index: 1100;
+}
+
 .cc-shell .map-toolbar.map-toolbar--ops-tabs .map-ops-hint {
   align-self: flex-end;
   min-height: var(--map-ops-ctrl-min-h);

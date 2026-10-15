@@ -1,3 +1,13 @@
+## 2026-10-14 — Mapa: pestaña «Buscar» con autocompletado y ejidos del RAN
+
+- **Tipo:** feature
+- **Área:** web | backend | database
+- **Qué:**
+  - Quinta pestaña «Buscar» en la Consola de Operaciones (`MapSearchPanel.jsx`): autocompletado (espera 260 ms) con resultados de Photon/OpenStreetMap (estados, municipios, ciudades, colonias, calles, direcciones, carreteras, lugares), ejidos/comunidades del RAN, sitios tácticos, geocercas, operadores y coordenadas (decimal o GMS). Al elegir: vuelo al lugar, marcador rojo, contorno del ejido; acciones Centrar / Copiar coord. / Crear geocerca / Quitar. Clic derecho en el mapa: «¿Qué hay aquí?» (dirección + ejido que contiene el punto). Recientes en `localStorage`; casilla «Mundo». Funciona también con el mapa maximizado (la lista sube sobre los panes de Leaflet solo mientras está abierta).
+  - API `GET /api/geo/search`, `/api/geo/reverse`, `/api/geo/places/:id/outline` (solo despacho). Photon se consulta desde el servidor con caché compartida (24 h), cola con espaciado mínimo y filtro a México; `GEOCODER_URL` permite cambiar a un Photon propio sin internet. Sesgo por cercanía al centro del mapa sin tapar ciudades importantes.
+  - Migración `041_geo_places.sql` (tabla `geo_places`) y script `load-ran-ejidos.js`: descarga los 32 KML del RAN (datos abiertos, ~230 MB), simplifica contornos y carga 30,397 núcleos agrarios (~38 MB). Corrige «ñ» mal codificada del origen («Pe¥on» → «Peñon»). Cargado en desarrollo y pruebas; caché de KML en `C:\pulsanet_soporte\Datos\ran\`.
+- **Por qué / notas:** pedido del usuario: buscar cualquier lugar (país, estado, ciudad, municipio, ejido, calle, ruta) con autocompletado tipo Google Maps, solo web. Al subir a producción: requiere `-Migrate` y después correr `node src/scripts/load-ran-ejidos.js` en el contenedor de la API (necesita salida a datos.ran.gob.mx, o copiar la caché de KML). Siguiente paso acordado: pestaña de A → B y renombrar «Ruta» a «Trayecto».
+- **Archivos / refs:** `frontend/src/dispatch/MapSearchPanel.jsx`, `frontend/src/dispatch/DispatchMap.jsx`, `frontend/src/dispatch/command-center.css`, `frontend/src/api.js`, `backend/src/services/geoSearch.js`, `backend/src/routes/geo.js`, `backend/src/scripts/load-ran-ejidos.js`, `database/migrations/041_geo_places.sql`, `backend/.env.example`
 ## 2026-10-14 — Pruebas: botón PTT flotante (mover sin hablar)
 
 - **Tipo:** ops
