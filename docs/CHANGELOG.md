@@ -20,6 +20,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > Una conexión por canal Escuchar, PTT solo a Hablar y LiveKit con candidato LAN desplegados el 2026-10-13 (`prod-v1.8.107-20261013-0838`, LiveKit + API + web).
 > Menú «Más» de Usuarios y exportar a Excel desplegados el 2026-10-14 (`prod-v1.8.107-20261014-1058`, web).
 > Pestañas «Ruta» (A→B, Google Maps, ¿Quién llega primero?, rutas frecuentes) y «Buscar» (ejidos RAN, C.P. SEPOMEX/DENUE), migraciones 041–044 y servidor de rutas propio desplegados el 2026-10-15 (`prod-v1.8.107-20261015-0700`, API + web).
+> Búsqueda híbrida (en línea + buscador propio de SICOM como respaldo) desplegada el 2026-10-15 (`prod-v1.8.107-20261015-0733`, API + web).
 
 ### Changed
 - **Mapa «Buscar» y «Ruta» (web + API): búsqueda en línea + mapa propio de respaldo.** Se consulta a la vez el buscador en línea (Photon público, más actualizado) y el buscador propio de SICOM (Photon de México en la VM, ~30–120 ms, funciona sin internet). Lo propio aparece al instante; lo en línea, al llegar, toma el primer lugar (sin mover la lista si ya se eligió con flechas). Si ninguno responde, pasa sola a la búsqueda completa (Nominatim). «Mundo» sigue usando solo los servicios en línea. Pie de la lista: fecha del mapa propio (búsqueda y rutas). Nuevo `GEOCODER_LOCAL_URL` (API) y `GET /api/geo/estado`. Actualización automática en la VM: buscador semanal, rutas mensual (`infra/PHOTON-SICOM.ps1`, `infra/OSRM-SICOM.ps1 -Accion programar`).

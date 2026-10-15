@@ -1,3 +1,14 @@
+## 2026-10-15 — Despliegue a producción: búsqueda híbrida con buscador propio
+
+- **Tipo:** otro
+- **Área:** ops
+- **Qué:**
+  - Por orden del usuario («subelo a produccion, solo en web»): `PROMOVER.ps1 -A produccion -Si`, sin migraciones. Commit `25477ea`, etiqueta `prod-v1.8.107-20261015-0733`; API y web reconstruidas; health ok.
+  - API conectada al buscador propio: `GEOCODER_LOCAL_URL=http://photon:2322` en `infra/.env.sicom` de la VM (respaldo `/opt/respaldos/env.sicom.pre_photon_20261015-133311`).
+  - Verificado dentro de la API: buscador propio ok (índice del 2026-10-10), rutas propias ok; «tampico» → Tampico (municipio), Tampico (ciudad) en 82 ms; calles de Tampico en 36 ms.
+- **Por qué / notas:** desplegado a las 07:33 (fuera de la ventana 21:00–07:00) con 18 usuarios activos: corte de PTT/video de unos segundos. La fecha de rutas aparecerá tras la actualización mensual (día 1). Sin APK.
+- **Archivos / refs:** `infra/PROMOVER.ps1`, `/opt/pulsanet/infra/.env.sicom` (VM)
+
 ## 2026-10-15 — Búsqueda híbrida: en línea primero, mapa propio de SICOM como respaldo
 
 - **Tipo:** feature
