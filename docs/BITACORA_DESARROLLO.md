@@ -1,3 +1,14 @@
+## 2026-10-17 — Despliegue a producción: pendientes al día + APK 1.8.193+203
+
+- **Tipo:** otro
+- **Área:** ops
+- **Qué:**
+  - Por orden del usuario («sube todo lo pendiente a producción»; autorizó fuera de ventana con `-Si` y refrescar BD de pruebas): commit `a48dde5` con todo el trabajo sin commit (Territorio, cierre de sesiones inmediato, chat ver una vez, PTT PEDINDO/DESPERTANDO, límites de subida, iOS, app móvil, Exportar Usuarios); sin scripts temporales `_*` ni imágenes de depuración.
+  - `PROMOVER -A pruebas` → `PRUEBAS.ps1 -RefrescarBD` (copia del 17/10; migraciones 045–049 OK sobre la copia) → `VERIFICAR-PRUEBAS.ps1` (listo; aviso migraciones) → `PROMOVER -A produccion -Migrate -Si` a las 07:38 (16 usuarios activos). Respaldo `/opt/respaldos/pre_deploy_20261017_133806.dump`; api + web reconstruidos; health ok (LAN y DuckDNS). Etiqueta `prod-v1.8.107-20261017-0738`.
+  - El worktree de pruebas tenía cambios locales (versiones viejas del mismo trabajo): respaldados en `git stash` («respaldo pruebas antes de promover a48dde5»), `C:\pulsanet_soporte\Pruebas\pruebas-cambios-locales-20261017-0736.patch` y `pruebas-sin-seguimiento-20261017-0736\`.
+  - APK de producción `C:\pulsanet_soporte\APK\SICOM-1.8.193+203.apk` (y `SICOM-latest.apk`) con `Publish-ApkUpdate.ps1`, sin OTA.
+- **Archivos / refs:** `infra/PROMOVER.ps1`, `infra/PRUEBAS.ps1`, `mobile/scripts/Publish-ApkUpdate.ps1`, `mobile/pubspec.yaml`
+
 ## 2026-10-17 — Usuarios: Exportar y Columnas como Parque Vehicular
 
 - **Tipo:** feature | ux
