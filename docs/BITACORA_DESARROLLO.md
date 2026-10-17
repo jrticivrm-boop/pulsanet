@@ -1,3 +1,13 @@
+## 2026-10-17 — Fix: módulo Chats desapareció del menú lateral en producción
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:**
+  - En el commit `a48dde5` (despliegue del 17/10) entró una copia vieja de `DispatchLayout.jsx` que no tenía el ítem **Chats** del riel (agregado en `e841a5b`, 01/10) ni la lógica que inserta ítems nuevos junto a su vecino en el orden guardado. La ruta `/despacho/chats` seguía viva; solo faltaba el botón.
+  - Restaurados el ítem Chats y la inserción por vecino, conservando los cambios nuevos de PTT (PEDINDO/DESPERTANDO). Commit `30c1917` en `desarrollo` y `pruebas`; `VERIFICAR-PRUEBAS` listo, sin migraciones.
+  - Revisión del resto de borrados de `a48dde5`: `usePtt.js` y `call_ringtone.dart` solo movieron líneas (sin pérdida). La APK no se ve afectada.
+- **Por qué / notas:** pendiente subir a producción con orden explícita.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchLayout.jsx`
 ## 2026-10-17 — Despliegue a producción: pendientes al día + APK 1.8.193+203
 
 - **Tipo:** otro
