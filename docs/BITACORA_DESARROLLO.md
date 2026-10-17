@@ -1,3 +1,11 @@
+## 2026-10-17 — Despliegue a producción: fix menú Chats
+
+- **Tipo:** otro
+- **Área:** ops
+- **Qué:**
+  - Por orden del usuario («súbelo a producción ahora con -Si», fuera de ventana): `PROMOVER -A produccion -Si` sin `-Migrate` a las 07:56 con `30c1917` (restaura Chats en el riel). Solo se reconstruyó web; health ok (LAN y DuckDNS).
+  - Verificado: el bundle servido (`index-BZBJw4rD.js`) incluye el ítem Chats. Etiqueta `prod-v1.8.107-20261017-0756`.
+- **Archivos / refs:** `frontend/src/dispatch/DispatchLayout.jsx`
 ## 2026-10-17 — Fix: módulo Chats desapareció del menú lateral en producción
 
 - **Tipo:** fix
