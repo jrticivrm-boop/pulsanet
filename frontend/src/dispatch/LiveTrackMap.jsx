@@ -40,6 +40,10 @@ import { MapMaximizeNearZoom } from './MapMaximizeButton.jsx';
 import { useMapViewportMaximize } from './useMapViewportMaximize.js';
 import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
+import {
+  OperatorMapPopupBody,
+  mapOperatorSearchBlob,
+} from './mapOperatorPopup.jsx';
 import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, focusFromSearchParams, loadMapView, PersistMapView, CargoZoomGate, FollowSelected, FlyToFocus, MapSelectionEvents, useDeselectOutside } from './mapLeafletUtils.jsx';
 import OperatorRoster from './OperatorRoster.jsx';
 import { ClusteredLocationLayer } from './ClusteredLocationLayer.jsx';
@@ -599,7 +603,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
   const people = useMemo(() => {
     const q = query.trim().toLowerCase();
     return [...locations]
-      .filter((l) => !q || (l.displayName || '').toLowerCase().includes(q))
+      .filter((l) => !q || mapOperatorSearchBlob(l).includes(q))
       .sort((a, b) => {
         const af = isFresh(a.recordedAt, now) ? 0 : 1;
         const bf = isFresh(b.recordedAt, now) ? 0 : 1;
@@ -921,21 +925,17 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
                       eventHandlers={{ click: () => focusPerson(p) }}
                     >
                       <Popup>
-                        <strong>{p.displayName}</strong>
-                        <br />
-                        {PRESENCE_LABELS[status] || status}
-                        <br />
-                        {gpsStatusLine(p.recordedAt, now)}
-                        {recordedAtLocal(p.recordedAt) ? (
-                          <>
-                            <br />
-                            <span style={{ opacity: 0.75, fontSize: 12 }}>
-                              {recordedAtLocal(p.recordedAt)}
-                            </span>
-                          </>
-                        ) : null}
-                        <br />
-                        <MapCoordsLink lat={p.latitude} lng={p.longitude} />
+                        <OperatorMapPopupBody
+                          loc={p}
+                          recordedLabel={
+                            recordedAtLocal(p.recordedAt) ||
+                            gpsStatusLine(p.recordedAt, now) ||
+                            ''
+                          }
+                        >
+                          <br />
+                          <MapCoordsLink lat={p.latitude} lng={p.longitude} />
+                        </OperatorMapPopupBody>
                       </Popup>
                     </SmoothMarker>
                   );

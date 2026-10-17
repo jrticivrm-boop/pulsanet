@@ -3,7 +3,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { query } from '../db.js';
 import { logActivity } from '../services/activity.js';
 import { isAdmin, isDispatch } from '../services/roles.js';
-import { geoSearch, geoReverse, geoPlaceOutline, geoOsmOutline, ownGeocoderStatus } from '../services/geoSearch.js';
+import { geoSearch, geoReverse, geoAdminAt, geoPlaceOutline, geoOsmOutline, ownGeocoderStatus } from '../services/geoSearch.js';
 import { ETA_MAX_ORIGINS, PLAN_MAX_STOPS, ownRoutingStatus, routeEta, routeOptions } from '../services/routeHint.js';
 
 export const geoRouter = Router();
@@ -56,6 +56,50 @@ router.get('/estado', async (_req, res) => {
   res.json(mapStatusCache.value);
 });
 
+/** Catálogo nacional de estados (SEPOMEX / mx_postcodes) para formularios. */
+router.get('/estados', async (_req, res) => {
+  try {
+    const { rows } = await query(
+      `SELECT c_estado::int AS code, MIN(estado) AS name
+       FROM mx_postcodes
+       GROUP BY c_estado
+       ORDER BY MIN(estado)`
+    );
+    res.json({
+      ok: true,
+      estados: rows.map((r) => ({ code: r.code, name: r.name })),
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || 'No se pudieron listar estados' });
+  }
+});
+
+/** Municipios de un estado (por nombre o c_estado). */
+router.get('/municipios', async (req, res) => {
+  const estado = typeof req.query.estado === 'string' ? req.query.estado.trim() : '';
+  const codeRaw = req.query.c_estado;
+  const code = codeRaw != null && codeRaw !== '' ? Number(codeRaw) : null;
+  if (!estado && !Number.isFinite(code)) {
+    return res.status(400).json({ ok: false, error: 'estado o c_estado requerido' });
+  }
+  try {
+    const { rows } = await query(
+      `SELECT DISTINCT municipio AS name, c_mnpio::int AS code
+       FROM mx_postcodes
+       WHERE ($1::int IS NOT NULL AND c_estado = $1)
+          OR ($1::int IS NULL AND LOWER(TRIM(estado)) = LOWER(TRIM($2)))
+       ORDER BY municipio`,
+      [Number.isFinite(code) ? code : null, estado || null]
+    );
+    res.json({
+      ok: true,
+      municipios: rows.map((r) => ({ name: r.name, code: r.code })),
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message || 'No se pudieron listar municipios' });
+  }
+});
+
 /** «¿Qué hay aquí?»: dirección aproximada y ejido que contiene el punto. */
 router.get('/reverse', async (req, res) => {
   const lat = num(req.query.lat);
@@ -64,6 +108,16 @@ router.get('/reverse', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'lat y lng requeridos' });
   }
   res.json(await geoReverse(lat, lng));
+});
+
+/** Estado, municipio, localidad, colonia, C.P. y ejido de unas coordenadas (alta de usuarios). */
+router.get('/admin-at', async (req, res) => {
+  const lat = num(req.query.lat);
+  const lng = num(req.query.lng);
+  if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return res.status(400).json({ ok: false, error: 'lat y lng requeridos' });
+  }
+  res.json(await geoAdminAt(lat, lng));
 });
 
 /** Contorno de un ejido/comunidad del catálogo propio ([[lat,lng], …] por anillo). */

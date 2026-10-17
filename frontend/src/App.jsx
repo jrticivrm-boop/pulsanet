@@ -43,6 +43,7 @@ import CatalogsLayout from './dispatch/CatalogsLayout.jsx';
 import CatalogJerarquias from './dispatch/CatalogJerarquias.jsx';
 import CatalogGrades from './dispatch/CatalogGrades.jsx';
 import CatalogEmpleos from './dispatch/CatalogEmpleos.jsx';
+import CatalogServicios from './dispatch/CatalogServicios.jsx';
 import CatalogTacticalSites from './dispatch/CatalogTacticalSites.jsx';
 import AdminLayout from './dispatch/AdminLayout.jsx';
 import DispatchDependencias from './dispatch/DispatchDependencias.jsx';
@@ -373,6 +374,7 @@ export default function App() {
           <Route path="jerarquias" element={<CatalogJerarquias session={session} />} />
           <Route path="grados" element={<CatalogGrades session={session} />} />
           <Route path="empleos" element={<CatalogEmpleos session={session} />} />
+          <Route path="servicios" element={<CatalogServicios session={session} />} />
           <Route path="grados-empleos" element={<Navigate to="/despacho/catalogos/grados" replace />} />
           <Route path="dependencias" element={<DispatchDependencias session={session} />} />
           <Route

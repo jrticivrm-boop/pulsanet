@@ -45,6 +45,7 @@ import { mapAvatarIcon } from './mapAvatarIcon.js';
 import PresenceMapLegend, { countPresenceLegend } from './PresenceMapLegend.jsx';
 import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
+import { OperatorMapPopupBody } from './mapOperatorPopup.jsx';
 import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, CargoZoomGate } from './mapLeafletUtils.jsx';
 import { ClusteredLocationLayer } from './ClusteredLocationLayer.jsx';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
@@ -890,25 +891,21 @@ export default function CommandCenter({ session }) {
                           }}
                         >
                           <Popup>
-                            <strong>{loc.displayName}</strong>
-                            <br />
-                            {PRESENCE_LABELS[status] || status}
-                            <br />
-                            {gpsStatusLine(loc.recordedAt)}
-                            {recordedAtLocal(loc.recordedAt) ? (
-                              <>
-                                <br />
-                                <span style={{ opacity: 0.75, fontSize: 12 }}>
-                                  {recordedAtLocal(loc.recordedAt)}
-                                </span>
-                              </>
-                            ) : null}
-                            <br />
-                            <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
-                            <br />
-                            <button type="button" onClick={() => setTrackUserId(loc.userId)}>
-                              Ver ruta (8 h)
-                            </button>
+                            <OperatorMapPopupBody
+                              loc={loc}
+                              recordedLabel={
+                                recordedAtLocal(loc.recordedAt) ||
+                                gpsStatusLine(loc.recordedAt) ||
+                                ''
+                              }
+                            >
+                              <br />
+                              <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
+                              <br />
+                              <button type="button" onClick={() => setTrackUserId(loc.userId)}>
+                                Ver ruta (8 h)
+                              </button>
+                            </OperatorMapPopupBody>
                           </Popup>
                         </SmoothMarker>
                       );

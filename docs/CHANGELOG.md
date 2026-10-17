@@ -9,6 +9,13 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Usuarios — Servicio / unidad / geo:** catálogo `cat_servicios`; select Servicio; unidad = mismo `unit_id` del Alcance; Estado/Municipio (República, `mx_postcodes`); indicativo `Grado Apellido, Servicio · Unidad`. Migración `046_servicios_geo.sql`.
+- **Usuarios — Nombre del Servicio:** texto libre `service_nombre` antes del catálogo; Región/Zona/Unidad en Identidad militar; Servicio = Nombre → catálogo → Estado → Municipio; indicativo prioriza el nombre libre. Migración `047_service_nombre.sql`.
+- **Usuarios — Servicio limpio + globo mapa:** solo Nombre + catálogo en el form; sin Estado/Municipio (`048`); R/Z/U solo Adscripción; indicativo `Grado Apellido, unidad|zona|región`; globo L1/L2/L3 (sin texto presencia); búsqueda por servicio.
+- **Usuarios — Ubicación del servicio:** campo de coordenadas que extrae estado/municipio/localidad/colonia/C.P./ejido; visible en la relación, Excel y CSV; no afecta la ubicación en tiempo real. «Servicio» del catálogo pasa a llamarse «Tipo de servicio». Migración `049_service_ubicacion.sql`.
+- **Indicativo root + mapa APK:** solo el Administrador (root) sin adscripción muestra «Administrador»; ficha del mapa en la app con 3 líneas (pertenencia · servicio · teléfono).
+
 > Desplegado en producción el 2026-10-12 (`prod-v1.8.107-20261012-1810`, API + web). APK Android **1.8.183+193**.
 > Teléfono de usuarios (migración 040) y fusión Consola + Seguimiento desplegados el 2026-10-12 (`prod-v1.8.107-20261012-2053`).
 > Ficha de contacto con celular desplegada el 2026-10-12 (`prod-v1.8.107-20261012-2122`, API + web). APK Android **1.8.184+194** lista para distribuir.

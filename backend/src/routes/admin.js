@@ -24,6 +24,9 @@ import { isAdmin, isDispatch, isRoot, isZoneAdmin, isUnitAdmin, isRegionAdmin, c
 import { canSeePerson } from '../services/visibility.js';
 import { canLeaveGroup, actorAssignRejectReason, memberFitsGroupGeo, groupGeoRejectReason } from '../services/groupPolicy.js';
 import { buildUsername, buildCallSign, buildDisplayName } from '../services/rfcUsername.js';
+import { resolveAffiliationLabel } from '../services/orgAffiliation.js';
+import { createServicio } from '../services/catalogs.js';
+import { geoAdminAt } from '../services/geoSearch.js';
 import { generateTemporaryPassword } from '../services/tempPassword.js';
 import { invalidateUserProfile } from '../services/userProfile.js';
 import { getProfileById, roleFromProfile, systemProfileIdByRole } from '../services/profiles.js';
@@ -186,6 +189,53 @@ function requireRoot(req, res, next) {
 
 adminRouter.use(requireDispatch);
 
+/** Coordenadas de referencia del servicio: `undefined` = no cambia, `null` = borrar. */
+function parseServiceCoords(latIn, lngIn) {
+  if (latIn === undefined && lngIn === undefined) return undefined;
+  if (latIn == null || latIn === '' || lngIn == null || lngIn === '') return null;
+  const lat = Number(latIn);
+  const lng = Number(lngIn);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    throw new Error('Coordenadas de ubicación inválidas');
+  }
+  return { lat, lng };
+}
+
+/**
+ * Guarda coordenadas del servicio y lo que se extrae de ellas (estado, municipio…).
+ * Solo para la relación/Excel; la ubicación en tiempo real no lo usa.
+ */
+async function saveServiceLocation(userId, coords) {
+  let g = {};
+  if (coords) {
+    try {
+      g = await geoAdminAt(coords.lat, coords.lng);
+    } catch (err) {
+      console.warn('geoAdminAt:', err?.message || err);
+    }
+  }
+  const cut = (s, n) => (s ? String(s).slice(0, n) : null);
+  await query(
+    `UPDATE users SET
+       service_lat = $2, service_lng = $3,
+       service_geo_estado = $4, service_geo_municipio = $5, service_geo_localidad = $6,
+       service_geo_colonia = $7, service_geo_cp = $8, service_geo_ejido = $9,
+       updated_at = NOW()
+     WHERE id = $1`,
+    [
+      userId,
+      coords?.lat ?? null,
+      coords?.lng ?? null,
+      cut(g.estado, 80),
+      cut(g.municipio, 160),
+      cut(g.localidad, 200),
+      cut(g.colonia, 200),
+      cut(g.cp, 10),
+      cut(g.ejido, 200),
+    ]
+  );
+}
+
 function mapUser(u) {
   return {
     id: u.id,
@@ -195,6 +245,15 @@ function mapUser(u) {
     grade: u.grade || null,
     specialty: u.specialty || null,
     cargo: u.cargo || null,
+    serviceNombre: u.service_nombre || null,
+    serviceLat: u.service_lat != null ? Number(u.service_lat) : null,
+    serviceLng: u.service_lng != null ? Number(u.service_lng) : null,
+    serviceGeoEstado: u.service_geo_estado || null,
+    serviceGeoMunicipio: u.service_geo_municipio || null,
+    serviceGeoLocalidad: u.service_geo_localidad || null,
+    serviceGeoColonia: u.service_geo_colonia || null,
+    serviceGeoCp: u.service_geo_cp || null,
+    serviceGeoEjido: u.service_geo_ejido || null,
     givenNames: u.given_names || null,
     paternalSurname: u.paternal_surname || null,
     maternalSurname: u.maternal_surname || null,
@@ -617,7 +676,10 @@ adminRouter.get('/users', async (req, res) => {
     `SELECT u.id, u.username, u.email, u.display_name, u.role, u.is_active, u.can_receive_panic,
             u.must_change_password, u.last_seen_at, u.created_at,
             u.login_fail_count, u.login_locked_at, u.login_locked_reason,
-            u.grade, u.specialty, u.cargo, u.given_names, u.paternal_surname, u.maternal_surname, u.matricula,
+            u.grade, u.specialty, u.cargo, u.service_nombre,
+            u.service_lat, u.service_lng, u.service_geo_estado, u.service_geo_municipio,
+            u.service_geo_localidad, u.service_geo_colonia, u.service_geo_cp, u.service_geo_ejido,
+            u.given_names, u.paternal_surname, u.maternal_surname, u.matricula,
             u.phone, u.unit_id, u.admin_scope_unit_id, u.profile_id,
             u.can_see_region, u.can_see_zones, u.can_see_units, u.location_share,
             ap.name AS profile_name,
@@ -670,18 +732,29 @@ adminRouter.get('/users', async (req, res) => {
   });
 });
 
-/** Vista previa: usuario login + indicativo (grado + apellido[, cargo]). */
+/** Vista previa: usuario login + indicativo (grado + apellido[, servicio · unidad]). */
 adminRouter.post('/users/preview-username', requireUserManager, async (req, res) => {
   try {
     const body = req.body || {};
+    let affiliationLabel = String(body.affiliationLabel || body.unitName || '').trim() || null;
+    if (!affiliationLabel && (body.unitId || body.adminScopeUnitId)) {
+      affiliationLabel = await resolveAffiliationLabel(req.user.orgId, {
+        unitId: body.unitId ? String(body.unitId).trim() : null,
+        adminScopeUnitId: body.adminScopeUnitId
+          ? String(body.adminScopeUnitId).trim()
+          : null,
+      });
+    }
     const built = await buildUsername(
       {
         givenNames: body.givenNames,
         paternalSurname: body.paternalSurname,
         maternalSurname: body.maternalSurname,
         grade: body.grade,
-        cargo: body.cargo,
         specialty: body.specialty,
+        role: body.role,
+        affiliationLabel,
+        unitName: affiliationLabel,
       },
       (candidate) => isUsernameTaken(req.user.orgId, candidate)
     );
@@ -914,6 +987,13 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
   const gradeTrim = String(grade || '').trim();
   const specialtyTrim = String(specialty || '').trim() || null;
   const cargoTrim = String(cargo || '').trim() || null;
+  if (cargoTrim) {
+    try {
+      await createServicio(req.user.orgId, { name: cargoTrim });
+    } catch {
+      /* catálogo opcional */
+    }
+  }
   let matriculaTrim;
   try {
     matriculaTrim = parseMatricula(matricula);
@@ -933,6 +1013,19 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'No. de teléfono es requerido' });
   }
 
+  const serviceNombreTrim = String(req.body?.serviceNombre || '').trim() || null;
+  let serviceCoords;
+  try {
+    serviceCoords = parseServiceCoords(req.body?.serviceLat, req.body?.serviceLng);
+  } catch (err) {
+    return res.status(400).json({ ok: false, error: err.message });
+  }
+
+  const affiliationLabel = await resolveAffiliationLabel(req.user.orgId, {
+    unitId,
+    adminScopeUnitId,
+  });
+
   let built;
   try {
     built = await buildUsername(
@@ -942,7 +1035,9 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
         maternalSurname,
         grade: gradeTrim,
         specialty: specialtyTrim,
-        cargo: cargoTrim,
+        role,
+        affiliationLabel,
+        unitName: affiliationLabel,
       },
       (candidate) => isUsernameTaken(req.user.orgId, candidate)
     );
@@ -970,12 +1065,13 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
          organization_id, username, email, password_hash, display_name, role, must_change_password,
          grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula,
          unit_id, admin_scope_unit_id, profile_id, can_see_region, can_see_zones, can_see_units, can_receive_panic,
-         phone
+         phone, service_nombre
        )
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
        RETURNING id, username, email, display_name, role, is_active, can_receive_panic,
                  must_change_password, last_seen_at,
-                 grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula, phone,
+                 grade, specialty, cargo, service_nombre,
+                 given_names, paternal_surname, maternal_surname, matricula, phone,
                  unit_id, admin_scope_unit_id, profile_id, can_see_region, can_see_zones, can_see_units`,
       [
         req.user.orgId,
@@ -999,9 +1095,11 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
         canSeeUnits,
         canReceivePanic,
         phoneNorm,
+        serviceNombreTrim,
       ]
     );
     const u = rows[0];
+    if (serviceCoords) await saveServiceLocation(u.id, serviceCoords);
     await query(`UPDATE users SET location_share = $2 WHERE id = $1`, [
       u.id,
       defaultLocationShare(role),
@@ -1203,6 +1301,9 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     grade: gradeIn,
     specialty: specialtyIn,
     cargo: cargoIn,
+    serviceNombre: serviceNombreIn,
+    serviceLat: serviceLatIn,
+    serviceLng: serviceLngIn,
     givenNames: givenNamesIn,
     paternalSurname: paternalSurnameIn,
     maternalSurname: maternalSurnameIn,
@@ -1218,6 +1319,13 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     } catch (err) {
       return res.status(400).json({ ok: false, error: err.message });
     }
+  }
+
+  let serviceCoords;
+  try {
+    serviceCoords = parseServiceCoords(serviceLatIn, serviceLngIn);
+  } catch (err) {
+    return res.status(400).json({ ok: false, error: err.message });
   }
 
   let profileId =
@@ -1242,6 +1350,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
 
   const { rows: existing } = await query(
     `SELECT id, role, unit_id, admin_scope_unit_id, grade, specialty, cargo,
+            service_nombre, service_lat, service_lng, service_geo_estado,
             given_names, paternal_surname, maternal_surname, matricula, display_name,
             is_active
      FROM users
@@ -1420,6 +1529,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     gradeIn !== undefined ||
     specialtyIn !== undefined ||
     cargoIn !== undefined ||
+    serviceNombreIn !== undefined ||
     givenNamesIn !== undefined ||
     paternalSurnameIn !== undefined ||
     maternalSurnameIn !== undefined ||
@@ -1428,6 +1538,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
   let nextGrade = existing[0].grade;
   let nextSpecialty = existing[0].specialty;
   let nextCargo = existing[0].cargo;
+  let nextServiceNombre = existing[0].service_nombre;
   let nextGiven = existing[0].given_names;
   let nextPaternal = existing[0].paternal_surname;
   let nextMaternal = existing[0].maternal_surname;
@@ -1437,7 +1548,19 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
   if (identityPatch) {
     if (gradeIn !== undefined) nextGrade = String(gradeIn || '').trim() || null;
     if (specialtyIn !== undefined) nextSpecialty = String(specialtyIn || '').trim() || null;
-    if (cargoIn !== undefined) nextCargo = String(cargoIn || '').trim() || null;
+    if (cargoIn !== undefined) {
+      nextCargo = String(cargoIn || '').trim() || null;
+      if (nextCargo) {
+        try {
+          await createServicio(req.user.orgId, { name: nextCargo });
+        } catch {
+          /* catálogo opcional */
+        }
+      }
+    }
+    if (serviceNombreIn !== undefined) {
+      nextServiceNombre = String(serviceNombreIn || '').trim() || null;
+    }
     if (givenNamesIn !== undefined) nextGiven = String(givenNamesIn || '').trim() || null;
     if (paternalSurnameIn !== undefined) nextPaternal = String(paternalSurnameIn || '').trim() || null;
     if (maternalSurnameIn !== undefined) {
@@ -1474,15 +1597,35 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     }
 
     try {
-      nextDisplayName = buildCallSign({
-        grade: nextGrade,
-        paternalSurname: nextPaternal,
-        cargo: nextCargo,
-      });
       buildDisplayName({
         givenNames: nextGiven,
         paternalSurname: nextPaternal,
         maternalSurname: nextMaternal,
+      });
+    } catch (err) {
+      return res.status(400).json({ ok: false, error: err.message || 'Datos de identidad inválidos' });
+    }
+  }
+
+  // Indicativo: Grado Apellido[, unidad|zona|región] desde adscripción.
+  const unitIdForSign =
+    unitId !== undefined ? unitId : existing[0].unit_id;
+  const adminScopeForSign =
+    adminScopeUnitId !== undefined
+      ? adminScopeUnitId
+      : existing[0].admin_scope_unit_id;
+  if (identityPatch || unitId !== undefined || adminScopeUnitId !== undefined) {
+    try {
+      const affiliationLabel = await resolveAffiliationLabel(req.user.orgId, {
+        unitId: unitIdForSign,
+        adminScopeUnitId: adminScopeForSign,
+      });
+      nextDisplayName = buildCallSign({
+        grade: nextGrade,
+        paternalSurname: nextPaternal,
+        role: effectiveRole,
+        affiliationLabel,
+        unitName: affiliationLabel,
       });
     } catch (err) {
       return res.status(400).json({ ok: false, error: err.message || 'Datos de identidad inválidos' });
@@ -1512,6 +1655,8 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     nextProfileId = await systemProfileIdByRole(req.user.orgId, effectiveRole);
   }
 
+  const rebuildSign =
+    identityPatch || unitId !== undefined || adminScopeUnitId !== undefined;
   const { rows } = await query(
     `UPDATE users SET
        is_active = COALESCE($2, is_active),
@@ -1528,23 +1673,25 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
        grade = CASE WHEN $16::boolean THEN $17 ELSE grade END,
        specialty = CASE WHEN $16::boolean THEN $18 ELSE specialty END,
        cargo = CASE WHEN $16::boolean THEN $19 ELSE cargo END,
-       given_names = CASE WHEN $16::boolean THEN $20 ELSE given_names END,
-       paternal_surname = CASE WHEN $16::boolean THEN $21 ELSE paternal_surname END,
-       maternal_surname = CASE WHEN $16::boolean THEN $22 ELSE maternal_surname END,
-       matricula = CASE WHEN $16::boolean THEN $23 ELSE matricula END,
-       profile_id = CASE WHEN $24::boolean THEN $25 ELSE profile_id END,
-       phone = CASE WHEN $26::boolean THEN $27 ELSE phone END,
+       service_nombre = CASE WHEN $16::boolean THEN $20 ELSE service_nombre END,
+       given_names = CASE WHEN $16::boolean THEN $21 ELSE given_names END,
+       paternal_surname = CASE WHEN $16::boolean THEN $22 ELSE paternal_surname END,
+       maternal_surname = CASE WHEN $16::boolean THEN $23 ELSE maternal_surname END,
+       matricula = CASE WHEN $16::boolean THEN $24 ELSE matricula END,
+       profile_id = CASE WHEN $25::boolean THEN $26 ELSE profile_id END,
+       phone = CASE WHEN $27::boolean THEN $28 ELSE phone END,
        updated_at = NOW()
      WHERE id = $1 AND organization_id = $7
      RETURNING id, username, email, display_name, role, is_active, can_receive_panic,
                must_change_password, last_seen_at, unit_id, admin_scope_unit_id, profile_id,
                can_see_region, can_see_zones, can_see_units,
-               grade, specialty, cargo, given_names, paternal_surname, maternal_surname, matricula, phone`,
+               grade, specialty, cargo, service_nombre,
+               given_names, paternal_surname, maternal_surname, matricula, phone`,
     [
       req.params.id,
       typeof isActive === 'boolean' ? isActive : null,
       role || null,
-      identityPatch ? nextDisplayName : null,
+      rebuildSign ? nextDisplayName : null,
       typeof canReceivePanic === 'boolean' ? canReceivePanic : null,
       passwordHash,
       req.user.orgId,
@@ -1560,6 +1707,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
       nextGrade,
       nextSpecialty,
       nextCargo,
+      nextServiceNombre,
       nextGiven,
       nextPaternal,
       nextMaternal,
@@ -1571,6 +1719,19 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     ]
   );
   const u = rows[0];
+  if (serviceCoords !== undefined) {
+    const prev = existing[0];
+    const hadCoords = prev.service_lat != null && prev.service_lng != null;
+    const sameCoords =
+      serviceCoords &&
+      hadCoords &&
+      Number(prev.service_lat) === serviceCoords.lat &&
+      Number(prev.service_lng) === serviceCoords.lng;
+    // Recalcula si cambian, se borran, o quedaron sin datos extraídos.
+    if ((serviceCoords && (!sameCoords || !prev.service_geo_estado)) || (!serviceCoords && hadCoords)) {
+      await saveServiceLocation(u.id, serviceCoords);
+    }
+  }
   invalidateUserProfile(u.id);
   await logActivity({
     organizationId: req.user.orgId,
@@ -1688,7 +1849,9 @@ adminRouter.delete('/users/:id', requireUserManager, async (req, res) => {
 adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req, res) => {
   const { rows } = await query(
     `SELECT username, matricula, phone, grade, specialty, cargo, given_names, paternal_surname, maternal_surname,
-            display_name, role, is_active, last_seen_at, created_at
+            display_name, role, is_active, last_seen_at, created_at,
+            service_nombre, service_lat, service_lng, service_geo_estado, service_geo_municipio,
+            service_geo_localidad, service_geo_colonia, service_geo_cp, service_geo_ejido
      FROM users WHERE organization_id = $1
      ORDER BY display_name`,
     [req.user.orgId]
@@ -1701,7 +1864,8 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
   };
 
   const lines = [
-    'username,matricula,phone,grade,specialty,cargo,given_names,paternal_surname,maternal_surname,call_sign,role,is_active,last_seen_at,created_at',
+    'username,matricula,phone,grade,specialty,cargo,given_names,paternal_surname,maternal_surname,call_sign,role,is_active,last_seen_at,created_at,' +
+      'service_nombre,service_lat,service_lng,estado,municipio,localidad,colonia,cp,ejido',
   ];
   for (const u of rows) {
     lines.push(
@@ -1720,6 +1884,15 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
         esc(u.is_active),
         esc(u.last_seen_at?.toISOString?.() || u.last_seen_at),
         esc(u.created_at?.toISOString?.() || u.created_at),
+        esc(u.service_nombre),
+        esc(u.service_lat),
+        esc(u.service_lng),
+        esc(u.service_geo_estado),
+        esc(u.service_geo_municipio),
+        esc(u.service_geo_localidad),
+        esc(u.service_geo_colonia),
+        esc(u.service_geo_cp),
+        esc(u.service_geo_ejido),
       ].join(',')
     );
   }

@@ -18,6 +18,7 @@ import {
   pickBestFocus,
   resolvePresenceStatus,
 } from '../services/presence.js';
+import { resolveOrgAffiliation } from '../services/orgAffiliation.js';
 
 function toIsoUtc(value) {
   if (value == null) return null;
@@ -122,7 +123,8 @@ export function createLocationsRouter(io) {
     }
 
     const { rows } = await query(
-      `SELECT u.id AS user_id, u.display_name, u.grade, u.cargo, u.role, u.is_active, u.avatar_url, u.unit_id,
+      `SELECT u.id AS user_id, u.display_name, u.grade, u.cargo, u.service_nombre, u.phone,
+              u.role, u.is_active, u.avatar_url, u.unit_id,
               u.admin_scope_unit_id, u.location_share, u.last_seen_at,
               l.latitude, l.longitude, l.accuracy_m, l.recorded_at
        FROM users u
@@ -165,6 +167,64 @@ export function createLocationsRouter(io) {
       })
     );
 
+    // Cache de adscripción por ancla (unit_id | admin_scope) para no N+1 idénticos.
+    const affCache = new Map();
+    async function affiliationFor(unitId, adminScopeUnitId) {
+      const key = `${unitId || ''}|${adminScopeUnitId || ''}`;
+      if (affCache.has(key)) return affCache.get(key);
+      const aff = await resolveOrgAffiliation(req.user.orgId, {
+        unitId,
+        adminScopeUnitId,
+      });
+      affCache.set(key, aff);
+      return aff;
+    }
+
+    const locations = [];
+    for (const r of visibleRows) {
+      const online = presenceByUser.get(r.user_id);
+      const focus = online?.focus || null;
+      const awaySince = online?.awaySince ?? null;
+      const lastSeenAt = toIsoUtc(r.last_seen_at);
+      const recordedAt = toIsoUtc(r.recorded_at);
+      const aff = await affiliationFor(r.unit_id, r.admin_scope_unit_id);
+      locations.push({
+        userId: r.user_id,
+        displayName: r.display_name,
+        grade: r.grade || null,
+        cargo: r.cargo || null,
+        serviceNombre: r.service_nombre || null,
+        phone: r.phone || null,
+        role: r.role,
+        unitId: r.unit_id || null,
+        unitName: aff.unitName,
+        zoneName: aff.zoneName,
+        regionName: aff.regionName,
+        affiliationLabel: aff.label,
+        avatarUrl: r.avatar_url
+          ? `/api/avatars/file/${encodeURIComponent(r.avatar_url)}`
+          : null,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        accuracyM: r.accuracy_m,
+        recordedAt,
+        lastSeenAt,
+        focus,
+        awaySince,
+        presence: resolvePresenceStatus({
+          focus,
+          awaySince,
+          lastSeenAt,
+          recordedAt,
+          offlineRedMs,
+          absenceMs,
+          showAway,
+          showOffline,
+          now,
+        }),
+      });
+    }
+
     res.json({
       ok: true,
       scope: {
@@ -177,42 +237,7 @@ export function createLocationsRouter(io) {
       presenceAbsenceMinutes: absenceMinutes,
       presenceShowAway: showAway,
       presenceShowOffline: showOffline,
-      locations: visibleRows.map((r) => {
-        const online = presenceByUser.get(r.user_id);
-        const focus = online?.focus || null;
-        const awaySince = online?.awaySince ?? null;
-        const lastSeenAt = toIsoUtc(r.last_seen_at);
-        const recordedAt = toIsoUtc(r.recorded_at);
-        return {
-          userId: r.user_id,
-          displayName: r.display_name,
-          grade: r.grade || null,
-          cargo: r.cargo || null,
-          role: r.role,
-          unitId: r.unit_id || null,
-          avatarUrl: r.avatar_url
-            ? `/api/avatars/file/${encodeURIComponent(r.avatar_url)}`
-            : null,
-          latitude: r.latitude,
-          longitude: r.longitude,
-          accuracyM: r.accuracy_m,
-          recordedAt,
-          lastSeenAt,
-          focus,
-          awaySince,
-          presence: resolvePresenceStatus({
-            focus,
-            awaySince,
-            lastSeenAt,
-            recordedAt,
-            offlineRedMs,
-            absenceMs,
-            showAway,
-            showOffline,
-            now,
-          }),
-        };
-      }),
+      locations,
     });
   });
 

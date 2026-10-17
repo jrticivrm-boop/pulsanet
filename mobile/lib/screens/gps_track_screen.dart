@@ -1288,7 +1288,8 @@ class _SelectedSheet extends StatelessWidget {
     final acc = peer.accuracyM != null
         ? '±${peer.accuracyM!.round()} m'
         : null;
-    final cargo = peer.cargo?.trim();
+    final service = peer.serviceLine;
+    final phone = peer.phoneLine;
 
     return Material(
       elevation: 2,
@@ -1331,23 +1332,33 @@ class _SelectedSheet extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        peer.displayName,
-                        maxLines: 1,
+                        peer.titleLine,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TacticalFonts.body(
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      if (cargo != null && cargo.isNotEmpty)
+                      if (service.isNotEmpty)
                         Text(
-                          cargo,
-                          maxLines: 1,
+                          service,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TacticalFonts.body(
                             fontSize: 12,
                             color: kInstOlive,
                             fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      if (phone.isNotEmpty)
+                        Text(
+                          phone,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TacticalFonts.body(
+                            fontSize: 12,
+                            color: kInstInk,
                           ),
                         ),
                       const SizedBox(height: 5),
@@ -1811,6 +1822,11 @@ class _GpsPeer {
     this.avatarUrl,
     this.presence,
     this.cargo,
+    this.serviceNombre,
+    this.phone,
+    this.role,
+    this.grade,
+    this.affiliation,
     this.accuracyM,
     this.recordedAt,
     this.panic = false,
@@ -1823,11 +1839,43 @@ class _GpsPeer {
   final String? avatarUrl;
   final String? presence;
   final String? cargo;
+  final String? serviceNombre;
+  final String? phone;
+  final String? role;
+  final String? grade;
+  /// Unidad | zona | región (adscripción).
+  final String? affiliation;
   final double? accuracyM;
   final DateTime? recordedAt;
   final bool panic;
 
   String get initials => userAvatarInitials(displayName);
+
+  /// L1: Grado Apellido, unidad|zona|región (root sin adscripción → Administrador).
+  String get titleLine {
+    final name = displayName.trim();
+    final isRoot = (role ?? '').trim().toLowerCase() == 'root';
+    final aff = (affiliation ?? '').trim().isNotEmpty
+        ? affiliation!.trim()
+        : (isRoot ? 'Administrador' : '');
+    if (isRoot) {
+      if ((grade ?? '').trim().isEmpty) return 'Administrador';
+      final base = name.split(',').first.trim();
+      return base.isNotEmpty ? '$base, $aff' : aff;
+    }
+    if (name.contains(',')) return name;
+    if (name.isNotEmpty && aff.isNotEmpty) return '$name, $aff';
+    return name.isNotEmpty ? name : (aff.isNotEmpty ? aff : 'Operador');
+  }
+
+  /// L2: catálogo · nombre libre.
+  String get serviceLine => [cargo, serviceNombre]
+      .map((s) => (s ?? '').trim())
+      .where((s) => s.isNotEmpty)
+      .join(' · ');
+
+  /// L3: teléfono.
+  String get phoneLine => (phone ?? '').trim();
 
   factory _GpsPeer.fromJson(Map<String, dynamic> m, double lat, double lng) {
     final name = m['displayName']?.toString() ??
@@ -1847,6 +1895,18 @@ class _GpsPeer {
       avatarUrl: m['avatarUrl']?.toString(),
       presence: m['presence']?.toString() ?? m['status']?.toString(),
       cargo: m['cargo']?.toString() ?? m['rank']?.toString(),
+      serviceNombre: m['serviceNombre']?.toString(),
+      phone: m['phone']?.toString(),
+      role: m['role']?.toString(),
+      grade: m['grade']?.toString(),
+      affiliation: [
+        m['unitName'],
+        m['zoneName'],
+        m['regionName'],
+        m['affiliationLabel'],
+      ]
+          .map((v) => v?.toString().trim() ?? '')
+          .firstWhere((s) => s.isNotEmpty, orElse: () => ''),
       accuracyM: (m['accuracyM'] as num?)?.toDouble(),
       recordedAt: at,
       panic: m['panic'] == true || m['inPanic'] == true,

@@ -118,10 +118,17 @@ export function mergeLocations(prev, incoming) {
     const old = map.get(loc.userId);
     if (!old || recordedAtMs(loc.recordedAt) >= recordedAtMs(old.recordedAt)) {
       const next = {
+        ...old,
         ...loc,
         displayName: loc.displayName || old?.displayName || loc.userId,
         cargo: loc.cargo ?? old?.cargo ?? null,
         grade: loc.grade ?? old?.grade ?? null,
+        serviceNombre: loc.serviceNombre ?? old?.serviceNombre ?? null,
+        phone: loc.phone ?? old?.phone ?? null,
+        unitName: loc.unitName ?? old?.unitName ?? null,
+        zoneName: loc.zoneName ?? old?.zoneName ?? null,
+        regionName: loc.regionName ?? old?.regionName ?? null,
+        affiliationLabel: loc.affiliationLabel ?? old?.affiliationLabel ?? null,
         avatarUrl: loc.avatarUrl ?? old?.avatarUrl ?? null,
       };
       if (old && isAbsurdGpsJump(old, next, recordedAtMs)) {
@@ -139,6 +146,12 @@ export function mergeLocations(prev, incoming) {
         if (loc.grade && loc.grade !== old.grade) {
           patched = { ...patched, grade: loc.grade };
         }
+        if (loc.serviceNombre != null && loc.serviceNombre !== old.serviceNombre) {
+          patched = { ...patched, serviceNombre: loc.serviceNombre };
+        }
+        if (loc.phone != null && loc.phone !== old.phone) {
+          patched = { ...patched, phone: loc.phone };
+        }
         if (patched !== old) map.set(loc.userId, patched);
         continue;
       }
@@ -154,10 +167,17 @@ export function upsertLocation(prev, payload) {
   if (!payload?.userId) return prev || [];
   const old = (prev || []).find((l) => l.userId === payload.userId);
   const nextLoc = {
+    ...old,
     userId: payload.userId,
     displayName: payload.displayName || old?.displayName || payload.userId,
     cargo: payload.cargo ?? old?.cargo ?? null,
     grade: payload.grade ?? old?.grade ?? null,
+    serviceNombre: payload.serviceNombre ?? old?.serviceNombre ?? null,
+    phone: payload.phone ?? old?.phone ?? null,
+    unitName: payload.unitName ?? old?.unitName ?? null,
+    zoneName: payload.zoneName ?? old?.zoneName ?? null,
+    regionName: payload.regionName ?? old?.regionName ?? null,
+    affiliationLabel: payload.affiliationLabel ?? old?.affiliationLabel ?? null,
     avatarUrl: payload.avatarUrl ?? old?.avatarUrl ?? null,
     latitude: Number(payload.latitude),
     longitude: Number(payload.longitude),

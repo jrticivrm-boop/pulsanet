@@ -1,3 +1,67 @@
+## 2026-10-16 — Usuarios: Tipo de servicio + Ubicación por coordenadas
+
+- **Tipo:** feature | ux
+- **Área:** backend | web | database
+- **Qué:**
+  - Bloque Servicio: Nombre del servicio (libre) → **Tipo de servicio** (catálogo) → **Ubicación (coordenadas)**; acepta «lat, lng» o liga de Google Maps.
+  - Al capturar coordenadas se extraen estado, municipio, localidad, colonia, C.P. y ejido (`GET /api/geo/admin-at`): OSM/Photon + ejidos RAN; sin internet, SEPOMEX/DENUE (marcado «aprox.»).
+  - Se guardan en `users.service_lat/lng` y `service_geo_*` (migración `049`, solo ADD COLUMN; nombres distintos a los que retira `048`). Solo relación (columnas Servicio / Ubicación del servicio, búsqueda), Excel y CSV; **no** interviene en la ubicación en tiempo real.
+  - Probado: extracción en Tampico, CDMX, Cd. Victoria y zona rural (con y sin internet); alta/edición/borrado de coordenadas vía API con usuario temporal (eliminado); parser de coordenadas.
+- **Archivos / refs:** `049_service_ubicacion.sql`, `geoSearch.js` (`geoAdminAt`), `routes/geo.js`, `routes/admin.js`, `api.js`, `DispatchUsers.jsx`
+
+## 2026-10-16 — Indicativo «Administrador» (root) + globo 3 líneas en APK
+
+- **Tipo:** feature | ux
+- **Área:** backend | web | mobile
+- **Qué:**
+  - Indicativo/globo L1: `Grado Apellido, unidad|zona|región`; **solo root** sin adscripción → «Administrador» (sin grado → solo «Administrador»). Otros roles nunca reciben ese relleno.
+  - Vista previa del alta envía rol + adscripción (zona/región, no solo unidad).
+  - Mapa APK (ficha del operador): L1 pertenencia, L2 catálogo · nombre libre, L3 teléfono (se omiten si vacíos).
+  - Sin cambios de BD ni borrado de datos; teléfono sigue obligatorio en el alta.
+- **Archivos / refs:** `rfcUsername.js`, `admin.js`, `rebuild-callsigns.js`, `mapOperatorPopup.jsx`, `DispatchUsers.jsx`, `mobile/lib/screens/gps_track_screen.dart`
+
+## 2026-10-16 — Servicio simplificado + globo mapa (sin geo)
+
+- **Tipo:** feature | fix | ux
+- **Área:** web | backend | database
+- **Qué:**
+  - Formulario Servicio: solo **Nombre del Servicio** (editable) + **Servicio** (catálogo). Sin Estado/Municipio; R/Z/U solo en Adscripción.
+  - Eliminadas columnas `service_estado` / `service_municipio` (`048`); se conservan `cargo` y `service_nombre`.
+  - Indicativo: `Grado Apellido, unidad|zona|región` (adscripción). Globo mapa: L1 indicativo, L2 catálogo·nombre, L3 teléfono; sin texto de presencia.
+  - Búsqueda de operadores incluye catálogo/nombre/tel/pertenencia.
+- **Archivos / refs:** `048_drop_service_geo.sql`, `orgAffiliation.js`, `locations.js`, `mapOperatorPopup.jsx`, `DispatchUsers.jsx`, `rebuild-callsigns.js`
+
+## 2026-10-16 — Nombre del Servicio + R/Z/U en Identidad militar
+
+- **Tipo:** feature | ux
+- **Área:** web | backend | database
+- **Qué:**
+  - Campo libre **Nombre del Servicio** (`users.service_nombre`) antes del catálogo Servicio.
+  - Orden en Servicio: Nombre → Servicio (catálogo) → Estado → Municipio.
+  - Región / Zona / Unidad pasan a **Identidad militar** (salen del bloque Servicio).
+  - Indicativo prioriza nombre libre sobre catálogo: `Grado Apellido, Nombre · Unidad`.
+- **Archivos / refs:** `047_service_nombre.sql`, `admin.js`, `rfcUsername.js`, `DispatchUsers.jsx`
+
+## 2026-10-16 — Catálogo Servicios + layout R/Z/U + match fuzzy unidades
+
+- **Tipo:** feature | fix | ux
+- **Área:** web | backend
+- **Qué:**
+  - Catálogos → **Servicios** (como Jerarquías/Empleos): alta/renombrar/eliminar.
+  - Formulario usuario: Servicio|Región, Zona|Unidad, Estado|Municipio; sin hint de Alcance.
+  - Migración: coincidencia flexible `8/a Z.M.` ≈ `8/a. Z.M.` (puntos/espacios).
+- **Archivos / refs:** `CatalogServicios.jsx`, `CatalogsLayout.jsx`, `DispatchUsers.jsx`, `cargoUnitSplit.js`, `profiles.js`
+
+## 2026-10-16 — Usuarios: Servicio + Unidad (alcance) + Estado/Municipio
+
+- **Tipo:** feature | ux
+- **Área:** backend | web | database
+- **Qué:**
+  - Cargo → **Servicio** (select `cat_servicios`); unidad de ejercicio = mismo `unit_id` del Alcance.
+  - Estado/Municipio nacionales (`mx_postcodes`) en cascada; columnas `service_estado` / `service_municipio`.
+  - Indicativo: `Grado Apellido, Servicio · Unidad`; migración única limpia cargos que embebían unidades.
+- **Archivos / refs:** `046_servicios_geo.sql`, `catalogs.js`, `admin.js`, `geo.js`, `rfcUsername.js`, `DispatchUsers.jsx`, `migrate-cargo-servicios.js`
+
 ## 2026-10-15 — Presentación ejecutiva de funcionalidades de SICOM
 
 - **Tipo:** docs

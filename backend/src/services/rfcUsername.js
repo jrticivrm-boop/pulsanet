@@ -74,13 +74,24 @@ export function formatPaternalShort(paternalSurname) {
 }
 
 /**
- * Indicativo: «Sgto. 1/o. Gomez» o «Sgto. 1/o. Gomez, desarrollador».
- * Usa grado + apellido; si hay cargo/puesto, lo agrega tras coma.
+ * Pertenencia del indicativo: unidad | zona | región.
+ * Solo root sin adscripción usa «Administrador» (no rellena huecos de otros roles).
+ */
+export function callSignAffiliation(p) {
+  const aff = String(p?.affiliationLabel || p?.unitName || '').trim();
+  if (aff) return aff;
+  const role = String(p?.role || '').trim().toLowerCase();
+  return role === 'root' ? 'Administrador' : '';
+}
+
+/**
+ * Indicativo corto (listas/chat/mapa L1): «Sgto. 1/o. Gomez» | «…, 25/o. R.C.».
+ * Pertenencia = adscripción. Catálogo y nombre libre van aparte (mapa L2).
  */
 export function buildCallSign(p) {
   const grade = String(p.grade || '').trim();
   const surname = formatSurnameCall(p.paternalSurname);
-  const cargo = String(p.cargo || '').trim();
+  const affiliation = callSignAffiliation(p);
 
   if (!grade) {
     throw new Error('Grado es requerido');
@@ -90,7 +101,7 @@ export function buildCallSign(p) {
   }
 
   const base = `${grade} ${surname}`;
-  return cargo ? `${base}, ${cargo}` : base;
+  return affiliation ? `${base}, ${affiliation}` : base;
 }
 
 /** Misma regla que buildCallSign (sin overrides). */

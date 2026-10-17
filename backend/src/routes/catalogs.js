@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   listGrades,
   listEmpleos,
+  listServicios,
   listJerarquias,
   createGrade,
   renameGrade,
@@ -9,6 +10,9 @@ import {
   createEmpleo,
   renameEmpleo,
   deleteEmpleo,
+  createServicio,
+  renameServicio,
+  deleteServicio,
   createJerarquia,
   renameJerarquia,
   deleteJerarquia,
@@ -33,12 +37,49 @@ function sendErr(res, err) {
 
 catalogsRouter.get('/grades-empleos', requireView, async (req, res) => {
   try {
-    const [grades, empleos, jerarquias] = await Promise.all([
+    const [grades, empleos, servicios, jerarquias] = await Promise.all([
       listGrades(req.user.orgId),
       listEmpleos(req.user.orgId),
+      listServicios(req.user.orgId),
       listJerarquias(req.user.orgId),
     ]);
-    res.json({ ok: true, grades, empleos, jerarquias });
+    res.json({ ok: true, grades, empleos, servicios, jerarquias });
+  } catch (err) {
+    sendErr(res, err);
+  }
+});
+
+catalogsRouter.get('/servicios', requireView, async (req, res) => {
+  try {
+    const servicios = await listServicios(req.user.orgId);
+    res.json({ ok: true, servicios });
+  } catch (err) {
+    sendErr(res, err);
+  }
+});
+
+catalogsRouter.post('/servicios', requireAdd, async (req, res) => {
+  try {
+    const row = await createServicio(req.user.orgId, req.body || {});
+    res.status(201).json({ ok: true, servicio: row });
+  } catch (err) {
+    sendErr(res, err);
+  }
+});
+
+catalogsRouter.patch('/servicios/:id', requireEdit, async (req, res) => {
+  try {
+    const row = await renameServicio(req.user.orgId, req.params.id, req.body || {});
+    res.json({ ok: true, servicio: row });
+  } catch (err) {
+    sendErr(res, err);
+  }
+});
+
+catalogsRouter.delete('/servicios/:id', requireDelete, async (req, res) => {
+  try {
+    await deleteServicio(req.user.orgId, req.params.id);
+    res.json({ ok: true });
   } catch (err) {
     sendErr(res, err);
   }

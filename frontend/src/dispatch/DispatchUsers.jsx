@@ -16,6 +16,8 @@ import {
   usersCsvUrl,
   fetchOrgUnits,
   fetchGradesEmpleos,
+  createCatalogServicio,
+  geoAdminAt,
 } from '../api';
 import { canModuleAction, canViewModule } from './modulePermissions.js';
 import { EJERCITO_MEXICANO_GRADE_GROUPS } from './armyGrades.js';
@@ -209,6 +211,9 @@ const EMPTY_FORM = {
   grade: '',
   specialty: '',
   cargo: '',
+  serviceNombre: '',
+  /** Texto libre «lat, lng» (o liga de Google Maps). */
+  serviceCoords: '',
   givenNames: '',
   paternalSurname: '',
   maternalSurname: '',
@@ -234,6 +239,61 @@ const ALC_ALL_UNITS = '__all__';
 
 function fieldFilled(value) {
   return String(value || '').trim().length > 0;
+}
+
+/**
+ * «22.2331, -97.8611», «22.2331 -97.8611» o liga de Google Maps (…/@22.23,-97.86,15z).
+ * Acepta lng primero si el primer número no cabe como latitud.
+ * @returns {{lat:number,lng:number}|null}
+ */
+function parseCoordsInput(raw) {
+  const nums = String(raw || '').match(/-?\d+(?:\.\d+)?/g);
+  if (!nums || nums.length < 2) return null;
+  let lat = Number(nums[0]);
+  let lng = Number(nums[1]);
+  if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) [lat, lng] = [lng, lat];
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return null;
+  }
+  return { lat, lng };
+}
+
+function formatCoords(lat, lng) {
+  if (lat == null || lng == null) return '';
+  return `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+}
+
+/** Payload API: coordenadas del servicio (null borra). */
+function serviceCoordsPayload(text) {
+  if (!fieldFilled(text)) return { serviceLat: null, serviceLng: null };
+  const c = parseCoordsInput(text);
+  return c ? { serviceLat: c.lat, serviceLng: c.lng } : null;
+}
+
+function serviceGeoSummary(g) {
+  if (!g) return '';
+  return [
+    g.colonia,
+    g.localidad,
+    g.municipio,
+    g.estado,
+    g.cp ? `C.P. ${g.cp}` : '',
+    g.ejido ? `Ejido ${g.ejido}` : '',
+  ]
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function userServiceGeo(u) {
+  return {
+    estado: u.serviceGeoEstado,
+    municipio: u.serviceGeoMunicipio,
+    localidad: u.serviceGeoLocalidad,
+    colonia: u.serviceGeoColonia,
+    cp: u.serviceGeoCp,
+    ejido: u.serviceGeoEjido,
+  };
 }
 
 /** Teléfono: 10 dígitos (MX) o `+` y 10–15 dígitos. Misma regla que `backend/src/services/phone.js`. */
@@ -513,6 +573,8 @@ const USER_TABLE_COLS = [
   { key: 'name', label: 'Nombre completo' },
   { key: 'user', label: 'Usuario' },
   { key: 'phone', label: 'Teléfono' },
+  { key: 'service', label: 'Servicio' },
+  { key: 'serviceGeo', label: 'Ubicación del servicio' },
   { key: 'profile', label: 'Perfil' },
   { key: 'scope', label: 'Alcance' },
   { key: 'status', label: 'Estado' },
@@ -659,6 +721,10 @@ function userTableCell(u, key) {
       return <code>{u.username}</code>;
     case 'phone':
       return u.phone ? formatPhoneInput(u.phone) : '—';
+    case 'service':
+      return [u.cargo, u.serviceNombre].filter(Boolean).join(' · ') || '—';
+    case 'serviceGeo':
+      return [u.serviceGeoMunicipio, u.serviceGeoEstado].filter(Boolean).join(', ') || '—';
     case 'profile':
       return roleLabel(u.role);
     case 'scope':
@@ -712,6 +778,10 @@ function getUserColFilterVal(u, key) {
       return u.username || '';
     case 'phone':
       return u.phone ? formatPhoneInput(u.phone) : '—';
+    case 'service':
+      return [u.cargo, u.serviceNombre].filter(Boolean).join(' · ') || '—';
+    case 'serviceGeo':
+      return [u.serviceGeoMunicipio, u.serviceGeoEstado].filter(Boolean).join(', ') || '—';
     case 'profile':
       return u.role || '';
     case 'scope':
@@ -1248,6 +1318,9 @@ export default function DispatchUsers({ session }) {
   const [orgTree, setOrgTree] = useState([]);
   const [gradeGroups, setGradeGroups] = useState(EJERCITO_MEXICANO_GRADE_GROUPS);
   const [empleos, setEmpleos] = useState([]);
+  const [servicios, setServicios] = useState([]);
+  /** Datos extraídos de las coordenadas del servicio: { status, data }. */
+  const [serviceGeo, setServiceGeo] = useState({ status: 'idle', data: null });
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
   const [preview, setPreview] = useState({ username: '', displayName: '', fullName: '' });
@@ -1317,12 +1390,42 @@ export default function DispatchUsers({ session }) {
 
   const composedDisplayName = preview.displayName || '';
 
+  const previewUnitId = useMemo(() => {
+    if (form.unitChoice && form.unitChoice !== ALC_ALL_UNITS) return form.unitChoice;
+    if (form.unitId) return form.unitId;
+    return '';
+  }, [form.unitChoice, form.unitId]);
+
   const previewKey = useMemo(
     () =>
-      [form.grade, form.givenNames, form.paternalSurname, form.maternalSurname, form.cargo]
+      [
+        form.grade,
+        form.givenNames,
+        form.paternalSurname,
+        form.maternalSurname,
+        form.cargo,
+        form.serviceNombre,
+        form.role,
+        form.regionId,
+        form.zoneChoice,
+        form.unitChoice,
+        previewUnitId,
+      ]
         .map((s) => String(s || '').trim())
         .join('|'),
-    [form.grade, form.givenNames, form.paternalSurname, form.maternalSurname, form.cargo]
+    [
+      form.grade,
+      form.givenNames,
+      form.paternalSurname,
+      form.maternalSurname,
+      form.cargo,
+      form.serviceNombre,
+      form.role,
+      form.regionId,
+      form.zoneChoice,
+      form.unitChoice,
+      previewUnitId,
+    ]
   );
 
   const orgRegions = useMemo(() => orgTree || [], [orgTree]);
@@ -1394,6 +1497,9 @@ export default function DispatchUsers({ session }) {
           (u.matricula || '').toLowerCase().includes(q) ||
           (u.phone || '').includes(q.replace(/[\s-]/g, '')) ||
           (u.cargo || '').toLowerCase().includes(q) ||
+          (u.serviceNombre || '').toLowerCase().includes(q) ||
+          (u.serviceGeoMunicipio || '').toLowerCase().includes(q) ||
+          (u.serviceGeoEstado || '').toLowerCase().includes(q) ||
           (u.specialty || '').toLowerCase().includes(q) ||
           roleLabel(u.role).toLowerCase().includes(q)
       );
@@ -1646,6 +1752,7 @@ export default function DispatchUsers({ session }) {
         );
       }
       setEmpleos(catData?.empleos || []);
+      setServicios(catData?.servicios || []);
       setError('');
     } catch (e) {
       setError(e.message);
@@ -1713,6 +1820,8 @@ export default function DispatchUsers({ session }) {
       grade: u.grade || '',
       specialty: u.specialty || '',
       cargo: u.cargo || '',
+      serviceNombre: u.serviceNombre || '',
+      serviceCoords: formatCoords(u.serviceLat, u.serviceLng),
       givenNames: u.givenNames || '',
       paternalSurname: u.paternalSurname || '',
       maternalSurname: u.maternalSurname || '',
@@ -1749,6 +1858,41 @@ export default function DispatchUsers({ session }) {
   }
 
   useEffect(() => {
+    if (!createOpen) return undefined;
+    const text = String(form.serviceCoords || '').trim();
+    if (!text) {
+      setServiceGeo({ status: 'idle', data: null });
+      return undefined;
+    }
+    const c = parseCoordsInput(text);
+    if (!c) {
+      setServiceGeo({ status: 'invalid', data: null });
+      return undefined;
+    }
+    if (
+      editingUser &&
+      editingUser.serviceGeoEstado &&
+      formatCoords(editingUser.serviceLat, editingUser.serviceLng) === formatCoords(c.lat, c.lng)
+    ) {
+      setServiceGeo({ status: 'ok', data: userServiceGeo(editingUser) });
+      return undefined;
+    }
+    const ac = new AbortController();
+    setServiceGeo({ status: 'loading', data: null });
+    const t = setTimeout(() => {
+      geoAdminAt(session.token, c.lat, c.lng, ac.signal)
+        .then((data) => setServiceGeo({ status: 'ok', data }))
+        .catch(() => {
+          if (!ac.signal.aborted) setServiceGeo({ status: 'error', data: null });
+        });
+    }, 450);
+    return () => {
+      clearTimeout(t);
+      ac.abort();
+    };
+  }, [form.serviceCoords, createOpen, editingUser, session.token]);
+
+  useEffect(() => {
     if (!canManage || !createOpen) return;
     if (!form.grade.trim() || !form.givenNames.trim() || !form.paternalSurname.trim()) {
       if (!editingUser) {
@@ -1757,6 +1901,11 @@ export default function DispatchUsers({ session }) {
       return;
     }
     let cancelled = false;
+    const previewRole = isActingUnitAdmin ? 'unit_user' : form.role;
+    const previewScope = orgScopeForSave(previewRole, form, {
+      actingUnitAdmin: isActingUnitAdmin,
+      myScopeUnitId,
+    });
     const t = setTimeout(() => {
       previewAdminUsername(session.token, {
         grade: form.grade,
@@ -1764,6 +1913,10 @@ export default function DispatchUsers({ session }) {
         paternalSurname: form.paternalSurname,
         maternalSurname: form.maternalSurname,
         cargo: form.cargo,
+        serviceNombre: form.serviceNombre,
+        role: previewScope.role || previewRole || undefined,
+        unitId: previewScope.unitId || previewUnitId || undefined,
+        adminScopeUnitId: previewScope.adminScopeUnitId || undefined,
       })
         .then((data) => {
           if (cancelled) return;
@@ -1996,6 +2149,11 @@ export default function DispatchUsers({ session }) {
       setError(phoneErr);
       return;
     }
+    const coordsPayload = serviceCoordsPayload(form.serviceCoords);
+    if (!coordsPayload) {
+      setError('Ubicación: escribe las coordenadas como «latitud, longitud» (ej. 22.233100, -97.861100).');
+      return;
+    }
     setBusy(true);
     try {
       if (editBasicsOnly) {
@@ -2003,6 +2161,8 @@ export default function DispatchUsers({ session }) {
         grade: form.grade,
         specialty: form.specialty || null,
         cargo: form.cargo || null,
+        serviceNombre: form.serviceNombre || null,
+        ...coordsPayload,
         givenNames: form.givenNames,
         paternalSurname: form.paternalSurname,
         maternalSurname: form.maternalSurname || null,
@@ -2029,6 +2189,8 @@ export default function DispatchUsers({ session }) {
           grade: form.grade,
           specialty: form.specialty || null,
           cargo: form.cargo || null,
+          serviceNombre: form.serviceNombre || null,
+          ...coordsPayload,
           givenNames: form.givenNames,
           paternalSurname: form.paternalSurname,
           maternalSurname: form.maternalSurname || null,
@@ -2073,8 +2235,16 @@ export default function DispatchUsers({ session }) {
         setBusy(false);
         return;
       }
+      const coordsPayload = serviceCoordsPayload(form.serviceCoords);
+      if (!coordsPayload) {
+        setError('Ubicación: escribe las coordenadas como «latitud, longitud» (ej. 22.233100, -97.861100).');
+        setBusy(false);
+        return;
+      }
+      const { serviceCoords: _coordsText, ...formFields } = form;
       const created = await createAdminUser(session.token, {
-        ...form,
+        ...formFields,
+        ...coordsPayload,
         role: scope.role || lockedRole,
         profileId: form.profileId || undefined,
         matricula: formatMatriculaInput(form.matricula),
@@ -2278,7 +2448,15 @@ export default function DispatchUsers({ session }) {
       ['Nombre completo', (u) => u.fullName || u.displayName || ''],
       ['Matrícula', (u) => (u.matricula ? formatMatriculaInput(u.matricula) : '')],
       ['No. Tel.', (u) => (u.phone ? formatPhoneInput(u.phone) : '')],
-      ['Cargo', (u) => u.cargo || ''],
+      ['Nombre del servicio', (u) => u.serviceNombre || ''],
+      ['Tipo de servicio', (u) => u.cargo || ''],
+      ['Coordenadas', (u) => formatCoords(u.serviceLat, u.serviceLng)],
+      ['Estado (ubicación)', (u) => u.serviceGeoEstado || ''],
+      ['Municipio', (u) => u.serviceGeoMunicipio || ''],
+      ['Localidad', (u) => u.serviceGeoLocalidad || ''],
+      ['Colonia', (u) => u.serviceGeoColonia || ''],
+      ['C.P.', (u) => u.serviceGeoCp || ''],
+      ['Ejido', (u) => u.serviceGeoEjido || ''],
       ['Usuario', (u) => u.username || ''],
       ['Perfil', (u) => userExportValue(u, 'profile')],
       ['Alcance', (u) => userExportValue(u, 'scope')],
@@ -3016,15 +3194,106 @@ export default function DispatchUsers({ session }) {
               </section>
 
               <section className="cc-form-section">
-                <h3 className="cc-form-section-title">Cargo</h3>
+                <h3 className="cc-form-section-title">Servicio</h3>
                 <div className="cc-form-grid">
-                  <label className="field cc-form-span-2">
-                    <span>Cargo / puesto</span>
+                  <label className="field">
+                    <span>Nombre del Servicio</span>
                     <input
-                      value={form.cargo}
-                      onChange={(e) => setForm({ ...form, cargo: e.target.value })}
-                      placeholder="desarrollador, Op. Radio…"
+                      value={form.serviceNombre}
+                      onChange={(e) =>
+                        setForm({ ...form, serviceNombre: e.target.value })
+                      }
+                      placeholder="Ej. Desarrollador, Jefatura de..."
+                      maxLength={160}
                     />
+                  </label>
+                  <label className="field">
+                    <span>Tipo de servicio</span>
+                    <select
+                      value={form.cargo}
+                      onChange={async (e) => {
+                        const v = e.target.value;
+                        if (v === '__new__') {
+                          const name = window.prompt('Nombre del nuevo servicio:');
+                          if (!name || !String(name).trim()) return;
+                          try {
+                            const created = await createCatalogServicio(session.token, {
+                              name: String(name).trim(),
+                            });
+                            const row = created?.servicio;
+                            if (row?.name) {
+                              setServicios((prev) =>
+                                prev.some((s) => s.name === row.name)
+                                  ? prev
+                                  : [...prev, row].sort((a, b) =>
+                                      String(a.name).localeCompare(String(b.name), 'es')
+                                    )
+                              );
+                              setForm((f) => ({ ...f, cargo: row.name }));
+                            }
+                          } catch (err) {
+                            setError(err.message || 'No se pudo crear el servicio');
+                          }
+                          return;
+                        }
+                        setForm({ ...form, cargo: v });
+                      }}
+                    >
+                      <option value="">— Selecciona servicio —</option>
+                      {servicios.map((s) => (
+                        <option key={s.id || s.name} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))}
+                      {form.cargo && !servicios.some((s) => s.name === form.cargo) ? (
+                        <option value={form.cargo}>{form.cargo}</option>
+                      ) : null}
+                      <option value="__new__">+ Nuevo servicio…</option>
+                    </select>
+                  </label>
+                  <label className="field cc-form-span-2">
+                    <span>
+                      Ubicación (coordenadas){' '}
+                      <em className="cc-field-hint-inline">latitud, longitud</em>
+                    </span>
+                    <input
+                      value={form.serviceCoords}
+                      onChange={(e) => setForm({ ...form, serviceCoords: e.target.value })}
+                      placeholder="22.233100, -97.861100"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      spellCheck={false}
+                      aria-invalid={serviceGeo.status === 'invalid'}
+                      className={
+                        serviceGeo.status === 'invalid'
+                          ? 'is-invalid'
+                          : serviceGeo.status === 'ok'
+                            ? 'is-ok'
+                            : undefined
+                      }
+                    />
+                    {serviceGeo.status === 'invalid' && (
+                      <span className="cc-field-hint cc-field-hint--err">
+                        Formato: latitud, longitud (también acepta liga de Google Maps)
+                      </span>
+                    )}
+                    {serviceGeo.status === 'loading' && (
+                      <span className="cc-field-hint">Obteniendo estado y municipio…</span>
+                    )}
+                    {serviceGeo.status === 'error' && (
+                      <span className="cc-field-hint cc-field-hint--err">
+                        No se pudieron extraer los datos; se guardan solo las coordenadas.
+                      </span>
+                    )}
+                    {serviceGeo.status === 'ok' && (
+                      <span className="cc-field-hint cc-field-hint--ok">
+                        {serviceGeoSummary(serviceGeo.data) || 'Sin datos para ese punto'}
+                        {serviceGeo.data?.approx ? ' (aprox.)' : ''}
+                      </span>
+                    )}
+                    <span className="cc-field-hint">
+                      Solo para la relación y el Excel; no afecta la ubicación en tiempo real.
+                    </span>
                   </label>
                 </div>
               </section>
@@ -3046,7 +3315,7 @@ export default function DispatchUsers({ session }) {
                     <input
                       value={composedDisplayName}
                       readOnly
-                      placeholder="Sgto. 1/o. Gomez, desarrollador"
+                      placeholder="Sgto. 1/o. Gomez, 29/o. R.C."
                       className="cc-input-readonly cc-preview-callsign"
                     />
                   </label>

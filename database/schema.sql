@@ -33,6 +33,15 @@ CREATE TABLE users (
  grade VARCHAR(40),
  specialty VARCHAR(120),
  cargo VARCHAR(120),
+ service_nombre VARCHAR(160),
+ service_lat DOUBLE PRECISION,
+ service_lng DOUBLE PRECISION,
+ service_geo_estado VARCHAR(80),
+ service_geo_municipio VARCHAR(160),
+ service_geo_localidad VARCHAR(200),
+ service_geo_colonia VARCHAR(200),
+ service_geo_cp VARCHAR(10),
+ service_geo_ejido VARCHAR(200),
  given_names VARCHAR(120),
  paternal_surname VARCHAR(80),
  maternal_surname VARCHAR(80),
@@ -350,6 +359,18 @@ CREATE TABLE cat_empleos (
  UNIQUE (organization_id, name)
 );
 CREATE INDEX idx_cat_empleos_org ON cat_empleos (organization_id, sort_order, name);
+
+CREATE TABLE cat_servicios (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+ name VARCHAR(150) NOT NULL,
+ sort_order INT NOT NULL DEFAULT 0,
+ is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE (organization_id, name)
+);
+CREATE INDEX idx_cat_servicios_org ON cat_servicios (organization_id, sort_order, name);
 
 ALTER TABLE users
  ADD CONSTRAINT users_unit_id_fkey FOREIGN KEY (unit_id) REFERENCES org_units(id) ON DELETE SET NULL;

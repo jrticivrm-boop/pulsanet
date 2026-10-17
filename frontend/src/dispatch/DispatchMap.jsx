@@ -66,6 +66,10 @@ import { useMapViewportMaximize } from './useMapViewportMaximize.js';
 import { PRESENCE_LABELS, reconcilePresenceFilterIds, resolvePresenceStatus, visiblePresenceStatusIds } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import {
+  OperatorMapPopupBody,
+  mapOperatorSearchBlob,
+} from './mapOperatorPopup.jsx';
+import {
   CursorZoom,
   MapCursorFix,
   MapSizeFix,
@@ -1983,7 +1987,7 @@ export default function DispatchMap({ session }) {
     const q = rosterQuery.trim().toLowerCase();
     const now = Date.now();
     return mapLocations
-      .filter((l) => !q || (l.displayName || '').toLowerCase().includes(q))
+      .filter((l) => !q || mapOperatorSearchBlob(l).includes(q))
       .sort((a, b) => {
         const af = isFresh(a.recordedAt, now) ? 0 : 1;
         const bf = isFresh(b.recordedAt, now) ? 0 : 1;
@@ -3922,19 +3926,23 @@ export default function DispatchMap({ session }) {
                       }}
                     >
                       <Popup>
-                        <strong>{loc.displayName}</strong>
-                        <br />
-                        {PRESENCE_LABELS[status] || status}
-                        <br />
-                        <small>{new Date(loc.recordedAt).toLocaleString()}</small>
-                        <br />
-                        <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
-                        <br />
-                        <button type="button" onClick={() => selectRouteFromPin(loc.userId)}>
-                          {trackUserIds.includes(String(loc.userId))
-                            ? 'Quitar ruta'
-                            : 'Ver ruta'}
-                        </button>
+                        <OperatorMapPopupBody
+                          loc={loc}
+                          recordedLabel={
+                            loc.recordedAt
+                              ? new Date(loc.recordedAt).toLocaleString()
+                              : ''
+                          }
+                        >
+                          <br />
+                          <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
+                          <br />
+                          <button type="button" onClick={() => selectRouteFromPin(loc.userId)}>
+                            {trackUserIds.includes(String(loc.userId))
+                              ? 'Quitar ruta'
+                              : 'Ver ruta'}
+                          </button>
+                        </OperatorMapPopupBody>
                       </Popup>
                     </SmoothMarker>
                   );

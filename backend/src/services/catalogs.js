@@ -338,6 +338,158 @@ export async function listEmpleos(orgId) {
   }));
 }
 
+async function ensureServiciosTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS cat_servicios (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name VARCHAR(150) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (organization_id, name)
+    )
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_cat_servicios_org
+      ON cat_servicios (organization_id, sort_order, name)
+  `);
+}
+
+/** Semilla mínima + cargos actuales de usuarios (idempotente). */
+export async function ensureServiciosCatalog(orgId) {
+  await ensureServiciosTable();
+  const defaults = [
+    'Desarrollador',
+    'Informática',
+    'Op. Radio',
+    'Cmte. Región',
+    'Cmte. Zona',
+    'Cmte. Unidad',
+    'Cmte.',
+    '2/o. Cmte.',
+    'Admtva. TIC',
+    'Calidad',
+  ];
+  let order = 10;
+  for (const name of defaults) {
+    await query(
+      `INSERT INTO cat_servicios (organization_id, name, sort_order)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (organization_id, name) DO NOTHING`,
+      [orgId, name, order]
+    );
+    order += 10;
+  }
+  await query(
+    `INSERT INTO cat_servicios (organization_id, name, sort_order)
+     SELECT DISTINCT u.organization_id, TRIM(u.cargo),
+       COALESCE((SELECT MAX(sort_order) + 10 FROM cat_servicios s WHERE s.organization_id = u.organization_id), 100)
+     FROM users u
+     WHERE u.organization_id = $1
+       AND u.cargo IS NOT NULL
+       AND TRIM(u.cargo) <> ''
+     ON CONFLICT (organization_id, name) DO NOTHING`,
+    [orgId]
+  );
+}
+
+export async function listServicios(orgId) {
+  await ensureServiciosCatalog(orgId);
+  const { rows } = await query(
+    `SELECT s.id, s.name, s.sort_order,
+            EXISTS (
+              SELECT 1 FROM users u
+              WHERE u.organization_id = s.organization_id
+                AND u.cargo IS NOT NULL
+                AND TRIM(u.cargo) <> ''
+                AND LOWER(TRIM(u.cargo)) = LOWER(TRIM(s.name))
+            ) AS in_use
+     FROM cat_servicios s
+     WHERE s.organization_id = $1 AND s.is_active
+     ORDER BY s.sort_order, s.name`,
+    [orgId]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    sortOrder: r.sort_order,
+    inUse: Boolean(r.in_use),
+  }));
+}
+
+export async function createServicio(orgId, { name }) {
+  await ensureServiciosTable();
+  const nom = String(name || '').trim();
+  if (!nom) throw Object.assign(new Error('Nombre obligatorio'), { status: 400 });
+  const { rows: soft } = await query(
+    `SELECT id FROM cat_servicios
+     WHERE organization_id = $1 AND LOWER(TRIM(name)) = LOWER(TRIM($2)) AND is_active = FALSE`,
+    [orgId, nom]
+  );
+  if (soft[0]) {
+    const { rows } = await query(
+      `UPDATE cat_servicios SET is_active = TRUE, name = $3, updated_at = NOW()
+       WHERE id = $1 AND organization_id = $2
+       RETURNING id, name, sort_order`,
+      [soft[0].id, orgId, nom]
+    );
+    return { id: rows[0].id, name: rows[0].name, sortOrder: rows[0].sort_order, inUse: false };
+  }
+  const { rows } = await query(
+    `INSERT INTO cat_servicios (organization_id, name, sort_order)
+     VALUES ($1, $2,
+       COALESCE((SELECT MAX(sort_order) + 10 FROM cat_servicios WHERE organization_id = $1), 10))
+     ON CONFLICT (organization_id, name) DO UPDATE SET is_active = TRUE, updated_at = NOW()
+     RETURNING id, name, sort_order`,
+    [orgId, nom]
+  );
+  return { id: rows[0].id, name: rows[0].name, sortOrder: rows[0].sort_order, inUse: false };
+}
+
+export async function renameServicio(orgId, id, { name }) {
+  const { rows: cur } = await query(
+    `SELECT name FROM cat_servicios WHERE id = $1 AND organization_id = $2 AND is_active`,
+    [id, orgId]
+  );
+  if (!cur[0]) throw Object.assign(new Error('Servicio no encontrado'), { status: 404 });
+  const nom = String(name || '').trim();
+  if (!nom) throw Object.assign(new Error('Nombre obligatorio'), { status: 400 });
+  const { rows } = await query(
+    `UPDATE cat_servicios SET name = $3, updated_at = NOW()
+     WHERE id = $1 AND organization_id = $2
+     RETURNING id, name, sort_order`,
+    [id, orgId, nom]
+  );
+  await query(
+    `UPDATE users SET cargo = $3, updated_at = NOW()
+     WHERE organization_id = $1 AND LOWER(TRIM(cargo)) = LOWER(TRIM($2))`,
+    [orgId, cur[0].name, nom]
+  );
+  return { id: rows[0].id, name: rows[0].name, sortOrder: rows[0].sort_order };
+}
+
+export async function deleteServicio(orgId, id) {
+  const { rows } = await query(
+    `SELECT name FROM cat_servicios WHERE id = $1 AND organization_id = $2 AND is_active`,
+    [id, orgId]
+  );
+  if (!rows[0]) throw Object.assign(new Error('Servicio no encontrado'), { status: 404 });
+  const { rows: used } = await query(
+    `SELECT 1 FROM users
+     WHERE organization_id = $1 AND LOWER(TRIM(cargo)) = LOWER(TRIM($2))
+     LIMIT 1`,
+    [orgId, rows[0].name]
+  );
+  if (used[0]) throw Object.assign(new Error('En uso — no se puede eliminar'), { status: 409 });
+  await query(
+    `UPDATE cat_servicios SET is_active = FALSE, updated_at = NOW()
+     WHERE id = $1 AND organization_id = $2`,
+    [id, orgId]
+  );
+}
+
 export async function createGrade(orgId, { name, abbreviation, category }) {
   const abbr = String(abbreviation || name || '').trim();
   const nom = String(name || abbreviation || '').trim();

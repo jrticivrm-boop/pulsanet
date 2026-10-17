@@ -132,6 +132,7 @@ export const MODULES = [
       { key: 'jerarquias', label: 'Jerarquías' },
       { key: 'grados', label: 'Grados' },
       { key: 'empleos', label: 'Empleos' },
+      { key: 'servicios', label: 'Servicios' },
       { key: 'dependencias', label: 'Dependencias' },
     ],
   },

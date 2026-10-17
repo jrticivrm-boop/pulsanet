@@ -667,6 +667,9 @@ function photonFeatureToResult(f) {
     area: p.city || p.county || p.state || '',
     _pc: {
       state: p.state,
+      county: p.county || null,
+      city: p.city || null,
+      district: p.district || p.locality || null,
       iso: null,
       colonias: [p.district, p.locality, kind === 'colonia' ? name : null].filter(Boolean),
       localities: [p.city, kind === 'pueblo' || kind === 'localidad' ? name : null].filter(Boolean),
@@ -892,6 +895,8 @@ function localPlaceRow(r) {
     kind: r.kind,
     name: r.name,
     detail,
+    municipality: r.municipality || null,
+    state: r.state || null,
     lat: Number(r.lat),
     lng: Number(r.lng),
     bbox,
@@ -1048,6 +1053,62 @@ export async function geoReverse(lat, lng) {
     place.lng = found.lng;
   }
   return { ok: true, lat, lng, place, ejido };
+}
+
+/** C.P. del punto por la rejilla DENUE; el radio crece en zonas rurales (hasta ~6.6 km). */
+async function nearestPostcodeAt(lat, lng) {
+  for (const r of [3, 8, 25, 60]) {
+    const { votes } = await gridVotes(lat, lng, r);
+    if (votes.length) return votes[0][0];
+  }
+  return null;
+}
+
+/**
+ * Datos administrativos de un punto (alta de usuarios): estado, municipio, localidad, colonia, C.P., ejido.
+ * Polígonos primero (OSM vía Photon, ejidos RAN); SEPOMEX/DENUE como respaldo sin internet (`approx`).
+ */
+export async function geoAdminAt(lat, lng) {
+  const [found, ejido, nearCp] = await Promise.all([
+    reversePhoton(lat, lng).catch(() => null),
+    localAt(lat, lng).catch(() => null),
+    nearestPostcodeAt(lat, lng).catch(() => null),
+  ]);
+  const clean = (s) =>
+    String(s || '')
+      .replace(/^municipio (de |del )?/i, '')
+      .trim() || null;
+  const pc = found && (!found.countryCode || found.countryCode === 'MX') ? found._pc || {} : {};
+  const polyState = clean(pc.state) || clean(ejido?.state);
+
+  let cp = nearCp;
+  if (cp && polyState && !postcodeInState(cp, mxStateCode(polyState))) cp = null;
+  let sep = [];
+  if (cp) {
+    try {
+      const { rows } = await query(
+        `SELECT asentamiento, municipio, estado, ciudad FROM mx_postcodes WHERE cp = $1 ORDER BY id LIMIT 60`,
+        [cp]
+      );
+      sep = rows;
+    } catch (err) {
+      if (!tableMissing(err)) throw err;
+    }
+  }
+  const s0 = sep[0] || null;
+  const polyMuni = clean(pc.county) || clean(ejido?.municipality);
+  return {
+    ok: true,
+    lat,
+    lng,
+    estado: polyState || s0?.estado || null,
+    municipio: polyMuni || s0?.municipio || null,
+    localidad: clean(pc.city) || s0?.ciudad || null,
+    colonia: clean(pc.district) || (sep.length === 1 ? sep[0].asentamiento : null),
+    cp: cp || null,
+    ejido: ejido?.name || null,
+    approx: !polyState || !polyMuni,
+  };
 }
 
 export async function geoPlaceOutline(id) {

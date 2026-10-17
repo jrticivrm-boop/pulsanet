@@ -587,6 +587,33 @@ export function deleteCatalogEmpleo(token, id) {
   return api(`/api/catalogs/empleos/${id}`, { token, method: 'DELETE' });
 }
 
+export function fetchCatalogServicios(token) {
+  return api('/api/catalogs/servicios', { token });
+}
+
+export function createCatalogServicio(token, body) {
+  return api('/api/catalogs/servicios', { token, method: 'POST', body });
+}
+
+export function patchCatalogServicio(token, id, body) {
+  return api(`/api/catalogs/servicios/${id}`, { token, method: 'PATCH', body });
+}
+
+export function deleteCatalogServicio(token, id) {
+  return api(`/api/catalogs/servicios/${id}`, { token, method: 'DELETE' });
+}
+
+export function fetchGeoEstados(token) {
+  return api('/api/geo/estados', { token });
+}
+
+export function fetchGeoMunicipios(token, { estado, c_estado } = {}) {
+  const params = new URLSearchParams();
+  if (estado) params.set('estado', estado);
+  if (c_estado != null && c_estado !== '') params.set('c_estado', String(c_estado));
+  return api(`/api/geo/municipios?${params}`, { token });
+}
+
 export function fetchBackups(token) {
   return api('/api/backups', { token });
 }
@@ -916,6 +943,11 @@ export function geoMapStatus(token) {
 
 export function geoReverse(token, lat, lng) {
   return api(`/api/geo/reverse?lat=${lat.toFixed(6)}&lng=${lng.toFixed(6)}`, { token });
+}
+
+/** Estado, municipio, localidad, colonia, C.P. y ejido de unas coordenadas. */
+export function geoAdminAt(token, lat, lng, signal) {
+  return api(`/api/geo/admin-at?lat=${lat.toFixed(6)}&lng=${lng.toFixed(6)}`, { token, signal });
 }
 
 export function fetchGeoPlaceOutline(token, placeId) {

@@ -527,6 +527,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
         { to: '/despacho/catalogos/jerarquias', permKey: 'jerarquias' },
         { to: '/despacho/catalogos/grados', permKey: 'grados' },
         { to: '/despacho/catalogos/empleos', permKey: 'empleos' },
+        { to: '/despacho/catalogos/servicios', permKey: 'servicios' },
         { to: '/despacho/catalogos/dependencias', permKey: 'dependencias' },
       ];
       const allowed = filterTabsByPermission(session.user, 'catalogos', catalogTabDefs).map(
@@ -1391,6 +1392,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                       { to: '/despacho/catalogos/jerarquias', permKey: 'jerarquias' },
                       { to: '/despacho/catalogos/grados', permKey: 'grados' },
                       { to: '/despacho/catalogos/empleos', permKey: 'empleos' },
+                      { to: '/despacho/catalogos/servicios', permKey: 'servicios' },
                       { to: '/despacho/catalogos/dependencias', permKey: 'dependencias' },
                     ]).map((t) => t.to),
                     '/despacho/catalogos/jerarquias'

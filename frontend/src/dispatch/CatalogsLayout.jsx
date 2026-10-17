@@ -15,6 +15,7 @@ const ALL_TABS = [
   { to: `${BASE}/jerarquias`, label: 'Jerarquías', permKey: 'jerarquias' },
   { to: `${BASE}/grados`, label: 'Grados', permKey: 'grados' },
   { to: `${BASE}/empleos`, label: 'Empleos', permKey: 'empleos' },
+  { to: `${BASE}/servicios`, label: 'Servicios', permKey: 'servicios' },
   { to: `${BASE}/dependencias`, label: 'Dependencias', permKey: 'dependencias' },
 ];
 
