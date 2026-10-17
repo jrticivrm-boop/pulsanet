@@ -215,10 +215,11 @@ const NAV = [
   },
   { id: 'video', to: '/despacho/video', label: 'RESERVADO', hint: 'Confidencial', icon: 'video' },
   { id: 'radio', to: '/despacho/radio', label: 'Radio PTT', hint: 'Hablar y canales', icon: 'radio' },
+  { id: 'chats', to: '/despacho/chats', label: 'Chats', hint: 'Mensajes y respuestas', icon: 'chat' },
 ];
 
 const NAV_ORDER_KEY = 'tacticalptx_mod_nav_order';
-const DEFAULT_NAV_ORDER = ['ops', 'video', 'radio', 'catalogs', 'admin', 'config'];
+const DEFAULT_NAV_ORDER = ['ops', 'video', 'radio', 'chats', 'catalogs', 'admin', 'config'];
 
 function loadNavOrder() {
   try {
@@ -227,9 +228,12 @@ function loadNavOrder() {
     const known = new Set(DEFAULT_NAV_ORDER);
     // Quitar ítems obsoletos (p. ej. «map» tras fusionar Mapa en vivo)
     const next = raw.filter((id) => known.has(id));
-    for (const id of DEFAULT_NAV_ORDER) {
-      if (!next.includes(id)) next.push(id);
-    }
+    // Ítems nuevos entran junto a su vecino por defecto, no al final del orden guardado.
+    DEFAULT_NAV_ORDER.forEach((id, i) => {
+      if (next.includes(id)) return;
+      const prev = DEFAULT_NAV_ORDER.slice(0, i).reverse().find((p) => next.includes(p));
+      next.splice(prev ? next.indexOf(prev) + 1 : 0, 0, id);
+    });
     return next;
   } catch {
     return [...DEFAULT_NAV_ORDER];
