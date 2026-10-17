@@ -497,7 +497,7 @@ export async function notifyPttWake({ groupId, groupName, speakerId, speakerName
     groupId,
     groupName: groupName || 'Canal',
     speakerId: speakerId || '',
-    speakerName: speakerName || 'Operador',
+    speakerName: speakerName || 'Alguien',
     at: Date.now(),
   };
   const payload = {

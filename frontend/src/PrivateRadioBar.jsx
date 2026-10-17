@@ -145,7 +145,7 @@ const PrivateRadioBar = forwardRef(function PrivateRadioBar({ call, onHangup }, 
         });
         await mic.mute();
         setReady(true);
-        setStatus('Listo · toca para hablar');
+        setStatus('LISTO · toca para hablar');
       } catch (e) {
         if (!cancelled) setStatus(esMsg(e.message || 'Error de audio'));
       }
@@ -189,7 +189,7 @@ const PrivateRadioBar = forwardRef(function PrivateRadioBar({ call, onHangup }, 
         await mic.mute();
         pttOnRef.current = false;
         setPttOn(false);
-        setStatus('Listo · toca para hablar');
+        setStatus('LISTO · toca para hablar');
       }
     } catch {
       /* ignore */
@@ -239,7 +239,7 @@ const PrivateRadioBar = forwardRef(function PrivateRadioBar({ call, onHangup }, 
       <div className="private-radio-bar-meta">
         <span className="private-radio-bar-title">{shortName}</span>
         <span className="private-radio-bar-status">
-          {!ready ? 'Conectando…' : pttOn ? 'Canal abierto' : 'Radio 1:1'}
+          {!ready ? 'Conectando…' : status}
         </span>
       </div>
       <button
@@ -254,7 +254,7 @@ const PrivateRadioBar = forwardRef(function PrivateRadioBar({ call, onHangup }, 
         aria-pressed={pttOn}
         title={pttOn ? 'Toca para soltar' : 'Toca para hablar'}
       >
-        {!ready ? '…' : pttOn ? 'AL AIRE' : 'MIC'}
+        {!ready ? '…' : pttOn ? 'AL AIRE' : 'PTT'}
       </button>
       <button
         type="button"

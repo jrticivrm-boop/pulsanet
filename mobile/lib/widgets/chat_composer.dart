@@ -544,6 +544,7 @@ class _ChatComposerState extends State<ChatComposer> {
                     minLines: 1,
                     maxLines: 5,
                     textCapitalization: TextCapitalization.sentences,
+                    textInputAction: TextInputAction.send,
                     style: const TextStyle(
                       fontSize: 15.5,
                       height: 1.3,

@@ -101,6 +101,14 @@ import { TacticalSitesLayer, TACTICAL_SITE_COLORS } from './TacticalSitesLayer.j
 import { useTacticalSites } from './useTacticalSites.jsx';
 import IvRmStatesLayer from './IvRmStatesLayer.jsx';
 import IvRmStatesLegend from './IvRmStatesLegend.jsx';
+import IvRmTerritoryLayer from './IvRmTerritoryLayer.jsx';
+import FitTerritoryFeatures from './FitTerritoryFeatures.jsx';
+import TerritoryOpsPanel from './TerritoryOpsPanel.jsx';
+import {
+  filterTerritoryFeatures,
+  loadIvRmMunicipios,
+  pointInAnyFeature,
+} from './mxMunicipiosGeo.js';
 import {
   enabledIvRmStates,
   isSurfaceEnabled,
@@ -257,8 +265,55 @@ function normalizeOperatorUserIds(raw) {
 
 const OPS_TAB_KEY = 'tacticalptx_map_ops_tab';
 const OPS_TAB_ORDER_KEY = 'tacticalptx_map_ops_tab_order';
-const OPS_TAB_DEFAULT_ORDER = ['sitios', 'operadores', 'ruta', 'geocerca', 'buscar', 'rutaab'];
+const OPS_TAB_DEFAULT_ORDER = [
+  'sitios',
+  'operadores',
+  'territorio',
+  'ruta',
+  'geocerca',
+  'buscar',
+  'rutaab',
+];
 const OPS_TAB_IDS = new Set(OPS_TAB_DEFAULT_ORDER);
+const TERRITORY_FILTER_KEY = 'tacticalptx_map_territory_filter_v1';
+
+function readTerritoryFilter() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TERRITORY_FILTER_KEY) || 'null');
+    if (!raw || typeof raw !== 'object') {
+      return {
+        zonaId: null,
+        unidad: null,
+        municipioId: null,
+        showColors: true,
+        filterUsers: false,
+      };
+    }
+    return {
+      zonaId: raw.zonaId || null,
+      unidad: raw.unidad || null,
+      municipioId: raw.municipioId || null,
+      showColors: raw.showColors !== false,
+      filterUsers: raw.filterUsers === true,
+    };
+  } catch {
+    return {
+      zonaId: null,
+      unidad: null,
+      municipioId: null,
+      showColors: true,
+      filterUsers: false,
+    };
+  }
+}
+
+function writeTerritoryFilter(next) {
+  try {
+    localStorage.setItem(TERRITORY_FILTER_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+}
 const OPS_TAB_DRAG_THRESHOLD_PX = 8;
 
 function readOpsTabOrder() {
@@ -443,6 +498,14 @@ function OpsTabIcon({ name }) {
         <path d="M12 3v18" />
         <path d="M12 5h6l2 2.5L18 10h-6" />
         <path d="M12 12H6l-2 2.5L6 17h6" />
+      </svg>
+    );
+  }
+  if (name === 'territorio') {
+    return (
+      <svg {...common}>
+        <path d="M4 19V7l5-3 5 3 6-3v12l-6 3-5-3-5 3z" />
+        <path d="M9 4v12M14 7v12" />
       </svg>
     );
   }
@@ -1538,6 +1601,10 @@ export default function DispatchMap({ session }) {
   const [opsKpiHost, setOpsKpiHost] = useState(null);
   const [mapLayer, setMapLayer] = useState(() => loadStoredMapLayer());
   const [opsTab, setOpsTab] = useState(() => readOpsTab());
+  const [territoryUi, setTerritoryUi] = useState(() => readTerritoryFilter());
+  const [territoryFeatures, setTerritoryFeatures] = useState([]);
+  const [territoryAllFeatures, setTerritoryAllFeatures] = useState([]);
+  const [territoryFitToken, setTerritoryFitToken] = useState(0);
   /** Pestaña «Buscar»: resultado marcado en el mapa y disparador de vuelo. */
   const [searchSelected, setSearchSelected] = useState(null);
   const [searchFlyToken, setSearchFlyToken] = useState(0);
@@ -1816,6 +1883,21 @@ export default function DispatchMap({ session }) {
   useEffect(() => {
     writeOpsTab(opsTab);
   }, [opsTab]);
+
+  useEffect(() => {
+    writeTerritoryFilter(territoryUi);
+  }, [territoryUi]);
+
+  useEffect(() => {
+    let alive = true;
+    loadIvRmMunicipios().then((list) => {
+      if (!alive) return;
+      setTerritoryAllFeatures(list?.length ? list : []);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
@@ -1901,6 +1983,24 @@ export default function DispatchMap({ session }) {
         return statusSet.has(status);
       });
     }
+    /* Territorio: opcionalmente solo pines dentro de la selección (zona/unidad/municipio). */
+    if (territoryUi.filterUsers) {
+      const sel = {
+        zonaId: territoryUi.zonaId || null,
+        unidad: territoryUi.unidad || null,
+        municipioId: territoryUi.municipioId || null,
+      };
+      const hasSel = Boolean(sel.zonaId || sel.unidad || sel.municipioId);
+      if (hasSel && territoryAllFeatures.length) {
+        const feats = filterTerritoryFeatures(territoryAllFeatures, sel);
+        list = list.filter((loc) => {
+          const lat = Number(loc.latitude);
+          const lng = Number(loc.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+          return pointInAnyFeature(feats, lat, lng);
+        });
+      }
+    }
     return list;
   }, [
     locations,
@@ -1914,6 +2014,11 @@ export default function DispatchMap({ session }) {
     absenceMinutes,
     showAway,
     showOffline,
+    territoryUi.filterUsers,
+    territoryUi.zonaId,
+    territoryUi.unidad,
+    territoryUi.municipioId,
+    territoryAllFeatures,
   ]);
   const operatorFilterRef = useRef({
     mode: operatorFilterMode,
@@ -2201,6 +2306,7 @@ export default function DispatchMap({ session }) {
     const defs = [
       { id: 'sitios', label: 'Sitios' },
       { id: 'operadores', label: 'Operadores', disabled: !canSeeOperators },
+      { id: 'territorio', label: 'Territorio' },
       { id: 'ruta', label: 'Trayecto', disabled: !canSeeOperators },
       { id: 'geocerca', label: 'Geocerca' },
       { id: 'buscar', label: 'Buscar' },
@@ -3250,6 +3356,36 @@ export default function DispatchMap({ session }) {
             </div>
           ) : null}
 
+          {opsTab === 'territorio' ? (
+            <div
+              role="tabpanel"
+              id="map-ops-panel-territorio"
+              aria-labelledby="map-ops-tab-territorio"
+            >
+              <TerritoryOpsPanel
+                filter={{
+                  zonaId: territoryUi.zonaId,
+                  unidad: territoryUi.unidad,
+                  municipioId: territoryUi.municipioId,
+                }}
+                onChange={(next) =>
+                  setTerritoryUi((prev) => ({
+                    ...prev,
+                    zonaId: next.zonaId ?? null,
+                    unidad: next.unidad ?? null,
+                    municipioId: next.municipioId ?? null,
+                  }))
+                }
+                showColors={territoryUi.showColors}
+                onShowColors={(v) => setTerritoryUi((prev) => ({ ...prev, showColors: v }))}
+                filterUsers={territoryUi.filterUsers}
+                onFilterUsers={(v) => setTerritoryUi((prev) => ({ ...prev, filterUsers: v }))}
+                municipios={territoryAllFeatures}
+                onFit={() => setTerritoryFitToken((n) => n + 1)}
+              />
+            </div>
+          ) : null}
+
           {opsTab === 'operadores' ? (
             <div
               className="map-ops-panel map-ops-panel--row"
@@ -3715,6 +3851,17 @@ export default function DispatchMap({ session }) {
           <ZoomControl position="bottomright" />
           <MapMaximizeNearZoom maximized={maximized} onClick={toggleMaximize} />
           <IvRmStatesLayer surface="consola" />
+          <IvRmTerritoryLayer
+            surface="consola"
+            filter={{
+              zonaId: territoryUi.zonaId || null,
+              unidad: territoryUi.unidad || null,
+              municipioId: territoryUi.municipioId || null,
+            }}
+            showColors={territoryUi.showColors}
+            onFeaturesReady={setTerritoryFeatures}
+          />
+          <FitTerritoryFeatures features={territoryFeatures} fitToken={territoryFitToken} />
           <CursorZoom />
           <MapCursorFix />
           <MapSizeFix />

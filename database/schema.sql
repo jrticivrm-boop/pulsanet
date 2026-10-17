@@ -147,6 +147,8 @@ CREATE TABLE messages (
  longitude DOUBLE PRECISION,
  edited_at TIMESTAMPTZ,
  deleted_at TIMESTAMPTZ,
+ view_once BOOLEAN NOT NULL DEFAULT FALSE,
+ view_once_opened_at TIMESTAMPTZ,
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  CONSTRAINT messages_target CHECK (
  (group_id IS NOT NULL AND recipient_id IS NULL)

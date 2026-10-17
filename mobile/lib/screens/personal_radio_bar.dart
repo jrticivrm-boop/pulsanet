@@ -133,7 +133,7 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
         _room = room;
         _ready = true;
         _connectFailed = false;
-        _status = 'Listo · toca para hablar';
+        _status = 'LISTO · toca para hablar';
       });
       _stabilizer?.dispose();
       _stabilizer = PrivateCallStabilizer(
@@ -205,7 +205,7 @@ class PersonalRadioBarState extends State<PersonalRadioBar> {
         if (mounted) {
           setState(() {
             _pttOn = false;
-            _status = 'Listo · toca para hablar';
+            _status = 'LISTO · toca para hablar';
           });
         }
         HapticFeedback.selectionClick();

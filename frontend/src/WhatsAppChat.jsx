@@ -1172,7 +1172,7 @@ export default function WhatsAppChat({
               const [f] = takeFilesFromInput(e.target);
               if (!f) return;
               if (!isDocumentFile(f)) {
-                setActionHint('Solo documentos (PDF, Word, Excel, PowerPoint, texto, etc.)');
+                setActionHint('Solo documentos (PDF, Office, ZIP, texto, etc.)');
                 return;
               }
               pickFile(f, 'file');

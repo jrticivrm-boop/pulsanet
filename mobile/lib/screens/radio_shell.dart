@@ -805,6 +805,25 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
         );
       });
     }
+    final kick = session.consumeSessionKickNotice();
+    if (kick != null && kick.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(kick), duration: const Duration(seconds: 4)),
+        );
+        await widget.onLogout();
+      });
+    }
+    final senderFb = session.consumePanicSenderNotice();
+    if (senderFb != null && senderFb.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(senderFb), duration: const Duration(seconds: 4)),
+        );
+      });
+    }
     if (session.incomingPrivateCall != null && !_privateCallDialogOpen) {
       final call = Map<String, dynamic>.from(session.incomingPrivateCall!);
       final intent = call['intent']?.toString();

@@ -17,6 +17,8 @@ class ApiClient {
   ApiClient();
 
   static const _timeout = Duration(seconds: 8);
+  /// Subidas de chat (video/docs grandes); el timeout corto de API no aplica aquí.
+  static const _uploadTimeout = Duration(seconds: 180);
 
   /// Un cliente con keep-alive para todo el proceso: evita un handshake TCP+TLS
   /// por petición (GPS, presencia, chat) en datos móviles.
@@ -657,6 +659,7 @@ class ApiClient {
     String type = 'file',
     String? body,
     String? replyToId,
+    bool viewOnce = false,
   }) async {
     return _uploadChatMedia(
       () => Uri.parse(
@@ -668,6 +671,7 @@ class ApiClient {
       type: type,
       body: body,
       replyToId: replyToId,
+      viewOnce: viewOnce,
     );
   }
 
@@ -679,6 +683,7 @@ class ApiClient {
     String type = 'file',
     String? body,
     String? replyToId,
+    bool viewOnce = false,
   }) async {
     return _uploadChatMedia(
       () => Uri.parse('${AppConfig.apiBaseUrl}/api/dm/$peerId/messages/media'),
@@ -688,7 +693,32 @@ class ApiClient {
       type: type,
       body: body,
       replyToId: replyToId,
+      viewOnce: viewOnce,
     );
+  }
+
+  /// Destinatario: abre ver-una-vez (marca opened; media accesible hasta consume).
+  Future<Map<String, dynamic>> openDmViewOnce(
+    String peerId,
+    String messageId,
+  ) async {
+    final data = await _post(
+      '/api/dm/$peerId/messages/$messageId/view-once',
+      {},
+    );
+    return Map<String, dynamic>.from(data['message'] as Map? ?? const {});
+  }
+
+  /// Destinatario: soft-delete tras ver.
+  Future<Map<String, dynamic>> consumeDmViewOnce(
+    String peerId,
+    String messageId,
+  ) async {
+    final data = await _post(
+      '/api/dm/$peerId/messages/$messageId/view-once/consume',
+      {},
+    );
+    return Map<String, dynamic>.from(data['message'] as Map? ?? const {});
   }
 
   /// Archivo de PTT para RESERVADO / Grabaciones (misma API que la consola web).
@@ -777,6 +807,7 @@ class ApiClient {
     String type = 'file',
     String? body,
     String? replyToId,
+    bool viewOnce = false,
     bool hairpinRetried = false,
   }) async {
     MediaType? contentType;
@@ -795,6 +826,7 @@ class ApiClient {
       request.fields['type'] = type;
       if (body != null && body.isNotEmpty) request.fields['body'] = body;
       if (replyToId != null) request.fields['replyToId'] = replyToId;
+      if (viewOnce) request.fields['viewOnce'] = 'true';
       request.files.add(
         await http.MultipartFile.fromPath(
           'file',
@@ -808,11 +840,11 @@ class ApiClient {
 
     try {
       var request = await build();
-      var streamed = await request.send().timeout(_timeout);
+      var streamed = await request.send().timeout(_uploadTimeout);
       if (streamed.statusCode == 401) {
         if (await tryRefresh()) {
           request = await build();
-          streamed = await request.send().timeout(_timeout);
+          streamed = await request.send().timeout(_uploadTimeout);
         }
       }
       final res = await http.Response.fromStream(streamed);
@@ -829,6 +861,7 @@ class ApiClient {
                   type: type,
                   body: body,
                   replyToId: replyToId,
+                  viewOnce: viewOnce,
                   hairpinRetried: true,
                 ),
       );
@@ -846,6 +879,7 @@ class ApiClient {
         type: type,
         body: body,
         replyToId: replyToId,
+        viewOnce: viewOnce,
         hairpinRetried: true,
       );
     }

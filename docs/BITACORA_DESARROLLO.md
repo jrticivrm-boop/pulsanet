@@ -1,3 +1,31 @@
+## 2026-10-17 — Usuarios: Exportar y Columnas como Parque Vehicular
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - Botón «Excel» → «Exportar» verde (icono descarga), primero en la barra: Exportar · Filtros · Columnas (variantes por tema; Obscuro = colores de PV).
+  - Exporta las columnas visibles en el orden del panel Columnas (Grado y especialidad → Grado + Especialidad; Nombre → + Matrícula; Ubicación → coordenadas, estado, municipio, localidad, colonia, C.P., ejido).
+  - Nuevo `excelReport.js` (port de `pv-excel-report.js`): título, subtítulo «IV Región Militar · TacticalPtx», banda «REPORTE OFICIAL · USO INTERNO», metadatos, criterios de consulta, No., bandas, autofiltro, encabezado fijo, pie y hoja «Resumen» (grados, tipos de servicio, perfiles, alcance, estado). ExcelJS se carga bajo demanda desde `/vendor/exceljs.min.js` (no entra al bundle).
+- **Por qué / notas:** el panel Columnas ya era el de PV (Restablecer, ⠿, ↑/↓); no cambió. `xlsxExport.js` queda sin uso en Usuarios.
+- **Archivos / refs:** `frontend/src/excelReport.js`, `frontend/public/vendor/exceljs.min.js`, `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`
+
+## 2026-10-17 — Territorio: color del 40/o. B.I. distinto del 77/o. B.I.
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - El 40/o. B.I. (S.L.P.) pasa de morado `#8f5bb0` a verde salvia `#5f8f4f` (misma luminosidad/saturación que el resto); antes se confundía con el morado del 77/o. B.I., su vecino. Se probó un verde limón `#8fae1f` pero era demasiado brillante y tapaba las divisiones.
+  - Borde de cada municipio 35 % más oscuro que su relleno (antes del mismo color): se distinguen los municipios de una misma unidad.
+  - Pares colindantes: ΔE mínima 47; 40/o–77/o = 89, 40/o–36/o = 64, 40/o–22/o = 82.
+- **Archivos / refs:** `frontend/src/dispatch/ivRmTerritoryConfig.js` (`IV_RM_UNIDAD_COLORS`), `frontend/src/dispatch/IvRmTerritoryLayer.jsx` (`darkenHex`)
+
+## 2026-10-17 — Barra Territorio: Encuadrar / Limpiar alineados
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** Los botones «Encuadrar» y «Limpiar» se apilaban en vertical (rejilla de `.map-field`) y el de arriba quedaba cortado. Ahora van lado a lado, alineados abajo con los selectores; las casillas usan la misma altura de control.
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css` (`.map-ops-panel--territorio > .map-field--actions`)
+
 ## 2026-10-17 — Globo del operador: municipio y estado tras el distintivo
 
 - **Tipo:** ux
@@ -7,6 +35,17 @@
   - Origen: el municipio/estado guardado en el usuario; si no hay (hoy ningún usuario lo tiene), se calcula de su posición GPS con los municipios IV R.M. en el navegador y, fuera de la región, con `/api/geo/admin-at` (caché por coordenada ~100 m).
   - Estado abreviado (`abreviarEstado`): N.L., Tamps., S.L.P. y el resto de la República (Coah., Ver., CDMX, Edo. Méx., …); ej. «Tampico, Tamps.».
 - **Archivos / refs:** `frontend/src/dispatch/mapOperatorPopup.jsx` (`useOperatorPlace`, `abreviarEstado`), `frontend/src/dispatch/command-center.css`
+
+## 2026-10-17 — Etiqueta de municipio (capa Territorio) rediseñada
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Al pasar el cursor sobre un municipio: ficha con franja del color de la unidad, nombre del municipio y estado (versalitas) arriba; filas «Zona» y «Unidad(es)» abajo, cada unidad como etiqueta con su punto de color. Colores por tema (claro / verde / obscuro).
+  - Fondo semitransparente (76 % + desenfoque). La ficha ya no tapa el municipio: se coloca fuera de su recuadro, en el primer lado con espacio (derecha → izquierda → abajo → arriba); si el municipio llena el mapa, sigue al cursor desplazada.
+  - Fix: la etiqueta de unidad («25/o. R.C.») se partía en dos renglones; ahora la ficha toma el ancho de su contenido y cada etiqueta va en una sola línea (verificado en los 152 municipios).
+  - Flechita del color de la unidad en el borde de la ficha que mira al municipio (izquierda / derecha / arriba / abajo según donde se colocó).
+- **Archivos / refs:** `frontend/src/dispatch/IvRmTerritoryLayer.jsx`, `frontend/src/dispatch/command-center.css`
 
 ## 2026-10-17 — Globo del operador en el mapa rediseñado
 
@@ -123,6 +162,116 @@
   - Estado/Municipio nacionales (`mx_postcodes`) en cascada; columnas `service_estado` / `service_municipio`.
   - Indicativo: `Grado Apellido, Servicio · Unidad`; migración única limpia cargos que embebían unidades.
 - **Archivos / refs:** `046_servicios_geo.sql`, `catalogs.js`, `admin.js`, `geo.js`, `rfcUsername.js`, `DispatchUsers.jsx`, `migrate-cargo-servicios.js`
+
+## 2026-10-16 — Admin Usuarios/Grupos: scroll-x sin romper thead sticky
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Corrección: NO poner overflow en `.usr-table-wrap` (rompe sticky → filas encima de encabezados).
+  - Scroll horizontal en `.cc-catalogs-body` (`overflow-x: auto`); wrap sigue `overflow: visible`.
+  - Tabla `width: max-content` + celdas `nowrap` para no aplastar columnas al estrechar.
+- **Archivos / refs:** `frontend/src/dispatch/command-center.css`
+
+## 2026-10-16 — APK producción: sin red / DuckDNS (UPnP apuntaba al PC)
+
+- **Tipo:** fix | infra | ops
+- **Área:** infra | mobile
+- **Qué:**
+  - Causa: UPnP 80/443 iba a la PC (`192.168.1.107`) sin Caddy en :443; en 4G la APK no alcanzaba `pulsanet.duckdns.org` (`No route to host`).
+  - Remedio: UPnP a la PC + `netsh portproxy` TCP 443 → VM `192.168.1.150`. Script `infra/ENSURE-SICOM-WAN.ps1`.
+  - Texto login: Wi‑Fi → VM SICOM (no «IP del PC»).
+- **Archivos / refs:** `infra/ENSURE-SICOM-WAN.ps1`, `infra/Reinforce-UPnP.ps1`, `mobile/lib/screens/login_screen.dart`
+
+## 2026-10-15 — Territorio: Tamazunchale 36/o, 77/o B.I., globo «7/a. Z.M.»
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - **Tamazunchale** (SLP) sombreado como **36/o. B.I.**
+  - Bloque Cd. Victoria…Ocampo renombrado a **77/o. B.I.** (48/a. Z.M.).
+  - Globos: formato **«7/a. Z.M.»** (antes «Z.M. 7/a.»).
+- **Archivos / refs:** `ivRmTerritoryCatalog.json`, `ivRmMunicipios.json`, `IvRmTerritoryLayer.jsx`
+
+## 2026-10-15 — Territorio: colores por unidad más nítidos + Laredo/Guerrero + globo suave
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Sombreado más nítido; cada unidad un color distinto (p. ej. todo el 19/o. R.C. mismo tono).
+  - **Nuevo Laredo** solo 16/o. R.C.; **Guerrero (TM)** solo 29/o. R.C.
+  - Globo de hover más pequeño y menos invasivo.
+- **Archivos / refs:** `ivRmTerritoryCatalog.json`, `ivRmMunicipios.json`, `ivRmTerritoryConfig.js`, `IvRmTerritoryLayer.jsx`, `command-center.css`
+
+## 2026-10-15 — Territorio: Carmen/Rioverde + color por unidad + globo
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:**
+  - Añadidos **Carmen (NL → 16/o. B.I.)** y **Rio Verde (SLP → 36/o. B.I.)** al catálogo/GeoJSON (faltaban en el XLS).
+  - Relleno del mapa por **unidad** con colores tenues (no por Z.M. nitida).
+  - Globo de hover: fondo claro tenue, municipio arriba y Z.M./unidad/estado abajo (sin desfase de flecha).
+- **Archivos / refs:** `ivRmTerritoryCatalog.json`, `ivRmMunicipios.json`, `IvRmTerritoryLayer.jsx`, `ivRmTerritoryConfig.js`, `command-center.css`
+
+## 2026-10-15 — PTT flotante del mapa: PEDINDO / DESPERTANDO
+
+- **Tipo:** fix | ux
+- **Área:** web
+- **Qué:** El botón PTT flotante de la consola maximizada muestra **PEDINDO / DESPERTANDO / AL AIRE** (antes solo PTT/AL AIRE).
+- **Archivos / refs:** `frontend/src/dispatch/MapPttFloat.jsx`
+
+## 2026-10-15 — P1 Radio/PTT feedback + mensajería (límites, voz DM, multi-imagen)
+
+- **Tipo:** mejora
+- **Área:** mobile | web | backend
+- **Qué:**
+  - APK/web PTT: estados claros **PEDINDO / DESPERTANDO / AL AIRE** (`pttArmed`, `ptt:waking`) para que la espera de grant no parezca fallo; tipografía alineada en radio grupal y radio 1:1 (LISTO/AL AIRE).
+  - Chat web DM: nota de voz (mic) como en grupo; picker de documentos admite ZIP; tope video 80 MB y docs ~2 GB en API; timeout de subida móvil 180 s (antes el de API ~8 s mataba docs/videos grandes).
+  - Galería móvil: envío multi-imagen en cola (grupo y DM).
+- **Por qué / notas:** P1 operativo; sin despliegue a producción ni APK en este paso. GPS idle/geofence sin cambio (riesgo/beneficio bajo).
+- **Archivos / refs:** `mobile/lib/channel_session.dart`, `mobile/lib/screens/radio_screen.dart`, `frontend/src/usePtt.js`, `frontend/src/DirectChat.jsx`, `backend/src/services/uploads.js`, `mobile/lib/api_client.dart`
+
+## 2026-10-15 — P2 mensajería: ver una vez (DM) + composer UX; Shorebird/OTA nota
+
+- **Tipo:** feature | ux | docs
+- **Área:** backend | web | mobile | database | docs
+- **Qué:**
+  - **Ver una vez (DM imagen/video):** flag `view_once` + `view_once_opened_at` (migración `045_message_view_once.sql`). Subida con `viewOnce=true`; destinatario abre (`POST …/view-once`), ve media y al cerrar se soft-borra (`…/view-once/consume`). Media GET bloqueada al destinatario hasta abrir. App + web DM; emisor ve miniatura/pendiente; push «📷/🎬 Ver una vez».
+  - **Composer UX:** sheet móvil con miniatura, autofocus, Enter=enviar y toggle ver-una-vez (DM); `TextInputAction.send` en composer; modal web con casilla ver-una-vez (solo DirectChat).
+  - **Shorebird / OTA:** no hay `shorebird.yaml` (OTA Shorebird no configurada; gap). OTA propia APK sigue apagada (`backend/app-updates/android.json` → `versionCode: 0`). Para publicar OTA sideload sin romper el flujo normal: `powershell -File mobile\scripts\Publish-ApkUpdate.ps1 -Ota` (sin `-Ota` solo deja el APK en soporte).
+- **Por qué / notas:** P2 factible con cambios quirúrgicos. Diferido: ver-una-vez en canales/grupo (varios destinatarios), Shorebird OTA desde cero, compilar APK, despliegue producción. Requiere aplicar migración 045 en el ambiente.
+- **Archivos / refs:** `database/migrations/045_message_view_once.sql`, `backend/src/services/dm.js`, `backend/src/routes/dm.js`, `backend/src/routes/messages.js`, `backend/src/socket/chat.js`, `mobile/lib/widgets/chat_attach_sheet.dart`, `mobile/lib/screens/direct_pane.dart`, `mobile/lib/api_client.dart`, `frontend/src/DirectChat.jsx`, `frontend/src/MediaComposerModal.jsx`, `frontend/src/api.js`
+
+## 2026-10-15 — Territorio IV R.M.: municipios por Zona Militar en Config y Consola
+
+- **Tipo:** feature | ux
+- **Área:** web
+- **Qué:**
+  - Catálogo de 151 adscripciones (XLS institucional) → 149 polígonos municipales (geoBoundaries ADM2) coloreados por 8/a., 48/a., 7/a. y 12/a. Z.M.
+  - Configuración → Estados: bloque «Zonas Militares · municipios» (colores, capas, mapas).
+  - Consola: pestaña **Territorio** (región / zona / unidad / municipio, colores on-off, filtrar usuarios en selección, encuadrar). Hover resalta cada municipio con tooltip.
+  - Capa también en mapa de Radio (superficie configurable).
+- **Archivos / refs:** `frontend/public/geo/ivRmMunicipios.json`, `ivRmTerritoryCatalog.json`, `ivRmTerritoryConfig.js`, `IvRmTerritoryLayer.jsx`, `TerritoryOpsPanel.jsx`, `ConfigTerritory.jsx`, `DispatchMap.jsx`, `infra/_build_ivrm_municipios.py`
+
+## 2026-10-15 — P0: kick de sesión, feedback al emisor de alerta, force-logout en consola
+
+- **Tipo:** feature | fix | security
+- **Área:** backend | web | mobile
+- **Qué:**
+  - Al desactivar, cambiar rol/perfil o restablecer clave (y al eliminar usuario): se invalidan refresh tokens y se emite `session:replaced` (`force_logout`) para cerrar web y app al instante.
+  - Emisor de alerta recibe aviso por socket cuando alguien pulsa Enterado o se atiende/cancela (web flash + SnackBar en app).
+  - Consola Usuarios → Más → «Cerrar sesiones» (POST force-logout). Web muestra mensaje según motivo (no siempre «otro dispositivo»); app escucha `session:replaced` y hace logout limpio.
+- **Archivos / refs:** `backend/src/routes/admin.js`, `backend/src/routes/panic.js`, `backend/src/services/panic.js`, `frontend/src/SessionKickHost.jsx`, `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/usePtt.js`, `frontend/src/pages/RadioPage.jsx`, `mobile/lib/channel_session.dart`, `mobile/lib/screens/radio_shell.dart`
+
+## 2026-10-15 — iOS: repo listo para compilar (pendiente Apple Developer)
+
+- **Tipo:** feature
+- **Área:** mobile
+- **Qué:**
+  - Preparación para el primer IPA: no invocar MethodChannels solo de Android en iOS (`android_native.dart`); `AppDelegate` configura Firebase/push si existe el plist; `build-ios.sh` con `API_BASE=https://pulsanet.duckdns.org` y `--no-codesign`; ExportOptions App Store/Ad Hoc; `nudge_buzz.wav` en el bundle iOS; `GoogleService-Info.plist` en `.gitignore`.
+  - Documentación: `docs/IOS_PENDIENTE_APPLE.md`, `docs/APP_IOS.md`, `C:\pulsanet_soporte\Documentos\IOS_TESTFLIGHT_CHECKLIST.md`, `IOS_BUILD_MAC.md`, carpeta `C:\pulsanet_soporte\iOS\`.
+  - La MacBook Pro 2017 / Ventura no sirve para el build final (hace falta Xcode 16+ o Codemagic). Compilar cuando haya cuenta Apple + Firebase iOS + APNs.
+- **Archivos / refs:** `mobile/lib/android_native.dart`, `mobile/ios/Runner/AppDelegate.swift`, `mobile/scripts/build-ios.sh`, `codemagic.yaml`, `docs/IOS_PENDIENTE_APPLE.md`
 
 ## 2026-10-15 — Presentación ejecutiva de funcionalidades de SICOM
 

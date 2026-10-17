@@ -4,6 +4,7 @@ import {
   hydrateMessage,
   formatMessage,
   formatFreshMessage,
+  redactViewOnceForViewer,
   loadReactionsSummary,
   normalizeEmoji,
   REACTION_NORMALIZED,
@@ -184,10 +185,10 @@ export async function listDmMessages(userId, peerId, { limit = 120 } = {}) {
   // Últimos N (DESC) y luego ASC para pintar el hilo en orden cronológico.
   const { rows } = await query(
     `SELECT id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
-            reply_to_id, edited_at, deleted_at, created_at
+            reply_to_id, edited_at, deleted_at, view_once, view_once_opened_at, created_at
      FROM (
        SELECT id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
-              reply_to_id, edited_at, deleted_at, created_at
+              reply_to_id, edited_at, deleted_at, view_once, view_once_opened_at, created_at
        FROM messages
        WHERE group_id IS NULL
          AND recipient_id IS NOT NULL
@@ -220,9 +221,13 @@ export async function insertDmMessage({
   mediaSize = null,
   replyToId = null,
   displayName = null,
+  viewOnce = false,
 }) {
   if (!senderId) throw new Error('Sesión inválida — vuelve a iniciar sesión');
   if (!recipientId) throw new Error('Destinatario no válido');
+
+  const wantViewOnce =
+    Boolean(viewOnce) && (type === 'image' || type === 'video');
 
   let safeReply = null;
   let reply = null;
@@ -256,10 +261,10 @@ export async function insertDmMessage({
     ({ rows } = await query(
       `INSERT INTO messages (
          group_id, sender_id, recipient_id, type, body,
-         media_url, media_mime, media_name, media_size, reply_to_id
-       ) VALUES (NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9)
+         media_url, media_mime, media_name, media_size, reply_to_id, view_once
+       ) VALUES (NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
-                 reply_to_id, edited_at, deleted_at, created_at`,
+                 reply_to_id, edited_at, deleted_at, view_once, view_once_opened_at, created_at`,
       [
         senderId,
         recipientId,
@@ -270,6 +275,7 @@ export async function insertDmMessage({
         mediaName,
         mediaSize,
         safeReply,
+        wantViewOnce,
       ]
     ));
   } catch (err) {
@@ -330,7 +336,7 @@ export async function softDeleteDmMessage({
          media_size = NULL
      WHERE id = $1
      RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
-               reply_to_id, edited_at, deleted_at, created_at`,
+               reply_to_id, edited_at, deleted_at, view_once, view_once_opened_at, created_at`,
     [messageId]
   );
   return hydrateDmMessage(updated[0], userId);
@@ -503,7 +509,107 @@ export async function hydrateDmMessage(row, viewerUserId = null) {
       if (!/message_deliveries/i.test(err?.message || '')) throw err;
     }
   }
+  return redactViewOnceForViewer(msg, viewerUserId);
+}
+
+/**
+ * Destinatario abre un ver-una-vez: marca apertura y devuelve media (sin redactar).
+ */
+export async function openViewOnceDmMessage({ peerId, messageId, userId }) {
+  const { rows } = await query(
+    `SELECT id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
+            reply_to_id, edited_at, deleted_at, view_once, view_once_opened_at, created_at
+     FROM messages
+     WHERE id = $1 AND group_id IS NULL AND recipient_id IS NOT NULL
+       AND (
+         (sender_id = $2 AND recipient_id = $3)
+         OR (sender_id = $3 AND recipient_id = $2)
+       )`,
+    [messageId, userId, peerId]
+  );
+  const row = rows[0];
+  if (!row) throw new Error('Mensaje no encontrado');
+  if (row.deleted_at) throw new Error('El mensaje está eliminado');
+  if (!row.view_once) throw new Error('No es un mensaje ver una vez');
+  if (String(row.recipient_id) !== String(userId)) {
+    throw new Error('Solo el destinatario puede abrir ver una vez');
+  }
+  if (!row.media_url) throw new Error('Media no disponible');
+  if (!['image', 'video'].includes(row.type)) {
+    throw new Error('Solo imagen o video');
+  }
+
+  if (!row.view_once_opened_at) {
+    const { rows: updated } = await query(
+      `UPDATE messages
+       SET view_once_opened_at = NOW()
+       WHERE id = $1 AND view_once_opened_at IS NULL
+       RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
+                 reply_to_id, edited_at, deleted_at, view_once, view_once_opened_at, created_at`,
+      [messageId]
+    );
+    Object.assign(row, updated[0] || {});
+  }
+
+  const msg = await hydrateDmMessage(row, row.sender_id);
+  // hydrate con viewer=sender conserva mediaUrl; forzar para el abridor
+  msg.mediaUrl = `/api/media/${row.id}`;
+  msg.viewOncePending = false;
+  msg.viewOnceOpenedAt = row.view_once_opened_at || new Date().toISOString();
   return msg;
+}
+
+/**
+ * Tras ver: soft-delete (destinatario de ver-una-vez, aunque no sea el emisor).
+ */
+export async function consumeViewOnceDmMessage({ peerId, messageId, userId }) {
+  const { rows } = await query(
+    `SELECT id, sender_id, recipient_id, deleted_at, view_once, view_once_opened_at
+     FROM messages
+     WHERE id = $1 AND group_id IS NULL AND recipient_id IS NOT NULL
+       AND (
+         (sender_id = $2 AND recipient_id = $3)
+         OR (sender_id = $3 AND recipient_id = $2)
+       )`,
+    [messageId, userId, peerId]
+  );
+  const row = rows[0];
+  if (!row) throw new Error('Mensaje no encontrado');
+  if (row.deleted_at) {
+    const { rows: full } = await query(
+      `SELECT id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
+              reply_to_id, edited_at, deleted_at, view_once, view_once_opened_at, created_at
+       FROM messages WHERE id = $1`,
+      [messageId]
+    );
+    return hydrateDmMessage(full[0], userId);
+  }
+  if (!row.view_once) throw new Error('No es un mensaje ver una vez');
+  if (String(row.recipient_id) !== String(userId)) {
+    throw new Error('Solo el destinatario puede cerrar ver una vez');
+  }
+  if (!row.view_once_opened_at) {
+    await query(
+      `UPDATE messages SET view_once_opened_at = NOW() WHERE id = $1 AND view_once_opened_at IS NULL`,
+      [messageId]
+    );
+  }
+
+  await query(`DELETE FROM message_reactions WHERE message_id = $1`, [messageId]);
+  const { rows: updated } = await query(
+    `UPDATE messages
+     SET deleted_at = NOW(),
+         body = NULL,
+         media_url = NULL,
+         media_mime = NULL,
+         media_name = NULL,
+         media_size = NULL
+     WHERE id = $1
+     RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
+               reply_to_id, edited_at, deleted_at, view_once, view_once_opened_at, created_at`,
+    [messageId]
+  );
+  return hydrateDmMessage(updated[0], userId);
 }
 
 /**

@@ -1,10 +1,15 @@
 import 'package:flutter/services.dart';
 
+import 'android_native.dart';
+
 const _notifyChannel = MethodChannel('com.tacticalptx.app/notifications');
 
 enum PhoneRingerMode { silent, vibrate, normal, unknown }
 
 Future<PhoneRingerMode> readPhoneRingerMode() async {
+  // En iOS el modo silencio/Focus no se lee por este canal; asumir «normal»
+  // y dejar que el sistema silencie notificaciones / audioplayers.
+  if (!kIsAndroidNative) return PhoneRingerMode.unknown;
   try {
     final v = await _notifyChannel.invokeMethod<String>('getRingerMode');
     switch (v) {

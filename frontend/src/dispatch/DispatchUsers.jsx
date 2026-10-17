@@ -9,6 +9,7 @@ import {
   fetchAccessProfiles,
   canManageUsers,
   unlockAdminUserLogin,
+  forceLogoutAdminUser,
   isRootUser,
   patchAdminUser,
   previewAdminUsername,
@@ -25,7 +26,7 @@ import { formatMatriculaInput, isValidMatricula, matriculaDigitMax, splitMatricu
 import { openPeerSheet } from '../peerActions';
 import { NEW_CHANNEL_BTN_SVG } from './ThFilterMulti.jsx';
 import useAdminStickyToolbarHeight from './useAdminStickyToolbarHeight.js';
-import { buildXlsx, downloadBlob } from '../xlsxExport.js';
+import { exportInstitutionalReport } from '../excelReport.js';
 import { formatDistintivo } from './mapOperatorPopup.jsx';
 
 const ROLE_OPTIONS = [
@@ -791,13 +792,106 @@ const USR_FILTER_BTN_SVG = (
   </svg>
 );
 
-/** Icono Excel (hoja con cuadrícula). */
-const USR_EXCEL_BTN_SVG = (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="3" y="3" width="18" height="18" rx="2" />
-    <path d="M3 9h18M3 15h18M9 3v18" />
+/** Icono Exportar (Parque Vehicular: flecha de descarga). */
+const USR_EXPORT_BTN_SVG = (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+    <path d="M12 3v11m0 0-4-4m4 4 4-4" />
+    <path d="M5 19h14" />
   </svg>
 );
+
+/** Columnas del Excel por columna visible de la tabla (algunas se desglosan en varias). */
+const USER_EXPORT_COLS = {
+  grade: [
+    ['Grado', (u) => u.grade || ''],
+    ['Especialidad', (u) => u.specialty || ''],
+  ],
+  name: [
+    ['Nombre completo', (u) => u.fullName || u.displayName || ''],
+    ['Matrícula', (u) => (u.matricula ? formatMatriculaInput(u.matricula) : '')],
+  ],
+  user: [['Usuario', (u) => u.username || '']],
+  phone: [['No. Tel.', (u) => (u.phone ? formatPhoneInput(u.phone) : '')]],
+  service: [['Tipo de servicio', (u) => u.cargo || '']],
+  serviceName: [['Distintivo', (u) => u.serviceNombre || '']],
+  serviceGeo: [
+    ['Coordenadas', (u) => formatCoords(u.serviceLat, u.serviceLng)],
+    ['Estado (ubicación)', (u) => u.serviceGeoEstado || ''],
+    ['Municipio', (u) => u.serviceGeoMunicipio || ''],
+    ['Localidad', (u) => u.serviceGeoLocalidad || ''],
+    ['Colonia', (u) => u.serviceGeoColonia || ''],
+    ['C.P.', (u) => u.serviceGeoCp || ''],
+    ['Ejido', (u) => u.serviceGeoEjido || ''],
+  ],
+  profile: [['Perfil', (u) => userExportValue(u, 'profile')]],
+  scope: [['Alcance', (u) => userExportValue(u, 'scope')]],
+  status: [['Estado', (u) => userExportValue(u, 'status')]],
+  created: [['Registrado', (u) => userExportValue(u, 'created')]],
+  seen: [['Último acceso', (u) => userExportValue(u, 'seen')]],
+};
+
+/** Hoja Resumen: conteos y listas de valores distintos según las columnas exportadas. */
+function buildUsersExportSummary(list, visibleKeys) {
+  const items = [];
+  const distinct = (get) => {
+    const counts = new Map();
+    for (const u of list) {
+      const v = String(get(u) ?? '').trim();
+      if (v) counts.set(v, (counts.get(v) || 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es', { sensitivity: 'base' }));
+  };
+  const pushList = (label, get) => {
+    const entries = distinct(get);
+    if (entries.length) items.push({ label, total: entries.length, detail: entries.map(([v]) => v).join(', ') });
+  };
+  const pushCounted = (label, get) => {
+    const entries = distinct(get);
+    if (entries.length) {
+      items.push({ label, total: entries.length, detail: entries.map(([v, n]) => `${v} (${n})`).join(', ') });
+    }
+  };
+  const pushCount = (label, n) => {
+    if (n > 0) items.push({ label, total: n, detail: '' });
+  };
+  for (const key of visibleKeys) {
+    switch (key) {
+      case 'grade':
+        pushList('Grados', (u) => u.grade);
+        break;
+      case 'name':
+        pushCount('Usuarios registrados', list.length);
+        break;
+      case 'phone':
+        pushCount('Con teléfono', list.filter((u) => u.phone).length);
+        break;
+      case 'service':
+        pushCounted('Tipo de servicio', (u) => u.cargo);
+        break;
+      case 'serviceName':
+        pushCount('Distintivos registrados', distinct((u) => u.serviceNombre).length);
+        break;
+      case 'serviceGeo':
+        pushList('Estados (ubicación)', (u) => u.serviceGeoEstado);
+        pushList('Municipios', (u) => u.serviceGeoMunicipio);
+        break;
+      case 'profile':
+        pushCounted('Perfil', (u) => roleLabel(u.role));
+        break;
+      case 'scope':
+        pushCounted('Alcance', (u) => alcanceLabel(u));
+        break;
+      case 'status':
+        pushCount('Estado — Activo', list.filter((u) => u.isActive).length);
+        pushCount('Estado — Inactivo', list.filter((u) => !u.isActive).length);
+        pushCount('Estado — Bloqueado', list.filter((u) => u.loginLocked).length);
+        break;
+      default:
+        break;
+    }
+  }
+  return items;
+}
 
 const USERS_PAGE_SIZE = 15;
 
@@ -1455,6 +1549,7 @@ export default function DispatchUsers({ session }) {
   const [colsOpen, setColsOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [colConfig, setColConfig] = useState(loadUserColConfig);
+  const [exporting, setExporting] = useState(false);
   const colsWrapRef = useRef(null);
   const { toolbarRef, stickyPageStyle } = useAdminStickyToolbarHeight();
   const [colDragIdx, setColDragIdx] = useState(null);
@@ -2399,6 +2494,18 @@ export default function DispatchUsers({ session }) {
     }
   }
 
+  async function forceLogout(u) {
+    const name = u.displayName || u.username || 'este usuario';
+    if (!window.confirm(`¿Cerrar todas las sesiones de ${name} (web y app)?`)) return;
+    try {
+      await forceLogoutAdminUser(session.token, u.id);
+      setError('');
+      setMoreUserId(null);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function togglePanicPerm(u) {
     try {
       await patchAdminUser(session.token, u.id, { canReceivePanic: !u.canReceivePanic });
@@ -2547,34 +2654,47 @@ export default function DispatchUsers({ session }) {
     }
   }
 
-  function exportUsersExcel() {
-    const cols = [
-      ['Grado', (u) => u.grade || ''],
-      ['Especialidad', (u) => u.specialty || ''],
-      ['Nombre completo', (u) => u.fullName || u.displayName || ''],
-      ['Matrícula', (u) => (u.matricula ? formatMatriculaInput(u.matricula) : '')],
-      ['No. Tel.', (u) => (u.phone ? formatPhoneInput(u.phone) : '')],
-      ['Tipo de servicio', (u) => u.cargo || ''],
-      ['Distintivo', (u) => u.serviceNombre || ''],
-      ['Coordenadas', (u) => formatCoords(u.serviceLat, u.serviceLng)],
-      ['Estado (ubicación)', (u) => u.serviceGeoEstado || ''],
-      ['Municipio', (u) => u.serviceGeoMunicipio || ''],
-      ['Localidad', (u) => u.serviceGeoLocalidad || ''],
-      ['Colonia', (u) => u.serviceGeoColonia || ''],
-      ['C.P.', (u) => u.serviceGeoCp || ''],
-      ['Ejido', (u) => u.serviceGeoEjido || ''],
-      ['Usuario', (u) => u.username || ''],
-      ['Perfil', (u) => userExportValue(u, 'profile')],
-      ['Alcance', (u) => userExportValue(u, 'scope')],
-      ['Estado', (u) => userExportValue(u, 'status')],
-      ['Alta', (u) => userExportValue(u, 'created')],
-      ['Última conexión', (u) => userExportValue(u, 'seen')],
-    ];
-    const headers = ['N.º', ...cols.map(([label]) => label)];
-    const rows = filteredUsers.map((u, i) => [i + 1, ...cols.map(([, get]) => get(u))]);
-    const d = new Date();
-    const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    downloadBlob(buildXlsx({ sheetName: 'Usuarios', headers, rows }), `usuarios_${stamp}.xlsx`);
+  /** Exportar (estilo Parque Vehicular): columnas visibles en su orden, lista filtrada. */
+  async function exportUsersExcel() {
+    const visible = colConfig.filter((c) => c.visible !== false && USER_EXPORT_COLS[c.key]);
+    if (!visible.length) {
+      setError('No hay columnas visibles para exportar.');
+      return;
+    }
+    if (!filteredUsers.length) {
+      setError('No hay usuarios para exportar con los filtros actuales.');
+      return;
+    }
+    const cols = visible.flatMap((c) => USER_EXPORT_COLS[c.key]);
+    const filters = [];
+    const q = search.trim();
+    if (q) filters.push(`Búsqueda: ${q}`);
+    for (const [key, selected] of Object.entries(colFilters)) {
+      if (!usrColFilterIsActive(selected)) continue;
+      const label = USER_TABLE_COLS.find((c) => c.key === key)?.label || key;
+      filters.push(`${label}: ${usrColFilterIsNone(selected) ? 'ninguno' : selected.join(', ')}`);
+    }
+    const me = session.user || {};
+    const meName = String(me.displayName || me.username || '').trim();
+    const meRole = me.role ? roleLabel(me.role) : '';
+    setExporting(true);
+    try {
+      await exportInstitutionalReport({
+        sheetName: 'Usuarios',
+        title: 'Reporte de Usuarios',
+        module: 'Usuarios',
+        exportedBy: meRole && meName ? `${meName} · ${meRole}` : meName || 'Usuario',
+        filters,
+        headers: cols.map(([label]) => label),
+        rows: filteredUsers.map((u) => cols.map(([, get]) => get(u))),
+        summary: buildUsersExportSummary(filteredUsers, visible.map((c) => c.key)),
+      });
+      setError('');
+    } catch (err) {
+      setError(err.message || 'No se pudo exportar a Excel.');
+    } finally {
+      setExporting(false);
+    }
   }
 
   function downloadCsv() {
@@ -2671,6 +2791,16 @@ export default function DispatchUsers({ session }) {
             <div className="usr-table-tools">
               <button
                 type="button"
+                className="usr-btn-report"
+                title="Exportar columnas visibles a Excel"
+                disabled={loading || exporting || filteredUsers.length === 0}
+                onClick={exportUsersExcel}
+              >
+                {USR_EXPORT_BTN_SVG}
+                {exporting ? 'Exportando…' : 'Exportar'}
+              </button>
+              <button
+                type="button"
                 className={`usr-btn-filters${filtersVisible ? ' active' : ''}`}
                 title={filtersVisible ? 'Quitar filtros' : 'Mostrar filtros'}
                 onClick={(e) => {
@@ -2759,16 +2889,6 @@ export default function DispatchUsers({ session }) {
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                className="usr-btn-cols usr-btn-excel"
-                title="Exportar a Excel los usuarios de la lista (con búsqueda y filtros aplicados)"
-                disabled={loading || filteredUsers.length === 0}
-                onClick={exportUsersExcel}
-              >
-                {USR_EXCEL_BTN_SVG}
-                Excel
-              </button>
             </div>
             {canAddUser ? (
               <span className="cc-groups-new-channel-wrap">
@@ -2999,6 +3119,11 @@ export default function DispatchUsers({ session }) {
                             {u.loginLocked && (
                               <button type="button" onClick={() => { setMoreUserId(null); unlockLogin(u); }}>
                                 Desbloquear
+                              </button>
+                            )}
+                            {canEdit && (
+                              <button type="button" onClick={() => forceLogout(u)}>
+                                Cerrar sesiones
                               </button>
                             )}
                             {['unit_user', 'zone_user', 'region_user'].includes(u.role) && canEdit && (

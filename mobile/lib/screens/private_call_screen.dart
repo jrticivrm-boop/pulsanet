@@ -757,7 +757,7 @@ class _PrivateCallScreenState extends State<PrivateCallScreen>
         setState(() {
           _muted = false;
           _pttHeld = true;
-          _status = 'AL AIRE';
+          _status = 'AL AIRE · suelta para escuchar';
         });
       }
       HapticFeedback.mediumImpact();
@@ -774,7 +774,9 @@ class _PrivateCallScreenState extends State<PrivateCallScreen>
         setState(() {
           _muted = true;
           _pttHeld = false;
-          _status = _connected ? 'Radio activa' : 'Radio con ${widget.peerName}';
+          _status = _connected
+              ? 'LISTO · mantén PTT para hablar'
+              : 'Radio con ${widget.peerName}';
         });
       }
     } catch (_) {}

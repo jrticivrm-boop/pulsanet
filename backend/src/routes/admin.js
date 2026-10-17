@@ -1217,7 +1217,7 @@ adminRouter.post('/users/:id/force-logout', requireUserManager, async (req, res)
   await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [existing[0].id]);
   await forceLogoutUserSockets(
     existing[0].id,
-    'Tu sesión web se cerró. Si eres usuario de app, ingresa solo desde la aplicación móvil.'
+    'Tu sesión fue cerrada por un administrador.'
   );
   void logActivity({
     organizationId: req.user.orgId,
@@ -1742,9 +1742,26 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
       meta: { by: req.user.sub, isActive: u.is_active },
     });
   }
-  if (passwordHash) {
+
+  // Cerrar sesiones al instante: desactivar, cambiar rol/perfil o restablecer clave.
+  const deactivated = Boolean(existing[0].is_active) && !Boolean(u.is_active);
+  const roleChanged = Boolean(role) && String(role) !== String(existing[0].role);
+  const profileChanged =
+    nextProfileId !== undefined &&
+    String(nextProfileId || '') !== String(existing[0].profile_id || '');
+  if (deactivated || roleChanged || profileChanged || passwordHash) {
     await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [u.id]);
+    let kickMsg = 'Tu sesión fue cerrada por un administrador.';
+    if (deactivated) {
+      kickMsg = 'Tu cuenta fue desactivada. Contacta a un administrador.';
+    } else if (passwordHash) {
+      kickMsg = 'Tu contraseña fue restablecida. Inicia sesión de nuevo.';
+    } else if (roleChanged || profileChanged) {
+      kickMsg = 'Tus permisos cambiaron. Inicia sesión de nuevo.';
+    }
+    await forceLogoutUserSockets(u.id, kickMsg);
   }
+
   res.json({
     ok: true,
     user: mapUser(u),
@@ -1781,6 +1798,12 @@ adminRouter.delete('/users/:id', requireUserManager, async (req, res) => {
   } else if (!isRoot(req.user.role) && !isAdmin(req.user.role)) {
     return res.status(403).json({ ok: false, error: 'Sin permiso' });
   }
+
+  await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [req.params.id]);
+  await forceLogoutUserSockets(
+    req.params.id,
+    'Tu cuenta fue eliminada. Contacta a un administrador.'
+  );
 
   const client = await pool.connect();
   try {

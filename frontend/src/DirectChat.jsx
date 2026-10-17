@@ -15,6 +15,8 @@ import {
   deleteDmMessage,
   reactToDmMessage,
   uploadDmMedia,
+  openDmViewOnce,
+  consumeDmViewOnce,
 } from './api';
 import AppDialog from './AppDialog';
 import ChatMedia from './ChatMedia';
@@ -43,6 +45,7 @@ import StarIcon from './StarIcon';
 import WaEmojiPicker from './WaEmojiPicker';
 import PersonAvatar from './PersonAvatar';
 import { startVideoCall, startVoiceCall } from './peerActions';
+import { createVoiceRecorder, getVoiceStream, voiceFileExtension } from './voiceRecord';
 import iconTelefono from './assets/icons/telefono.png';
 import iconVideollamada from './assets/icons/videollamada.png';
 
@@ -166,8 +169,11 @@ export default function DirectChat({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [actionHint, setActionHint] = useState('');
   const [nudgeBusy, setNudgeBusy] = useState(false);
+  const [recording, setRecording] = useState(false);
   const actionHintTimer = useRef(null);
   const menuOpenRef = useRef(false);
+  const mediaRec = useRef(null);
+  const voiceChunks = useRef([]);
 
   function openImageGallery(m) {
     closeMsgMenu();
@@ -824,7 +830,7 @@ export default function DirectChat({
     );
   }
 
-  async function onSendMedia(file, type) {
+  async function onSendMedia(file, type, { replyToId } = {}) {
     if (!peer || !file || uploading) return;
     setShowAttach(false);
     setShowPicker(false);
@@ -839,10 +845,11 @@ export default function DirectChat({
     setUploading(true);
     setError('');
     try {
-      const caption = draft.trim() || undefined;
+      const caption = type === 'audio' ? undefined : draft.trim() || undefined;
       const data = await uploadDmMedia(token, peer.id, file, {
         type,
         body: caption,
+        replyToId: replyToId || replyTo?.id,
       });
       if (data?.message) {
         setMessages((prev) => {
@@ -851,11 +858,48 @@ export default function DirectChat({
         });
       }
       setDraft('');
+      if (replyToId || type === 'audio') setReplyTo(null);
     } catch (err) {
       setError(esMsg(err.message));
     } finally {
       setUploading(false);
     }
+  }
+
+  async function startVoice() {
+    if (editing || uploading || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      return;
+    }
+    try {
+      const stream = await getVoiceStream();
+      const rec = createVoiceRecorder(stream);
+      voiceChunks.current = [];
+      rec.ondataavailable = (ev) => {
+        if (ev.data?.size) voiceChunks.current.push(ev.data);
+      };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const mime = rec.mimeType || 'audio/webm;codecs=opus';
+        const blob = new Blob(voiceChunks.current, { type: mime });
+        if (blob.size < 800) return;
+        const ext = voiceFileExtension(mime);
+        const file = new File([blob], `nota-voz.${ext}`, { type: mime.split(';')[0] });
+        await onSendMedia(file, 'audio', { replyToId: replyTo?.id });
+      };
+      mediaRec.current = rec;
+      rec.start();
+      setRecording(true);
+    } catch {
+      setRecording(false);
+    }
+  }
+
+  function stopVoice() {
+    if (mediaRec.current && mediaRec.current.state !== 'inactive') {
+      mediaRec.current.stop();
+    }
+    mediaRec.current = null;
+    setRecording(false);
   }
 
   function openImages(fileList, caption) {
@@ -884,7 +928,7 @@ export default function DirectChat({
     openImages(imgs, draft);
   }
 
-  async function sendComposerImages(files, caption) {
+  async function sendComposerImages(files, caption, opts = {}) {
     if (!peer || !files?.length) return;
     setUploading(true);
     setError('');
@@ -893,6 +937,7 @@ export default function DirectChat({
         const data = await uploadDmMedia(token, peer.id, files[i], {
           type: 'image',
           body: i === 0 ? caption || undefined : undefined,
+          viewOnce: Boolean(opts.viewOnce),
         });
         if (data?.message) {
           setMessages((prev) => {
@@ -906,6 +951,54 @@ export default function DirectChat({
       setError(esMsg(err.message));
     } finally {
       setUploading(false);
+    }
+  }
+
+  const viewOnceConsumeRef = useRef(null);
+
+  async function finishViewOnceConsume(messageId) {
+    if (!peer || !messageId || !token) return;
+    if (viewOnceConsumeRef.current !== messageId) return;
+    viewOnceConsumeRef.current = null;
+    try {
+      const gone = await consumeDmViewOnce(token, peer.id, messageId);
+      if (gone?.message) {
+        setMessages((prev) =>
+          prev.map((x) =>
+            x.id === messageId
+              ? { ...x, ...gone.message, isDeleted: true, mediaUrl: null, body: null }
+              : x
+          )
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function openViewOnceMessage(m) {
+    if (!peer || !m?.id || !token) return;
+    setError('');
+    try {
+      const data = await openDmViewOnce(token, peer.id, m.id);
+      const opened = data?.message;
+      if (!opened) return;
+      setMessages((prev) =>
+        prev.map((x) => (x.id === opened.id ? { ...x, ...opened, viewOncePending: false } : x))
+      );
+      viewOnceConsumeRef.current = opened.id;
+      if (opened.mediaUrl && isImageMessage(opened)) {
+        setImageGallery({ items: [opened], index: 0 });
+      } else if (opened.mediaUrl) {
+        const blobUrl = await fetchMediaBlobUrl(token, opened.mediaUrl);
+        window.open(blobUrl, '_blank', 'noopener,noreferrer');
+        await finishViewOnceConsume(opened.id);
+      } else {
+        await finishViewOnceConsume(opened.id);
+      }
+    } catch (err) {
+      setError(esMsg(err.message));
+      await finishViewOnceConsume(m.id);
     }
   }
 
@@ -1218,6 +1311,21 @@ export default function DirectChat({
                               )}
                             </div>
                           ) : null}
+                          {m.viewOnce &&
+                          !deleted &&
+                          (m.viewOncePending || !m.mediaUrl) ? (
+                            <button
+                              type="button"
+                              className="dm-view-once-btn"
+                              disabled={Boolean(mine)}
+                              onClick={() => {
+                                if (!mine) void openViewOnceMessage(m);
+                              }}
+                            >
+                              {m.type === 'video' ? '🎬' : '📷'}{' '}
+                              {mine ? 'Ver una vez · pendiente' : 'Ver una vez'}
+                            </button>
+                          ) : null}
                           {m.mediaUrl ? (
                             <ChatMedia token={token} message={m} onOpenImage={openImageGallery} />
                           ) : null}
@@ -1227,7 +1335,10 @@ export default function DirectChat({
                               className={`wa-text${m.editedAt ? ' is-edited' : ''}`}
                             />
                           ) : null}
-                          {!m.mediaUrl && !m.body && m.type !== 'sticker' ? (
+                          {!m.mediaUrl &&
+                          !m.body &&
+                          m.type !== 'sticker' &&
+                          !(m.viewOnce && !deleted) ? (
                             <p>{m.mediaName || m.type}</p>
                           ) : null}
                         </>
@@ -1421,7 +1532,7 @@ export default function DirectChat({
                     const [f] = takeFilesFromInput(e.target);
                     if (!f) return;
                     if (!isDocumentFile(f)) {
-                      setError('Solo documentos (PDF, Word, Excel, PowerPoint, texto, etc.)');
+                      setError('Solo documentos (PDF, Office, ZIP, texto, etc.)');
                       return;
                     }
                     onSendMedia(f, 'file');
@@ -1488,15 +1599,34 @@ export default function DirectChat({
                   aria-label="Mensaje privado"
                   disabled={uploading}
                 />
-                <button
-                  type="submit"
-                  className="dm-send-btn"
-                  disabled={!draft.trim() || uploading}
-                  aria-label={editing ? 'Guardar' : 'Enviar'}
-                  title={editing ? 'Guardar' : 'Enviar'}
-                >
-                  {editing ? '✓' : ICON.send}
-                </button>
+                {draft.trim() || editing ? (
+                  <button
+                    type="submit"
+                    className="dm-send-btn"
+                    disabled={!draft.trim() || uploading}
+                    aria-label={editing ? 'Guardar' : 'Enviar'}
+                    title={editing ? 'Guardar' : 'Enviar'}
+                  >
+                    {editing ? '✓' : ICON.send}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={`dm-send-btn voice${recording ? ' rec' : ''}`}
+                    disabled={uploading}
+                    aria-label="Nota de voz"
+                    title="Mantén para nota de voz"
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      startVoice();
+                    }}
+                    onPointerUp={stopVoice}
+                    onPointerCancel={stopVoice}
+                    onContextMenu={(e) => e.preventDefault()}
+                  >
+                    {recording ? '■' : '🎤'}
+                  </button>
+                )}
               </form>
             </div>
           </>
@@ -1511,6 +1641,7 @@ export default function DirectChat({
           initialCaption={mediaComposer.caption || ''}
           onClose={() => setMediaComposer(null)}
           onSend={sendComposerImages}
+          allowViewOnce
         />
       )}
 
@@ -1520,7 +1651,11 @@ export default function DirectChat({
             token={token}
             items={imageGallery.items}
             index={imageGallery.index}
-            onClose={() => setImageGallery(null)}
+            onClose={() => {
+              const pendingId = viewOnceConsumeRef.current;
+              setImageGallery(null);
+              if (pendingId) void finishViewOnceConsume(pendingId);
+            }}
           />,
           document.body
         )}

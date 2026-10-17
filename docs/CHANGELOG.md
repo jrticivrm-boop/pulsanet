@@ -10,16 +10,22 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Usuarios — Exportar (formato Parque Vehicular):** botón verde «Exportar» primero en la barra (antes «Excel»); exporta solo las columnas visibles en el orden del panel Columnas, con la lista filtrada. Excel institucional: título, banda «REPORTE OFICIAL», metadatos (generado, exportado por, módulo, totales), criterios de consulta (búsqueda y filtros por columna), No. consecutivo, bandas alternas, autofiltro, encabezado fijo, pie y hoja «Resumen».
 - **Usuarios — Servicio / unidad / geo:** catálogo `cat_servicios`; select Servicio; unidad = mismo `unit_id` del Alcance; Estado/Municipio (República, `mx_postcodes`); indicativo `Grado Apellido, Servicio · Unidad`. Migración `046_servicios_geo.sql`.
 - **Usuarios — Nombre del Servicio:** texto libre `service_nombre` antes del catálogo; Región/Zona/Unidad en Identidad militar; Servicio = Nombre → catálogo → Estado → Municipio; indicativo prioriza el nombre libre. Migración `047_service_nombre.sql`.
 - **Usuarios — Servicio limpio + globo mapa:** solo Nombre + catálogo en el form; sin Estado/Municipio (`048`); R/Z/U solo Adscripción; indicativo `Grado Apellido, unidad|zona|región`; globo L1/L2/L3 (sin texto presencia); búsqueda por servicio.
 - **Usuarios — Ubicación del servicio:** campo de coordenadas que extrae estado/municipio/localidad/colonia/C.P./ejido; visible en la relación, Excel y CSV; no afecta la ubicación en tiempo real. «Servicio» del catálogo pasa a llamarse «Tipo de servicio». Migración `049_service_ubicacion.sql`.
+- **Etiqueta de municipio (Territorio):** ficha semitransparente con franja del color de la unidad, municipio y estado, filas Zona / Unidad con punto de color; se coloca al lado del municipio sin taparlo.
 - **Globo del operador en el mapa:** ficha con iniciales, unidad, distintivo como etiqueta seguido de «Municipio, Edo.» del servicio con estado abreviado (N.L., Tamps., S.L.P.…; guardado o por su posición GPS), filas con icono (lugar, teléfono, hora, coordenadas) y «Ver ruta» a todo el ancho.
 - **Usuario de acceso con número variable:** sufijo de 2 dígitos derivado del nombre (ej. `rvaldezm19`) en lugar de «2» fijo; usuarios existentes sin cambio.
 - **Formulario de usuario rediseñado:** modal 820px con ficha de vista previa fija, secciones con icono, rejilla alineada de 3 columnas (responsive) y barra de acciones fija.
 - **Tipo de servicio desplegable:** P.M.A., P.M.M., B.O.Mvl., D.S.M., P.M.S., P.M.S.E. y «+ Agregar tipo…»; junto con el Distintivo (texto) forma la etiqueta del mapa `B.O.Mvl. "Sanchez"`.
 - **Distintivo en Usuarios y mapa:** «Tipo de servicio» pasa a «Distintivo», texto libre (`B.O.Mvl. "Castillo"` = distintivo + nombre entre comillas); es la etiqueta bajo cada pin del mapa web; en la relación, «Grado y especialidad» y columnas separadas «Nombre del servicio» y «Distintivo»; el globo muestra Grado Apellido, distintivo, unidad, municipio/estado del servicio y teléfono.
 - **Indicativo root + mapa APK:** solo el Administrador (root) sin adscripción muestra «Administrador»; ficha del mapa en la app con 3 líneas (pertenencia · servicio · teléfono).
+- **Chat DM — ver una vez (imagen/video):** al enviar media se puede marcar «Ver una vez»; el destinatario abre una sola vez y el mensaje se elimina (soft-delete). Migración `045_message_view_once.sql`. App y web DM; no aplica a canales/grupo en esta entrega.
+
+### Changed
+- **Composer (app/web):** confirmación de envío con miniatura y Enter para enviar; casilla/toggle «Ver una vez» en DM; teclado del composer con acción Enviar.
 
 > Desplegado en producción el 2026-10-12 (`prod-v1.8.107-20261012-1810`, API + web). APK Android **1.8.183+193**.
 > Teléfono de usuarios (migración 040) y fusión Consola + Seguimiento desplegados el 2026-10-12 (`prod-v1.8.107-20261012-2053`).
@@ -34,6 +40,16 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > Pestañas «Ruta» (A→B, Google Maps, ¿Quién llega primero?, rutas frecuentes) y «Buscar» (ejidos RAN, C.P. SEPOMEX/DENUE), migraciones 041–044 y servidor de rutas propio desplegados el 2026-10-15 (`prod-v1.8.107-20261015-0700`, API + web).
 > Búsqueda híbrida (en línea + buscador propio de SICOM como respaldo) desplegada el 2026-10-15 (`prod-v1.8.107-20261015-0733`, API + web).
 > «Ruta» sin manita con una sola ruta desplegado el 2026-10-15 (`prod-v1.8.107-20261015-0802`, solo web). APK Android **1.8.192+202** (`SICOM-1.8.192+202.apk`, arreglo de Wi‑Fi) lista para distribuir, sin OTA.
+
+### Added
+- **Mapa — Territorio IV R.M.:** municipios por unidad (colores tenues); hover con globo (mpio arriba); Config → Estados para capas; pestaña Consola **Territorio**. Incluye Carmen (16/o. B.I.) y Rioverde (36/o. B.I.).
+
+### Changed
+- **PTT — feedback de espera:** emisor ve **PEDINDO / DESPERTANDO / AL AIRE** (no se confunde con fallo) mientras pide floor o el servidor despierta radios; radio personal 1:1 alinea textos LISTO/AL AIRE con la radio de grupo.
+- **Chat — subidas:** video hasta **80 MB**; documentos/ZIP hasta **~2 GB**; picker web de documentos incluye ZIP; timeout de subida en app **180 s**; DM web con **nota de voz** (mic); galería móvil envía **varias imágenes** en cola.
+- **Sesiones / admin — kick inmediato:** al desactivar usuario, cambiar rol o perfil de acceso, restablecer clave o eliminar cuenta, se invalidan refresh tokens y se fuerza cierre en web y app (`session:replaced` / `force_logout`). Botón «Cerrar sesiones» en Usuarios (Más). Mensaje de cierre según motivo (admin vs otro dispositivo).
+- **Alerta — feedback al emisor:** cuando un receptor pulsa Enterado o se atiende/cancela la alerta, el emisor recibe aviso en radio web y en la app.
+- **iOS — listo para compilar (falta solo Apple Developer / Codemagic o Mac con Xcode 16+):** canales nativos de Android ya no se llaman en iPhone; `AppDelegate` prepara Firebase/push si hay `GoogleService-Info.plist`; script `build-ios.sh` apunta a `pulsanet.duckdns.org`; ExportOptions App Store/Ad Hoc; sonido `nudge_buzz.wav` en el bundle; guías `docs/IOS_PENDIENTE_APPLE.md` y `C:\pulsanet_soporte\Documentos\IOS_*.md`.
 
 ### Fixed
 - **App Android 1.8.192+202 — en Wi‑Fi no conectaba (con datos móviles sí).** La conexión directa por LAN seguía apuntando al PC (`192.168.1.77`, que ya no corre SICOM) con su certificado, y el Wi‑Fi del router no llega al dominio (sin hairpin). Ahora la app prueba la VM SICOM (`192.168.1.150`, confía en la CA raíz de su Caddy y verifica que responda la API de producción) y, si el Wi‑Fi no llega ni a la LAN ni al dominio, usa datos móviles aunque el Wi‑Fi siga encendido.

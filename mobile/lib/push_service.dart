@@ -861,7 +861,9 @@ class PushService {
   }
 
   /// Ajustes del sistema del canal «Mensajes SICOM» (tono, vibración, emergente).
+  /// Solo Android; en iOS el usuario va a Ajustes › Notificaciones › SICOM.
   Future<void> openMessageChannelSettings() async {
+    if (!Platform.isAndroid) return;
     try {
       await _notifyNative.invokeMethod('openChannelSettings', {'channelId': kMsgChannelId});
     } catch (e) {

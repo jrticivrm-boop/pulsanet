@@ -868,6 +868,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     String? mime,
     required String type,
     String? caption,
+    bool viewOnce = false,
   }) async {
     final peer = _peer;
     if (peer == null) return;
@@ -883,6 +884,7 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
             ? caption
             : (_draft.text.trim().isEmpty ? null : _draft.text.trim()),
         replyToId: _replyTo?['id']?.toString(),
+        viewOnce: viewOnce,
       );
       _draft.clear();
       if (!mounted) return;
@@ -905,27 +907,60 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     await Permission.camera.request();
     await AudioSessionSetup.pauseForCamera();
     try {
-      final x = await ImagePicker().pickImage(
+      final picker = ImagePicker();
+      if (source == ImageSource.gallery) {
+        final list = await picker.pickMultiImage(
+          imageQuality: 92,
+          maxWidth: 1920,
+        );
+        if (list.isEmpty) return;
+        if (!mounted) return;
+        final first = list.first;
+        final confirm = await showMediaSendConfirm(
+          context,
+          path: first.path,
+          kind: 'image',
+          filename: list.length > 1 ? '${list.length} imágenes' : first.name,
+          initialCaption: _draft.text.trim().isEmpty ? null : _draft.text.trim(),
+          allowViewOnce: true,
+        );
+        if (confirm == null) return;
+        for (var i = 0; i < list.length; i++) {
+          final x = list[i];
+          await _sendMediaFile(
+            path: x.path,
+            filename: x.name,
+            mime: x.mimeType,
+            type: 'image',
+            caption: i == 0 ? confirm.caption : null,
+            viewOnce: confirm.viewOnce,
+          );
+        }
+        return;
+      }
+      final x = await picker.pickImage(
         source: source,
         imageQuality: 92,
         maxWidth: 1920,
       );
       if (x == null) return;
       if (!mounted) return;
-      final caption = await showMediaSendConfirm(
+      final confirm = await showMediaSendConfirm(
         context,
         path: x.path,
         kind: 'image',
         filename: x.name,
         initialCaption: _draft.text.trim().isEmpty ? null : _draft.text.trim(),
+        allowViewOnce: true,
       );
-      if (caption == null) return;
+      if (confirm == null) return;
       await _sendMediaFile(
         path: x.path,
         filename: x.name,
         mime: x.mimeType,
         type: 'image',
-        caption: caption,
+        caption: confirm.caption,
+        viewOnce: confirm.viewOnce,
       );
     } finally {
       await AudioSessionSetup.resumeAfterCamera();
@@ -940,20 +975,22 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
     );
     if (x == null) return;
     if (!mounted) return;
-    final caption = await showMediaSendConfirm(
+    final confirm = await showMediaSendConfirm(
       context,
       path: x.path,
       kind: 'video',
       filename: x.name,
       initialCaption: _draft.text.trim().isEmpty ? null : _draft.text.trim(),
+      allowViewOnce: true,
     );
-    if (caption == null) return;
+    if (confirm == null) return;
     await _sendMediaFile(
       path: x.path,
       filename: x.name,
       mime: x.mimeType ?? 'video/mp4',
       type: 'video',
-      caption: caption,
+      caption: confirm.caption,
+      viewOnce: confirm.viewOnce,
     );
   }
 
@@ -975,20 +1012,72 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
       return;
     }
     if (!mounted) return;
-    final caption = await showMediaSendConfirm(
+    final confirm = await showMediaSendConfirm(
       context,
       path: f.path!,
       kind: 'file',
       filename: f.name,
       initialCaption: _draft.text.trim().isEmpty ? null : _draft.text.trim(),
     );
-    if (caption == null) return;
+    if (confirm == null) return;
     await _sendMediaFile(
       path: f.path!,
       filename: f.name,
       type: 'file',
-      caption: caption,
+      caption: confirm.caption,
     );
+  }
+
+  Future<void> _openViewOnceMessage(Map<String, dynamic> m) async {
+    final peer = _peer;
+    final mid = m['id']?.toString();
+    if (peer == null || mid == null) return;
+    try {
+      final opened = await widget.api.openDmViewOnce(peer['id'].toString(), mid);
+      if (!mounted) return;
+      setState(() {
+        _messages = _messages.map((x) {
+          if (x['id']?.toString() != mid) return x;
+          return {...x, ...opened, 'viewOncePending': false};
+        }).toList();
+      });
+      final mediaUrl = opened['mediaUrl']?.toString();
+      if (mediaUrl == null || mediaUrl.isEmpty) return;
+      final type = opened['type']?.toString();
+      final mime = opened['mediaMime']?.toString();
+      final name = opened['mediaName']?.toString() ?? 'Archivo';
+      if (isImageMedia(type: type, mime: mime, name: name)) {
+        await openChatImageGallery(
+          context: context,
+          api: widget.api,
+          items: [ChatGalleryItem(mediaUrl: mediaUrl, caption: name)],
+          initialIndex: 0,
+        );
+      } else {
+        final file = await widget.api.downloadMediaToTemp(mediaUrl, filename: name);
+        if (!mounted) return;
+        await OpenFilex.open(file.path);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo abrir: $e')),
+      );
+    } finally {
+      try {
+        final deleted = await widget.api.consumeDmViewOnce(
+          peer['id'].toString(),
+          mid,
+        );
+        if (!mounted) return;
+        setState(() {
+          _messages = _messages.map((x) {
+            if (x['id']?.toString() != mid) return x;
+            return {...x, ...deleted, 'isDeleted': true, 'body': null, 'mediaUrl': null};
+          }).toList();
+        });
+      } catch (_) {}
+    }
   }
 
   Future<void> _messageActions(
@@ -1461,6 +1550,12 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                                     : null;
                                 final isSticker = m['type']?.toString() == 'sticker' && sticker != null;
                                 final isNudge = m['type']?.toString() == 'nudge';
+                                final viewOnce = m['viewOnce'] == true;
+                                final viewOncePending = viewOnce &&
+                                    !deleted &&
+                                    (m['viewOncePending'] == true ||
+                                        mediaUrl == null ||
+                                        mediaUrl.isEmpty);
                                 final body = deleted
                                     ? 'Mensaje eliminado'
                                     : isNudge
@@ -1469,9 +1564,11 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                                             ? caption!
                                             : (isSticker
                                                 ? ''
-                                                : (mediaUrl == null
-                                                    ? (mediaName ?? m['type']?.toString() ?? '')
-                                                    : '')));
+                                                : (viewOncePending
+                                                    ? ''
+                                                    : (mediaUrl == null
+                                                        ? (mediaName ?? m['type']?.toString() ?? '')
+                                                        : ''))));
                                 final reply = m['reply'] is Map
                                     ? Map<String, dynamic>.from(m['reply'] as Map)
                                     : null;
@@ -1596,7 +1693,51 @@ class _DirectPaneState extends State<DirectPane> with WidgetsBindingObserver {
                                                                   ),
                                                                 ),
                                                               ),
-                                                            if (mediaUrl != null && mediaUrl.isNotEmpty)
+                                                            if (viewOncePending)
+                                                              Padding(
+                                                                padding: EdgeInsets.only(
+                                                                  bottom: body.isNotEmpty ? 4 : 0,
+                                                                ),
+                                                                child: InkWell(
+                                                                  onTap: mine
+                                                                      ? null
+                                                                      : () => _openViewOnceMessage(m),
+                                                                  borderRadius: BorderRadius.circular(10),
+                                                                  child: Container(
+                                                                    padding: const EdgeInsets.symmetric(
+                                                                      horizontal: 12,
+                                                                      vertical: 10,
+                                                                    ),
+                                                                    decoration: BoxDecoration(
+                                                                      color: Colors.black.withValues(alpha: 0.06),
+                                                                      borderRadius: BorderRadius.circular(10),
+                                                                    ),
+                                                                    child: Row(
+                                                                      mainAxisSize: MainAxisSize.min,
+                                                                      children: [
+                                                                        Icon(
+                                                                          m['type']?.toString() == 'video'
+                                                                              ? Icons.videocam_outlined
+                                                                              : Icons.photo_outlined,
+                                                                          size: 22,
+                                                                          color: kInstOlive,
+                                                                        ),
+                                                                        const SizedBox(width: 8),
+                                                                        Text(
+                                                                          mine
+                                                                              ? 'Ver una vez · pendiente'
+                                                                              : 'Ver una vez',
+                                                                          style: const TextStyle(
+                                                                            fontWeight: FontWeight.w600,
+                                                                            fontSize: 14.5,
+                                                                          ),
+                                                                        ),
+                                                                      ],
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                              )
+                                                            else if (mediaUrl != null && mediaUrl.isNotEmpty)
                                                               Padding(
                                                                 padding: EdgeInsets.only(
                                                                   bottom: body.isNotEmpty ? 4 : 0,

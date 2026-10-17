@@ -479,6 +479,10 @@ export function unlockAdminUserLogin(token, id) {
   return api(`/api/admin/users/${id}/unlock-login`, { token, method: 'POST', body: {} });
 }
 
+export function forceLogoutAdminUser(token, id) {
+  return api(`/api/admin/users/${id}/force-logout`, { token, method: 'POST', body: {} });
+}
+
 export function fetchAdminUserGroups(token, id) {
   return api(`/api/admin/users/${id}/groups`, { token });
 }
@@ -1130,18 +1134,60 @@ export async function uploadGroupMedia(token, groupId, file, { type, body, reply
 }
 
 /** Media en chat directo (DM). */
-export async function uploadDmMedia(token, peerId, file, { type, body, replyToId } = {}) {
+export async function uploadDmMedia(
+  token,
+  peerId,
+  file,
+  { type, body, replyToId, viewOnce } = {}
+) {
   const form = new FormData();
   form.append('file', file);
   if (type) form.append('type', type);
   if (body) form.append('body', body);
   if (replyToId) form.append('replyToId', replyToId);
+  if (viewOnce) form.append('viewOnce', 'true');
 
   const res = await fetch(`${API_BASE}/api/dm/${peerId}/messages/media`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
   });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(esMsg(data.error || `Error ${res.status}`));
+  return data;
+}
+
+/** Destinatario: abre ver-una-vez (media accesible hasta consume). */
+export async function openDmViewOnce(token, peerId, messageId) {
+  const res = await fetch(
+    `${API_BASE}/api/dm/${peerId}/messages/${messageId}/view-once`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: '{}',
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(esMsg(data.error || `Error ${res.status}`));
+  return data;
+}
+
+/** Destinatario: soft-delete tras ver. */
+export async function consumeDmViewOnce(token, peerId, messageId) {
+  const res = await fetch(
+    `${API_BASE}/api/dm/${peerId}/messages/${messageId}/view-once/consume`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: '{}',
+    }
+  );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(esMsg(data.error || `Error ${res.status}`));
   return data;

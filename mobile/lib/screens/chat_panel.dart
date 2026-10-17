@@ -148,6 +148,44 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
     } catch (_) {}
     try {
       final picker = ImagePicker();
+      if (source == ImageSource.gallery) {
+        final list = await picker.pickMultiImage(
+          imageQuality: 92,
+          maxWidth: 1920,
+        );
+        if (list.isEmpty) return;
+        if (!mounted) return;
+        final first = list.first;
+        final confirm = await showMediaSendConfirm(
+          context,
+          path: first.path,
+          kind: 'image',
+          filename: list.length > 1
+              ? '${list.length} imágenes'
+              : first.name,
+          initialCaption: _chat.text.trim().isEmpty ? null : _chat.text.trim(),
+        );
+        if (confirm == null) return;
+        setState(() => _uploading = true);
+        try {
+          for (var i = 0; i < list.length; i++) {
+            final x = list[i];
+            await session.sendMediaFile(
+              path: x.path,
+              filename: x.name,
+              mime: x.mimeType,
+              caption: i == 0 && confirm.caption.isNotEmpty
+                  ? confirm.caption
+                  : null,
+              type: 'image',
+            );
+          }
+          _chat.clear();
+        } finally {
+          if (mounted) setState(() => _uploading = false);
+        }
+        return;
+      }
       final x = await picker.pickImage(
         source: source,
         imageQuality: 92,
@@ -155,21 +193,21 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
       );
       if (x == null) return;
       if (!mounted) return;
-      final caption = await showMediaSendConfirm(
+      final confirm = await showMediaSendConfirm(
         context,
         path: x.path,
         kind: 'image',
         filename: x.name,
         initialCaption: _chat.text.trim().isEmpty ? null : _chat.text.trim(),
       );
-      if (caption == null) return;
+      if (confirm == null) return;
       setState(() => _uploading = true);
       try {
         await session.sendMediaFile(
           path: x.path,
           filename: x.name,
           mime: x.mimeType,
-          caption: caption.isEmpty ? null : caption,
+          caption: confirm.caption.isEmpty ? null : confirm.caption,
           type: 'image',
         );
         _chat.clear();
@@ -193,21 +231,21 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
     );
     if (x == null) return;
     if (!mounted) return;
-    final caption = await showMediaSendConfirm(
+    final confirm = await showMediaSendConfirm(
       context,
       path: x.path,
       kind: 'video',
       filename: x.name,
       initialCaption: _chat.text.trim().isEmpty ? null : _chat.text.trim(),
     );
-    if (caption == null) return;
+    if (confirm == null) return;
     setState(() => _uploading = true);
     try {
       await session.sendMediaFile(
         path: x.path,
         filename: x.name,
         mime: x.mimeType ?? 'video/mp4',
-        caption: caption.isEmpty ? null : caption,
+        caption: confirm.caption.isEmpty ? null : confirm.caption,
         type: 'video',
       );
       _chat.clear();
@@ -234,20 +272,20 @@ class _ChatPanelState extends State<ChatPanel> with AutomaticKeepAliveClientMixi
       return;
     }
     if (!mounted) return;
-    final caption = await showMediaSendConfirm(
+    final confirm = await showMediaSendConfirm(
       context,
       path: f.path!,
       kind: 'file',
       filename: f.name,
       initialCaption: _chat.text.trim().isEmpty ? null : _chat.text.trim(),
     );
-    if (caption == null) return;
+    if (confirm == null) return;
     setState(() => _uploading = true);
     try {
       await session.sendMediaFile(
         path: f.path!,
         filename: f.name,
-        caption: caption.isEmpty ? null : caption,
+        caption: confirm.caption.isEmpty ? null : confirm.caption,
         type: 'file',
       );
       _chat.clear();

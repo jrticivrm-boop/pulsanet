@@ -1024,6 +1024,13 @@ body {
   animation: cc-ptt-pulse 1s ease-in-out infinite;
 }
 
+.cc-ptt-mini.pending:not(.holding) {
+  background: linear-gradient(180deg, #c9a227, #a67c00);
+  border-color: #8a6a00;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #f0b429 30%, transparent);
+  animation: cc-ptt-pulse 1.1s ease-in-out infinite;
+}
+
 .cc-ptt-mini-label {
   font-size: 0.78rem;
   font-weight: 700;

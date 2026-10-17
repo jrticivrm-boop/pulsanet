@@ -66,12 +66,12 @@ export function fileKindIcon(name = '', mime = '') {
   return '📎';
 }
 
-/** Extensiones de documento (PDF, Office, texto, OpenDocument, etc.) */
+/** Extensiones de documento (PDF, Office, texto, OpenDocument, ZIP, etc.) */
 const DOC_EXT_RE =
-  /\.(pdf|docx?|xlsx?|xlsm|pptx?|ppsx?|txt|text|rtf|odt|ods|odp|csv|md|log|json|xml|html?|pages|numbers|key)$/i;
+  /\.(pdf|docx?|xlsx?|xlsm|pptx?|ppsx?|txt|text|rtf|odt|ods|odp|csv|md|log|json|xml|html?|pages|numbers|key|zip|rar|7z|gz|tar)$/i;
 
 const DOC_MIME_HINT =
-  /pdf|msword|wordprocessingml|spreadsheetml|presentationml|ms-excel|ms-powerpoint|opendocument|text\/plain|text\/csv|text\/rtf|text\/markdown|application\/rtf|application\/csv/i;
+  /pdf|msword|wordprocessingml|spreadsheetml|presentationml|ms-excel|ms-powerpoint|opendocument|text\/plain|text\/csv|text\/rtf|text\/markdown|application\/rtf|application\/csv|zip|x-rar|x-7z|gzip|x-tar/i;
 
 export function isDocumentFile(file) {
   if (!file) return false;
@@ -84,7 +84,7 @@ export function isDocumentFile(file) {
   return false;
 }
 
-/** accept= del botón Documento: solo documentos (sin imagen/video/audio/zip) */
+/** accept= del botón Documento: documentos + ZIP (sin imagen/video/audio) */
 export const DOC_ACCEPT = [
   '.pdf',
   '.doc',
@@ -109,6 +109,11 @@ export const DOC_ACCEPT = [
   '.xml',
   '.html',
   '.htm',
+  '.zip',
+  '.rar',
+  '.7z',
+  '.gz',
+  '.tar',
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -120,6 +125,12 @@ export const DOC_ACCEPT = [
   'application/vnd.oasis.opendocument.text',
   'application/vnd.oasis.opendocument.spreadsheet',
   'application/vnd.oasis.opendocument.presentation',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-rar-compressed',
+  'application/x-7z-compressed',
+  'application/gzip',
+  'application/x-tar',
   'text/plain',
   'text/csv',
   'text/rtf',

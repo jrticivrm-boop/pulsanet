@@ -39,6 +39,7 @@ function formatPanic(row) {
     accuracyM: row.accuracy_m != null ? Number(row.accuracy_m) : null,
     note: row.note || null,
     ackedBy: row.acked_by || null,
+    ackedByName: row.acked_by_name || null,
     ackedAt: row.acked_at || null,
     resolvedAt: row.resolved_at || null,
     createdAt: row.created_at,
@@ -376,10 +377,18 @@ export async function updatePanicStatus({
   const { rows: g } = await query(`SELECT name FROM groups WHERE id = $1`, [
     rows[0].group_id,
   ]);
+  let ackedByName = null;
+  if (rows[0].acked_by) {
+    const { rows: ack } = await query(`SELECT display_name FROM users WHERE id = $1`, [
+      rows[0].acked_by,
+    ]);
+    ackedByName = ack[0]?.display_name || null;
+  }
   return formatPanic({
     ...rows[0],
     display_name: u[0]?.display_name,
     group_name: g[0]?.name,
+    acked_by_name: ackedByName,
   });
 }
 

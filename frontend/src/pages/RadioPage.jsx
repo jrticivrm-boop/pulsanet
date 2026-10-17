@@ -388,6 +388,8 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
   const speakerLabel = radioSpeakerStatusLabel({
     listenMuted: ptt.listenMuted,
     holding: ptt.holding,
+    pending: ptt.pending,
+    waking: ptt.waking,
     speakers: ptt.speakers || (ptt.speaking ? [ptt.speaking] : []),
     selfUserId: session.user?.id,
     groupNameFor: (gid) => groups.find((g) => g.id === gid)?.name || group?.name,
@@ -405,6 +407,13 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
       );
     }
   }, [ptt.incomingPanic]);
+
+  useEffect(() => {
+    if (!ptt.panicSenderFeedback) return undefined;
+    setPanicFlash(ptt.panicSenderFeedback);
+    const t = setTimeout(() => setPanicFlash(''), 5000);
+    return () => clearTimeout(t);
+  }, [ptt.panicSenderFeedback]);
 
   function onPanic() {
     if (!alertIds.length || ptt.panicSending) return;
@@ -686,7 +695,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
               />
               <button
               type="button"
-              className={`ptt-btn radio-ptt ${ptt.holding ? 'holding' : ''}`}
+              className={`ptt-btn radio-ptt ${ptt.holding ? 'holding' : ''}${ptt.pending && !ptt.holding ? ' pending' : ''}`}
               disabled={!ready}
               onPointerDown={(e) => {
                 unlockMediaAudio(() => ptt.unlockAudio?.()).catch(() => {});
@@ -714,27 +723,41 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                 if (ptt.usesLatch) ptt.toggle();
               }}
               onContextMenu={(e) => e.preventDefault()}
-              aria-pressed={ptt.holding}
+              aria-pressed={ptt.holding || ptt.pending}
               title={
                 ptt.holding
                   ? ptt.usesLatch
                     ? 'Toca o Espacio para soltar'
                     : 'Suelta para dejar de transmitir'
-                  : ptt.usesLatch
-                    ? 'Toca o Espacio para hablar'
-                    : 'Mantén pulsado o Espacio para hablar'
+                  : ptt.pending
+                    ? ptt.waking
+                      ? 'Despertando radios… suelta o toca para cancelar'
+                      : 'Pidiendo canal… suelta o toca para cancelar'
+                    : ptt.usesLatch
+                      ? 'Toca o Espacio para hablar'
+                      : 'Mantén pulsado o Espacio para hablar'
               }
             >
-              <span className="ptt-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
+              <span className="ptt-label">
+                {ptt.holding
+                  ? 'AL AIRE'
+                  : ptt.waking
+                    ? 'DESPERTANDO'
+                    : ptt.pending
+                      ? 'PEDINDO'
+                      : 'PTT'}
+              </span>
               <span className="ptt-sub">
                 {ready
-                  ? ptt.usesLatch
-                    ? ptt.holding
+                  ? ptt.holding
+                    ? ptt.usesLatch
                       ? 'soltar'
-                      : 'tocar'
-                    : ptt.holding
-                      ? 'suelta'
-                      : 'mantén'
+                      : 'suelta'
+                    : ptt.pending
+                      ? 'espera…'
+                      : ptt.usesLatch
+                        ? 'tocar'
+                        : 'mantén'
                   : '…'}
               </span>
             </button>
@@ -749,9 +772,11 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
 
           <div className="radio-ops-secondary">
             {panicFlash && <p className="panic-flash">{panicFlash}</p>}
-            {ptt.waking && !ptt.holding && (
+            {ptt.pending && !ptt.holding && (
               <p className="ptt-waking" role="status">
-                Despertando radios ({ptt.waking.count})…
+                {ptt.waking
+                  ? `DESPERTANDO · radios${ptt.waking.count ? ` (${ptt.waking.count})` : ''}…`
+                  : 'PEDINDO · canal…'}
               </p>
             )}
             {(ptt.denied || ptt.error || err) && (

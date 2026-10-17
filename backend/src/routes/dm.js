@@ -17,7 +17,10 @@ import {
   clearDmThread,
   toggleDmReaction,
   markDmMessagesDelivered,
+  openViewOnceDmMessage,
+  consumeViewOnceDmMessage,
 } from '../services/dm.js';
+import { redactViewOnceForViewer } from '../socket/chat.js';
 import { listOrgPresence } from '../services/presence.js';
 import { getStickerById } from '../data/stickers.js';
 import { notifyUserDevices } from '../services/fcm.js';
@@ -290,6 +293,11 @@ export function createDmRouter(io) {
         }
         const caption = String(req.body?.body || '').trim().slice(0, MAX_BODY) || null;
         const mediaUrl = storedUploadRel(req) || req.file.filename;
+        const viewOnceRaw = String(req.body?.viewOnce || req.body?.view_once || '')
+          .trim()
+          .toLowerCase();
+        const viewOnce =
+          viewOnceRaw === '1' || viewOnceRaw === 'true' || viewOnceRaw === 'yes';
         const msg = await insertDmMessage({
           senderId: req.user.sub,
           recipientId: peer.id,
@@ -301,15 +309,21 @@ export function createDmRouter(io) {
           mediaSize: req.file.size,
           replyToId: req.body?.replyToId || null,
           displayName: req.user.displayName,
+          viewOnce,
         });
         const room = dmSocketRoom(req.user.sub, peer.id);
-        io.to(room).emit('dm:message', msg);
+        // Sala: destinatario sin URL hasta abrir; el emisor ya tiene la respuesta HTTP.
+        io.to(room).emit('dm:message', redactViewOnceForViewer(msg, peer.id));
         io.to(`user:${peer.id}`).emit('dm:notify', {
           peerId: req.user.sub,
           peerName: req.user.displayName,
-          message: msg,
+          message: redactViewOnceForViewer(msg, peer.id),
         });
-        const preview = mediaPreviewLabel(classified, msg.mediaName, caption);
+        const preview = msg.viewOnce
+          ? classified.type === 'video'
+            ? '🎬 Ver una vez'
+            : '📷 Ver una vez'
+          : mediaPreviewLabel(classified, msg.mediaName, caption);
         notifyUserDevices({
           userId: peer.id,
           title: req.user.displayName || 'SICOM',
@@ -319,7 +333,7 @@ export function createDmRouter(io) {
             peerId: req.user.sub,
             messageId: msg.id,
             msgKind: msg.type,
-            mediaUrl: msg.type === 'image' ? msg.mediaUrl : '',
+            mediaUrl: msg.viewOnce ? '' : msg.type === 'image' ? msg.mediaUrl : '',
           },
         }).catch(() => {});
         res.status(201).json({ ok: true, message: msg });
@@ -408,6 +422,48 @@ export function createDmRouter(io) {
       res.json({ ok: true, deleted });
     } catch (err) {
       res.status(400).json({ ok: false, error: err.message });
+    }
+  });
+
+  /** Abrir ver-una-vez (destinatario); luego el cliente debe consumir al cerrar. */
+  router.post('/:userId/messages/:messageId/view-once', async (req, res) => {
+    try {
+      const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);
+      if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+      const msg = await openViewOnceDmMessage({
+        peerId: peer.id,
+        messageId: req.params.messageId,
+        userId: req.user.sub,
+      });
+      const room = dmSocketRoom(req.user.sub, peer.id);
+      io.to(room).emit('dm:view_once_opened', {
+        messageId: msg.id,
+        peerId: req.user.sub,
+        openedAt: msg.viewOnceOpenedAt,
+      });
+      res.json({ ok: true, message: msg });
+    } catch (err) {
+      const notFound = /no encontrado/i.test(err.message);
+      res.status(notFound ? 404 : 400).json({ ok: false, error: err.message });
+    }
+  });
+
+  /** Tras ver: soft-delete del ver-una-vez. */
+  router.post('/:userId/messages/:messageId/view-once/consume', async (req, res) => {
+    try {
+      const peer = await assertSameOrgPeer(req.user.orgId, req.user.sub, req.params.userId);
+      if (!peer) return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+      const msg = await consumeViewOnceDmMessage({
+        peerId: peer.id,
+        messageId: req.params.messageId,
+        userId: req.user.sub,
+      });
+      const room = dmSocketRoom(req.user.sub, peer.id);
+      io.to(room).emit('dm:deleted', msg);
+      res.json({ ok: true, message: msg });
+    } catch (err) {
+      const notFound = /no encontrado/i.test(err.message);
+      res.status(notFound ? 404 : 400).json({ ok: false, error: err.message });
     }
   });
 

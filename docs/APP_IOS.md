@@ -1,18 +1,30 @@
-# TacticalPtx — App iOS
+# TacticalPtx / SICOM — App iOS
 
-**Bundle:** `com.tacticalptx.app`
+**Bundle:** `com.tacticalptx.app` · **Display name:** SICOM
+
+## Estado
+
+El proyecto está **preparado para compilar**. Falta solo:
+
+1. Cuenta **Apple Developer** + app en App Store Connect  
+2. `GoogleService-Info.plist` + llave **APNs** en Firebase  
+3. Lanzar **Codemagic** o `mobile/scripts/build-ios.sh` en Mac con **Xcode 16+**
+
+Detalle: [`IOS_PENDIENTE_APPLE.md`](IOS_PENDIENTE_APPLE.md).
 
 ## Guías
 
 | Documento | Uso |
 |-----------|-----|
-| [IOS_BUILD_MAC_TAHOE.md](../Soporte/Documentos/IOS_BUILD_MAC_TAHOE.md) | Build **local** en Mac con **Tahoe 26.x** (recomendado) |
-| [IOS_BUILD_MAC_MONTEREY.md](../Soporte/Documentos/IOS_BUILD_MAC_MONTEREY.md) | Solo si aún estás en Monterey 12.x (Xcode 14.2) |
-| [IOS_TESTFLIGHT_CHECKLIST.md](../Soporte/Documentos/IOS_TESTFLIGHT_CHECKLIST.md) | TestFlight + Codemagic (CI) |
+| [`IOS_PENDIENTE_APPLE.md`](IOS_PENDIENTE_APPLE.md) | Qué falta (Apple) y qué ya está en el repo |
+| `C:\pulsanet_soporte\Documentos\IOS_TESTFLIGHT_CHECKLIST.md` | Codemagic → TestFlight |
+| `C:\pulsanet_soporte\Documentos\IOS_BUILD_MAC.md` | Build local en Mac (Xcode 16+) |
 
-## Resumen
+## Resumen técnico
 
-- **Mac Tahoe:** Xcode App Store + Flutter + CocoaPods → `flutter run` e IPA local.  
-- **Codemagic:** opcional / CI desde Windows (`codemagic.yaml`).  
-- Firebase: `mobile/ios/Runner/GoogleService-Info.plist` (no en git).  
-- Script: `mobile/scripts/build-ios.sh`
+- **Codemagic:** `codemagic.yaml` (workflows TestFlight y solo IPA).  
+- **Mac:** `mobile/scripts/build-ios.sh` → `API_BASE=https://pulsanet.duckdns.org`.  
+- **Firebase:** `mobile/ios/Runner/GoogleService-Info.plist` (gitignored); plantilla `.example`.  
+- **iOS mínimo:** 13.0 (`Podfile`).  
+- **Canales nativos Android:** no se invocan en iOS (`lib/android_native.dart`).  
+- **IPA de soporte:** `C:\pulsanet_soporte\iOS\`.

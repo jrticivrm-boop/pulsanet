@@ -2,7 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Push: cambiar a production en Release firmado para App Store / TestFlight -->
+	<!-- Push APNs.
+	     development = debug / dispositivo conectado a Xcode.
+	     Codemagic / Archive → App Store: Xcode o el perfil de distribución
+	     suelen sustituir por «production» al firmar. Si el push falla en TestFlight
+	     y el IPA quedó en development, cambia a production solo en Release. -->
 	<key>aps-environment</key>
 	<string>development</string>
 </dict>

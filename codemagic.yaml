@@ -1,9 +1,10 @@
-# TacticalPtx — build iOS en la nube (Codemagic) sin Mac local.
-# Guia paso a paso: Soporte/Documentos/IOS_TESTFLIGHT_CHECKLIST.md
+# SICOM / TacticalPtx — build iOS en la nube (Codemagic) sin Mac local.
+# Guia: C:\pulsanet_soporte\Documentos\IOS_TESTFLIGHT_CHECKLIST.md
+# Pendiente Apple: docs/IOS_PENDIENTE_APPLE.md
 #
 # Requisitos en Codemagic (UI):
-#   1. Integracion App Store Connect (API key .p8)
-#   2. Grupo de variables "tacticalptx_ios" (ver checklist)
+#   1. Integracion App Store Connect (API key .p8) nombre: "Codemagic TacticalPtx"
+#   2. Grupo de variables "tacticalptx_ios" (GOOGLE_SERVICE_INFO_PLIST_BASE64)
 #   3. Automatic code signing: bundle com.tacticalptx.app
 
 workflows:

@@ -7,11 +7,13 @@ export function speakerWhoLabel(displayName, cargo) {
 
 /**
  * Etiqueta de estado bajo el PTT.
- * @param {{ listenMuted?: boolean, holding?: boolean, speakers?: Array<{userId?: string, displayName?: string, cargo?: string, groupId?: string}>, selfUserId?: string, groupNameFor?: (groupId: string) => string|null|undefined, livekitReady?: boolean, hasPttGroup?: boolean }} opts
+ * @param {{ listenMuted?: boolean, holding?: boolean, pending?: boolean, waking?: boolean|{count?: number}, speakers?: Array<{userId?: string, displayName?: string, cargo?: string, groupId?: string}>, selfUserId?: string, groupNameFor?: (groupId: string) => string|null|undefined, livekitReady?: boolean, hasPttGroup?: boolean }} opts
  */
 export function radioSpeakerStatusLabel({
   listenMuted = false,
   holding = false,
+  pending = false,
+  waking = null,
   speakers = [],
   selfUserId,
   groupNameFor,
@@ -20,6 +22,13 @@ export function radioSpeakerStatusLabel({
 } = {}) {
   if (listenMuted && holding) return 'Radio silenciada · Estás al aire';
   if (holding) return 'Estás al aire';
+  if (pending || waking) {
+    const count = typeof waking === 'object' && waking ? Number(waking.count) || 0 : 0;
+    if (waking) {
+      return count > 0 ? `DESPERTANDO · radios (${count})` : 'DESPERTANDO · radios…';
+    }
+    return 'PEDINDO · canal…';
+  }
 
   const others = (Array.isArray(speakers) ? speakers : []).filter(
     (s) => s?.userId && (!selfUserId || s.userId !== selfUserId)

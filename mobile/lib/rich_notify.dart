@@ -331,11 +331,13 @@ class RichNotify {
 
   /// Aviso «Fulano habla en Canal X» al despertar el radio por push.
   static RichNotifParts buildPttWake(Map<String, dynamic> data, {required bool live}) {
-    final who = data['speakerName']?.toString() ?? 'Operador';
+    final who = data['speakerName']?.toString() ?? 'Alguien';
     final group = data['groupName']?.toString() ?? 'Canal';
     return RichNotifParts(
       title: '🔊 $who habla en $group',
-      body: live ? 'Radio activado · toca para abrir' : 'Toca para escuchar',
+      body: live
+          ? 'DESPERTANDO radio · toca para abrir'
+          : 'Canal al aire · toca para escuchar',
       color: kNotifAccent,
       category: AndroidNotificationCategory.status,
       timeoutAfter: 45000,

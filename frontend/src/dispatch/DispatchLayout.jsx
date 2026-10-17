@@ -215,11 +215,10 @@ const NAV = [
   },
   { id: 'video', to: '/despacho/video', label: 'RESERVADO', hint: 'Confidencial', icon: 'video' },
   { id: 'radio', to: '/despacho/radio', label: 'Radio PTT', hint: 'Hablar y canales', icon: 'radio' },
-  { id: 'chats', to: '/despacho/chats', label: 'Chats', hint: 'Mensajes y respuestas', icon: 'chat' },
 ];
 
 const NAV_ORDER_KEY = 'tacticalptx_mod_nav_order';
-const DEFAULT_NAV_ORDER = ['ops', 'video', 'radio', 'chats', 'catalogs', 'admin', 'config'];
+const DEFAULT_NAV_ORDER = ['ops', 'video', 'radio', 'catalogs', 'admin', 'config'];
 
 function loadNavOrder() {
   try {
@@ -228,12 +227,9 @@ function loadNavOrder() {
     const known = new Set(DEFAULT_NAV_ORDER);
     // Quitar ítems obsoletos (p. ej. «map» tras fusionar Mapa en vivo)
     const next = raw.filter((id) => known.has(id));
-    // Ítems nuevos entran junto a su vecino por defecto, no al final del orden guardado.
-    DEFAULT_NAV_ORDER.forEach((id, i) => {
-      if (next.includes(id)) return;
-      const prev = DEFAULT_NAV_ORDER.slice(0, i).reverse().find((p) => next.includes(p));
-      next.splice(prev ? next.indexOf(prev) + 1 : 0, 0, id);
-    });
+    for (const id of DEFAULT_NAV_ORDER) {
+      if (!next.includes(id)) next.push(id);
+    }
     return next;
   } catch {
     return [...DEFAULT_NAV_ORDER];
@@ -1033,6 +1029,8 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
   const speaker = radioSpeakerStatusLabel({
     listenMuted: ptt.listenMuted,
     holding: ptt.holding,
+    pending: ptt.pending,
+    waking: ptt.waking,
     speakers: ptt.speakers || (ptt.speaking ? [ptt.speaking] : []),
     selfUserId: session.user?.id,
     groupNameFor: (gid) => groups.find((g) => g.id === gid)?.name,
@@ -1222,7 +1220,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
             />
             <button
               type="button"
-              className={`cc-ptt-mini tp-coarse-touch${ptt.holding ? ' holding' : ''}`}
+              className={`cc-ptt-mini tp-coarse-touch${ptt.holding ? ' holding' : ''}${ptt.pending && !ptt.holding ? ' pending' : ''}`}
               disabled={!group || !ptt.livekitReady}
               onPointerDown={(e) => {
                 unlockMediaAudio(() => ptt.unlockAudio?.()).catch(() => {});
@@ -1250,7 +1248,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                 if (ptt.usesLatch) ptt.toggle();
               }}
               onContextMenu={(e) => e.preventDefault()}
-              aria-pressed={ptt.holding}
+              aria-pressed={ptt.holding || ptt.pending}
               title={
                 !group
                   ? 'Sin canal'
@@ -1260,21 +1258,35 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                       ? ptt.usesLatch
                         ? 'Toca o Espacio para soltar'
                         : 'Suelta para dejar de transmitir'
-                      : ptt.usesLatch
-                        ? 'Toca o Espacio para hablar'
-                        : 'Mantén pulsado o Espacio para hablar'
+                      : ptt.pending
+                        ? ptt.waking
+                          ? 'Despertando radios… suelta o toca para cancelar'
+                          : 'Pidiendo canal… suelta o toca para cancelar'
+                        : ptt.usesLatch
+                          ? 'Toca o Espacio para hablar'
+                          : 'Mantén pulsado o Espacio para hablar'
               }
             >
-              <span className="cc-ptt-mini-label">{ptt.holding ? 'AL AIRE' : 'PTT'}</span>
+              <span className="cc-ptt-mini-label">
+                {ptt.holding
+                  ? 'AL AIRE'
+                  : ptt.waking
+                    ? 'DESPERTANDO'
+                    : ptt.pending
+                      ? 'PEDINDO'
+                      : 'PTT'}
+              </span>
               <span className="cc-ptt-mini-hint">
                 {ptt.livekitReady
-                  ? ptt.usesLatch
-                    ? ptt.holding
+                  ? ptt.holding
+                    ? ptt.usesLatch
                       ? 'soltar'
-                      : 'tocar'
-                    : ptt.holding
-                      ? 'suelta'
-                      : 'mantén'
+                      : 'suelta'
+                    : ptt.pending
+                      ? 'espera…'
+                      : ptt.usesLatch
+                        ? 'tocar'
+                        : 'mantén'
                   : '…'}
               </span>
             </button>
@@ -1297,9 +1309,9 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
             >
               {ptt.listenMuted ? 'MUTE' : 'Altavoz'}
             </button>
-            {ptt.waking && !ptt.holding && (
+            {ptt.pending && !ptt.holding && (
               <span className="cc-ptt-mini-waking" role="status">
-                Despertando radios…
+                {ptt.waking ? 'DESPERTANDO…' : 'PEDINDO…'}
               </span>
             )}
             {(ptt.denied || ptt.error) && (

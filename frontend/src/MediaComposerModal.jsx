@@ -22,7 +22,7 @@ const TOOLS = [
 
 /**
  * Vista previa / edición de imágenes antes de enviar (estilo WhatsApp Web).
- * onSend(files: File[], caption: string)
+ * onSend(files: File[], caption: string, opts?: { viewOnce?: boolean })
  */
 export default function MediaComposerModal({
   files: initialFiles = [],
@@ -30,12 +30,14 @@ export default function MediaComposerModal({
   open,
   onClose,
   onSend,
+  allowViewOnce = false,
 }) {
   const [items, setItems] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [caption, setCaption] = useState(initialCaption || '');
   const [tool, setTool] = useState(null);
   const [hd, setHd] = useState(true);
+  const [viewOnce, setViewOnce] = useState(false);
   const [sending, setSending] = useState(false);
   const [shapeKind, setShapeKind] = useState('rect');
   const [drawColor, setDrawColor] = useState('#25d366');
@@ -448,7 +450,9 @@ export default function MediaComposerModal({
         if (it.id === activeId && editedActive) return editedActive;
         return it.file;
       });
-      await onSend?.(out, caption.trim());
+      await onSend?.(out, caption.trim(), {
+        viewOnce: Boolean(allowViewOnce && viewOnce),
+      });
       onClose?.();
     } catch {
       setSending(false);
@@ -561,6 +565,16 @@ export default function MediaComposerModal({
       </div>
 
       <div className="media-composer-bottom">
+        {allowViewOnce ? (
+          <label className="media-composer-view-once">
+            <input
+              type="checkbox"
+              checked={viewOnce}
+              onChange={(e) => setViewOnce(e.target.checked)}
+            />
+            Ver una vez (se elimina al abrir)
+          </label>
+        ) : null}
         <div className="media-composer-caption-row">
           <input
             className="media-composer-caption"

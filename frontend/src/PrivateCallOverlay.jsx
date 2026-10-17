@@ -827,11 +827,14 @@ export default function PrivateCallOverlay({
             onLostPointerCapture={() => pttUp()}
             onContextMenu={(e) => e.preventDefault()}
             aria-pressed={pttHeld}
-            title="Mantén para hablar"
+            title={pttHeld ? 'Suelta para escuchar' : 'Mantén para hablar'}
           >
             <span aria-hidden="true">🎙</span>
             {pttHeld ? 'AL AIRE' : 'PTT'}
           </button>
+          <small className="private-radio-ptt-state" aria-live="polite">
+            {pttHeld ? 'AL AIRE' : callConnected ? 'LISTO' : status}
+          </small>
           <button type="button" className="wa-call-circle hangup" onClick={hangupClick}>
             <span aria-hidden="true">📵</span>
             Cerrar
@@ -1107,7 +1110,15 @@ export default function PrivateCallOverlay({
 
       {videoRequestUi}
       <footer className="private-call-dock">{controls}</footer>
-      {isRadio && <p className="private-radio-hint">Mantén PTT para transmitir · suelta para escuchar</p>}
+      {isRadio && (
+        <p className="private-radio-hint">
+          {pttHeld
+            ? 'AL AIRE · suelta para escuchar'
+            : callConnected
+              ? 'LISTO · mantén PTT para transmitir'
+              : 'Conectando radio personal…'}
+        </p>
+      )}
       {canAddParticipant && (
         <CallAddParticipantSheet
           open={addOpen}

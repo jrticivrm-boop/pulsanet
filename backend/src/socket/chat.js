@@ -746,6 +746,9 @@ export function formatMessage(row, displayName, reply = null, reactions = [], se
     editedAt: row.edited_at || null,
     deletedAt: row.deleted_at || null,
     isDeleted: deleted,
+    viewOnce: !deleted && Boolean(row.view_once),
+    viewOnceOpenedAt: deleted ? null : row.view_once_opened_at || null,
+    viewOncePending: false,
     reactions: deleted ? [] : reactions || [],
     readCount: 0,
     peerCount: 0,
@@ -753,6 +756,20 @@ export function formatMessage(row, displayName, reply = null, reactions = [], se
     deliveredCount: 0,
     delivered: false,
     createdAt: row.created_at,
+  };
+}
+
+/** Oculta mediaUrl al destinatario de un ver-una-vez aún no abierto. */
+export function redactViewOnceForViewer(msg, viewerUserId) {
+  if (!msg || !msg.viewOnce || msg.isDeleted) return msg;
+  const isSender = String(msg.senderId || '') === String(viewerUserId || '');
+  if (isSender || msg.viewOnceOpenedAt) {
+    return { ...msg, viewOncePending: false };
+  }
+  return {
+    ...msg,
+    mediaUrl: null,
+    viewOncePending: true,
   };
 }
 

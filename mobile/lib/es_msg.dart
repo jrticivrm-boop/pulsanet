@@ -11,9 +11,13 @@ String esMsg(Object? raw, [String fallback = 'Ocurrió un error']) {
   if (RegExp(r'handshake|certificate_verify|certificat|ssl|tls', caseSensitive: false).hasMatch(s)) {
     return 'No se confió el certificado HTTPS. Instala la APK actualizada (1.8.3+9) o revisa el cert LAN.';
   }
+  if (RegExp(r'no route to host|errno = 113|network is unreachable|errno = 101', caseSensitive: false)
+      .hasMatch(s)) {
+    return 'Sin ruta al servidor (WAN). En 4G hace falta reenvío 443 a la VM SICOM; en Wi‑Fi prueba la red del cable o deja DuckDNS.';
+  }
   if (RegExp(r'failed to fetch|socketexception|network|connection refused|connection reset', caseSensitive: false)
       .hasMatch(s)) {
-    return 'Sin conexión con el servidor. Revisa Wi‑Fi o la IP de la API.';
+    return 'Sin conexión con el servidor. Revisa Wi‑Fi, datos o DuckDNS (pulsanet.duckdns.org).';
   }
   if (RegExp(r'timeout|timed out|timeoutexception', caseSensitive: false).hasMatch(s)) {
     return 'Sin respuesta del servidor. Revisa Wi‑Fi/datos o que el servidor esté encendido.';

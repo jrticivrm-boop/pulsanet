@@ -10,6 +10,7 @@ import {
   stateColor,
   useIvRmStatesConfig,
 } from './ivRmStatesConfig.js';
+import ConfigTerritory from './ConfigTerritory.jsx';
 
 /** Búsqueda insensible a acentos y mayúsculas ("michoacan" → Michoacán). */
 function normalizeText(value) {
@@ -144,11 +145,10 @@ export default function ConfigStates() {
     <div className="cc-states-cfg">
       <header className="cc-units-head cc-cat-compact-head">
         <div>
-          <h2>Estados en mapa</h2>
+          <h2>Estados y territorio</h2>
           <p className="cc-hint">
-            Marca los estados y el color de cada delimitación. Con los checks de abajo eliges en
-            qué mapas se dibujan: Consola, Seguimiento y/o Radio. Se aplica de inmediato en este
-            navegador.
+            Marca los estados y el color de cada delimitación. Más abajo configuras las Zonas
+            Militares y municipios de la IV R.M. Se aplica de inmediato en este navegador.
           </p>
         </div>
       </header>
@@ -291,6 +291,8 @@ export default function ConfigStates() {
           </button>
         </div>
       </section>
+
+      <ConfigTerritory />
     </div>
   );
 }

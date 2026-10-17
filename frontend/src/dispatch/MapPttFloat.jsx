@@ -288,6 +288,10 @@ export default function MapPttFloat({
 
   const canTalk = Boolean(group || talkIds.length) && Boolean(ptt?.livekitReady);
   const holding = Boolean(ptt?.holding);
+  const pending = Boolean(ptt?.pending) && !holding;
+  const waking = Boolean(ptt?.waking) && !holding;
+  const pttLabel = holding ? 'AL AIRE' : waking ? 'DESPERTANDO' : pending ? 'PEDINDO' : 'PTT';
+  const pttBusy = holding || pending || waking;
 
   const style = pos
     ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }
@@ -696,7 +700,7 @@ export default function MapPttFloat({
     <>
       <div
         ref={rootRef}
-        className={`lt-ptt-float${pos ? ' lt-ptt-float--placed' : ''}${holding ? ' is-holding' : ''}`}
+        className={`lt-ptt-float${pos ? ' lt-ptt-float--placed' : ''}${pttBusy ? ' is-holding' : ''}${waking || pending ? ' is-pending' : ''}`}
         style={style}
         role="group"
         aria-label="PTT en pantalla completa"
@@ -718,8 +722,8 @@ export default function MapPttFloat({
         </span>
         <button
           type="button"
-          className={`lt-ptt-float-btn${holding ? ' holding' : ''}`}
-          disabled={!canTalk && !holding}
+          className={`lt-ptt-float-btn${holding ? ' holding' : ''}${waking || pending ? ' pending' : ''}`}
+          disabled={!canTalk && !pttBusy}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -730,10 +734,14 @@ export default function MapPttFloat({
           title={
             holding
               ? 'Toca para soltar · click derecho: canales'
-              : 'Click: hablar · click derecho y arrastrar: mover sin hablar · click derecho: canales / alarma'
+              : waking
+                ? 'Despertando radios…'
+                : pending
+                  ? 'Pidiendo canal…'
+                  : 'Click: hablar · click derecho y arrastrar: mover sin hablar · click derecho: canales / alarma'
           }
         >
-          <span className="lt-ptt-float-label">{holding ? 'AL AIRE' : 'PTT'}</span>
+          <span className="lt-ptt-float-label">{pttLabel}</span>
           <span className="lt-ptt-float-hint">{hint}</span>
         </button>
       </div>

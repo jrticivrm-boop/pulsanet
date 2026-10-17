@@ -166,9 +166,15 @@ export function createPanicRouter(io) {
         if (status !== 'acked') {
           io.to(`group:${event.groupId}`).emit('panic:update', event);
           const admins = await scopedDispatcherIds(event.organizationId, event.userId);
-          for (const uid of admins) io.to(`user:${uid}`).emit('panic:update', event);
+          for (const uid of admins) {
+            if (uid !== event.userId) io.to(`user:${uid}`).emit('panic:update', event);
+          }
           await maybeEndPanicLiveForEvent(event.id, req.user.orgId).catch(() => {});
         }
+      }
+      // Emisor original: Enterado / atendida / cancelada (siempre a su sala user:*)
+      if (event.userId) {
+        io.to(`user:${event.userId}`).emit('panic:update', event);
       }
       res.json({ ok: true, event });
     } catch (err) {

@@ -5810,7 +5810,9 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 .cc-catalogs-body {
   flex: 1;
   min-height: 0;
-  overflow-x: hidden;
+  /* auto: tablas anchas (Usuarios/Grupos) hacen scroll-x aquí;
+     el wrap de tabla sigue en overflow:visible para no romper thead sticky */
+  overflow-x: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
   display: flex;
@@ -5837,11 +5839,16 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   flex-direction: column;
   flex: 0 0 auto;
   min-height: 0;
+  /* min-width 100% del panel; crece con la tabla (scroll-x en catalogs-body) */
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
   height: auto;
   max-height: none;
   overflow: visible;
   padding: 1rem 1.15rem 2.25rem;
   gap: 0; /* aire vertical en toolbar sticky */
+  box-sizing: border-box;
 }
 
 .cc-catalogs-body > .cc-cat-grid,
@@ -5857,6 +5864,13 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   width: 100%;
   box-sizing: border-box;
   padding: 1rem 1.15rem 2.25rem;
+}
+/* Usuarios/Grupos: el panel crece con la tabla para habilitar scroll-x en catalogs-body */
+.cc-catalogs-body > .cc-groups-page,
+.cc-catalogs-body .cc-users-page {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
 }
 
 /* Contenedor acotado compartido (Grados / Dependencias / Usuarios / Grupos) */
@@ -5899,13 +5913,17 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 
 .cc-table-wrap {
   overflow: auto;
+  max-width: 100%;
+  min-width: 0;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--cc-border);
   border-radius: 12px;
   background: var(--cc-panel);
 }
 
 .cc-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
 }
 
@@ -7092,6 +7110,13 @@ html.map-viewport-max .lt-page--maximized,
   background: linear-gradient(160deg, #c62828 0%, #8e0000 100%);
   border-color: #ffcdd2;
   transform: scale(1.06);
+  cursor: pointer;
+}
+
+.lt-ptt-float-btn.pending:not(.holding) {
+  background: linear-gradient(160deg, #c9a227 0%, #8a6d1a 100%);
+  border-color: #f5e6a8;
+  transform: scale(1.03);
   cursor: pointer;
 }
 
@@ -10474,8 +10499,9 @@ html.cc-cat-dragging .cc-cat-item {
   display: flex;
   flex-direction: column;
   gap: 0; /* el aire bajo la toolbar vive en padding del sticky (no se pierde al scrollear) */
+  width: max-content;
+  min-width: 100%;
   max-width: none;
-  width: 100%;
   box-sizing: border-box;
 }
 /* Drawer fijo: empuja todo el main (topbar, radio PTT, admin, tabla) */
@@ -10520,6 +10546,14 @@ html.cc-cat-dragging .cc-cat-item {
   padding: 1rem 1.15rem 1rem;
   box-sizing: border-box;
 }
+/*
+ * CRÍTICO: overflow:visible en el wrap.
+ * Si el wrap tiene overflow-x/y distinto de visible (p.ej. auto/clip),
+ * el thead sticky deja de anclarse a .cc-catalogs-body y las filas
+ * “atraviesan” o quedan encima de los encabezados.
+ * El scroll horizontal lo aporta .cc-catalogs-body (overflow-x: auto)
+ * cuando la tabla es más ancha que el panel (width: max-content).
+ */
 .cc-catalogs-body .cc-groups-page .usr-table-wrap,
 .cc-catalogs-body .cc-users-page .usr-table-wrap {
   overflow: visible;
@@ -10529,6 +10563,14 @@ html.cc-cat-dragging .cc-cat-item {
   /* collapse rompe sticky thead en Chromium */
   border-collapse: separate;
   border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+}
+.cc-catalogs-body .cc-groups-page .usr-users-table th,
+.cc-catalogs-body .cc-groups-page .usr-users-table td,
+.cc-catalogs-body .cc-users-page .usr-users-table th,
+.cc-catalogs-body .cc-users-page .usr-users-table td {
+  white-space: nowrap;
 }
 /* thead por encima del tbody: botones/pastillas con position:relative no deben “atravesar” */
 .cc-catalogs-body .cc-groups-page .usr-users-table thead,
@@ -10649,6 +10691,7 @@ html.cc-cat-dragging .cc-cat-item {
 }
 /* Buscar + Filtros + Columnas + Nuevo canal: misma altura y texto a media altura */
 .cc-groups-toolbar-end .cc-groups-search input,
+.cc-groups-toolbar-end .usr-btn-report,
 .cc-groups-toolbar-end .usr-btn-cols,
 .cc-groups-toolbar-end .usr-btn-filters,
 .cc-groups-toolbar-end .cc-btn {
@@ -10662,6 +10705,7 @@ html.cc-cat-dragging .cc-cat-item {
   font-weight: 600;
   line-height: 1.2;
 }
+.cc-groups-toolbar-end .usr-btn-report,
 .cc-groups-toolbar-end .usr-btn-cols,
 .cc-groups-toolbar-end .usr-btn-filters,
 .cc-groups-toolbar-end .cc-btn {
@@ -10670,10 +10714,12 @@ html.cc-cat-dragging .cc-cat-item {
   justify-content: center;
   padding: 0 0.7rem;
 }
+.cc-groups-toolbar-end .usr-btn-report,
 .cc-groups-toolbar-end .usr-btn-cols,
 .cc-groups-toolbar-end .usr-btn-filters {
   gap: 0.35rem;
 }
+.cc-groups-toolbar-end .usr-btn-report svg,
 .cc-groups-toolbar-end .usr-btn-cols svg,
 .cc-groups-toolbar-end .usr-btn-filters svg,
 .cc-groups-toolbar-end .cc-groups-new-channel-btn svg {
@@ -13967,6 +14013,197 @@ body.tp-theme-dark .cc-tactical-ms-panel {
 .cc-states-cfg-card {
   padding: 0.85rem 1rem;
 }
+.cc-territory-cfg-card {
+  margin-top: 0.15rem;
+}
+.cc-territory-cfg-head {
+  margin-bottom: 0.55rem;
+}
+.cc-territory-cfg-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+  font-weight: 750;
+  color: var(--cc-text);
+}
+.cc-territory-toggles {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.cc-shell .map-ops-panel--territorio {
+  flex-wrap: wrap;
+  gap: 0.45rem 0.65rem;
+  align-items: flex-end;
+}
+.cc-shell .map-ops-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--cc-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cc-shell .map-ops-check input {
+  accent-color: var(--cc-accent);
+}
+.cc-shell .map-field--check .map-ops-check {
+  min-height: var(--map-ops-ctrl-min-h, 2rem);
+}
+.cc-shell .map-ops-panel--territorio > .map-field--actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 0.4rem;
+  max-width: none;
+}
+.cc-shell .map-ops-panel--territorio > .map-field--actions .map-ops-fit-btn {
+  white-space: nowrap;
+}
+.cc-shell .map-ops-fit-btn {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+}
+.leaflet-tooltip.ivrm-territory-tip {
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+}
+.leaflet-tooltip.ivrm-territory-tip::before {
+  border: none !important;
+  width: 0;
+  height: 0;
+  margin: 0;
+  content: none !important;
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip {
+  --ivrm-accent: #9aa3ad;
+  position: relative;
+  width: max-content;
+  min-width: 10rem;
+  max-width: 15rem;
+  padding: 0.5rem 0.65rem 0.55rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--cc-border, #c2cbb8);
+  background: color-mix(in srgb, var(--cc-panel, #f8f9f5) 76%, transparent);
+  color: var(--cc-text, #172015);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(5px) saturate(1.2);
+  -webkit-backdrop-filter: blur(5px) saturate(1.2);
+  text-align: left;
+  line-height: 1.25;
+  white-space: normal;
+  pointer-events: none;
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  border-radius: 9px 0 0 9px;
+  background: var(--ivrm-accent);
+}
+/* Flecha hacia el municipio, del lado que lo mira (clase de dirección de Leaflet). */
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip::after {
+  content: '';
+  position: absolute;
+  background: var(--ivrm-accent);
+}
+.leaflet-tooltip-right.ivrm-territory-tip .ivrm-tip::after,
+.leaflet-tooltip-left.ivrm-territory-tip .ivrm-tip::after {
+  top: 50%;
+  width: 9px;
+  height: 16px;
+  transform: translateY(-50%);
+}
+.leaflet-tooltip-right.ivrm-territory-tip .ivrm-tip::after {
+  right: 100%;
+  clip-path: polygon(100% 0, 0 50%, 100% 100%);
+}
+.leaflet-tooltip-left.ivrm-territory-tip .ivrm-tip::after {
+  left: 100%;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+.leaflet-tooltip-top.ivrm-territory-tip .ivrm-tip::after,
+.leaflet-tooltip-bottom.ivrm-territory-tip .ivrm-tip::after {
+  left: 50%;
+  width: 16px;
+  height: 9px;
+  transform: translateX(-50%);
+}
+.leaflet-tooltip-bottom.ivrm-territory-tip .ivrm-tip::after {
+  bottom: 100%;
+  clip-path: polygon(0 100%, 50% 0, 100% 100%);
+}
+.leaflet-tooltip-top.ivrm-territory-tip .ivrm-tip::after {
+  top: 100%;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip-estado {
+  margin-top: 0.05rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cc-muted, #5c6756);
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.6rem;
+  align-items: center;
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--cc-border, #c2cbb8);
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip-row {
+  display: contents;
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip-key {
+  white-space: nowrap;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cc-muted, #5c6756);
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip-val {
+  min-width: 0;
+  font-size: 0.76rem;
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip-units {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip-unit {
+  display: inline-flex;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.08rem 0.45rem 0.08rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--cc-border, #c2cbb8);
+  background: var(--cc-panel-2, #eef2e8);
+}
+.leaflet-tooltip.ivrm-territory-tip .ivrm-tip-unit i {
+  flex: 0 0 auto;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
 .cc-states-surfaces {
   display: flex;
   flex-direction: column;
@@ -14562,10 +14799,59 @@ li.cc-states-row.on:hover {
   border-color: color-mix(in srgb, var(--cc-accent) 55%, var(--cc-border));
   color: var(--cc-accent);
 }
-.usr-btn-excel:disabled {
+/* Exportar (Parque Vehicular): verde, primero en la barra */
+.usr-btn-report {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid #86c79a;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  box-sizing: border-box;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  box-shadow: none;
+}
+.usr-btn-report:hover:not(:disabled) {
+  background: #15803d;
+  border-color: #15803d;
+  color: #fff;
+}
+[data-theme='obscuro'] .usr-btn-report {
+  border-color: #166534;
+  background: #052e16;
+  color: #22c55e;
+}
+[data-theme='obscuro'] .usr-btn-report:hover:not(:disabled) {
+  background: #166534;
+  border-color: #22c55e;
+  color: #fff;
+}
+[data-theme='verde'] .usr-btn-report {
+  border-color: #435a35;
+  background: #1f2818;
+  color: #9aaf6a;
+}
+[data-theme='verde'] .usr-btn-report:hover:not(:disabled) {
+  background: #435a35;
+  border-color: #6f8b57;
+  color: #fff;
+}
+.usr-btn-report:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.usr-btn-report svg,
 .usr-btn-cols svg,
 .usr-btn-filters svg {
   width: 12px;

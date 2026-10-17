@@ -64,6 +64,7 @@ import { TacticalSitesLayer } from './TacticalSitesLayer.jsx';
 import { useTacticalSites } from './useTacticalSites.jsx';
 import IvRmStatesLayer, { ivRmStates } from './IvRmStatesLayer.jsx';
 import IvRmStatesLegend from './IvRmStatesLegend.jsx';
+import IvRmTerritoryLayer from './IvRmTerritoryLayer.jsx';
 import HighlighterTrack from './HighlighterTrack.jsx';
 import {
   enabledIvRmStates,
@@ -796,6 +797,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
             <ZoomControl position="bottomright" />
             <MapMaximizeNearZoom maximized={maximized} onClick={toggleMaximize} />
             <IvRmStatesLayer surface={ivRmSurface} />
+            <IvRmTerritoryLayer surface={embedRadio ? 'radio' : 'consola'} />
             <CursorZoom />
             <MapCursorFix />
             <InvalidateOnLayout tick={(maximized ? 1 : 0) + (sheetOpen ? 0 : 2)} />

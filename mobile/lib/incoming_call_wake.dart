@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'android_native.dart';
 import 'api_client.dart';
 import 'background_radio.dart';
 import 'call_ringtone.dart';
@@ -160,6 +161,7 @@ class IncomingCallWake {
   /// Trae Activity al frente (lock screen / background / killed).
   /// En isolate FCM el MethodChannel de MainActivity suele fallar: `launchApp`
   /// + el receiver nativo [CallWakeFirebaseMessagingReceiver] ya arrancó FGS.
+  /// En iOS: solo [FlutterForegroundTask.launchApp] (sin canal Android).
   static Future<void> bringUiToFront() async {
     if (kIsWeb) return;
     try {
@@ -173,6 +175,7 @@ class IncomingCallWake {
         FlutterForegroundTask.launchApp('/');
       } catch (_) {}
     }
+    if (!kIsAndroidNative) return;
     try {
       await _channel.invokeMethod<void>('bringToFrontForCall');
     } catch (e) {
@@ -181,8 +184,9 @@ class IncomingCallWake {
   }
 
   /// Deja de mostrar la app sobre la pantalla de bloqueo (fin de llamada / cámara).
+  /// Solo Android (FLAG_SHOW_WHEN_LOCKED); en iOS es no-op.
   static Future<void> releaseLockScreen() async {
-    if (kIsWeb) return;
+    if (!kIsAndroidNative) return;
     try {
       await _channel.invokeMethod<void>('releaseLockScreen');
     } catch (_) {}

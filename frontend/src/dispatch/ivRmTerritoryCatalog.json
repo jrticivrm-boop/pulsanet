@@ -1,0 +1,958 @@
+{
+  "zonas": [
+    {
+      "id": "8a",
+      "label": "8/a. Zona Militar",
+      "short": "8/a.",
+      "estado": "Tamaulipas",
+      "color": "#C45C26"
+    },
+    {
+      "id": "48a",
+      "label": "48/a. Zona Militar",
+      "short": "48/a.",
+      "estado": "Tamaulipas",
+      "color": "#2E7D4F"
+    },
+    {
+      "id": "7a",
+      "label": "7/a. Zona Militar",
+      "short": "7/a.",
+      "estado": "Nuevo León",
+      "color": "#2F5AA8"
+    },
+    {
+      "id": "12a",
+      "label": "12/a. Zona Militar",
+      "short": "12/a.",
+      "estado": "San Luis Potosí",
+      "color": "#7A3E8C"
+    }
+  ],
+  "zonaIdByShort": {
+    "8/a.": "8a",
+    "48/a.": "48a",
+    "7/a.": "7a",
+    "12/a.": "12a"
+  },
+  "assignments": [
+    {
+      "zona": "8/a.",
+      "unidad": "16/o. R.C.",
+      "municipio": "Nvo. Laredo",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "29/o. R.C.",
+      "municipio": "Nva Cd. Guerrero",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "25/o. R.C.",
+      "municipio": "Cd. Mier",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "25/o. R.C.",
+      "municipio": "Miguel Alemán",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "25/o. R.C.",
+      "municipio": "Camargo",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "25/o. R.C.",
+      "municipio": "Díaz Ordaz",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "19/o. R.C.",
+      "municipio": "Reynosa",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "19/o. R.C.",
+      "municipio": "Méndez",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "19/o. R.C.",
+      "municipio": "Burgos",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "19/o. R.C.",
+      "municipio": "San Nicolás",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "8/o. R.C.",
+      "municipio": "Matamoros",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "8/o. R.C.",
+      "municipio": "Rio Bravo",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "8/o. R.C.",
+      "municipio": "Valle Hermoso",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "8/o. R.C.",
+      "municipio": "San Fernando",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "8/a.",
+      "unidad": "8/o. R.C.",
+      "municipio": "Cruillas",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Tampico",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Cd. Madero",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Altamira",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Aldama",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "González",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "El Mante",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Antiguo Morelos",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Nuevo  Morelos",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Gómez  Farías",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Xicoténcatl",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Llera de Canales",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Villa  de Casas",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "15/o. B.I.",
+      "municipio": "Soto la Marina",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Cd. Victoria",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Abasolo",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Jiménez",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Padilla",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "San Carlos",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Villagrán",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Mainero",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Hidalgo",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Güémez",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Jaumave",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Miquihuana",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Bustamante",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Palmillas",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Tula",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "48/a.",
+      "unidad": "77/o. B.I.",
+      "municipio": "Ocampo",
+      "estado": "Tamaulipas"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Apodaca",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Cadereyta",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Pesquería",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Dr. González",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Marín",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Zuazua",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "San Nicolás",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Escobedo",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Ciénega de  Flores",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Santa Catarina",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Dr. González",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Higueras",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Salinas Victoria",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Villaldama",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "García",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Abasolo",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Hidalgo",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Bustamante",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Mina",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Lampazos de Naranjo",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "16/o. B.I.",
+      "municipio": "Carmen",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Los Ramones",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Guadalupe",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Juárez",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Monterrey",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "San Pedro Garza G.",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Santiago",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Allende",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Montemorelos",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Rayones",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Galeana",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Hualahuises",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Iturbide",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Linares",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Aramberri",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Gral. Zaragoza",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Dr. Arroyo",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Mier y Noriega",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "Gral. Terán",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "22/o. B.I",
+      "municipio": "China",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Cerralvo",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Los Herreras",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Melchor  Ocampo",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Gral. Bravo",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Dr. Coss",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Los Aldama",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Gral. Treviño",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Agualeguas",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Parás",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Vallecillo",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Sabinas Hidalgo",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "7/a.",
+      "unidad": "27/o. R.C.",
+      "municipio": "Anáhuac",
+      "estado": "Nuevo León"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Vanegas",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Cedral",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Villa de la Paz",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Real de Catorce",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Santo Domingo",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Matehuala",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Charcas",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Villa de Guadalupe",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Guadalcazar",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Venado",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Villa Hidalgo",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Villa de Ramos",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Moctezuma",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Villa arista",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Salinas",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Armadillo de los Infante",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Cerritos",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Villa Juárez",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Ahualulco",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Mexquitic de Carmona",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Soledad G.S.",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "San Nicolás Tolentino",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "San Luis Potosí",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Cerro San Pedro",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Cd. Fernández",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Zaragoza",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Villa Arriaga",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Villa de Reyes",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Santa María del Rio",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "40/o. B.I.",
+      "municipio": "Tierra Nueva",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Xilitla",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Lagunillas",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Aquismón",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Tanlajás",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Rayón",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Alaquines",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Cárdenas",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Tamasopo",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Tamuín",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Cd. Valles",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Ébano",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Ciudad del Maíz",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Matlapa",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Santa Catarina",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "San Antonio",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Huehuetlán",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "San Martín Chalchicuautla",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Tancanhuitz",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Tampacán",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "San Ciro de Acosta",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Coxcatlán",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "San Vicente Tancuayalab",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Tampamolón Corona",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Axtla de Terrazas",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Tanquián de Escobedo",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "El Naranjo",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Rio Verde",
+      "estado": "San Luis Potosí"
+    },
+    {
+      "zona": "12/a.",
+      "unidad": "36/o. B.I.",
+      "municipio": "Tamazunchale",
+      "estado": "San Luis Potosí"
+    }
+  ]
+}

@@ -351,7 +351,7 @@ class _LoginScreenState extends State<LoginScreen>
                                               const SizedBox(height: 8),
                                               Text(
                                                 'En 4G deja el servidor en DuckDNS. '
-                                                'En Wi‑Fi la app elige sola la IP del PC.',
+                                                'En Wi‑Fi la app prueba sola la VM SICOM (192.168.1.150).',
                                                 style: TacticalFonts.label(
                                                   color: kInstMuted,
                                                   fontSize: 11,

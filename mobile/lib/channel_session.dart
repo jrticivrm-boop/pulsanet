@@ -305,12 +305,21 @@ class ChannelSession extends ChangeNotifier {
   Map<String, dynamic>? lastDmNotify;
   /// Aviso de takeover (`ptt:taken`). Consumir en UI (SnackBar).
   String? pttTakenNotice;
+  /// Cierre forzado / sesión reemplazada. Consumir en UI y llamar logout.
+  String? sessionKickNotice;
+  /// Feedback al emisor de alerta (Enterado / atendida). Consumir en SnackBar.
+  String? panicSenderNotice;
+  String? _lastPanicSenderFbKey;
   bool holding = false;
   /// Dedo/intención de transmitir (hold). Permite soltar antes de `ptt:granted`
   /// sin quedar al aire como si fuera latch (bug Pulsación Corta).
   bool _pttWantTransmit = false;
   /// true entre pressPtt y grant/release (aún sin `holding`).
   bool get pttArmed => _pttWantTransmit;
+  /// Servidor despertando radios dormidos (`ptt:waking`) antes del grant.
+  Map<String, dynamic>? pttWaking;
+  bool get pttWakingActive =>
+      pttWaking != null && _pttWantTransmit && !holding;
   DateTime? _lastLocalPttReleaseAt;
   bool gpsOk = false;
   bool panicSending = false;
@@ -494,6 +503,18 @@ class ChannelSession extends ChangeNotifier {
   String? consumePttTakenNotice() {
     final n = pttTakenNotice;
     pttTakenNotice = null;
+    return n;
+  }
+
+  String? consumeSessionKickNotice() {
+    final n = sessionKickNotice;
+    sessionKickNotice = null;
+    return n;
+  }
+
+  String? consumePanicSenderNotice() {
+    final n = panicSenderNotice;
+    panicSenderNotice = null;
     return n;
   }
 
@@ -937,6 +958,19 @@ class ChannelSession extends ChangeNotifier {
             .toList();
         notifyListeners();
       })
+      ..on('ptt:waking', (data) {
+        if (!_pttWantTransmit || holding) return;
+        final m = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+        final gid = m['groupId']?.toString();
+        if (gid != null && gid.isNotEmpty && gid != talkGroupId) return;
+        pttWaking = {
+          'groupId': gid ?? talkGroupId,
+          'count': (m['count'] as num?)?.toInt() ?? 0,
+          'delayMs': (m['delayMs'] as num?)?.toInt() ?? 0,
+        };
+        error = null;
+        notifyListeners();
+      })
       ..on('ptt:granted', (_) async {
         // Hold: el usuario ya soltó antes del grant → cancelar (como web floorWait).
         if (!_pttWantTransmit) {
@@ -944,6 +978,7 @@ class ChannelSession extends ChangeNotifier {
           return;
         }
         holding = true;
+        pttWaking = null;
         error = null;
         notifyListeners();
         try {
@@ -969,6 +1004,7 @@ class ChannelSession extends ChangeNotifier {
           _socket?.emit('ptt:release', {'groupId': talkGroupId});
           holding = false;
           _pttWantTransmit = false;
+          pttWaking = null;
           notifyListeners();
           await _discardPttArchive();
           await _restoreRadioAudio();
@@ -977,6 +1013,7 @@ class ChannelSession extends ChangeNotifier {
       ..on('ptt:denied', (data) {
         holding = false;
         _pttWantTransmit = false;
+        pttWaking = null;
         final m = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
         final who = m['speakerName']?.toString();
         if (m['reason'] == 'listen_only') {
@@ -1005,6 +1042,7 @@ class ChannelSession extends ChangeNotifier {
         if (prev != null && me != null && prev == me && holding) {
           holding = false;
           _pttWantTransmit = false;
+          pttWaking = null;
           await _muteMic();
           unawaited(_finishPttArchive(upload: true));
           final reason = m['reason']?.toString();
@@ -1226,10 +1264,50 @@ class ChannelSession extends ChangeNotifier {
         final m = Map<String, dynamic>.from(data as Map);
         applyAnnouncement(m);
       })
+      ..on('session:replaced', (data) {
+        final m = data is Map
+            ? Map<String, dynamic>.from(data)
+            : const <String, dynamic>{};
+        final reason = m['reason']?.toString() ?? '';
+        final custom = m['message']?.toString().trim() ?? '';
+        if (reason == 'force_logout') {
+          sessionKickNotice = custom.isNotEmpty
+              ? custom
+              : 'Tu sesión fue cerrada por un administrador.';
+        } else {
+          sessionKickNotice = custom.isNotEmpty
+              ? custom
+              : 'Se inició sesión en otro dispositivo.';
+        }
+        notifyListeners();
+      })
       ..on('panic:update', (data) {
         final m = Map<String, dynamic>.from(data as Map);
         final status = m['status']?.toString();
         if (status == null || status == 'active') return;
+        final uid = m['userId']?.toString();
+        final me = api.user?['id']?.toString();
+        if (uid != null && me != null && uid == me) {
+          final id = m['id']?.toString() ?? '';
+          final fbKey = '$id:$status';
+          if (_lastPanicSenderFbKey != fbKey) {
+            _lastPanicSenderFbKey = fbKey;
+            final who = m['ackedByName']?.toString();
+            if (status == 'acked') {
+              panicSenderNotice = (who != null && who.isNotEmpty)
+                  ? '$who se dio por enterado de tu alerta'
+                  : 'Un operador se dio por enterado de tu alerta';
+            } else if (status == 'resolved') {
+              panicSenderNotice = (who != null && who.isNotEmpty)
+                  ? 'Tu alerta fue atendida por $who'
+                  : 'Tu alerta fue atendida';
+            } else if (status == 'cancelled') {
+              panicSenderNotice = 'Tu alerta fue cancelada';
+            }
+            notifyListeners();
+          }
+          return;
+        }
         // Enterado en otro dispositivo no apaga esta alarma
         if (status == 'acked') return;
         final id = m['id']?.toString();
@@ -1879,6 +1957,9 @@ class ChannelSession extends ChangeNotifier {
       }
     }
     _pttWantTransmit = true;
+    pttWaking = null;
+    error = null;
+    notifyListeners();
     if (kRadioOnDemand) {
       // Conectar la sala en paralelo al bip y al pedido de floor.
       _cancelSleep(talkGroupId);
@@ -1910,6 +1991,7 @@ class ChannelSession extends ChangeNotifier {
     final hadPending = _pttWantTransmit;
     _pttWantTransmit = false;
     holding = false;
+    pttWaking = null;
     _lastLocalPttReleaseAt = DateTime.now();
     if (wasHolding || hadPending) {
       await playPttReleaseTone();

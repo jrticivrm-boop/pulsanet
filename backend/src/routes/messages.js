@@ -352,7 +352,8 @@ export function createMediaRouter() {
   router.get('/:messageId', async (req, res) => {
     const { rows } = await query(
       `SELECT m.id, m.group_id, m.sender_id, m.recipient_id, m.media_url, m.media_mime,
-              m.media_name, m.deleted_at, u.organization_id AS sender_org_id
+              m.media_name, m.deleted_at, m.view_once, m.view_once_opened_at,
+              u.organization_id AS sender_org_id
        FROM messages m
        LEFT JOIN users u ON u.id = m.sender_id
        WHERE m.id = $1 AND m.media_url IS NOT NULL`,
@@ -369,13 +370,24 @@ export function createMediaRouter() {
       allowed = await assertGroupMember(row.group_id, req.user.sub);
     } else if (row.recipient_id) {
       allowed = row.sender_id === req.user.sub || row.recipient_id === req.user.sub;
+      // Ver una vez: destinatario solo tras POST view-once (opened_at).
+      if (
+        allowed &&
+        row.view_once &&
+        String(row.recipient_id) === String(req.user.sub) &&
+        !row.view_once_opened_at
+      ) {
+        return res.status(403).json({ ok: false, error: 'Abre ver una vez primero' });
+      }
     }
     // RESERVADO / Eventos: admin de la misma org puede oír/ver media ajena (solo lectura).
+    // Ver-una-vez: no exponer a admin hasta que el destinatario haya abierto (auditoría post-facto vía soft-delete).
     if (
       !allowed &&
       isAdmin(req.user.role) &&
       row.sender_org_id &&
-      String(row.sender_org_id) === String(req.user.orgId)
+      String(row.sender_org_id) === String(req.user.orgId) &&
+      !row.view_once
     ) {
       allowed = true;
     }

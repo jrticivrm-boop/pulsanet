@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'android_native.dart';
 import 'ringer_mode.dart';
 import 'sound_prefs.dart';
 
@@ -46,19 +47,23 @@ class CallRingtone {
     }
 
     if (tone == AppToneId.system) {
-      try {
-        final mode =
-            await _notifyChannel.invokeMethod<String>('startCallRingtone');
-        _active = true;
-        debugPrint('CallRingtone.start system → $mode');
-      } catch (e) {
-        debugPrint('CallRingtone.start system fallback: $e');
-        final ringer = await readPhoneRingerMode();
-        if (ringer == PhoneRingerMode.silent) return;
-        _active = true;
-        // ignore: unawaited_futures
-        _fallbackBuzz();
+      if (kIsAndroidNative) {
+        try {
+          final mode =
+              await _notifyChannel.invokeMethod<String>('startCallRingtone');
+          _active = true;
+          debugPrint('CallRingtone.start system → $mode');
+          return;
+        } catch (e) {
+          debugPrint('CallRingtone.start system fallback: $e');
+        }
       }
+      // iOS (o fallo Android): vibración / haptic hasta que la UI conteste.
+      final ringer = await readPhoneRingerMode();
+      if (ringer == PhoneRingerMode.silent) return;
+      _active = true;
+      // ignore: unawaited_futures
+      _fallbackBuzz();
       return;
     }
 
@@ -89,7 +94,7 @@ class CallRingtone {
   static Future<void> stop() async {
     _active = false;
     await _stopAssetLoop();
-    if (kIsWeb) return;
+    if (!kIsAndroidNative) return;
     try {
       await _notifyChannel.invokeMethod<void>('stopCallRingtone');
     } catch (e) {
@@ -99,8 +104,13 @@ class CallRingtone {
 
   static Future<void> startOutgoing({int maxRings = 5}) async {
     if (kIsWeb) return;
+    await stop();
+    if (!kIsAndroidNative) {
+      // iOS: sin ToneGenerator nativo; el ringback saliente queda pendiente.
+      _outgoingActive = false;
+      return;
+    }
     try {
-      await stop();
       await _notifyChannel.invokeMethod<void>(
         'startOutgoingRingback',
         {'maxRings': maxRings},
@@ -115,7 +125,7 @@ class CallRingtone {
 
   static Future<void> stopOutgoing() async {
     _outgoingActive = false;
-    if (kIsWeb) return;
+    if (!kIsAndroidNative) return;
     try {
       await _notifyChannel.invokeMethod<void>('stopOutgoingRingback');
     } catch (e) {

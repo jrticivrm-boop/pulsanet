@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'android_native.dart';
 import 'background_radio.dart';
 import 'remote_camera_prefs.dart';
 
@@ -82,10 +83,12 @@ class RemoteCameraWake {
   /// Trae UI sin recrear Activity si ya está en primer plano.
   static Future<void> _bringUiSoft() async {
     if (kIsWeb) return;
-    try {
-      await _channel.invokeMethod<void>('bringToFrontForCall');
-    } catch (e) {
-      debugPrint('RemoteCameraWake.bringToFront: $e');
+    if (kIsAndroidNative) {
+      try {
+        await _channel.invokeMethod<void>('bringToFrontForCall');
+      } catch (e) {
+        debugPrint('RemoteCameraWake.bringToFront: $e');
+      }
     }
     try {
       final onFg = await FlutterForegroundTask.isAppOnForeground;

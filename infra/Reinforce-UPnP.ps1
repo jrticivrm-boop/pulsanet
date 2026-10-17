@@ -90,4 +90,7 @@ if (-not ($comOk -or $soapOk)) {
 }
 
 Write-Host 'UPnP mapeos aplicados (COM o SOAP).' -ForegroundColor Green
+Write-Host "AVISO: estos mapeos van a ESTA PC ($lan)." -ForegroundColor Yellow
+Write-Host '  Produccion SICOM esta en 192.168.1.150: si la APK en 4G falla, ejecuta:' -ForegroundColor Yellow
+Write-Host '  powershell -File infra\ENSURE-SICOM-WAN.ps1   (UPnP PC + portproxy -> VM)' -ForegroundColor Yellow
 exit 0

@@ -81,9 +81,10 @@ const MULTER_CEILING = 5 * 1024 * MB; // 5 GB
 export const LIMITS = {
   image: 10 * MB,
   audio: 15 * MB,
-  video: 50 * MB,
-  /** Documentos: sin tope práctico (solo el techo multer). */
-  file: MULTER_CEILING,
+  /** Video en chat: techo práctico para 4G/Wi‑Fi (antes 50 MB). */
+  video: 80 * MB,
+  /** Documentos / ZIP: ~2 GB (el techo multer sigue en 5 GB por transporte). */
+  file: 2 * 1024 * MB,
   multer: MULTER_CEILING,
 };
 
@@ -362,6 +363,6 @@ export function mediaDiskPath(storedName) {
 export function sizeLimitError(classified) {
   if (classified?.type === 'image') return 'Imagen demasiado grande (máx 10 MB)';
   if (classified?.type === 'audio') return 'Audio demasiado grande (máx 15 MB)';
-  if (classified?.kind === 'video') return 'Video demasiado grande (máx 50 MB)';
-  return 'Documento demasiado grande (máx 5 GB)';
+  if (classified?.kind === 'video') return 'Video demasiado grande (máx 80 MB)';
+  return 'Documento demasiado grande (máx 2 GB)';
 }

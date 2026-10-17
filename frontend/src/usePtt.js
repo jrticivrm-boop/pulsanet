@@ -57,6 +57,8 @@ export function usePtt({
   const [denied, setDenied] = useState(null);
   /** Servidor despertando radios dormidos por push antes de dar el micrófono. */
   const [waking, setWaking] = useState(null);
+  /** Pedido de floor en curso (antes de `ptt:granted`). */
+  const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('idle');
   const [online, setOnline] = useState([]);
@@ -68,6 +70,9 @@ export function usePtt({
   const [lastPanicAt, setLastPanicAt] = useState(null);
   const [incomingPanic, setIncomingPanic] = useState(null);
   const [panicAcking, setPanicAcking] = useState(false);
+  /** Feedback al emisor: Enterado / atendida / cancelada */
+  const [panicSenderFeedback, setPanicSenderFeedback] = useState(null);
+  const lastPanicSenderFbRef = useRef('');
   const [usesLatch, setUsesLatch] = useState(() => resolvePttLatch(user));
 
   const socketRef = useRef(null);
@@ -743,6 +748,8 @@ export function usePtt({
     });
 
     socket.on('disconnect', () => {
+      setPending(false);
+      setWaking(null);
       setConnected(false);
       setStatus((s) => (s === 'talking' ? 'reconnecting' : s));
     });
@@ -782,6 +789,7 @@ export function usePtt({
         return;
       }
       setWaking({ groupId, count: Number(count) || 0 });
+      setPending(true);
       window.setTimeout(() => setWaking(null), (Number(delayMs) || 2000) + 1500);
     });
 
@@ -791,6 +799,7 @@ export function usePtt({
         return;
       }
       setWaking(null);
+      setPending(false);
       wait.granted.add(groupId);
       wait.denied.delete(groupId);
       setDenied(null);
@@ -835,6 +844,8 @@ export function usePtt({
         setDenied({ reason: deniedReason });
         setHolding(false);
         holdingRef.current = false;
+        setWaking(null);
+        setPending(false);
         setStatus('listening');
       }
     });
@@ -854,6 +865,8 @@ export function usePtt({
       }
       holdingRef.current = false;
       setHolding(false);
+      setWaking(null);
+      setPending(false);
       await muteMic();
       floorWaitRef.current = {
         requested: new Set(),
@@ -986,8 +999,30 @@ export function usePtt({
     });
 
     socket.on('panic:update', (event) => {
-      if (event.groupId && group?.id && event.groupId !== group.id) return;
       if (!event?.status || event.status === 'active') return;
+      // Emisor: aviso cuando alguien se da por enterado o atiende la alerta.
+      // Dedupe: resolved/cancelled puede llegar por group:* y user:*.
+      if (event.userId && event.userId === user?.id) {
+        const fbKey = `${event.id}:${event.status}`;
+        if (lastPanicSenderFbRef.current !== fbKey) {
+          lastPanicSenderFbRef.current = fbKey;
+          const who = event.ackedByName || null;
+          if (event.status === 'acked') {
+            setPanicSenderFeedback(
+              who
+                ? `${who} se dio por enterado de tu alerta`
+                : 'Un operador se dio por enterado de tu alerta'
+            );
+          } else if (event.status === 'resolved') {
+            setPanicSenderFeedback(
+              who ? `Tu alerta fue atendida por ${who}` : 'Tu alerta fue atendida'
+            );
+          } else if (event.status === 'cancelled') {
+            setPanicSenderFeedback('Tu alerta fue cancelada');
+          }
+        }
+      }
+      if (event.groupId && group?.id && event.groupId !== group.id) return;
       // «acked» = otro dispositivo se dio por enterado: no silenciar aquí.
       // Solo resolved/cancelled cierran la alerta en todos.
       if (event.status === 'acked') return;
@@ -1171,6 +1206,8 @@ export function usePtt({
     unlockPanicAudio();
     playPttPressTone();
     setDenied(null);
+    setWaking(null);
+    setPending(true);
     floorWaitRef.current = {
       requested: new Set(ids),
       granted: new Set(),
@@ -1194,6 +1231,8 @@ export function usePtt({
       const wasHolding = holdingRef.current;
       holdingRef.current = false;
       setHolding(false);
+      setWaking(null);
+      setPending(false);
       if (wasHolding || ids.size) {
         lastLocalPttReleaseAt = Date.now();
         playPttReleaseTone();
@@ -1220,12 +1259,12 @@ export function usePtt({
 
   /** Toque / Espacio: 1.º al aire, 2.º libera. */
   const toggle = useCallback(() => {
-    if (holdingRef.current) {
+    if (holdingRef.current || pending) {
       void release();
     } else {
       press();
     }
-  }, [press, release]);
+  }, [press, release, pending]);
 
   const postChat = useCallback(
     async (body, { replyToId } = {}) => {
@@ -1505,6 +1544,7 @@ export function usePtt({
     speaking,
     speakers,
     holding,
+    pending,
     denied,
     waking,
     error,
@@ -1526,6 +1566,8 @@ export function usePtt({
     panicSending,
     lastPanicAt,
     incomingPanic,
+    panicSenderFeedback,
+    clearPanicSenderFeedback: () => setPanicSenderFeedback(null),
     ackPanic,
     dismissPanicLocal,
     silencePanicAlarm,

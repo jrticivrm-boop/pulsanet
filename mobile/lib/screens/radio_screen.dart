@@ -57,6 +57,8 @@ class RadioScreen extends StatelessWidget {
     if (!session.livekitReady) return 'AUDIO…';
     if (session.listenMuted) return 'SILENCIO';
     if (session.holding) return 'AL AIRE';
+    if (session.pttWakingActive) return 'DESPERTANDO';
+    if (session.pttArmed) return 'PEDINDO';
     if (session.speakerName != null) return 'OCUPADO';
     return 'LISTO';
   }
@@ -65,6 +67,7 @@ class RadioScreen extends StatelessWidget {
     if (!session.connected) return kRadioDanger;
     if (session.listenMuted) return kRadioMuted;
     if (session.holding) return kInstOk;
+    if (session.pttWakingActive || session.pttArmed) return kInstGold;
     if (session.speakerName != null) return kInstGold;
     return kInstOliveMid;
   }
@@ -76,6 +79,14 @@ class RadioScreen extends StatelessWidget {
           ? 'Tú al aire en ${session.effectivePttGroupName}'
           : 'Tú estás al aire';
     }
+    if (session.pttWakingActive) {
+      final n = session.pttWaking?['count'];
+      final count = n is int ? n : int.tryParse('$n') ?? 0;
+      return count > 0
+          ? 'Despertando radios ($count)…'
+          : 'Despertando radios…';
+    }
+    if (session.pttArmed) return 'Pidiendo canal…';
     if (session.speakerName != null) {
       final g = session.lastHeardGroupName;
       if (session.openChannel && g != null && g.isNotEmpty) {
@@ -804,12 +815,20 @@ class _PttPad extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final holding = session.holding;
+    final waking = session.pttWakingActive;
+    final pending = session.pttArmed && !holding;
+    final live = holding || pending;
     final ready = session.connected && session.livekitReady;
+    final padLabel = holding
+        ? 'AL AIRE'
+        : (waking ? 'DESPERTANDO' : (pending ? 'PEDINDO' : 'PTT'));
     final hint = !ready
         ? '…'
-        : (latchMode
-            ? (holding ? 'TOCAR · SOLTAR' : 'TOCAR')
-            : (holding ? 'SUELTA' : 'MANTÉN'));
+        : pending
+            ? (waking ? 'ESPERA…' : 'CANAL…')
+            : (latchMode
+                ? (holding ? 'TOCAR · SOLTAR' : 'TOCAR')
+                : (holding ? 'SUELTA' : 'MANTÉN'));
 
     final pad = AnimatedContainer(
       duration: const Duration(milliseconds: 160),
@@ -823,18 +842,19 @@ class _PttPad extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: holding
               ? const [Color(0xFF3F6B36), kInstOlive, kInstOliveDeep]
-              : const [kInstOliveMid, kInstOlive, kInstOliveDeep],
+              : pending
+                  ? const [Color(0xFF5A6B2E), kInstOliveMid, kInstOlive]
+                  : const [kInstOliveMid, kInstOlive, kInstOliveDeep],
         ),
         border: Border.all(
-          color: holding ? kInstGoldSoft : kInstGold,
-          width: holding ? 3.5 : 2.5,
+          color: live ? kInstGoldSoft : kInstGold,
+          width: holding ? 3.5 : (pending ? 3.0 : 2.5),
         ),
         boxShadow: [
           BoxShadow(
-            color: (holding ? kInstOk : kInstOlive).withValues(
-              alpha: holding ? 0.35 : 0.22,
-            ),
-            blurRadius: holding ? 22 : 14,
+            color: (holding ? kInstOk : (pending ? kInstGold : kInstOlive))
+                .withValues(alpha: holding ? 0.35 : (pending ? 0.28 : 0.22)),
+            blurRadius: holding ? 22 : (pending ? 18 : 14),
             offset: const Offset(0, 8),
           ),
         ],
@@ -846,9 +866,11 @@ class _PttPad extends StatelessWidget {
           height: 118,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: holding ? const Color(0xFF152018) : const Color(0xFF1A2A16),
+            color: holding
+                ? const Color(0xFF152018)
+                : (pending ? const Color(0xFF1C2410) : const Color(0xFF1A2A16)),
             border: Border.all(
-              color: kInstGoldSoft.withValues(alpha: holding ? 0.9 : 0.45),
+              color: kInstGoldSoft.withValues(alpha: live ? 0.9 : 0.45),
               width: 1.5,
             ),
           ),
@@ -856,19 +878,20 @@ class _PttPad extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               PttWaveBars(
-                active: holding,
-                color: holding ? kInstGoldSoft : kInstOnPrimary,
+                active: live,
+                color: live ? kInstGoldSoft : kInstOnPrimary,
                 height: 28,
                 width: 36,
               ),
               const SizedBox(height: 4),
               Text(
-                holding ? 'AL AIRE' : 'PTT',
+                padLabel,
+                textAlign: TextAlign.center,
                 style: TacticalFonts.display(
-                  fontSize: holding ? 15 : 20,
+                  fontSize: live ? (pending && !holding ? 11 : 15) : 20,
                   fontWeight: FontWeight.w700,
-                  letterSpacing: holding ? 1.4 : 2.2,
-                  color: holding ? kInstGoldSoft : kInstOnPrimary,
+                  letterSpacing: live ? 1.0 : 2.2,
+                  color: live ? kInstGoldSoft : kInstOnPrimary,
                   height: 1.05,
                 ),
               ),
@@ -892,10 +915,18 @@ class _PttPad extends StatelessWidget {
       label: latchMode
           ? (holding
               ? 'Al aire, toca para dejar de transmitir'
-              : 'PTT, toca para hablar')
+              : pending
+                  ? (waking
+                      ? 'Despertando radios, espera o toca para cancelar'
+                      : 'Pidiendo canal, espera o toca para cancelar')
+                  : 'PTT, toca para hablar')
           : (holding
               ? 'Al aire, suelta para dejar de transmitir'
-              : 'PTT, mantén pulsado para hablar'),
+              : pending
+                  ? (waking
+                      ? 'Despertando radios, suelta para cancelar'
+                      : 'Pidiendo canal, suelta para cancelar')
+                  : 'PTT, mantén pulsado para hablar'),
       child: latchMode
           ? GestureDetector(
               behavior: HitTestBehavior.opaque,
