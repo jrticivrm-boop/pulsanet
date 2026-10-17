@@ -1,10 +1,35 @@
 /**
  * Globo de operador en mapa:
- * L1 Grado Apellido, unidad|zona|región (root: «…, Administrador» o solo «Administrador» sin grado)
- * L2 catálogo · nombre libre (omite si ambos vacíos)
- * L3 teléfono (omite si vacío)
- * luego fecha, coords, acciones — sin texto de presencia.
+ * L1 Grado Apellido (root sin grado: «Administrador»)
+ * L2 unidad|zona|región (root: «Administrador»)
+ * L3 distintivo: B.O.Mvl. "Castillo" (catálogo + nombre libre entre comillas), seguido de
+ *    municipio, estado donde está el servicio (guardado o por su posición)
+ * L4 teléfono
+ * Cada línea se omite si está vacía; luego fecha, coords, acciones — sin texto de presencia.
  */
+import { useEffect, useState } from 'react';
+import { ensureFreshSession, geoAdminAt } from '../api';
+import { MapCoordsLink } from './MapCoordsLink.jsx';
+import {
+  featureContainsLatLng,
+  loadIvRmMunicipios,
+  loadedIvRmMunicipios,
+} from './mxMunicipiosGeo.js';
+
+/** Distintivo: «B.O.Mvl. "Castillo"»; solo uno de los dos si falta el otro. */
+export function formatDistintivo(tipo, nombre) {
+  const t = String(tipo || '').trim();
+  const n = String(nombre || '')
+    .trim()
+    .replace(/^["“”«»']+|["“”«»']+$/g, '')
+    .trim();
+  const quoted = n ? `"${n}"` : '';
+  return [t, quoted].filter(Boolean).join(' ');
+}
+
+export function mapOperatorDistintivo(loc) {
+  return formatDistintivo(loc?.cargo, loc?.serviceNombre);
+}
 
 export function affiliationLabelFromLoc(loc) {
   const fromOrg =
@@ -19,23 +44,136 @@ export function affiliationLabelFromLoc(loc) {
 
 export function mapPopupTitleLine(loc) {
   const fromDisplay = String(loc?.displayName || '').trim();
-  const aff = affiliationLabelFromLoc(loc);
   const role = String(loc?.role || '').trim().toLowerCase();
-  if (role === 'root') {
-    if (!String(loc?.grade || '').trim()) return 'Administrador';
-    const base = (fromDisplay.split(',')[0] || fromDisplay).trim();
-    return base ? `${base}, ${aff}` : aff;
-  }
-  // display_name ya debería ser «Grado Apellido[, pertenencia]».
-  if (fromDisplay.includes(',')) return fromDisplay;
-  if (fromDisplay && aff) return `${fromDisplay}, ${aff}`;
-  return fromDisplay || aff || 'Operador';
+  if (role === 'root' && !String(loc?.grade || '').trim()) return 'Administrador';
+  // display_name = «Grado Apellido[, pertenencia]»; la pertenencia va en su propia línea.
+  const base = (fromDisplay.split(',')[0] || '').trim();
+  return base || 'Operador';
 }
 
 export function mapPopupServiceLine(loc) {
-  const catalog = String(loc?.cargo || '').trim();
-  const nombre = String(loc?.serviceNombre || '').trim();
-  return [catalog, nombre].filter(Boolean).join(' · ');
+  return mapOperatorDistintivo(loc);
+}
+
+export function mapPopupAffiliationLine(loc) {
+  const aff = affiliationLabelFromLoc(loc);
+  return aff && aff !== mapPopupTitleLine(loc) ? aff : '';
+}
+
+export function mapPopupPlaceLine(loc) {
+  return [loc?.serviceGeoMunicipio, abreviarEstado(loc?.serviceGeoEstado)]
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+const placeCache = new Map();
+
+const ESTADO_ABREV = [
+  ['aguascalientes', 'Ags.'],
+  ['baja california sur', 'B.C.S.'],
+  ['baja california', 'B.C.'],
+  ['campeche', 'Camp.'],
+  ['chiapas', 'Chis.'],
+  ['chihuahua', 'Chih.'],
+  ['ciudad de mexico', 'CDMX'],
+  ['distrito federal', 'CDMX'],
+  ['coahuila', 'Coah.'],
+  ['colima', 'Col.'],
+  ['durango', 'Dgo.'],
+  ['guanajuato', 'Gto.'],
+  ['guerrero', 'Gro.'],
+  ['hidalgo', 'Hgo.'],
+  ['jalisco', 'Jal.'],
+  ['estado de mexico', 'Edo. Méx.'],
+  ['mexico', 'Edo. Méx.'],
+  ['michoacan', 'Mich.'],
+  ['morelos', 'Mor.'],
+  ['nayarit', 'Nay.'],
+  ['nuevo leon', 'N.L.'],
+  ['oaxaca', 'Oax.'],
+  ['puebla', 'Pue.'],
+  ['queretaro', 'Qro.'],
+  ['quintana roo', 'Q. Roo'],
+  ['san luis', 'S.L.P.'],
+  ['sinaloa', 'Sin.'],
+  ['sonora', 'Son.'],
+  ['tabasco', 'Tab.'],
+  ['tamaulipas', 'Tamps.'],
+  ['tlaxcala', 'Tlax.'],
+  ['veracruz', 'Ver.'],
+  ['yucatan', 'Yuc.'],
+  ['zacatecas', 'Zac.'],
+];
+
+/** «Tamaulipas» → «Tamps.»; acepta nombres largos («Coahuila de Zaragoza»). Sin match: tal cual. */
+export function abreviarEstado(estado) {
+  const raw = String(estado || '').trim();
+  const key = raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const hit = ESTADO_ABREV.find(([name]) => key === name || key.startsWith(`${name} `));
+  return hit ? hit[1] : raw;
+}
+
+function joinPlace(municipio, estado) {
+  return [municipio, abreviarEstado(estado)]
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+function placeFromTerritory(features, lat, lng) {
+  const f = (features || []).find((x) => featureContainsLatLng(x, lat, lng));
+  return f ? joinPlace(f.properties?.municipio || f.properties?.shapeName, f.properties?.estado) : '';
+}
+
+/**
+ * «Municipio, Estado» donde está el servicio: el guardado en el usuario o, si no hay,
+ * el de su posición (municipios IV R.M. en el navegador; fuera de ellos, /api/geo/admin-at).
+ */
+export function useOperatorPlace(loc) {
+  const saved = mapPopupPlaceLine(loc);
+  const lat = Number(loc?.latitude);
+  const lng = Number(loc?.longitude);
+  const key =
+    Number.isFinite(lat) && Number.isFinite(lng) ? `${lat.toFixed(3)},${lng.toFixed(3)}` : '';
+  const [place, setPlace] = useState(() => saved || (key && placeCache.get(key)) || '');
+
+  useEffect(() => {
+    if (saved || !key) {
+      setPlace(saved);
+      return undefined;
+    }
+    if (placeCache.has(key)) {
+      setPlace(placeCache.get(key));
+      return undefined;
+    }
+    let alive = true;
+    const ctrl = new AbortController();
+    (async () => {
+      const features = loadedIvRmMunicipios() || (await loadIvRmMunicipios());
+      let found = placeFromTerritory(features, lat, lng);
+      if (!found) {
+        try {
+          const s = await ensureFreshSession();
+          const r = await geoAdminAt(s?.token, lat, lng, ctrl.signal);
+          found = joinPlace(r?.municipio, r?.estado);
+        } catch {
+          return;
+        }
+      }
+      placeCache.set(key, found);
+      if (alive) setPlace(found);
+    })();
+    return () => {
+      alive = false;
+      ctrl.abort();
+    };
+  }, [saved, key]);
+
+  return place;
 }
 
 export function mapPopupPhoneLine(loc) {
@@ -47,12 +185,13 @@ export function mapOperatorSearchBlob(loc) {
   return [
     loc?.displayName,
     loc?.grade,
-    loc?.cargo,
-    loc?.serviceNombre,
+    mapOperatorDistintivo(loc),
     loc?.phone,
     loc?.unitName,
     loc?.zoneName,
     loc?.regionName,
+    loc?.serviceGeoMunicipio,
+    loc?.serviceGeoEstado,
   ]
     .map((s) => String(s || '').trim())
     .filter(Boolean)
@@ -60,32 +199,85 @@ export function mapOperatorSearchBlob(loc) {
     .toLowerCase();
 }
 
+const POPUP_ICONS = {
+  place: 'M12 21s-6-5.6-6-11a6 6 0 1 1 12 0c0 5.4-6 11-6 11zm0-8.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+  phone:
+    'M5 4h3l2 5-2.5 1.5a11 11 0 0 0 6 6L15 14l5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z',
+  time: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zm0-13v4.5l3 2',
+  coords: 'M12 3v3m0 12v3M3 12h3m12 0h3M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z',
+};
+
+function PopupIcon({ name }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d={POPUP_ICONS[name]} />
+    </svg>
+  );
+}
+
+function popupInitial(title) {
+  const words = String(title || '').trim().split(/\s+/);
+  const last = words[words.length - 1] || '';
+  return (last.replace(/[^\p{L}]/gu, '')[0] || '?').toLocaleUpperCase('es');
+}
+
+/** Ficha del operador en el globo; `children` = acciones (botones). */
 export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
   const title = mapPopupTitleLine(loc);
-  const service = mapPopupServiceLine(loc);
+  const distintivo = mapPopupServiceLine(loc);
+  const affiliation = mapPopupAffiliationLine(loc);
+  const place = useOperatorPlace(loc);
   const phone = mapPopupPhoneLine(loc);
+  const hasCoords = Number.isFinite(Number(loc?.latitude)) && Number.isFinite(Number(loc?.longitude));
+  const rows = [
+    phone
+      ? {
+          icon: 'phone',
+          body: (
+            <a href={`tel:${phone.replace(/[^\d+]/g, '')}`} className="cc-op-pop-tel">
+              {phone}
+            </a>
+          ),
+        }
+      : null,
+    recordedLabel ? { icon: 'time', body: recordedLabel } : null,
+    hasCoords
+      ? { icon: 'coords', body: <MapCoordsLink lat={loc.latitude} lng={loc.longitude} /> }
+      : null,
+  ].filter(Boolean);
   return (
-    <>
-      <strong>{title}</strong>
-      {service ? (
-        <>
-          <br />
-          {service}
-        </>
+    <div className="cc-op-pop">
+      <div className="cc-op-pop-head">
+        <span className="cc-op-pop-avatar" aria-hidden="true">
+          {popupInitial(title)}
+        </span>
+        <div className="cc-op-pop-id">
+          <strong className="cc-op-pop-title">{title}</strong>
+          {affiliation ? <span className="cc-op-pop-aff">{affiliation}</span> : null}
+        </div>
+      </div>
+      {distintivo || place ? (
+        <div className="cc-op-pop-service">
+          {distintivo ? <span className="cc-op-pop-chip">{distintivo}</span> : null}
+          {place ? (
+            <span className="cc-op-pop-place">
+              <PopupIcon name="place" />
+              {place}
+            </span>
+          ) : null}
+        </div>
       ) : null}
-      {phone ? (
-        <>
-          <br />
-          {phone}
-        </>
+      {rows.length ? (
+        <ul className="cc-op-pop-rows">
+          {rows.map((r) => (
+            <li key={r.icon}>
+              <PopupIcon name={r.icon} />
+              <span>{r.body}</span>
+            </li>
+          ))}
+        </ul>
       ) : null}
-      {recordedLabel ? (
-        <>
-          <br />
-          <small>{recordedLabel}</small>
-        </>
-      ) : null}
-      {children}
-    </>
+      {children ? <div className="cc-op-pop-actions">{children}</div> : null}
+    </div>
   );
 }

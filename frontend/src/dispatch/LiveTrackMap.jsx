@@ -42,6 +42,7 @@ import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import {
   OperatorMapPopupBody,
+  mapOperatorDistintivo,
   mapOperatorSearchBlob,
 } from './mapOperatorPopup.jsx';
 import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, focusFromSearchParams, loadMapView, PersistMapView, CargoZoomGate, FollowSelected, FlyToFocus, MapSelectionEvents, useDeselectOutside } from './mapLeafletUtils.jsx';
@@ -909,6 +910,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
                       icon={mapAvatarIcon({
                         name: p.displayName,
                         cargo: p.cargo,
+                        label: mapOperatorDistintivo(p),
                         showCargo,
                         presence: status,
                         focus: p.focus,
@@ -932,10 +934,8 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
                             gpsStatusLine(p.recordedAt, now) ||
                             ''
                           }
-                        >
-                          <br />
-                          <MapCoordsLink lat={p.latitude} lng={p.longitude} />
-                        </OperatorMapPopupBody>
+                        />
+
                       </Popup>
                     </SmoothMarker>
                   );

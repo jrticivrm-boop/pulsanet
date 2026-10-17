@@ -14,6 +14,11 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Usuarios — Nombre del Servicio:** texto libre `service_nombre` antes del catálogo; Región/Zona/Unidad en Identidad militar; Servicio = Nombre → catálogo → Estado → Municipio; indicativo prioriza el nombre libre. Migración `047_service_nombre.sql`.
 - **Usuarios — Servicio limpio + globo mapa:** solo Nombre + catálogo en el form; sin Estado/Municipio (`048`); R/Z/U solo Adscripción; indicativo `Grado Apellido, unidad|zona|región`; globo L1/L2/L3 (sin texto presencia); búsqueda por servicio.
 - **Usuarios — Ubicación del servicio:** campo de coordenadas que extrae estado/municipio/localidad/colonia/C.P./ejido; visible en la relación, Excel y CSV; no afecta la ubicación en tiempo real. «Servicio» del catálogo pasa a llamarse «Tipo de servicio». Migración `049_service_ubicacion.sql`.
+- **Globo del operador en el mapa:** ficha con iniciales, unidad, distintivo como etiqueta seguido de «Municipio, Edo.» del servicio con estado abreviado (N.L., Tamps., S.L.P.…; guardado o por su posición GPS), filas con icono (lugar, teléfono, hora, coordenadas) y «Ver ruta» a todo el ancho.
+- **Usuario de acceso con número variable:** sufijo de 2 dígitos derivado del nombre (ej. `rvaldezm19`) en lugar de «2» fijo; usuarios existentes sin cambio.
+- **Formulario de usuario rediseñado:** modal 820px con ficha de vista previa fija, secciones con icono, rejilla alineada de 3 columnas (responsive) y barra de acciones fija.
+- **Tipo de servicio desplegable:** P.M.A., P.M.M., B.O.Mvl., D.S.M., P.M.S., P.M.S.E. y «+ Agregar tipo…»; junto con el Distintivo (texto) forma la etiqueta del mapa `B.O.Mvl. "Sanchez"`.
+- **Distintivo en Usuarios y mapa:** «Tipo de servicio» pasa a «Distintivo», texto libre (`B.O.Mvl. "Castillo"` = distintivo + nombre entre comillas); es la etiqueta bajo cada pin del mapa web; en la relación, «Grado y especialidad» y columnas separadas «Nombre del servicio» y «Distintivo»; el globo muestra Grado Apellido, distintivo, unidad, municipio/estado del servicio y teléfono.
 - **Indicativo root + mapa APK:** solo el Administrador (root) sin adscripción muestra «Administrador»; ficha del mapa en la app con 3 líneas (pertenencia · servicio · teléfono).
 
 > Desplegado en producción el 2026-10-12 (`prod-v1.8.107-20261012-1810`, API + web). APK Android **1.8.183+193**.

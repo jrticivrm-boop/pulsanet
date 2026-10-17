@@ -10,7 +10,7 @@ Comunicación **Push-to-Talk (PTT)** por internet: habla en grupos como un radio
 
 El ingreso es con **usuario** y **contraseña**.
 
-- El usuario se genera del nombre: inicial + apellido paterno + inicial materno + número (ej. Guadalupe Gómez de la Cruz → `ggomezd2`).
+- El usuario se genera del nombre: inicial + apellido paterno + inicial materno + número de 2 dígitos propio del nombre (ej. Ricardo Valdez Mora → `rvaldezm19`). Si ya existe, el sistema usa otro número.
 - El administrador crea usuarios en **Despacho → Usuarios**.
 - En el primer ingreso, el usuario debe cambiar la contraseña temporal.
 - Arranque técnico (solo un root): en el servidor, `cd backend && npm run seed`.

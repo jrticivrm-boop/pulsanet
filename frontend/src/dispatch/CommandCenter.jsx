@@ -45,7 +45,7 @@ import { mapAvatarIcon } from './mapAvatarIcon.js';
 import PresenceMapLegend, { countPresenceLegend } from './PresenceMapLegend.jsx';
 import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
-import { OperatorMapPopupBody } from './mapOperatorPopup.jsx';
+import { OperatorMapPopupBody, mapOperatorDistintivo } from './mapOperatorPopup.jsx';
 import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, CargoZoomGate } from './mapLeafletUtils.jsx';
 import { ClusteredLocationLayer } from './ClusteredLocationLayer.jsx';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
@@ -862,6 +862,7 @@ export default function CommandCenter({ session }) {
                           icon={mapAvatarIcon({
                             name: loc.displayName,
                             cargo: loc.cargo,
+                            label: mapOperatorDistintivo(loc),
                             showCargo,
                             presence: status,
                             focus: loc.focus,
@@ -899,10 +900,11 @@ export default function CommandCenter({ session }) {
                                 ''
                               }
                             >
-                              <br />
-                              <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
-                              <br />
-                              <button type="button" onClick={() => setTrackUserId(loc.userId)}>
+                              <button
+                                type="button"
+                                className="is-primary"
+                                onClick={() => setTrackUserId(loc.userId)}
+                              >
                                 Ver ruta (8 h)
                               </button>
                             </OperatorMapPopupBody>

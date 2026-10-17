@@ -70,6 +70,7 @@ export function resolveOperatorGroupForMarker({
  * @param {object} opts
  * @param {string} [opts.name]
  * @param {string} [opts.cargo]
+ * @param {string} [opts.label] — etiqueta tal cual (distintivo); si viene vacía se usa cargo/name
  * @param {boolean} [opts.showCargo]
  * @param {boolean} [opts.live] — legado; preferir opts.presence
  * @param {string} [opts.presence] — online|service|offline|stale
@@ -88,6 +89,7 @@ export function resolveOperatorGroupForMarker({
 export function mapAvatarIcon({
   name,
   cargo,
+  label: labelText,
   showCargo = true,
   live,
   presence,
@@ -125,7 +127,7 @@ export function mapAvatarIcon({
   const pinPresence = presencePinClass(status);
   const showRings = Boolean(status === 'online' || status === 'away' || panic);
   const label = showCargo
-    ? cargoLabelFromText(cargo) || cargoLabelFromText(name)
+    ? String(labelText || '').trim() || cargoLabelFromText(cargo) || cargoLabelFromText(name)
     : '';
   const face = hasPhoto
     ? `<span class="lt-wa-photo-bg" style="background-image:url('${escapeCssUrl(effectivePhoto)}')" aria-hidden="true"></span>`

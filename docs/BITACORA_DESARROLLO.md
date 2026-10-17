@@ -1,3 +1,65 @@
+## 2026-10-17 — Globo del operador: municipio y estado tras el distintivo
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Debajo de la etiqueta del distintivo (`P.M.A. "Orion"`) aparece «📍 Municipio, Estado» donde está el servicio.
+  - Origen: el municipio/estado guardado en el usuario; si no hay (hoy ningún usuario lo tiene), se calcula de su posición GPS con los municipios IV R.M. en el navegador y, fuera de la región, con `/api/geo/admin-at` (caché por coordenada ~100 m).
+  - Estado abreviado (`abreviarEstado`): N.L., Tamps., S.L.P. y el resto de la República (Coah., Ver., CDMX, Edo. Méx., …); ej. «Tampico, Tamps.».
+- **Archivos / refs:** `frontend/src/dispatch/mapOperatorPopup.jsx` (`useOperatorPlace`, `abreviarEstado`), `frontend/src/dispatch/command-center.css`
+
+## 2026-10-17 — Globo del operador en el mapa rediseñado
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - El globo pasa de líneas con `<br/>` a una ficha: iniciales en círculo + Grado Apellido y unidad; distintivo como etiqueta (`P.M.A. "Orion"`); filas con icono para municipio/estado, teléfono (enlace `tel:`), hora y coordenadas (Google Maps); «Ver ruta» a todo el ancho.
+  - El componente pinta las coordenadas; Despacho, Seguimiento en vivo y Centro de mando ya no agregan `<br/>` ni el enlace por su cuenta. Colores por variables de tema (claro / verde / obscuro).
+- **Archivos / refs:** `frontend/src/dispatch/mapOperatorPopup.jsx`, `DispatchMap.jsx`, `LiveTrackMap.jsx`, `CommandCenter.jsx`, `command-center.css`
+
+## 2026-10-17 — Usuario de acceso: número variable en lugar de «2» fijo
+
+- **Tipo:** mejora
+- **Área:** backend
+- **Qué:**
+  - El número final del usuario ya no empieza siempre en 2: se toma un número de 2 dígitos (10–99) derivado del nombre completo (ej. `rvaldezm19`, `scastillor81`); si está ocupado prueba otro en un orden propio del nombre y, agotados, pasa a 3 dígitos.
+  - Determinista: la vista previa del formulario y el alta generan el mismo usuario.
+  - Los usuarios existentes conservan su usuario actual (no se renombran logins).
+  - Formulario: la etiqueta del campo libre ahora dice «Distintivo o nombre del servicio» (columna y Excel siguen como «Distintivo»).
+- **Archivos / refs:** `backend/src/services/rfcUsername.js`, `docs/MANUAL_USUARIO.md`, `frontend/src/dispatch/DispatchUsers.jsx`
+
+## 2026-10-17 — Formulario Alta/Editar usuario rediseñado
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Modal más ancho (820px; antes lo limitaba `.sys-modal` a 440px). Ficha de vista previa fija arriba (iniciales, indicativo, nombre completo, chip del distintivo `B.O.Mvl. "Sanchez"`, usuario de acceso).
+  - Secciones con icono y título (Identidad militar · Nombre completo · Contacto y servicio · Perfil · Alcance), rejilla de 3 columnas con campos de la misma altura y etiquetas alineadas (2 columnas ≤760px, 1 columna ≤520px); sin scroll horizontal.
+  - «Falta completar» como chips; barra de acciones fija abajo. Se quitó la sección «Identificador» (redundante con la ficha).
+- **Archivos / refs:** `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`
+
+## 2026-10-17 — Tipo de servicio desplegable (P.M.A., P.M.M., B.O.Mvl., D.S.M., P.M.S., P.M.S.E.)
+
+- **Tipo:** ux
+- **Área:** web | backend
+- **Qué:**
+  - Bloque Servicio: **Tipo de servicio** (desplegable: P.M.A., P.M.M., B.O.Mvl., D.S.M., P.M.S., P.M.S.E. y «+ Agregar tipo…» al final) + **Distintivo** (texto, ej. Sanchez). En el mapa: `B.O.Mvl. "Sanchez"`. Columnas y Excel: «Tipo de servicio» y «Distintivo».
+  - Catálogo `cat_servicios`: semilla = esos 6 tipos; ya no importa los cargos de usuarios ni se auto-agrega el valor al guardar un usuario (solo con «Agregar»).
+  - Desarrollo: los 11 valores viejos del catálogo quedaron dados de baja (soft; reactivables en Catálogos). Los usuarios conservan su valor.
+- **Archivos / refs:** `DispatchUsers.jsx`, `backend/src/services/catalogs.js`, `backend/src/routes/admin.js`
+
+## 2026-10-17 — Distintivo (B.O.Mvl. "Castillo") en Usuarios y mapa
+
+- **Tipo:** feature | ux
+- **Área:** web | backend
+- **Qué:**
+  - «Tipo de servicio» pasa a **Distintivo**, cuadro de texto libre (ya no selector de catálogo); se combina con el nombre libre entre comillas (`B.O.Mvl. "Castillo"`); el formulario muestra cómo se verá en el mapa. Columna y Excel «Distintivo».
+  - Relación de usuarios: «Grado y empleo» pasa a **Grado y especialidad**; columnas separadas **Nombre del servicio** y **Distintivo** (también en Excel). Una columna nueva aparece junto a su vecina aunque haya orden de columnas guardado.
+  - Etiqueta bajo cada pin (consola, seguimiento, centro de mando) = distintivo; sin distintivo queda la etiqueta anterior.
+  - Globo al dar clic: Grado Apellido · distintivo · unidad|zona|región · municipio, estado (de la ubicación del servicio) · teléfono; cada línea se omite si está vacía.
+- **Por qué / notas:** `GET /api/locations` agrega `serviceGeoMunicipio`/`serviceGeoEstado` (solo informativo; no cambia la posición en vivo). App móvil sin cambios en este paso.
+- **Archivos / refs:** `mapOperatorPopup.jsx`, `mapAvatarIcon.js`, `DispatchMap.jsx`, `LiveTrackMap.jsx`, `CommandCenter.jsx`, `DispatchUsers.jsx`, `backend/src/routes/locations.js`
+
 ## 2026-10-16 — Usuarios: Tipo de servicio + Ubicación por coordenadas
 
 - **Tipo:** feature | ux

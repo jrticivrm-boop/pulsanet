@@ -124,6 +124,7 @@ export function createLocationsRouter(io) {
 
     const { rows } = await query(
       `SELECT u.id AS user_id, u.display_name, u.grade, u.cargo, u.service_nombre, u.phone,
+              u.service_geo_municipio, u.service_geo_estado,
               u.role, u.is_active, u.avatar_url, u.unit_id,
               u.admin_scope_unit_id, u.location_share, u.last_seen_at,
               l.latitude, l.longitude, l.accuracy_m, l.recorded_at
@@ -194,6 +195,8 @@ export function createLocationsRouter(io) {
         grade: r.grade || null,
         cargo: r.cargo || null,
         serviceNombre: r.service_nombre || null,
+        serviceGeoMunicipio: r.service_geo_municipio || null,
+        serviceGeoEstado: r.service_geo_estado || null,
         phone: r.phone || null,
         role: r.role,
         unitId: r.unit_id || null,

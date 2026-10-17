@@ -67,6 +67,7 @@ import { PRESENCE_LABELS, reconcilePresenceFilterIds, resolvePresenceStatus, vis
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import {
   OperatorMapPopupBody,
+  mapOperatorDistintivo,
   mapOperatorSearchBlob,
 } from './mapOperatorPopup.jsx';
 import {
@@ -3900,6 +3901,7 @@ export default function DispatchMap({ session }) {
                       icon={mapAvatarIcon({
                         name: loc.displayName,
                         cargo: loc.cargo,
+                        label: mapOperatorDistintivo(loc),
                         showCargo,
                         presence: status,
                         focus: loc.focus || pInfo?.focus,
@@ -3934,10 +3936,11 @@ export default function DispatchMap({ session }) {
                               : ''
                           }
                         >
-                          <br />
-                          <MapCoordsLink lat={loc.latitude} lng={loc.longitude} />
-                          <br />
-                          <button type="button" onClick={() => selectRouteFromPin(loc.userId)}>
+                          <button
+                            type="button"
+                            className={trackUserIds.includes(String(loc.userId)) ? '' : 'is-primary'}
+                            onClick={() => selectRouteFromPin(loc.userId)}
+                          >
                             {trackUserIds.includes(String(loc.userId))
                               ? 'Quitar ruta'
                               : 'Ver ruta'}

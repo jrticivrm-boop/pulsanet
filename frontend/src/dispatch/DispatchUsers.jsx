@@ -26,6 +26,7 @@ import { openPeerSheet } from '../peerActions';
 import { NEW_CHANNEL_BTN_SVG } from './ThFilterMulti.jsx';
 import useAdminStickyToolbarHeight from './useAdminStickyToolbarHeight.js';
 import { buildXlsx, downloadBlob } from '../xlsxExport.js';
+import { formatDistintivo } from './mapOperatorPopup.jsx';
 
 const ROLE_OPTIONS = [
   { value: 'root', label: 'Administrador' },
@@ -526,6 +527,83 @@ function CreateStepIndicator({ step, editMode = false, basicsOnly = false }) {
   );
 }
 
+const FORM_SECTION_ICONS = {
+  identidad: (
+    <>
+      <path d="M12 3l7 3v5c0 4.5-3 8.4-7 10-4-1.6-7-5.5-7-10V6l7-3z" />
+      <path d="M9 12l2 2 4-4" />
+    </>
+  ),
+  nombre: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" />
+    </>
+  ),
+  servicio: (
+    <>
+      <circle cx="12" cy="12" r="1.6" />
+      <path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8" />
+    </>
+  ),
+  perfil: (
+    <>
+      <circle cx="8" cy="15" r="4" />
+      <path d="M11 12l9-9M17 6l3 3" />
+    </>
+  ),
+  alcance: (
+    <>
+      <path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" />
+      <circle cx="12" cy="9.5" r="2.5" />
+    </>
+  ),
+};
+
+function FormSectionTitle({ icon, children }) {
+  const glyph = FORM_SECTION_ICONS[icon];
+  return (
+    <h3 className="cc-form-section-title">
+      {glyph ? (
+        <span className="cc-form-section-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {glyph}
+          </svg>
+        </span>
+      ) : null}
+      {children}
+    </h3>
+  );
+}
+
+/** Ficha en vivo del alta/edición: cómo se verá el operador (indicativo, distintivo, login). */
+function UserFormFicha({ displayName, username, fullName, distintivo, initials }) {
+  return (
+    <section className="cc-user-ficha" aria-live="polite" aria-label="Vista previa del usuario">
+      <div className="cc-user-ficha-avatar" aria-hidden="true">
+        {initials || '?'}
+      </div>
+      <div className="cc-user-ficha-main">
+        <div className={`cc-user-ficha-name${displayName ? '' : ' is-empty'}`}>
+          {displayName || 'Grado Apellido, unidad'}
+        </div>
+        <div className="cc-user-ficha-meta">
+          {fullName ? <span className="cc-user-ficha-full">{fullName}</span> : null}
+          {distintivo ? (
+            <span className="cc-user-ficha-chip" title="Así aparece en el mapa">
+              {distintivo}
+            </span>
+          ) : null}
+          <span className="cc-user-ficha-login" title="Usuario de acceso (automático)">
+            <code>{username || 'usuario automático'}</code>
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function MissingFieldsList({ items }) {
   const pending = items.filter((x) => !x.ok);
   if (!pending.length) {
@@ -568,12 +646,27 @@ function fmtWhen(iso) {
   });
 }
 
+const SERVICIO_TIPOS_BASE = ['P.M.A.', 'P.M.M.', 'B.O.Mvl.', 'D.S.M.', 'P.M.S.', 'P.M.S.E.'];
+
+/** Desplegable Tipo de servicio: base en orden fijo, luego los agregados; conserva el valor actual. */
+function servicioTipoOptions(catalog, current) {
+  const out = [...SERVICIO_TIPOS_BASE];
+  for (const s of catalog || []) {
+    const name = String(s?.name || '').trim();
+    if (name && !out.includes(name)) out.push(name);
+  }
+  const cur = String(current || '').trim();
+  if (cur && !out.includes(cur)) out.push(cur);
+  return out;
+}
+
 const USER_TABLE_COLS = [
-  { key: 'grade', label: 'Grado y empleo' },
+  { key: 'grade', label: 'Grado y especialidad' },
   { key: 'name', label: 'Nombre completo' },
   { key: 'user', label: 'Usuario' },
   { key: 'phone', label: 'Teléfono' },
-  { key: 'service', label: 'Servicio' },
+  { key: 'service', label: 'Tipo de servicio' },
+  { key: 'serviceName', label: 'Distintivo' },
   { key: 'serviceGeo', label: 'Ubicación del servicio' },
   { key: 'profile', label: 'Perfil' },
   { key: 'scope', label: 'Alcance' },
@@ -601,9 +694,14 @@ function loadUserColConfig() {
       const base = USER_TABLE_COLS.find((d) => d.key === s.key);
       ordered.push({ ...base, visible: s.visible !== false });
     }
-    for (const d of USER_TABLE_COLS) {
-      if (!seen.has(d.key)) ordered.push({ ...d, visible: true });
-    }
+    USER_TABLE_COLS.forEach((d, i) => {
+      if (seen.has(d.key)) return;
+      // Columna nueva: junto a la que la precede por defecto (no al final).
+      const prevKey = USER_TABLE_COLS[i - 1]?.key;
+      const at = prevKey ? ordered.findIndex((c) => c.key === prevKey) : -1;
+      ordered.splice(at >= 0 ? at + 1 : ordered.length, 0, { ...d, visible: true });
+      seen.add(d.key);
+    });
     return ordered.length ? ordered : defaultUserColConfig();
   } catch {
     return defaultUserColConfig();
@@ -653,13 +751,17 @@ function sortTs(iso) {
 function getUserSortValue(u, key) {
   switch (key) {
     case 'grade':
-      return [u.grade, u.cargo].filter(Boolean).join(' ') || '';
+      return [u.grade, u.specialty].filter(Boolean).join(' ') || '';
     case 'name':
       return u.fullName || u.displayName || '';
     case 'user':
       return u.username || '';
     case 'phone':
       return u.phone || '';
+    case 'serviceName':
+      return u.serviceNombre || '';
+    case 'service':
+      return u.cargo || '';
     case 'profile':
       return roleLabel(u.role) || u.role || '';
     case 'scope':
@@ -714,15 +816,17 @@ function usrPagerPages(current, totalPages) {
 function userTableCell(u, key) {
   switch (key) {
     case 'grade':
-      return [u.grade, u.cargo].filter(Boolean).join(' ') || '—';
+      return [u.grade, u.specialty].filter(Boolean).join(' ') || '—';
     case 'name':
       return u.fullName || u.displayName || '—';
     case 'user':
       return <code>{u.username}</code>;
     case 'phone':
       return u.phone ? formatPhoneInput(u.phone) : '—';
+    case 'serviceName':
+      return u.serviceNombre || '—';
     case 'service':
-      return [u.cargo, u.serviceNombre].filter(Boolean).join(' · ') || '—';
+      return u.cargo || '—';
     case 'serviceGeo':
       return [u.serviceGeoMunicipio, u.serviceGeoEstado].filter(Boolean).join(', ') || '—';
     case 'profile':
@@ -771,15 +875,17 @@ function roleLabel(role) {
 function getUserColFilterVal(u, key) {
   switch (key) {
     case 'grade':
-      return [u.grade, u.cargo].filter(Boolean).join(' ') || '—';
+      return [u.grade, u.specialty].filter(Boolean).join(' ') || '—';
     case 'name':
       return u.fullName || u.displayName || '—';
     case 'user':
       return u.username || '';
     case 'phone':
       return u.phone ? formatPhoneInput(u.phone) : '—';
+    case 'serviceName':
+      return u.serviceNombre || '—';
     case 'service':
-      return [u.cargo, u.serviceNombre].filter(Boolean).join(' · ') || '—';
+      return u.cargo || '—';
     case 'serviceGeo':
       return [u.serviceGeoMunicipio, u.serviceGeoEstado].filter(Boolean).join(', ') || '—';
     case 'profile':
@@ -2448,8 +2554,8 @@ export default function DispatchUsers({ session }) {
       ['Nombre completo', (u) => u.fullName || u.displayName || ''],
       ['Matrícula', (u) => (u.matricula ? formatMatriculaInput(u.matricula) : '')],
       ['No. Tel.', (u) => (u.phone ? formatPhoneInput(u.phone) : '')],
-      ['Nombre del servicio', (u) => u.serviceNombre || ''],
       ['Tipo de servicio', (u) => u.cargo || ''],
+      ['Distintivo', (u) => u.serviceNombre || ''],
       ['Coordenadas', (u) => formatCoords(u.serviceLat, u.serviceLng)],
       ['Estado (ubicación)', (u) => u.serviceGeoEstado || ''],
       ['Municipio', (u) => u.serviceGeoMunicipio || ''],
@@ -3022,10 +3128,19 @@ export default function DispatchUsers({ session }) {
               ) : null}
           {step === 'datos' && (
             <>
+              <UserFormFicha
+                displayName={composedDisplayName}
+                username={preview.username}
+                fullName={preview.fullName}
+                distintivo={formatDistintivo(form.cargo, form.serviceNombre)}
+                initials={[form.givenNames, form.paternalSurname]
+                  .map((s) => String(s || '').trim().charAt(0).toUpperCase())
+                  .join('')}
+              />
               <MissingFieldsList items={datosChecklist} />
               <section className="cc-form-section">
-                <h3 className="cc-form-section-title">Identidad militar</h3>
-                <div className="cc-form-grid">
+                <FormSectionTitle icon="identidad">Identidad militar</FormSectionTitle>
+                <div className="cc-form-grid cc-form-grid--3">
                   <label className="field">
                     <span>Grado *</span>
                     <select
@@ -3129,9 +3244,9 @@ export default function DispatchUsers({ session }) {
               </section>
 
               <section className="cc-form-section">
-                <h3 className="cc-form-section-title">Nombre completo</h3>
-                <div className="cc-form-grid">
-                  <label className="field cc-form-span-2">
+                <FormSectionTitle icon="nombre">Nombre completo</FormSectionTitle>
+                <div className="cc-form-grid cc-form-grid--3">
+                  <label className="field">
                     <span>Nombre(s) *</span>
                     <input
                       value={form.givenNames}
@@ -3160,8 +3275,8 @@ export default function DispatchUsers({ session }) {
               </section>
 
               <section className="cc-form-section">
-                <h3 className="cc-form-section-title">Contacto</h3>
-                <div className="cc-form-grid">
+                <FormSectionTitle icon="servicio">Contacto y servicio</FormSectionTitle>
+                <div className="cc-form-grid cc-form-grid--3">
                   <label className="field">
                     <span>
                       No. de teléfono{editingUser ? '' : ' *'}{' '}
@@ -3190,66 +3305,51 @@ export default function DispatchUsers({ session }) {
                       </span>
                     )}
                   </label>
-                </div>
-              </section>
-
-              <section className="cc-form-section">
-                <h3 className="cc-form-section-title">Servicio</h3>
-                <div className="cc-form-grid">
-                  <label className="field">
-                    <span>Nombre del Servicio</span>
-                    <input
-                      value={form.serviceNombre}
-                      onChange={(e) =>
-                        setForm({ ...form, serviceNombre: e.target.value })
-                      }
-                      placeholder="Ej. Desarrollador, Jefatura de..."
-                      maxLength={160}
-                    />
-                  </label>
                   <label className="field">
                     <span>Tipo de servicio</span>
                     <select
                       value={form.cargo}
                       onChange={async (e) => {
                         const v = e.target.value;
-                        if (v === '__new__') {
-                          const name = window.prompt('Nombre del nuevo servicio:');
-                          if (!name || !String(name).trim()) return;
-                          try {
-                            const created = await createCatalogServicio(session.token, {
-                              name: String(name).trim(),
-                            });
-                            const row = created?.servicio;
-                            if (row?.name) {
-                              setServicios((prev) =>
-                                prev.some((s) => s.name === row.name)
-                                  ? prev
-                                  : [...prev, row].sort((a, b) =>
-                                      String(a.name).localeCompare(String(b.name), 'es')
-                                    )
-                              );
-                              setForm((f) => ({ ...f, cargo: row.name }));
-                            }
-                          } catch (err) {
-                            setError(err.message || 'No se pudo crear el servicio');
-                          }
+                        if (v !== '__new__') {
+                          setForm({ ...form, cargo: v });
                           return;
                         }
-                        setForm({ ...form, cargo: v });
+                        const name = String(
+                          window.prompt('Nuevo tipo de servicio (ej. P.M.A.):') || ''
+                        ).trim();
+                        if (!name) return;
+                        try {
+                          const created = await createCatalogServicio(session.token, { name });
+                          const row = created?.servicio || { name };
+                          setServicios((prev) =>
+                            prev.some((s) => s.name === row.name) ? prev : [...prev, row]
+                          );
+                          setForm((f) => ({ ...f, cargo: row.name }));
+                        } catch (err) {
+                          setError(err.message || 'No se pudo agregar el tipo de servicio');
+                        }
                       }}
                     >
-                      <option value="">— Selecciona servicio —</option>
-                      {servicios.map((s) => (
-                        <option key={s.id || s.name} value={s.name}>
-                          {s.name}
+                      <option value="">— Selecciona tipo —</option>
+                      {servicioTipoOptions(servicios, form.cargo).map((name) => (
+                        <option key={name} value={name}>
+                          {name}
                         </option>
                       ))}
-                      {form.cargo && !servicios.some((s) => s.name === form.cargo) ? (
-                        <option value={form.cargo}>{form.cargo}</option>
-                      ) : null}
-                      <option value="__new__">+ Nuevo servicio…</option>
+                      <option value="__new__">+ Agregar tipo…</option>
                     </select>
+                  </label>
+                  <label className="field">
+                    <span>Distintivo o nombre del servicio</span>
+                    <input
+                      value={form.serviceNombre}
+                      onChange={(e) =>
+                        setForm({ ...form, serviceNombre: e.target.value })
+                      }
+                      placeholder="Ej. Sanchez"
+                      maxLength={160}
+                    />
                   </label>
                   <label className="field cc-form-span-2">
                     <span>
@@ -3298,30 +3398,6 @@ export default function DispatchUsers({ session }) {
                 </div>
               </section>
 
-              <section className="cc-form-section cc-form-preview">
-                <h3 className="cc-form-section-title">Identificador</h3>
-                <div className="cc-form-grid">
-                  <label className="field">
-                    <span>Usuario de acceso (login)</span>
-                    <input
-                      value={preview.username}
-                      readOnly
-                      placeholder="Automático"
-                      className="cc-input-readonly"
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Se muestra como</span>
-                    <input
-                      value={composedDisplayName}
-                      readOnly
-                      placeholder="Sgto. 1/o. Gomez, 29/o. R.C."
-                      className="cc-input-readonly cc-preview-callsign"
-                    />
-                  </label>
-                </div>
-              </section>
-
               <div className="field field-actions cc-form-actions">
                 <button
                   type="submit"
@@ -3360,7 +3436,7 @@ export default function DispatchUsers({ session }) {
               </div>
               <MissingFieldsList items={adscripcionChecklist} />
               <section className="cc-form-section">
-                <h3 className="cc-form-section-title">Perfil de acceso</h3>
+                <FormSectionTitle icon="perfil">Perfil de acceso</FormSectionTitle>
                 <div className="cc-form-grid">
                   <label className="field">
                     <span>Perfil *</span>
@@ -3407,7 +3483,7 @@ export default function DispatchUsers({ session }) {
                 </div>
               </section>
               <section className="cc-form-section">
-                <h3 className="cc-form-section-title">Alcance</h3>
+                <FormSectionTitle icon="alcance">Alcance</FormSectionTitle>
                 <p className="cc-group-pick-hint">
                   {isActingUnitAdmin
                     ? myScopeUnitId

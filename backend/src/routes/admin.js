@@ -25,7 +25,6 @@ import { canSeePerson } from '../services/visibility.js';
 import { canLeaveGroup, actorAssignRejectReason, memberFitsGroupGeo, groupGeoRejectReason } from '../services/groupPolicy.js';
 import { buildUsername, buildCallSign, buildDisplayName } from '../services/rfcUsername.js';
 import { resolveAffiliationLabel } from '../services/orgAffiliation.js';
-import { createServicio } from '../services/catalogs.js';
 import { geoAdminAt } from '../services/geoSearch.js';
 import { generateTemporaryPassword } from '../services/tempPassword.js';
 import { invalidateUserProfile } from '../services/userProfile.js';
@@ -987,13 +986,6 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
   const gradeTrim = String(grade || '').trim();
   const specialtyTrim = String(specialty || '').trim() || null;
   const cargoTrim = String(cargo || '').trim() || null;
-  if (cargoTrim) {
-    try {
-      await createServicio(req.user.orgId, { name: cargoTrim });
-    } catch {
-      /* catálogo opcional */
-    }
-  }
   let matriculaTrim;
   try {
     matriculaTrim = parseMatricula(matricula);
@@ -1548,16 +1540,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
   if (identityPatch) {
     if (gradeIn !== undefined) nextGrade = String(gradeIn || '').trim() || null;
     if (specialtyIn !== undefined) nextSpecialty = String(specialtyIn || '').trim() || null;
-    if (cargoIn !== undefined) {
-      nextCargo = String(cargoIn || '').trim() || null;
-      if (nextCargo) {
-        try {
-          await createServicio(req.user.orgId, { name: nextCargo });
-        } catch {
-          /* catálogo opcional */
-        }
-      }
-    }
+    if (cargoIn !== undefined) nextCargo = String(cargoIn || '').trim() || null;
     if (serviceNombreIn !== undefined) {
       nextServiceNombre = String(serviceNombreIn || '').trim() || null;
     }

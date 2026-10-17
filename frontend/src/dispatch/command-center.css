@@ -7773,6 +7773,158 @@ html.map-viewport-max .lt-page--maximized,
   font-size: 12.5px;
 }
 
+/* Globo de operador (mapOperatorPopup.jsx) */
+.leaflet-popup-content .cc-op-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 220px;
+  max-width: 270px;
+  line-height: 1.35;
+}
+
+.cc-op-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-right: 1.1rem;
+}
+
+.cc-op-pop-avatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background: linear-gradient(
+    145deg,
+    var(--cc-accent, #2a3d22),
+    color-mix(in srgb, var(--cc-accent, #2a3d22) 55%, #000)
+  );
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.95rem;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-accent, #2a3d22) 35%, transparent);
+}
+
+.cc-op-pop-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cc-op-pop-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.cc-op-pop-aff {
+  font-size: 0.78rem;
+  color: var(--cc-muted, #5c6756);
+  overflow-wrap: anywhere;
+}
+
+.cc-op-pop-chip {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--cc-accent, #2a3d22) 45%, transparent);
+  background: color-mix(in srgb, var(--cc-accent, #2a3d22) 16%, transparent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
+}
+
+.cc-op-pop-service {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.cc-op-pop-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.cc-op-pop-place svg {
+  flex: 0 0 auto;
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: none;
+  stroke: var(--cc-accent, #2a3d22);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.leaflet-popup-content .cc-op-pop-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0.55rem 0 0;
+  border-top: 1px solid var(--cc-border, #c2cbb8);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.cc-op-pop-rows li {
+  display: grid;
+  grid-template-columns: 1rem 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  min-width: 0;
+}
+
+.cc-op-pop-rows li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cc-op-pop-rows svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: var(--cc-muted, #5c6756);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-rows .map-coords-link,
+.leaflet-popup-content .cc-op-pop .cc-op-pop-tel {
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-tel {
+  color: inherit;
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-rows a:hover {
+  text-decoration: underline;
+}
+
+.cc-op-pop-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-actions button {
+  flex: 1 1 0;
+  padding: 0.45rem 0.7rem;
+}
+
 .lt-map {
   flex: 1 1 auto;
   min-height: 0;
@@ -9418,6 +9570,216 @@ body:not(.leaflet-dragging) .map-frame.pick-mode .leaflet-container.tp-map-curso
   width: auto;
   flex: 0 1 auto;
   white-space: nowrap;
+}
+
+/* ── Alta / edición de usuario: layout ordenado ──
+   .sys-modal (institutional.css, 440px) se carga después y pisaba el ancho de --lg. */
+.sys-modal.cc-users-create-modal {
+  width: min(820px, 96vw);
+}
+
+/* start (no end): un hint bajo un campo ya no desfasa a su vecino. */
+.cc-users-create-modal .cc-form-grid {
+  align-items: start;
+  gap: 0.8rem 0.9rem;
+}
+
+.cc-users-create-modal .cc-form-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 760px) {
+  .cc-users-create-modal .cc-form-grid--3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .cc-users-create-modal .cc-form-grid,
+  .cc-users-create-modal .cc-form-grid--3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Etiqueta en una línea y controles de la misma altura: filas parejas. */
+.cc-users-create-modal .admin-form .field > span:first-child {
+  display: block;
+  min-height: 1.15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-users-create-modal .admin-form .field input:not([type='checkbox']):not([type='radio']),
+.cc-users-create-modal .admin-form .field select {
+  height: 2.5rem;
+}
+
+.cc-users-create-modal .cc-form-section {
+  padding: 0.95rem 1.05rem 1.05rem;
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--cc-border) 85%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--cc-panel) 80%, transparent),
+    color-mix(in srgb, var(--cc-panel) 45%, transparent)
+  );
+}
+
+.cc-users-create-modal .cc-form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.85rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--cc-border) 70%, transparent);
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  color: var(--cc-text);
+}
+
+.cc-users-create-modal .cc-form-section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--cc-accent) 16%, transparent);
+  color: var(--cc-accent);
+}
+
+/* Faltantes como chips, no lista con viñetas. */
+.cc-users-create-modal .cc-form-checklist.warn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 10px;
+}
+
+.cc-users-create-modal .cc-form-checklist ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cc-users-create-modal .cc-form-checklist li {
+  margin: 0;
+  padding: 0.12rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: color-mix(in srgb, #e6a700 18%, transparent);
+  border: 1px solid color-mix(in srgb, #e6a700 40%, transparent);
+}
+
+.cc-users-create-modal .cc-form-checklist.ok {
+  border-radius: 10px;
+}
+
+/* Ficha en vivo (fija arriba mientras se llena el formulario). */
+.cc-user-ficha {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 0.95rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--cc-accent) 38%, var(--cc-border));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--cc-accent) 18%, var(--cc-panel)),
+    var(--cc-panel) 70%
+  );
+  /* Primera sombra tapa la franja de padding del scroll sobre la ficha fija. */
+  box-shadow:
+    0 -1rem 0 0 var(--cc-panel),
+    0 8px 20px rgba(0, 0, 0, 0.22);
+}
+
+.cc-user-ficha-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 1rem;
+  letter-spacing: 0.03em;
+  color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--cc-accent),
+    color-mix(in srgb, var(--cc-accent) 55%, #000)
+  );
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent) 25%, transparent);
+}
+
+.cc-user-ficha-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.cc-user-ficha-name {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--cc-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-user-ficha-name.is-empty {
+  font-weight: 500;
+  color: var(--cc-muted);
+}
+
+.cc-user-ficha-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--cc-muted);
+}
+
+.cc-user-ficha-chip {
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-weight: 700;
+  color: var(--cc-text);
+  background: color-mix(in srgb, var(--cc-accent) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cc-accent) 45%, transparent);
+}
+
+.cc-user-ficha-login code {
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  background: color-mix(in srgb, var(--cc-border) 45%, transparent);
+  color: var(--cc-text);
+}
+
+/* Botones siempre a la vista al pie del modal. */
+.cc-users-create-modal .field-actions.cc-form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin: 0.25rem 0 -1.35rem;
+  padding: 0.75rem 0 1rem;
+  background: var(--cc-panel);
+  box-shadow: 0 -10px 12px -8px rgba(0, 0, 0, 0.22);
 }
 
 .cc-users-page .dispatch-header {

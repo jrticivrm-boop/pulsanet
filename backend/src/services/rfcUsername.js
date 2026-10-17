@@ -1,6 +1,6 @@
 /**
  * Usuario de acceso (login) a partir del nombre civil:
- *   Guadalupe Gómez de la Cruz → ggomezd2
+ *   Guadalupe Gómez de la Cruz → ggomezd + número de 2 dígitos propio del nombre (p. ej. ggomezd47)
  *
  * Indicativo (display_name) en chat / PTT:
  *   Sgto. 1/o. Gomez, desarrollador
@@ -113,6 +113,24 @@ export function suggestCallSign(p) {
   }
 }
 
+function nameSeed(s) {
+  let h = 0x811c9dc5;
+  for (const ch of s) {
+    h ^= ch.codePointAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
+}
+
+/**
+ * Sufijos 10–99 y luego 100–999, en un orden propio de cada nombre:
+ * la vista previa y el alta dan el mismo usuario, pero no todos terminan en «2».
+ */
+function* usernameSuffixes(seed) {
+  for (let i = 0; i < 90; i += 1) yield 10 + ((seed + i * 37) % 90);
+  for (let i = 0; i < 900; i += 1) yield 100 + ((seed + i * 7) % 900);
+}
+
 /**
  * @param {{ givenNames: string, paternalSurname: string, maternalSurname?: string, grade?: string, cargo?: string, specialty?: string }} p
  * @param {(candidate: string) => Promise<boolean>|boolean} isTaken
@@ -123,8 +141,9 @@ export async function buildUsername(p, isTaken) {
   const callSign = p.grade ? buildCallSign(p) : fullName;
   const displayName = callSign;
   const callSignShort = callSign;
+  const seed = nameSeed(`${base}|${toAsciiLower(fullName)}`);
 
-  for (let n = 2; n <= 999; n += 1) {
+  for (const n of usernameSuffixes(seed)) {
     const candidate = `${base}${n}`.slice(0, 20);
     const taken = await isTaken(candidate);
     if (!taken) {
@@ -148,7 +167,7 @@ export async function buildRfcUsername(p, isTaken) {
     const fullName = buildDisplayName(p);
     const callSign = p.grade ? buildCallSign(p) : fullName;
     return {
-      username: `${base}2`.slice(0, 20),
+      username: `${base}${usernameSuffixes(nameSeed(`${base}|${toAsciiLower(fullName)}`)).next().value}`.slice(0, 20),
       displayName: callSign,
       fullName,
       callSign,

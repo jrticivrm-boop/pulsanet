@@ -357,23 +357,14 @@ async function ensureServiciosTable() {
   `);
 }
 
-/** Semilla mínima + cargos actuales de usuarios (idempotente). */
+/** Tipos de servicio base, en el orden del desplegable. */
+export const SERVICIO_TIPOS_BASE = ['P.M.A.', 'P.M.M.', 'B.O.Mvl.', 'D.S.M.', 'P.M.S.', 'P.M.S.E.'];
+
+/** Semilla de tipos de servicio (idempotente; no reactiva los dados de baja). */
 export async function ensureServiciosCatalog(orgId) {
   await ensureServiciosTable();
-  const defaults = [
-    'Desarrollador',
-    'Informática',
-    'Op. Radio',
-    'Cmte. Región',
-    'Cmte. Zona',
-    'Cmte. Unidad',
-    'Cmte.',
-    '2/o. Cmte.',
-    'Admtva. TIC',
-    'Calidad',
-  ];
   let order = 10;
-  for (const name of defaults) {
+  for (const name of SERVICIO_TIPOS_BASE) {
     await query(
       `INSERT INTO cat_servicios (organization_id, name, sort_order)
        VALUES ($1, $2, $3)
@@ -382,17 +373,6 @@ export async function ensureServiciosCatalog(orgId) {
     );
     order += 10;
   }
-  await query(
-    `INSERT INTO cat_servicios (organization_id, name, sort_order)
-     SELECT DISTINCT u.organization_id, TRIM(u.cargo),
-       COALESCE((SELECT MAX(sort_order) + 10 FROM cat_servicios s WHERE s.organization_id = u.organization_id), 100)
-     FROM users u
-     WHERE u.organization_id = $1
-       AND u.cargo IS NOT NULL
-       AND TRIM(u.cargo) <> ''
-     ON CONFLICT (organization_id, name) DO NOTHING`,
-    [orgId]
-  );
 }
 
 export async function listServicios(orgId) {
