@@ -496,6 +496,10 @@ export function createEfectivoItem(token, grupo, name) {
   return api('/api/admin/efectivos-catalog', { token, method: 'POST', body: { grupo, name } });
 }
 
+export function deleteEfectivoItem(token, id) {
+  return api(`/api/admin/efectivos-catalog/${id}`, { token, method: 'DELETE' });
+}
+
 export function fetchAnnouncements(token) {
   return api('/api/announcements', { token });
 }

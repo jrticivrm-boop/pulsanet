@@ -231,7 +231,8 @@ async function parseServiceEfectivos(orgId, raw) {
   const entries = Object.entries(raw).filter(([, v]) => v != null && String(v).trim() !== '');
   if (!entries.length) return null;
   const { rows } = await query(
-    `SELECT id::text AS id, name FROM cat_efectivos WHERE organization_id = $1 AND id::text = ANY($2::text[])`,
+    `SELECT id::text AS id, name FROM cat_efectivos
+     WHERE organization_id = $1 AND is_active AND id::text = ANY($2::text[])`,
     [orgId, entries.map(([id]) => id)]
   );
   const names = new Map(rows.map((r) => [r.id, r.name]));
@@ -768,6 +769,30 @@ adminRouter.post('/efectivos-catalog', requireUserManager, async (req, res) => {
       meta: { grupo, name },
     });
     res.status(201).json({ ok: true, item: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** Quita un concepto del catálogo (se desactiva; anexarlo de nuevo con el mismo nombre lo reactiva). */
+adminRouter.delete('/efectivos-catalog/:id', requireUserManager, async (req, res) => {
+  try {
+    const { rows } = await query(
+      `UPDATE cat_efectivos SET is_active = FALSE
+       WHERE id::text = $1 AND organization_id = $2 AND is_active
+       RETURNING id, grupo, name`,
+      [String(req.params.id || ''), req.user.orgId]
+    );
+    if (!rows[0]) return res.status(404).json({ ok: false, error: 'Concepto no encontrado' });
+    await logActivity({
+      organizationId: req.user.orgId,
+      actorId: req.user.sub,
+      action: 'efectivos.catalog_remove',
+      entityType: 'cat_efectivos',
+      entityId: rows[0].id,
+      meta: { grupo: rows[0].grupo, name: rows[0].name },
+    });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

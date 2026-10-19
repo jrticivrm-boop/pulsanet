@@ -1,3 +1,13 @@
+## 2026-10-19 — Efectivos: quitar conceptos del catálogo
+
+- **Tipo:** feature
+- **Área:** web | backend
+- **Qué:**
+  - Paso Efectivos: cada concepto tiene una «×» (discreta; se resalta al pasar el cursor o al enfocar el campo) que, tras confirmar, lo quita del grupo para todos los usuarios, la relación y el Excel.
+  - API `DELETE /api/admin/efectivos-catalog/:id` (gestores de usuarios): desactiva el concepto (`is_active = FALSE`); anexarlo de nuevo con el mismo nombre lo reactiva. Guardar cantidades de un concepto quitado → 400; el formulario solo envía conceptos vigentes.
+  - Celdas un poco más anchas para que la «×» no corte nombres largos (p. ej. «Antidron semifijo»).
+- **Archivos / refs:** `backend/src/routes/admin.js`, `frontend/src/api.js`, `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`
+
 ## 2026-10-19 — Usuarios: Generales integra Adscripción; paso «Efectivos» en tabla; Grupos también al editar
 
 - **Tipo:** feature

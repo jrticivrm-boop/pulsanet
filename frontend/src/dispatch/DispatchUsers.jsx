@@ -21,6 +21,7 @@ import {
   geoAdminAt,
   fetchEfectivosCatalog,
   createEfectivoItem,
+  deleteEfectivoItem,
   addGroupMember,
   removeGroupMember,
 } from '../api';
@@ -332,10 +333,12 @@ function formatEfectivosDetail(u) {
     .join(' · ');
 }
 
-/** Payload API: solo conceptos capturados (objeto vacío = borrar). */
+/** Payload API: solo conceptos vigentes y capturados (objeto vacío = borrar). */
 function efectivosPayload(form) {
   const out = {};
+  const vigentes = new Set(liveEfectivosItems.map((it) => it.id));
   for (const [id, v] of Object.entries(form.serviceEfectivos || {})) {
+    if (!vigentes.has(id)) continue;
     const digits = String(v ?? '').replace(/\D/g, '');
     if (digits) out[id] = Number(digits);
   }
@@ -2471,6 +2474,28 @@ export default function DispatchUsers({ session }) {
     }
   }
 
+  /** Quita un concepto del catálogo (deja de aparecer para todos los usuarios). */
+  async function removeEfectivoItem(item) {
+    const label = efectivosGrupoLabel(item.grupo);
+    const ok = window.confirm(
+      `¿Quitar «${item.name}» de ${label}?\n\nDeja de aparecer en el paso Efectivos de todos los usuarios, en la relación y en el Excel.`
+    );
+    if (!ok) return;
+    try {
+      await deleteEfectivoItem(session.token, item.id);
+      const next = efectivosItems.filter((it) => it.id !== item.id);
+      liveEfectivosItems = next;
+      setEfectivosItems(next);
+      setForm((prev) => {
+        const { [item.id]: _removed, ...rest } = prev.serviceEfectivos || {};
+        return { ...prev, serviceEfectivos: rest };
+      });
+      setError('');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   /** Edición: aplica solo las altas/bajas de grupos respecto a lo que ya tenía. */
   async function syncEditGroups(userId, role) {
     if (!initialGroupIds) return;
@@ -3960,10 +3985,21 @@ export default function DispatchUsers({ session }) {
                         </div>
                         <div className="cc-efectivos-row-items">
                           {items.map((it) => (
-                            <label className="cc-efectivos-item" key={it.id}>
-                              <span className="cc-efectivos-item-name" title={it.name}>
-                                {it.name}
-                              </span>
+                            <div className="cc-efectivos-item" key={it.id}>
+                              <div className="cc-efectivos-item-head">
+                                <span className="cc-efectivos-item-name" title={it.name}>
+                                  {it.name}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="cc-efectivos-remove"
+                                  onClick={() => removeEfectivoItem(it)}
+                                  title={`Quitar ${it.name}`}
+                                  aria-label={`Quitar ${it.name} de ${g.label}`}
+                                >
+                                  ×
+                                </button>
+                              </div>
                               <input
                                 value={form.serviceEfectivos?.[it.id] ?? ''}
                                 onChange={(e) =>
@@ -3979,7 +4015,7 @@ export default function DispatchUsers({ session }) {
                                 autoComplete="off"
                                 aria-label={`${g.label}: ${it.name}`}
                               />
-                            </label>
+                            </div>
                           ))}
                           <button
                             type="button"
