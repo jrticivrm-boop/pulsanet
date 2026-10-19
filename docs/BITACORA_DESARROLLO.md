@@ -1,3 +1,12 @@
+## 2026-10-19 — Efectivos: cuadros de texto libre
+
+- **Tipo:** ux
+- **Área:** web | backend | database
+- **Qué:**
+  - Por pedido del usuario, Personal / Vehículos / Armamento pasan de números a **cuadros para escribir** (texto libre hasta 300 caracteres; ej. «2 Oficiales, 15 Tropa», «2 Cheyenne», «15 FX-05»).
+  - Migración `050_service_efectivos.sql` ahora crea `VARCHAR(300)` (y convierte las columnas INTEGER de la primera versión en desarrollo); reaplicable sin error. API: recorta espacios, vacío = borrar, >300 → 400.
+  - Relación: `Pers.: … · Veh.: … · Arm.: …`; Excel: tres columnas de texto, «Resumen» cuenta servicios con dato.
+- **Archivos / refs:** `database/migrations/050_service_efectivos.sql`, `database/schema.sql`, `backend/src/routes/admin.js`, `frontend/src/dispatch/DispatchUsers.jsx`
 ## 2026-10-19 — Usuarios: sección «Efectivos» del servicio desplegado
 
 - **Tipo:** feature

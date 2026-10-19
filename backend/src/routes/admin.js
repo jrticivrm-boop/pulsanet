@@ -206,21 +206,17 @@ const SERVICE_EFECTIVOS = [
   ['serviceArmamento', 'service_armamento', 'armamento'],
 ];
 
-/** Efectivos del servicio: solo las claves presentes en el body (`null` = borrar). */
+/** Efectivos del servicio (texto libre): solo las claves presentes en el body (vacío/`null` = borrar). */
 function parseServiceEfectivos(body) {
   const out = {};
   for (const [key, col, label] of SERVICE_EFECTIVOS) {
     const v = body?.[key];
     if (v === undefined) continue;
-    if (v == null || String(v).trim() === '') {
-      out[col] = null;
-      continue;
+    const s = v == null ? '' : String(v).trim();
+    if (s.length > 300) {
+      throw new Error(`Efectivos: ${label} admite hasta 300 caracteres`);
     }
-    const n = Number(v);
-    if (!Number.isInteger(n) || n < 0 || n > 99999) {
-      throw new Error(`Efectivos: ${label} debe ser un número entero entre 0 y 99999`);
-    }
-    out[col] = n;
+    out[col] = s || null;
   }
   return out;
 }

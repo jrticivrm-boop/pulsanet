@@ -276,25 +276,22 @@ function serviceCoordsPayload(text) {
 }
 
 const EFECTIVOS_FIELDS = [
-  ['servicePersonal', 'Personal', 'pers.'],
-  ['serviceVehiculos', 'Vehículos', 'veh.'],
-  ['serviceArmamento', 'Armamento', 'arm.'],
+  ['servicePersonal', 'Personal', 'Pers.', 'Ej. 2 Oficiales, 15 Tropa'],
+  ['serviceVehiculos', 'Vehículos', 'Veh.', 'Ej. 2 Cheyenne, 1 Humvee'],
+  ['serviceArmamento', 'Armamento', 'Arm.', 'Ej. 15 FX-05, 2 pistolas'],
 ];
 
-/** Payload API: efectivos del servicio (vacío = null, borra). */
+/** Payload API: efectivos del servicio (texto libre; vacío = null, borra). */
 function efectivosPayload(form) {
   return Object.fromEntries(
-    EFECTIVOS_FIELDS.map(([key]) => {
-      const digits = String(form[key] ?? '').replace(/\D/g, '');
-      return [key, digits ? Number(digits) : null];
-    })
+    EFECTIVOS_FIELDS.map(([key]) => [key, String(form[key] ?? '').trim() || null])
   );
 }
 
-/** «12 pers. · 2 veh. · 10 arm.» (solo lo capturado). */
+/** «Pers.: 2 Oficiales, 15 Tropa · Veh.: 2 Cheyenne» (solo lo capturado). */
 function formatEfectivos(u) {
-  return EFECTIVOS_FIELDS.filter(([key]) => u[key] != null)
-    .map(([key, , abbr]) => `${u[key]} ${abbr}`)
+  return EFECTIVOS_FIELDS.filter(([key]) => fieldFilled(u[key]))
+    .map(([key, , abbr]) => `${abbr}: ${u[key]}`)
     .join(' · ');
 }
 
@@ -799,7 +796,7 @@ function getUserSortValue(u, key) {
     case 'service':
       return u.cargo || '';
     case 'efectivos':
-      return u.servicePersonal ?? null;
+      return formatEfectivos(u);
     case 'profile':
       return roleLabel(u.role) || u.role || '';
     case 'scope':
@@ -915,7 +912,7 @@ function buildUsersExportSummary(list, visibleKeys) {
         break;
       case 'efectivos':
         for (const [k, label] of EFECTIVOS_FIELDS) {
-          pushCount(`Total ${label.toLowerCase()}`, list.reduce((s, u) => s + (Number(u[k]) || 0), 0));
+          pushCount(`${label} — servicios con dato`, list.filter((u) => fieldFilled(u[k])).length);
         }
         break;
       case 'profile':
@@ -2070,7 +2067,7 @@ export default function DispatchUsers({ session }) {
       cargo: u.cargo || '',
       serviceNombre: u.serviceNombre || '',
       serviceCoords: formatCoords(u.serviceLat, u.serviceLng),
-      ...Object.fromEntries(EFECTIVOS_FIELDS.map(([key]) => [key, u[key] != null ? String(u[key]) : ''])),
+      ...Object.fromEntries(EFECTIVOS_FIELDS.map(([key]) => [key, u[key] || ''])),
       givenNames: u.givenNames || '',
       paternalSurname: u.paternalSurname || '',
       maternalSurname: u.maternalSurname || '',
@@ -3577,25 +3574,21 @@ export default function DispatchUsers({ session }) {
               <section className="cc-form-section">
                 <FormSectionTitle icon="efectivos">Efectivos</FormSectionTitle>
                 <div className="cc-form-grid cc-form-grid--3">
-                  {EFECTIVOS_FIELDS.map(([key, label]) => (
+                  {EFECTIVOS_FIELDS.map(([key, label, , placeholder]) => (
                     <label className="field" key={key}>
-                      <span>
-                        {label} <em className="cc-field-hint-inline">cantidad</em>
-                      </span>
+                      <span>{label}</span>
                       <input
                         value={form[key]}
-                        onChange={(e) =>
-                          setForm({ ...form, [key]: e.target.value.replace(/\D/g, '').slice(0, 5) })
-                        }
-                        placeholder="0"
-                        inputMode="numeric"
+                        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                        placeholder={placeholder}
+                        maxLength={300}
                         autoComplete="off"
                       />
                     </label>
                   ))}
                 </div>
                 <span className="cc-field-hint">
-                  Cuánto efectivo cuenta el servicio desplegado. Opcional; aparece en la relación y el Excel.
+                  Con cuánto efectivo cuenta el servicio desplegado. Opcional; aparece en la relación y el Excel.
                 </span>
               </section>
 
