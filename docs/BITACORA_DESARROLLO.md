@@ -1,3 +1,13 @@
+## 2026-10-19 — Alta/Editar usuario más visual; Poblado, Mpio. y Estado del servicio
+
+- **Tipo:** ux | feature
+- **Área:** web | backend
+- **Qué:**
+  - Modal Alta/Editar: márgenes uniformes (el formulario ya no queda pegado al borde), pasos segmentados con el activo resaltado, secciones con ícono y subtítulo (incluidas «Qué oye en radio y qué ve en el mapa» y Grupos), foco resaltado, ayudas atenuadas y pie de botones fijo de borde a borde. Revisado en temas claro, obscuro y verde.
+  - Nueva sección «Ubicación del servicio»: Coordenadas (lat, lng o liga de Google Maps) con indicador de estado y «Ver mapa»; Poblado, Mpio. y Estado se rellenan solos con las coordenadas o se capturan/corrigen a mano (Estado con sugerencias). El resumen del paso Efectivos muestra el lugar.
+  - API POST/PATCH usuarios acepta `serviceGeoLocalidad`, `serviceGeoMunicipio`, `serviceGeoEstado` (lo manual tiene prioridad sobre lo extraído; vacío borra; excede longitud → 400). Sin migración nueva (columnas de la 049).
+- **Archivos / refs:** `backend/src/routes/admin.js`, `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`, `docs/CHANGELOG.md`
+
 ## 2026-10-19 — Efectivos: quitar conceptos del catálogo
 
 - **Tipo:** feature

@@ -9333,19 +9333,21 @@ body:not(.leaflet-dragging) .map-frame.pick-mode .leaflet-container.tp-map-curso
   border-radius: 0;
   max-height: calc(92vh - 4.5rem);
   overflow: auto;
-  padding: 1rem 1.25rem 1.35rem;
+  padding: 1.1rem 1.35rem 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
 }
 
+/* Mismo elemento que .cc-users-create-form: aquí también va el relleno (antes `0` lo anulaba
+   y tarjetas, pasos y ficha quedaban pegados al borde del modal). */
 .cc-users-create-modal .admin-form {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
   grid-template-columns: unset;
   align-items: stretch;
-  padding: 0;
+  padding: 1.1rem 1.35rem 1.25rem;
   border: none;
   margin: 0;
 }
@@ -9937,15 +9939,252 @@ body:not(.leaflet-dragging) .map-frame.pick-mode .leaflet-container.tp-map-curso
   color: var(--cc-text);
 }
 
-/* Botones siempre a la vista al pie del modal. */
-.cc-users-create-modal .field-actions.cc-form-actions {
+/* Botones siempre a la vista: barra de pie de borde a borde del modal. */
+.cc-users-create-modal .admin-form .field-actions.cc-form-actions {
   position: sticky;
-  bottom: 0;
+  /* El sticky se mide dentro del relleno del form: se compensa para quedar al ras. */
+  bottom: -1.25rem;
   z-index: 3;
-  margin: 0.25rem 0 -1.35rem;
-  padding: 0.75rem 0 1rem;
+  margin: 0.35rem -1.35rem -1.25rem;
+  padding: 0.8rem 1.35rem;
+  border-top: 1px solid color-mix(in srgb, var(--cc-border) 80%, transparent);
   background: var(--cc-panel);
-  box-shadow: 0 -10px 12px -8px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 -10px 14px -10px rgba(0, 0, 0, 0.28);
+}
+
+.cc-users-create-modal .cc-form-actions .cc-btn {
+  min-height: 2.4rem;
+  padding: 0 1.1rem;
+  border-radius: 9px;
+  font-weight: 700;
+}
+
+.cc-users-create-modal .cc-form-actions .cc-btn.primary {
+  min-width: 11rem;
+  box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--cc-accent) 60%, transparent);
+}
+
+.cc-users-create-modal .cc-form-actions .cc-btn.primary:disabled {
+  box-shadow: none;
+}
+
+/* ── Alta / edición de usuario: pasos, títulos, campos y ubicación ── */
+.cc-users-create-modal .cc-form-stepper {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0.3rem;
+  border: 1px solid color-mix(in srgb, var(--cc-border) 85%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--cc-panel) 70%, transparent);
+}
+
+.cc-users-create-modal .cc-form-step {
+  min-width: 0;
+  justify-content: center;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 0.84rem;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cc-users-create-modal .cc-form-step-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cc-users-create-modal .cc-form-step.is-active {
+  background: var(--cc-accent);
+  color: #fff;
+  box-shadow: 0 4px 12px -5px color-mix(in srgb, var(--cc-accent) 70%, transparent);
+}
+
+.cc-users-create-modal .cc-form-step.is-active .cc-form-step-num {
+  background: #fff;
+  color: var(--cc-accent);
+}
+
+.cc-users-create-modal .cc-form-step.is-done {
+  opacity: 1;
+  background: color-mix(in srgb, var(--cc-accent) 12%, transparent);
+  color: var(--cc-text);
+}
+
+.cc-users-create-modal .cc-form-step.is-done .cc-form-step-num {
+  background: var(--cc-accent);
+  color: #fff;
+}
+
+.cc-users-create-modal .cc-form-step-num {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.cc-users-create-modal .cc-user-ficha {
+  box-shadow:
+    0 -1.2rem 0 0 var(--cc-panel),
+    0 8px 20px rgba(0, 0, 0, 0.18);
+}
+
+.cc-users-create-modal .cc-form-section {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.cc-users-create-modal .cc-form-section-title {
+  align-items: center;
+  gap: 0.65rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.cc-users-create-modal .cc-form-section-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9px;
+}
+
+.cc-users-create-modal .cc-form-section-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.cc-users-create-modal .cc-form-section-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cc-users-create-modal .cc-form-section-hint {
+  color: var(--cc-muted);
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.cc-users-create-modal .cc-group-check-body .cc-group-suggest {
+  justify-self: start;
+  margin-left: 0;
+}
+
+.cc-users-create-modal .admin-form .field {
+  gap: 0.3rem;
+}
+
+.cc-users-create-modal .admin-form .field > span:first-child {
+  color: color-mix(in srgb, var(--cc-text) 82%, transparent);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.cc-users-create-modal .admin-form .field .cc-field-hint-inline {
+  color: var(--cc-muted);
+  font-weight: 500;
+}
+
+.cc-users-create-modal .admin-form .field input:not([type='checkbox']):not([type='radio']),
+.cc-users-create-modal .admin-form .field select {
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.cc-users-create-modal .admin-form .field input:not([type='checkbox']):not([type='radio']):focus,
+.cc-users-create-modal .admin-form .field select:focus {
+  border-color: var(--cc-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-accent) 18%, transparent);
+  outline: none;
+}
+
+.cc-users-create-modal .cc-geo-coords {
+  grid-column: span 2;
+}
+
+@media (max-width: 520px) {
+  .cc-users-create-modal .cc-geo-coords {
+    grid-column: auto;
+  }
+}
+
+.cc-users-create-modal .cc-geo-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  height: 2.5rem;
+  box-sizing: border-box;
+  padding: 0 0.75rem;
+  border: 1px dashed var(--cc-border);
+  border-radius: 8px;
+  color: var(--cc-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cc-users-create-modal .cc-geo-status--loading {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--cc-accent) 45%, transparent);
+  color: var(--cc-accent);
+}
+
+.cc-users-create-modal .cc-geo-status--ok {
+  border-style: solid;
+  border-color: color-mix(in srgb, #16a34a 45%, transparent);
+  background: color-mix(in srgb, #16a34a 10%, transparent);
+  color: color-mix(in srgb, #16a34a 70%, var(--cc-text));
+  font-weight: 600;
+}
+
+.cc-users-create-modal .cc-geo-status--invalid,
+.cc-users-create-modal .cc-geo-status--error {
+  border-style: solid;
+  border-color: color-mix(in srgb, #dc2626 40%, transparent);
+  background: color-mix(in srgb, #dc2626 8%, transparent);
+  color: color-mix(in srgb, #dc2626 75%, var(--cc-text));
+}
+
+.cc-users-create-modal .cc-geo-maplink {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cc-accent) 14%, transparent);
+  color: var(--cc-accent);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cc-users-create-modal .cc-geo-maplink:hover {
+  background: color-mix(in srgb, var(--cc-accent) 24%, transparent);
+}
+
+.cc-users-create-modal .cc-geo-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+  margin: 0.7rem 0 0;
+  color: var(--cc-muted);
+  font-size: 0.76rem;
+}
+
+.cc-users-create-modal .cc-geo-extra {
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cc-border) 45%, transparent);
+  color: var(--cc-text);
+  font-weight: 600;
+}
+
+@media (max-width: 520px) {
+  .cc-users-create-modal .cc-form-step {
+    padding: 0.45rem 0.4rem;
+  }
 }
 
 .cc-users-page .dispatch-header {

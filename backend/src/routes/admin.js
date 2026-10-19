@@ -257,6 +257,36 @@ async function saveServiceEfectivos(userId, efectivos) {
   return rows[0] || {};
 }
 
+/** [clave API, columna, etiqueta, máx.] — lugar del servicio capturable a mano. */
+const SERVICE_PLACE_FIELDS = [
+  ['serviceGeoLocalidad', 'service_geo_localidad', 'Poblado', 200],
+  ['serviceGeoMunicipio', 'service_geo_municipio', 'Municipio', 160],
+  ['serviceGeoEstado', 'service_geo_estado', 'Estado', 80],
+];
+
+/** Poblado / Mpio. / Estado del body; `undefined` si no vino ninguno (vacío = borrar). */
+function parseServicePlace(body) {
+  if (!SERVICE_PLACE_FIELDS.some(([key]) => body?.[key] !== undefined)) return undefined;
+  const out = {};
+  for (const [key, col, label, max] of SERVICE_PLACE_FIELDS) {
+    if (body?.[key] === undefined) continue;
+    const s = String(body[key] ?? '').trim().replace(/\s+/g, ' ');
+    if (s.length > max) throw new Error(`${label}: máximo ${max} caracteres`);
+    out[col] = s || null;
+  }
+  return out;
+}
+
+/** Aplica lo capturado a mano (tiene prioridad sobre lo extraído de las coordenadas). */
+async function saveServicePlace(userId, place) {
+  const cols = Object.keys(place || {});
+  if (!cols.length) return;
+  await query(
+    `UPDATE users SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')}, updated_at = NOW() WHERE id = $1`,
+    [userId, ...cols.map((c) => place[c])]
+  );
+}
+
 /**
  * Guarda coordenadas del servicio y lo que se extrae de ellas (estado, municipio…).
  * Solo para la relación/Excel; la ubicación en tiempo real no lo usa.
@@ -1147,9 +1177,11 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
 
   const serviceNombreTrim = String(req.body?.serviceNombre || '').trim() || null;
   let serviceCoords;
+  let servicePlace;
   let serviceEfectivos;
   try {
     serviceCoords = parseServiceCoords(req.body?.serviceLat, req.body?.serviceLng);
+    servicePlace = parseServicePlace(req.body);
     serviceEfectivos = await parseServiceEfectivos(req.user.orgId, req.body?.serviceEfectivos);
   } catch (err) {
     return res.status(400).json({ ok: false, error: err.message });
@@ -1234,6 +1266,7 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
     );
     const u = rows[0];
     if (serviceCoords) await saveServiceLocation(u.id, serviceCoords);
+    await saveServicePlace(u.id, servicePlace);
     Object.assign(u, await saveServiceEfectivos(u.id, serviceEfectivos));
     await query(`UPDATE users SET location_share = $2 WHERE id = $1`, [
       u.id,
@@ -1457,9 +1490,11 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
   }
 
   let serviceCoords;
+  let servicePlace;
   let serviceEfectivos;
   try {
     serviceCoords = parseServiceCoords(serviceLatIn, serviceLngIn);
+    servicePlace = parseServicePlace(req.body);
     serviceEfectivos = await parseServiceEfectivos(req.user.orgId, req.body?.serviceEfectivos);
   } catch (err) {
     return res.status(400).json({ ok: false, error: err.message });
@@ -1860,6 +1895,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
       await saveServiceLocation(u.id, serviceCoords);
     }
   }
+  await saveServicePlace(u.id, servicePlace);
   Object.assign(u, await saveServiceEfectivos(u.id, serviceEfectivos));
   invalidateUserProfile(u.id);
   await logActivity({

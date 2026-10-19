@@ -33,6 +33,7 @@ import { NEW_CHANNEL_BTN_SVG } from './ThFilterMulti.jsx';
 import useAdminStickyToolbarHeight from './useAdminStickyToolbarHeight.js';
 import { exportInstitutionalReport } from '../excelReport.js';
 import { formatDistintivo } from './mapOperatorPopup.jsx';
+import { IV_RM_STATE_DEFS } from './ivRmStatesConfig.js';
 
 const ROLE_OPTIONS = [
   { value: 'root', label: 'Administrador' },
@@ -221,6 +222,10 @@ const EMPTY_FORM = {
   serviceNombre: '',
   /** Texto libre «lat, lng» (o liga de Google Maps). */
   serviceCoords: '',
+  /** Poblado / Mpio. / Estado: se rellenan desde las coordenadas o se escriben a mano. */
+  serviceLocalidad: '',
+  serviceMunicipio: '',
+  serviceEstado: '',
   /** Cantidades por concepto del catálogo de efectivos: { [itemId]: '12' }. */
   serviceEfectivos: {},
   givenNames: '',
@@ -278,6 +283,22 @@ function serviceCoordsPayload(text) {
   const c = parseCoordsInput(text);
   return c ? { serviceLat: c.lat, serviceLng: c.lng } : null;
 }
+
+/** Payload API: Poblado / Mpio. / Estado (vacío = borrar). */
+function servicePlacePayload(form) {
+  return {
+    serviceGeoLocalidad: String(form.serviceLocalidad || '').trim() || null,
+    serviceGeoMunicipio: String(form.serviceMunicipio || '').trim() || null,
+    serviceGeoEstado: String(form.serviceEstado || '').trim() || null,
+  };
+}
+
+function servicePlaceLabel(form) {
+  const parts = Object.values(servicePlacePayload(form)).filter(Boolean);
+  return parts.filter((v, i) => parts.indexOf(v) === i).join(', ');
+}
+
+const MX_ESTADOS = IV_RM_STATE_DEFS.map((s) => s.name);
 
 /** Grupos del paso «Efectivos» (mismas claves que cat_efectivos.grupo). */
 const EFECTIVOS_GRUPOS = [
@@ -628,26 +649,47 @@ const FORM_SECTION_ICONS = {
       <path d="M11 12l9-9M17 6l3 3" />
     </>
   ),
-  alcance: (
+  organismo: (
+    <>
+      <path d="M3 21h18M5 21V9l7-5 7 5v12" />
+      <path d="M9 21v-6h6v6M9 11h.01M15 11h.01" />
+    </>
+  ),
+  ubicacion: (
     <>
       <path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" />
       <circle cx="12" cy="9.5" r="2.5" />
     </>
   ),
+  mapa: (
+    <>
+      <path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5L9 4z" />
+      <path d="M9 4v13.5M15 6.5V20" />
+    </>
+  ),
+  grupos: (
+    <>
+      <path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+      <path d="M8 9.5h8M8 12.5h5" />
+    </>
+  ),
 };
 
-function FormSectionTitle({ icon, children }) {
+function FormSectionTitle({ icon, hint, children }) {
   const glyph = FORM_SECTION_ICONS[icon];
   return (
     <h3 className="cc-form-section-title">
       {glyph ? (
         <span className="cc-form-section-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             {glyph}
           </svg>
         </span>
       ) : null}
-      {children}
+      <span className="cc-form-section-text">
+        <span className="cc-form-section-name">{children}</span>
+        {hint ? <small className="cc-form-section-hint">{hint}</small> : null}
+      </span>
     </h3>
   );
 }
@@ -1624,6 +1666,8 @@ export default function DispatchUsers({ session }) {
   const [servicios, setServicios] = useState([]);
   /** Datos extraídos de las coordenadas del servicio: { status, data }. */
   const [serviceGeo, setServiceGeo] = useState({ status: 'idle', data: null });
+  /** Poblado / Mpio. / Estado vienen de las coordenadas (se apaga al corregirlos a mano). */
+  const [placeAutoFilled, setPlaceAutoFilled] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
   const [preview, setPreview] = useState({ username: '', displayName: '', fullName: '' });
@@ -2135,6 +2179,9 @@ export default function DispatchUsers({ session }) {
       cargo: u.cargo || '',
       serviceNombre: u.serviceNombre || '',
       serviceCoords: formatCoords(u.serviceLat, u.serviceLng),
+      serviceLocalidad: u.serviceGeoLocalidad || '',
+      serviceMunicipio: u.serviceGeoMunicipio || '',
+      serviceEstado: u.serviceGeoEstado || '',
       serviceEfectivos: Object.fromEntries(
         Object.entries(u.serviceEfectivos || {}).map(([id, n]) => [id, String(n)])
       ),
@@ -2162,6 +2209,7 @@ export default function DispatchUsers({ session }) {
     setStep('datos');
     setSelectedGroupIds([]);
     setInitialGroupIds(null);
+    setPlaceAutoFilled(false);
     setError('');
     setCreateOpen(true);
     editGroupsForRef.current = u.id;
@@ -2214,7 +2262,18 @@ export default function DispatchUsers({ session }) {
     setServiceGeo({ status: 'loading', data: null });
     const t = setTimeout(() => {
       geoAdminAt(session.token, c.lat, c.lng, ac.signal)
-        .then((data) => setServiceGeo({ status: 'ok', data }))
+        .then((data) => {
+          setServiceGeo({ status: 'ok', data });
+          if (data?.localidad || data?.municipio || data?.estado) {
+            setForm((f) => ({
+              ...f,
+              serviceLocalidad: data.localidad || '',
+              serviceMunicipio: data.municipio || '',
+              serviceEstado: data.estado || '',
+            }));
+            setPlaceAutoFilled(true);
+          }
+        })
         .catch(() => {
           if (!ac.signal.aborted) setServiceGeo({ status: 'error', data: null });
         });
@@ -2278,6 +2337,7 @@ export default function DispatchUsers({ session }) {
     setSelectedGroupIds([]);
     setInitialGroupIds(null);
     editGroupsForRef.current = null;
+    setPlaceAutoFilled(false);
     setMatriculaStatus(null);
     setMatriculaTakenBy(null);
   }
@@ -2568,6 +2628,7 @@ export default function DispatchUsers({ session }) {
         cargo: form.cargo || null,
         serviceNombre: form.serviceNombre || null,
         ...coordsPayload,
+        ...servicePlacePayload(form),
         ...efectivosPayload(form),
         givenNames: form.givenNames,
         paternalSurname: form.paternalSurname,
@@ -2597,6 +2658,7 @@ export default function DispatchUsers({ session }) {
           cargo: form.cargo || null,
           serviceNombre: form.serviceNombre || null,
           ...coordsPayload,
+          ...servicePlacePayload(form),
           ...efectivosPayload(form),
           givenNames: form.givenNames,
           paternalSurname: form.paternalSurname,
@@ -2653,6 +2715,7 @@ export default function DispatchUsers({ session }) {
       const created = await createAdminUser(session.token, {
         ...formFields,
         ...coordsPayload,
+        ...servicePlacePayload(form),
         ...efectivosPayload(form),
         role: scope.role || lockedRole,
         profileId: form.profileId || undefined,
@@ -3479,7 +3542,9 @@ export default function DispatchUsers({ session }) {
                 items={editBasicsOnly ? datosChecklist : [...datosChecklist, ...adscripcionChecklist]}
               />
               <section className="cc-form-section">
-                <FormSectionTitle icon="identidad">Identidad militar</FormSectionTitle>
+                <FormSectionTitle icon="identidad" hint="Grado, especialidad y matrícula">
+                  Identidad militar
+                </FormSectionTitle>
                 <div className="cc-form-grid cc-form-grid--3">
                   <label className="field">
                     <span>Grado *</span>
@@ -3584,7 +3649,9 @@ export default function DispatchUsers({ session }) {
               </section>
 
               <section className="cc-form-section">
-                <FormSectionTitle icon="nombre">Nombre completo</FormSectionTitle>
+                <FormSectionTitle icon="nombre" hint="Nombre(s) y apellidos; forman el indicativo y el usuario">
+                  Nombre completo
+                </FormSectionTitle>
                 <div className="cc-form-grid cc-form-grid--3">
                   <label className="field">
                     <span>Nombre(s) *</span>
@@ -3615,7 +3682,9 @@ export default function DispatchUsers({ session }) {
               </section>
 
               <section className="cc-form-section">
-                <FormSectionTitle icon="servicio">Contacto y servicio</FormSectionTitle>
+                <FormSectionTitle icon="servicio" hint="Teléfono, tipo de servicio y distintivo">
+                  Contacto y servicio
+                </FormSectionTitle>
                 <div className="cc-form-grid cc-form-grid--3">
                   <label className="field">
                     <span>
@@ -3691,10 +3760,21 @@ export default function DispatchUsers({ session }) {
                       maxLength={160}
                     />
                   </label>
-                  <label className="field cc-form-span-2">
+                </div>
+              </section>
+
+              <section className="cc-form-section">
+                <FormSectionTitle
+                  icon="ubicacion"
+                  hint="Para la relación y el Excel; no afecta la ubicación en tiempo real."
+                >
+                  Ubicación del servicio
+                </FormSectionTitle>
+                <div className="cc-form-grid cc-form-grid--3">
+                  <label className="field cc-geo-coords">
                     <span>
-                      Ubicación (coordenadas){' '}
-                      <em className="cc-field-hint-inline">latitud, longitud</em>
+                      Coordenadas{' '}
+                      <em className="cc-field-hint-inline">latitud, longitud o liga de Google Maps</em>
                     </span>
                     <input
                       value={form.serviceCoords}
@@ -3712,30 +3792,89 @@ export default function DispatchUsers({ session }) {
                             : undefined
                       }
                     />
-                    {serviceGeo.status === 'invalid' && (
-                      <span className="cc-field-hint cc-field-hint--err">
-                        Formato: latitud, longitud (también acepta liga de Google Maps)
-                      </span>
-                    )}
-                    {serviceGeo.status === 'loading' && (
-                      <span className="cc-field-hint">Obteniendo estado y municipio…</span>
-                    )}
-                    {serviceGeo.status === 'error' && (
-                      <span className="cc-field-hint cc-field-hint--err">
-                        No se pudieron extraer los datos; se guardan solo las coordenadas.
-                      </span>
-                    )}
-                    {serviceGeo.status === 'ok' && (
-                      <span className="cc-field-hint cc-field-hint--ok">
-                        {serviceGeoSummary(serviceGeo.data) || 'Sin datos para ese punto'}
-                        {serviceGeo.data?.approx ? ' (aprox.)' : ''}
-                      </span>
-                    )}
-                    <span className="cc-field-hint">
-                      Solo para la relación y el Excel; no afecta la ubicación en tiempo real.
-                    </span>
+                  </label>
+                  <div className="field cc-geo-status-field">
+                    <span>Estado de la consulta</span>
+                    <div className={`cc-geo-status cc-geo-status--${serviceGeo.status}`} role="status">
+                      {serviceGeo.status === 'idle' && 'Sin coordenadas'}
+                      {serviceGeo.status === 'invalid' && 'Formato inválido'}
+                      {serviceGeo.status === 'loading' && 'Buscando lugar…'}
+                      {serviceGeo.status === 'error' && 'Sin datos; captura a mano'}
+                      {serviceGeo.status === 'ok' &&
+                        (serviceGeo.data?.approx ? 'Lugar aproximado' : 'Lugar encontrado')}
+                      {parseCoordsInput(form.serviceCoords) ? (
+                        <a
+                          className="cc-geo-maplink"
+                          href={`https://www.google.com/maps?q=${parseCoordsInput(form.serviceCoords).lat},${parseCoordsInput(form.serviceCoords).lng}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Ver mapa
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                  <label className="field">
+                    <span>Poblado</span>
+                    <input
+                      value={form.serviceLocalidad}
+                      onChange={(e) => {
+                        setForm({ ...form, serviceLocalidad: e.target.value });
+                        setPlaceAutoFilled(false);
+                      }}
+                      placeholder="Ej. Altamira"
+                      maxLength={200}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Mpio.</span>
+                    <input
+                      value={form.serviceMunicipio}
+                      onChange={(e) => {
+                        setForm({ ...form, serviceMunicipio: e.target.value });
+                        setPlaceAutoFilled(false);
+                      }}
+                      placeholder="Ej. Altamira"
+                      maxLength={160}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Estado</span>
+                    <input
+                      value={form.serviceEstado}
+                      onChange={(e) => {
+                        setForm({ ...form, serviceEstado: e.target.value });
+                        setPlaceAutoFilled(false);
+                      }}
+                      placeholder="Ej. Tamaulipas"
+                      list="cc-mx-estados"
+                      maxLength={80}
+                      autoComplete="off"
+                    />
+                    <datalist id="cc-mx-estados">
+                      {MX_ESTADOS.map((name) => (
+                        <option key={name} value={name} />
+                      ))}
+                    </datalist>
                   </label>
                 </div>
+                <p className="cc-geo-foot">
+                  {placeAutoFilled
+                    ? 'Poblado, Mpio. y Estado se rellenaron con las coordenadas; puedes corregirlos.'
+                    : 'Pega coordenadas para rellenar Poblado, Mpio. y Estado, o escríbelos a mano.'}
+                  {serviceGeo.status === 'ok' &&
+                  (serviceGeo.data?.colonia || serviceGeo.data?.cp || serviceGeo.data?.ejido) ? (
+                    <span className="cc-geo-extra">
+                      {serviceGeoSummary({
+                        colonia: serviceGeo.data.colonia,
+                        cp: serviceGeo.data.cp,
+                        ejido: serviceGeo.data.ejido,
+                      })}
+                    </span>
+                  ) : null}
+                </p>
               </section>
 
             </>
@@ -3744,7 +3883,9 @@ export default function DispatchUsers({ session }) {
           {step === 'datos' && !editBasicsOnly && (
             <>
               <section className="cc-form-section">
-                <FormSectionTitle icon="perfil">Perfil de acceso</FormSectionTitle>
+                <FormSectionTitle icon="perfil" hint="Permisos por módulo y nivel jerárquico">
+                  Perfil de acceso
+                </FormSectionTitle>
                 <div className="cc-form-grid">
                   <label className="field">
                     <span>Perfil *</span>
@@ -3791,7 +3932,9 @@ export default function DispatchUsers({ session }) {
                 </div>
               </section>
               <section className="cc-form-section">
-                <FormSectionTitle icon="alcance">Organismo Pert.</FormSectionTitle>
+                <FormSectionTitle icon="organismo" hint="Región, zona y unidad a la que pertenece">
+                  Organismo Pert.
+                </FormSectionTitle>
                 <p className="cc-group-pick-hint">
                   {isActingUnitAdmin
                     ? myScopeUnitId
@@ -3906,14 +4049,15 @@ export default function DispatchUsers({ session }) {
                 )}
               </section>
               <section className="cc-form-section">
-                <fieldset className="cc-priv-fieldset">
-                  <legend>Qué oye en radio y qué ve en el mapa</legend>
+                <FormSectionTitle
+                  icon="mapa"
+                  hint="Lo fija el perfil automáticamente; si cambias el perfil, cambia con él."
+                >
+                  Qué oye en radio y qué ve en el mapa
+                </FormSectionTitle>
+                <div className="cc-priv-fieldset">
                   <p className="cc-group-pick-hint">{radioMapScopeHelp(form.role)}</p>
-                  <p className="cc-group-pick-hint">
-                    Esto lo marca el rol automáticamente: no hay que elegir casillas aparte. Si
-                    cambias el rol, este alcance cambia con él.
-                  </p>
-                  {visibilityLevelsForRole(form.role).length ? (
+                  {!normalizeClientRole(form.role) ? null : visibilityLevelsForRole(form.role).length ? (
                   <div className="cc-priv-check-list">
                       {visibilityLevelsForRole(form.role).map((lvl) => (
                         <div key={lvl.key} className="cc-priv-check on cc-priv-check--locked">
@@ -3927,7 +4071,7 @@ export default function DispatchUsers({ session }) {
                   ) : (
                     <p className="cc-group-pick-hint">{radioMapScopeEmptyHint(form.role)}</p>
                   )}
-                </fieldset>
+                </div>
               </section>
             </>
           )}
@@ -3963,14 +4107,16 @@ export default function DispatchUsers({ session }) {
                 <p className="muted">
                   {formatDistintivo(form.cargo, form.serviceNombre) || 'Sin distintivo'}
                   {' · '}Matrícula: <code className="cc-mono">{form.matricula}</code>
+                  {servicePlaceLabel(form) ? <> · {servicePlaceLabel(form)}</> : null}
                 </p>
               </div>
               <section className="cc-form-section">
-                <FormSectionTitle icon="efectivos">Efectivos del servicio</FormSectionTitle>
-                <p className="cc-group-pick-hint">
-                  Solo cantidades (opcional). Con «+» anexas un concepto al grupo; queda disponible
-                  para todos los usuarios y aparece en la relación y el Excel.
-                </p>
+                <FormSectionTitle
+                  icon="efectivos"
+                  hint="Solo cantidades (opcional). «+» anexa un concepto para todos los usuarios; «×» lo quita."
+                >
+                  Efectivos del servicio
+                </FormSectionTitle>
                 <div className="cc-efectivos-table">
                   {EFECTIVOS_GRUPOS.map((g) => {
                     const items = efectivosItems.filter((it) => it.grupo === g.key);
@@ -4090,15 +4236,17 @@ export default function DispatchUsers({ session }) {
                 </p>
               </div>
 
-              <fieldset className="cc-group-pick">
-                <legend>
-                  {editingUser ? 'Grupos a los que pertenece' : '¿A qué grupos ingresa? (opcional)'}
-                </legend>
-                <p className="cc-group-pick-hint">
-                  {editingUser
-                    ? 'Marcados = grupos actuales. Al guardar se ingresa a los nuevos y se retira de los desmarcados.'
-                    : 'Puedes marcar varios, dejar ninguno y crear el usuario sin canal, o usar los sugeridos más adelante desde Grupos.'}
-                </p>
+              <section className="cc-form-section">
+                <FormSectionTitle
+                  icon="grupos"
+                  hint={
+                    editingUser
+                      ? 'Marcados = grupos actuales. Al guardar se ingresa a los nuevos y se retira de los desmarcados.'
+                      : 'Opcional: marca varios o ninguno; también se asignan después desde Grupos.'
+                  }
+                >
+                  {editingUser ? 'Grupos a los que pertenece' : '¿A qué grupos ingresa?'}
+                </FormSectionTitle>
                 {editingUser && initialGroupIds == null ? (
                   <p className="muted">Cargando grupos del usuario…</p>
                 ) : editingUser && initialGroupIds === false ? (
@@ -4154,7 +4302,7 @@ export default function DispatchUsers({ session }) {
                   </ul>
                   </>
                 )}
-              </fieldset>
+              </section>
 
               <div className="field field-actions cc-form-actions">
                 <button
