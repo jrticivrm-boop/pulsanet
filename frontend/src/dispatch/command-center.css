@@ -9640,6 +9640,54 @@ body:not(.leaflet-dragging) .map-frame.pick-mode .leaflet-container.tp-map-curso
   height: 2.5rem;
 }
 
+/* Efectivos: un solo cuadro de Personal dividido en Grals. / Jefes / Ofs. / Tpa. */
+.cc-users-create-modal .cc-efectivos-split {
+  display: flex;
+}
+
+.cc-users-create-modal .cc-efectivos-cell {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.cc-users-create-modal .cc-efectivos-cell + .cc-efectivos-cell {
+  margin-left: -1px;
+}
+
+.cc-users-create-modal .admin-form .field .cc-efectivos-split .cc-efectivos-cell input.cc-efectivos-input {
+  width: 100%;
+  padding-right: 3.2rem;
+  border-radius: 0;
+}
+
+.cc-users-create-modal .admin-form .field .cc-efectivos-split .cc-efectivos-cell:first-child input.cc-efectivos-input {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.cc-users-create-modal .admin-form .field .cc-efectivos-split .cc-efectivos-cell:last-child input.cc-efectivos-input {
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+
+.cc-users-create-modal .cc-efectivos-input:focus {
+  position: relative;
+  z-index: 1;
+}
+
+.cc-users-create-modal .cc-efectivos-suffix {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  z-index: 2;
+  transform: translateY(-50%);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--cc-muted);
+  pointer-events: none;
+}
+
 .cc-users-create-modal .cc-form-section {
   padding: 0.95rem 1.05rem 1.05rem;
   border-radius: 12px;

@@ -1,3 +1,12 @@
+## 2026-10-19 — Efectivos: Personal dividido en Grals. / Jefes / Ofs. / Tpa.
+
+- **Tipo:** ux
+- **Área:** web | backend | database
+- **Qué:**
+  - El cuadro **Personal** se divide en cuatro partes que solo aceptan números: Grals., Jefes, Ofs., Tpa.; la etiqueta muestra el total. Vehículos y Armamento siguen como texto libre, debajo.
+  - Relación: `Pers.: 1 Gral., 2 Jefes, 3 Ofs., 50 Tpa.` (singular con 1); ordenar por la columna usa el total de personal. Excel: Grals., Jefes, Ofs., Tpa., Total personal, Vehículos, Armamento; «Resumen» suma cada categoría y el total. CSV: `personal_grals,personal_jefes,personal_ofs,personal_tpa`.
+  - Migración `050_service_efectivos.sql`: columnas `service_personal_grals/jefes/ofs/tpa` (INTEGER) y retira `service_personal` de la versión anterior (solo existía en desarrollo). API: `servicePersonalGrals|Jefes|Ofs|Tpa` (entero 0–99999).
+- **Archivos / refs:** `database/migrations/050_service_efectivos.sql`, `database/schema.sql`, `backend/src/routes/admin.js`, `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`
 ## 2026-10-19 — Efectivos: cuadros de texto libre
 
 - **Tipo:** ux

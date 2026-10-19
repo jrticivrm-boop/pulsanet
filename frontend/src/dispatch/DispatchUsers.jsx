@@ -216,7 +216,10 @@ const EMPTY_FORM = {
   serviceNombre: '',
   /** Texto libre «lat, lng» (o liga de Google Maps). */
   serviceCoords: '',
-  servicePersonal: '',
+  servicePersonalGrals: '',
+  servicePersonalJefes: '',
+  servicePersonalOfs: '',
+  servicePersonalTpa: '',
   serviceVehiculos: '',
   serviceArmamento: '',
   givenNames: '',
@@ -275,23 +278,62 @@ function serviceCoordsPayload(text) {
   return c ? { serviceLat: c.lat, serviceLng: c.lng } : null;
 }
 
-const EFECTIVOS_FIELDS = [
-  ['servicePersonal', 'Personal', 'Pers.', 'Ej. 2 Oficiales, 15 Tropa'],
+/** Personal por categoría: [clave, plural, singular, nombre accesible]. */
+const PERSONAL_FIELDS = [
+  ['servicePersonalGrals', 'Grals.', 'Gral.', 'Generales'],
+  ['servicePersonalJefes', 'Jefes', 'Jefe', 'Jefes'],
+  ['servicePersonalOfs', 'Ofs.', 'Of.', 'Oficiales'],
+  ['servicePersonalTpa', 'Tpa.', 'Tpa.', 'Tropa'],
+];
+
+/** Texto libre: [clave, etiqueta, abreviatura, ejemplo]. */
+const EFECTIVOS_TEXT_FIELDS = [
   ['serviceVehiculos', 'Vehículos', 'Veh.', 'Ej. 2 Cheyenne, 1 Humvee'],
   ['serviceArmamento', 'Armamento', 'Arm.', 'Ej. 15 FX-05, 2 pistolas'],
 ];
 
-/** Payload API: efectivos del servicio (texto libre; vacío = null, borra). */
-function efectivosPayload(form) {
-  return Object.fromEntries(
-    EFECTIVOS_FIELDS.map(([key]) => [key, String(form[key] ?? '').trim() || null])
-  );
+function hasNumber(v) {
+  return v != null && String(v).trim() !== '';
 }
 
-/** «Pers.: 2 Oficiales, 15 Tropa · Veh.: 2 Cheyenne» (solo lo capturado). */
+/** Total de personal, o null si no se capturó ninguna categoría. */
+function personalTotal(u) {
+  const vals = PERSONAL_FIELDS.map(([key]) => u[key]).filter(hasNumber);
+  return vals.length ? vals.reduce((s, v) => s + Number(v), 0) : null;
+}
+
+/** «1 Gral., 2 Jefes, 3 Ofs., 50 Tpa.» (solo lo capturado). */
+function formatPersonal(u) {
+  return PERSONAL_FIELDS.filter(([key]) => hasNumber(u[key]))
+    .map(([key, plural, singular]) => `${u[key]} ${Number(u[key]) === 1 ? singular : plural}`)
+    .join(', ');
+}
+
+/** Payload API: personal en enteros y vehículos/armamento en texto (vacío = null, borra). */
+function efectivosPayload(form) {
+  return {
+    ...Object.fromEntries(
+      PERSONAL_FIELDS.map(([key]) => {
+        const digits = String(form[key] ?? '').replace(/\D/g, '');
+        return [key, digits ? Number(digits) : null];
+      })
+    ),
+    ...Object.fromEntries(
+      EFECTIVOS_TEXT_FIELDS.map(([key]) => [key, String(form[key] ?? '').trim() || null])
+    ),
+  };
+}
+
+/** «Pers.: 1 Gral., 50 Tpa. · Veh.: 2 Cheyenne» (solo lo capturado). */
 function formatEfectivos(u) {
-  return EFECTIVOS_FIELDS.filter(([key]) => fieldFilled(u[key]))
-    .map(([key, , abbr]) => `${abbr}: ${u[key]}`)
+  const personal = formatPersonal(u);
+  return [
+    personal ? `Pers.: ${personal}` : '',
+    ...EFECTIVOS_TEXT_FIELDS.filter(([key]) => fieldFilled(u[key])).map(
+      ([key, , abbr]) => `${abbr}: ${u[key]}`
+    ),
+  ]
+    .filter(Boolean)
     .join(' · ');
 }
 
@@ -796,7 +838,7 @@ function getUserSortValue(u, key) {
     case 'service':
       return u.cargo || '';
     case 'efectivos':
-      return formatEfectivos(u);
+      return personalTotal(u) ?? formatEfectivos(u);
     case 'profile':
       return roleLabel(u.role) || u.role || '';
     case 'scope':
@@ -857,7 +899,11 @@ const USER_EXPORT_COLS = {
     ['C.P.', (u) => u.serviceGeoCp || ''],
     ['Ejido', (u) => u.serviceGeoEjido || ''],
   ],
-  efectivos: EFECTIVOS_FIELDS.map(([key, label]) => [label, (u) => u[key] ?? '']),
+  efectivos: [
+    ...PERSONAL_FIELDS.map(([key, plural]) => [plural, (u) => u[key] ?? '']),
+    ['Total personal', (u) => personalTotal(u) ?? ''],
+    ...EFECTIVOS_TEXT_FIELDS.map(([key, label]) => [label, (u) => u[key] ?? '']),
+  ],
   profile: [['Perfil', (u) => userExportValue(u, 'profile')]],
   scope: [['Alcance', (u) => userExportValue(u, 'scope')]],
   status: [['Estado', (u) => userExportValue(u, 'status')]],
@@ -910,11 +956,15 @@ function buildUsersExportSummary(list, visibleKeys) {
         pushList('Estados (ubicación)', (u) => u.serviceGeoEstado);
         pushList('Municipios', (u) => u.serviceGeoMunicipio);
         break;
-      case 'efectivos':
-        for (const [k, label] of EFECTIVOS_FIELDS) {
+      case 'efectivos': {
+        const sum = (get) => list.reduce((s, u) => s + (Number(get(u)) || 0), 0);
+        for (const [k, , , name] of PERSONAL_FIELDS) pushCount(`Personal — ${name}`, sum((u) => u[k]));
+        pushCount('Personal — Total', sum(personalTotal));
+        for (const [k, label] of EFECTIVOS_TEXT_FIELDS) {
           pushCount(`${label} — servicios con dato`, list.filter((u) => fieldFilled(u[k])).length);
         }
         break;
+      }
       case 'profile':
         pushCounted('Perfil', (u) => roleLabel(u.role));
         break;
@@ -2067,7 +2117,8 @@ export default function DispatchUsers({ session }) {
       cargo: u.cargo || '',
       serviceNombre: u.serviceNombre || '',
       serviceCoords: formatCoords(u.serviceLat, u.serviceLng),
-      ...Object.fromEntries(EFECTIVOS_FIELDS.map(([key]) => [key, u[key] || ''])),
+      ...Object.fromEntries(PERSONAL_FIELDS.map(([key]) => [key, hasNumber(u[key]) ? String(u[key]) : ''])),
+      ...Object.fromEntries(EFECTIVOS_TEXT_FIELDS.map(([key]) => [key, u[key] || ''])),
       givenNames: u.givenNames || '',
       paternalSurname: u.paternalSurname || '',
       maternalSurname: u.maternalSurname || '',
@@ -3573,8 +3624,36 @@ export default function DispatchUsers({ session }) {
 
               <section className="cc-form-section">
                 <FormSectionTitle icon="efectivos">Efectivos</FormSectionTitle>
-                <div className="cc-form-grid cc-form-grid--3">
-                  {EFECTIVOS_FIELDS.map(([key, label, , placeholder]) => (
+                <div className="cc-form-grid">
+                  <div className="field cc-form-span-2">
+                    <span>
+                      Personal{' '}
+                      {personalTotal(form) != null && (
+                        <em className="cc-field-hint-inline">total {personalTotal(form)}</em>
+                      )}
+                    </span>
+                    <div className="cc-efectivos-split">
+                      {PERSONAL_FIELDS.map(([key, plural, , name]) => (
+                        <span className="cc-efectivos-cell" key={key}>
+                          <input
+                            className="cc-efectivos-input"
+                            value={form[key]}
+                            onChange={(e) =>
+                              setForm({ ...form, [key]: e.target.value.replace(/\D/g, '').slice(0, 5) })
+                            }
+                            placeholder="0"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            aria-label={`Personal: ${name}`}
+                          />
+                          <span className="cc-efectivos-suffix" aria-hidden="true">
+                            {plural}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  {EFECTIVOS_TEXT_FIELDS.map(([key, label, , placeholder]) => (
                     <label className="field" key={key}>
                       <span>{label}</span>
                       <input

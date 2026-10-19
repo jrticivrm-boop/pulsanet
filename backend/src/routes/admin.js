@@ -200,23 +200,37 @@ function parseServiceCoords(latIn, lngIn) {
   return { lat, lng };
 }
 
+/** [clave API, columna, etiqueta, tipo] — personal por categoría (enteros), resto texto libre. */
 const SERVICE_EFECTIVOS = [
-  ['servicePersonal', 'service_personal', 'personal'],
-  ['serviceVehiculos', 'service_vehiculos', 'vehículos'],
-  ['serviceArmamento', 'service_armamento', 'armamento'],
+  ['servicePersonalGrals', 'service_personal_grals', 'Grals.', 'int'],
+  ['servicePersonalJefes', 'service_personal_jefes', 'Jefes', 'int'],
+  ['servicePersonalOfs', 'service_personal_ofs', 'Ofs.', 'int'],
+  ['servicePersonalTpa', 'service_personal_tpa', 'Tpa.', 'int'],
+  ['serviceVehiculos', 'service_vehiculos', 'vehículos', 'text'],
+  ['serviceArmamento', 'service_armamento', 'armamento', 'text'],
 ];
+const SERVICE_EFECTIVOS_COLS = SERVICE_EFECTIVOS.map(([, col]) => col).join(', ');
 
-/** Efectivos del servicio (texto libre): solo las claves presentes en el body (vacío/`null` = borrar). */
+/** Efectivos del servicio: solo las claves presentes en el body (vacío/`null` = borrar). */
 function parseServiceEfectivos(body) {
   const out = {};
-  for (const [key, col, label] of SERVICE_EFECTIVOS) {
+  for (const [key, col, label, type] of SERVICE_EFECTIVOS) {
     const v = body?.[key];
     if (v === undefined) continue;
     const s = v == null ? '' : String(v).trim();
-    if (s.length > 300) {
+    if (!s) {
+      out[col] = null;
+    } else if (type === 'int') {
+      const n = Number(s);
+      if (!Number.isInteger(n) || n < 0 || n > 99999) {
+        throw new Error(`Efectivos: ${label} debe ser un número entero entre 0 y 99999`);
+      }
+      out[col] = n;
+    } else if (s.length > 300) {
       throw new Error(`Efectivos: ${label} admite hasta 300 caracteres`);
+    } else {
+      out[col] = s;
     }
-    out[col] = s || null;
   }
   return out;
 }
@@ -227,7 +241,7 @@ async function saveServiceEfectivos(userId, efectivos) {
   const { rows } = await query(
     `UPDATE users SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')}, updated_at = NOW()
      WHERE id = $1
-     RETURNING service_personal, service_vehiculos, service_armamento`,
+     RETURNING ${SERVICE_EFECTIVOS_COLS}`,
     [userId, ...cols.map((c) => efectivos[c])]
   );
   return rows[0] || {};
@@ -286,9 +300,7 @@ function mapUser(u) {
     serviceGeoColonia: u.service_geo_colonia || null,
     serviceGeoCp: u.service_geo_cp || null,
     serviceGeoEjido: u.service_geo_ejido || null,
-    servicePersonal: u.service_personal ?? null,
-    serviceVehiculos: u.service_vehiculos ?? null,
-    serviceArmamento: u.service_armamento ?? null,
+    ...Object.fromEntries(SERVICE_EFECTIVOS.map(([key, col]) => [key, u[col] ?? null])),
     givenNames: u.given_names || null,
     paternalSurname: u.paternal_surname || null,
     maternalSurname: u.maternal_surname || null,
@@ -714,7 +726,8 @@ adminRouter.get('/users', async (req, res) => {
             u.grade, u.specialty, u.cargo, u.service_nombre,
             u.service_lat, u.service_lng, u.service_geo_estado, u.service_geo_municipio,
             u.service_geo_localidad, u.service_geo_colonia, u.service_geo_cp, u.service_geo_ejido,
-            u.service_personal, u.service_vehiculos, u.service_armamento,
+            u.service_personal_grals, u.service_personal_jefes, u.service_personal_ofs,
+            u.service_personal_tpa, u.service_vehiculos, u.service_armamento,
             u.given_names, u.paternal_surname, u.maternal_surname, u.matricula,
             u.phone, u.unit_id, u.admin_scope_unit_id, u.profile_id,
             u.can_see_region, u.can_see_zones, u.can_see_units, u.location_share,
@@ -1711,7 +1724,8 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
                must_change_password, last_seen_at, unit_id, admin_scope_unit_id, profile_id,
                can_see_region, can_see_zones, can_see_units,
                grade, specialty, cargo, service_nombre,
-               service_personal, service_vehiculos, service_armamento,
+               service_personal_grals, service_personal_jefes, service_personal_ofs,
+               service_personal_tpa, service_vehiculos, service_armamento,
                given_names, paternal_surname, maternal_surname, matricula, phone`,
     [
       req.params.id,
@@ -1902,7 +1916,8 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
             display_name, role, is_active, last_seen_at, created_at,
             service_nombre, service_lat, service_lng, service_geo_estado, service_geo_municipio,
             service_geo_localidad, service_geo_colonia, service_geo_cp, service_geo_ejido,
-            service_personal, service_vehiculos, service_armamento
+            service_personal_grals, service_personal_jefes, service_personal_ofs,
+            service_personal_tpa, service_vehiculos, service_armamento
      FROM users WHERE organization_id = $1
      ORDER BY display_name`,
     [req.user.orgId]
@@ -1917,7 +1932,7 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
   const lines = [
     'username,matricula,phone,grade,specialty,cargo,given_names,paternal_surname,maternal_surname,call_sign,role,is_active,last_seen_at,created_at,' +
       'service_nombre,service_lat,service_lng,estado,municipio,localidad,colonia,cp,ejido,' +
-      'personal,vehiculos,armamento',
+      'personal_grals,personal_jefes,personal_ofs,personal_tpa,vehiculos,armamento',
   ];
   for (const u of rows) {
     lines.push(
@@ -1945,7 +1960,10 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
         esc(u.service_geo_colonia),
         esc(u.service_geo_cp),
         esc(u.service_geo_ejido),
-        esc(u.service_personal),
+        esc(u.service_personal_grals),
+        esc(u.service_personal_jefes),
+        esc(u.service_personal_ofs),
+        esc(u.service_personal_tpa),
         esc(u.service_vehiculos),
         esc(u.service_armamento),
       ].join(',')
