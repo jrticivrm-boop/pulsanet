@@ -1,3 +1,13 @@
+## 2026-10-19 — Usuarios: sección «Efectivos» del servicio desplegado
+
+- **Tipo:** feature
+- **Área:** web | backend | database
+- **Qué:**
+  - Alta/Editar usuario: nueva sección **Efectivos** (tras «Contacto y servicio») con Personal, Vehículos y Armamento; solo acepta números (0–99999), opcional.
+  - Relación de usuarios: columna «Efectivos» (`12 pers. · 2 veh. · 10 arm.`, ordenable y filtrable). Excel: columnas Personal / Vehículos / Armamento y totales en «Resumen». CSV: `personal,vehiculos,armamento`.
+  - API `POST/PATCH /api/admin/users` acepta `servicePersonal`, `serviceVehiculos`, `serviceArmamento` (`null` borra; fuera de rango → 400). Migración `050_service_efectivos.sql` (columnas `users.service_personal/vehiculos/armamento`); aplicada en desarrollo.
+- **Por qué / notas:** solo consulta; no afecta indicativo, mapa ni ubicación en tiempo real. Para producción requiere `-Migrate`.
+- **Archivos / refs:** `database/migrations/050_service_efectivos.sql`, `database/schema.sql`, `backend/src/routes/admin.js`, `frontend/src/dispatch/DispatchUsers.jsx`
 ## 2026-10-17 — Despliegue a producción: fix menú Chats
 
 - **Tipo:** otro

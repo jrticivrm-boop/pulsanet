@@ -200,6 +200,43 @@ function parseServiceCoords(latIn, lngIn) {
   return { lat, lng };
 }
 
+const SERVICE_EFECTIVOS = [
+  ['servicePersonal', 'service_personal', 'personal'],
+  ['serviceVehiculos', 'service_vehiculos', 'vehículos'],
+  ['serviceArmamento', 'service_armamento', 'armamento'],
+];
+
+/** Efectivos del servicio: solo las claves presentes en el body (`null` = borrar). */
+function parseServiceEfectivos(body) {
+  const out = {};
+  for (const [key, col, label] of SERVICE_EFECTIVOS) {
+    const v = body?.[key];
+    if (v === undefined) continue;
+    if (v == null || String(v).trim() === '') {
+      out[col] = null;
+      continue;
+    }
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || n > 99999) {
+      throw new Error(`Efectivos: ${label} debe ser un número entero entre 0 y 99999`);
+    }
+    out[col] = n;
+  }
+  return out;
+}
+
+async function saveServiceEfectivos(userId, efectivos) {
+  const cols = Object.keys(efectivos);
+  if (!cols.length) return {};
+  const { rows } = await query(
+    `UPDATE users SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')}, updated_at = NOW()
+     WHERE id = $1
+     RETURNING service_personal, service_vehiculos, service_armamento`,
+    [userId, ...cols.map((c) => efectivos[c])]
+  );
+  return rows[0] || {};
+}
+
 /**
  * Guarda coordenadas del servicio y lo que se extrae de ellas (estado, municipio…).
  * Solo para la relación/Excel; la ubicación en tiempo real no lo usa.
@@ -253,6 +290,9 @@ function mapUser(u) {
     serviceGeoColonia: u.service_geo_colonia || null,
     serviceGeoCp: u.service_geo_cp || null,
     serviceGeoEjido: u.service_geo_ejido || null,
+    servicePersonal: u.service_personal ?? null,
+    serviceVehiculos: u.service_vehiculos ?? null,
+    serviceArmamento: u.service_armamento ?? null,
     givenNames: u.given_names || null,
     paternalSurname: u.paternal_surname || null,
     maternalSurname: u.maternal_surname || null,
@@ -678,6 +718,7 @@ adminRouter.get('/users', async (req, res) => {
             u.grade, u.specialty, u.cargo, u.service_nombre,
             u.service_lat, u.service_lng, u.service_geo_estado, u.service_geo_municipio,
             u.service_geo_localidad, u.service_geo_colonia, u.service_geo_cp, u.service_geo_ejido,
+            u.service_personal, u.service_vehiculos, u.service_armamento,
             u.given_names, u.paternal_surname, u.maternal_surname, u.matricula,
             u.phone, u.unit_id, u.admin_scope_unit_id, u.profile_id,
             u.can_see_region, u.can_see_zones, u.can_see_units, u.location_share,
@@ -1007,8 +1048,10 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
 
   const serviceNombreTrim = String(req.body?.serviceNombre || '').trim() || null;
   let serviceCoords;
+  let serviceEfectivos;
   try {
     serviceCoords = parseServiceCoords(req.body?.serviceLat, req.body?.serviceLng);
+    serviceEfectivos = parseServiceEfectivos(req.body);
   } catch (err) {
     return res.status(400).json({ ok: false, error: err.message });
   }
@@ -1092,6 +1135,7 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
     );
     const u = rows[0];
     if (serviceCoords) await saveServiceLocation(u.id, serviceCoords);
+    Object.assign(u, await saveServiceEfectivos(u.id, serviceEfectivos));
     await query(`UPDATE users SET location_share = $2 WHERE id = $1`, [
       u.id,
       defaultLocationShare(role),
@@ -1314,8 +1358,10 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
   }
 
   let serviceCoords;
+  let serviceEfectivos;
   try {
     serviceCoords = parseServiceCoords(serviceLatIn, serviceLngIn);
+    serviceEfectivos = parseServiceEfectivos(req.body);
   } catch (err) {
     return res.status(400).json({ ok: false, error: err.message });
   }
@@ -1669,6 +1715,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
                must_change_password, last_seen_at, unit_id, admin_scope_unit_id, profile_id,
                can_see_region, can_see_zones, can_see_units,
                grade, specialty, cargo, service_nombre,
+               service_personal, service_vehiculos, service_armamento,
                given_names, paternal_surname, maternal_surname, matricula, phone`,
     [
       req.params.id,
@@ -1715,6 +1762,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
       await saveServiceLocation(u.id, serviceCoords);
     }
   }
+  Object.assign(u, await saveServiceEfectivos(u.id, serviceEfectivos));
   invalidateUserProfile(u.id);
   await logActivity({
     organizationId: req.user.orgId,
@@ -1857,7 +1905,8 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
     `SELECT username, matricula, phone, grade, specialty, cargo, given_names, paternal_surname, maternal_surname,
             display_name, role, is_active, last_seen_at, created_at,
             service_nombre, service_lat, service_lng, service_geo_estado, service_geo_municipio,
-            service_geo_localidad, service_geo_colonia, service_geo_cp, service_geo_ejido
+            service_geo_localidad, service_geo_colonia, service_geo_cp, service_geo_ejido,
+            service_personal, service_vehiculos, service_armamento
      FROM users WHERE organization_id = $1
      ORDER BY display_name`,
     [req.user.orgId]
@@ -1871,7 +1920,8 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
 
   const lines = [
     'username,matricula,phone,grade,specialty,cargo,given_names,paternal_surname,maternal_surname,call_sign,role,is_active,last_seen_at,created_at,' +
-      'service_nombre,service_lat,service_lng,estado,municipio,localidad,colonia,cp,ejido',
+      'service_nombre,service_lat,service_lng,estado,municipio,localidad,colonia,cp,ejido,' +
+      'personal,vehiculos,armamento',
   ];
   for (const u of rows) {
     lines.push(
@@ -1899,6 +1949,9 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
         esc(u.service_geo_colonia),
         esc(u.service_geo_cp),
         esc(u.service_geo_ejido),
+        esc(u.service_personal),
+        esc(u.service_vehiculos),
+        esc(u.service_armamento),
       ].join(',')
     );
   }

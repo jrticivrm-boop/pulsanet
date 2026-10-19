@@ -216,6 +216,9 @@ const EMPTY_FORM = {
   serviceNombre: '',
   /** Texto libre «lat, lng» (o liga de Google Maps). */
   serviceCoords: '',
+  servicePersonal: '',
+  serviceVehiculos: '',
+  serviceArmamento: '',
   givenNames: '',
   paternalSurname: '',
   maternalSurname: '',
@@ -270,6 +273,29 @@ function serviceCoordsPayload(text) {
   if (!fieldFilled(text)) return { serviceLat: null, serviceLng: null };
   const c = parseCoordsInput(text);
   return c ? { serviceLat: c.lat, serviceLng: c.lng } : null;
+}
+
+const EFECTIVOS_FIELDS = [
+  ['servicePersonal', 'Personal', 'pers.'],
+  ['serviceVehiculos', 'Vehículos', 'veh.'],
+  ['serviceArmamento', 'Armamento', 'arm.'],
+];
+
+/** Payload API: efectivos del servicio (vacío = null, borra). */
+function efectivosPayload(form) {
+  return Object.fromEntries(
+    EFECTIVOS_FIELDS.map(([key]) => {
+      const digits = String(form[key] ?? '').replace(/\D/g, '');
+      return [key, digits ? Number(digits) : null];
+    })
+  );
+}
+
+/** «12 pers. · 2 veh. · 10 arm.» (solo lo capturado). */
+function formatEfectivos(u) {
+  return EFECTIVOS_FIELDS.filter(([key]) => u[key] != null)
+    .map(([key, , abbr]) => `${u[key]} ${abbr}`)
+    .join(' · ');
 }
 
 function serviceGeoSummary(g) {
@@ -548,6 +574,14 @@ const FORM_SECTION_ICONS = {
       <path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8" />
     </>
   ),
+  efectivos: (
+    <>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3 20c0-3.4 2.7-5.6 6-5.6s6 2.2 6 5.6" />
+      <circle cx="17" cy="9" r="2.5" />
+      <path d="M16.5 14.5c2.6.2 4.5 2.1 4.5 5" />
+    </>
+  ),
   perfil: (
     <>
       <circle cx="8" cy="15" r="4" />
@@ -669,6 +703,7 @@ const USER_TABLE_COLS = [
   { key: 'service', label: 'Tipo de servicio' },
   { key: 'serviceName', label: 'Distintivo' },
   { key: 'serviceGeo', label: 'Ubicación del servicio' },
+  { key: 'efectivos', label: 'Efectivos' },
   { key: 'profile', label: 'Perfil' },
   { key: 'scope', label: 'Alcance' },
   { key: 'status', label: 'Estado' },
@@ -763,6 +798,8 @@ function getUserSortValue(u, key) {
       return u.serviceNombre || '';
     case 'service':
       return u.cargo || '';
+    case 'efectivos':
+      return u.servicePersonal ?? null;
     case 'profile':
       return roleLabel(u.role) || u.role || '';
     case 'scope':
@@ -823,6 +860,7 @@ const USER_EXPORT_COLS = {
     ['C.P.', (u) => u.serviceGeoCp || ''],
     ['Ejido', (u) => u.serviceGeoEjido || ''],
   ],
+  efectivos: EFECTIVOS_FIELDS.map(([key, label]) => [label, (u) => u[key] ?? '']),
   profile: [['Perfil', (u) => userExportValue(u, 'profile')]],
   scope: [['Alcance', (u) => userExportValue(u, 'scope')]],
   status: [['Estado', (u) => userExportValue(u, 'status')]],
@@ -875,6 +913,11 @@ function buildUsersExportSummary(list, visibleKeys) {
         pushList('Estados (ubicación)', (u) => u.serviceGeoEstado);
         pushList('Municipios', (u) => u.serviceGeoMunicipio);
         break;
+      case 'efectivos':
+        for (const [k, label] of EFECTIVOS_FIELDS) {
+          pushCount(`Total ${label.toLowerCase()}`, list.reduce((s, u) => s + (Number(u[k]) || 0), 0));
+        }
+        break;
       case 'profile':
         pushCounted('Perfil', (u) => roleLabel(u.role));
         break;
@@ -923,6 +966,8 @@ function userTableCell(u, key) {
       return u.cargo || '—';
     case 'serviceGeo':
       return [u.serviceGeoMunicipio, u.serviceGeoEstado].filter(Boolean).join(', ') || '—';
+    case 'efectivos':
+      return formatEfectivos(u) || '—';
     case 'profile':
       return roleLabel(u.role);
     case 'scope':
@@ -982,6 +1027,8 @@ function getUserColFilterVal(u, key) {
       return u.cargo || '—';
     case 'serviceGeo':
       return [u.serviceGeoMunicipio, u.serviceGeoEstado].filter(Boolean).join(', ') || '—';
+    case 'efectivos':
+      return formatEfectivos(u) || '—';
     case 'profile':
       return u.role || '';
     case 'scope':
@@ -2023,6 +2070,7 @@ export default function DispatchUsers({ session }) {
       cargo: u.cargo || '',
       serviceNombre: u.serviceNombre || '',
       serviceCoords: formatCoords(u.serviceLat, u.serviceLng),
+      ...Object.fromEntries(EFECTIVOS_FIELDS.map(([key]) => [key, u[key] != null ? String(u[key]) : ''])),
       givenNames: u.givenNames || '',
       paternalSurname: u.paternalSurname || '',
       maternalSurname: u.maternalSurname || '',
@@ -2364,6 +2412,7 @@ export default function DispatchUsers({ session }) {
         cargo: form.cargo || null,
         serviceNombre: form.serviceNombre || null,
         ...coordsPayload,
+        ...efectivosPayload(form),
         givenNames: form.givenNames,
         paternalSurname: form.paternalSurname,
         maternalSurname: form.maternalSurname || null,
@@ -2392,6 +2441,7 @@ export default function DispatchUsers({ session }) {
           cargo: form.cargo || null,
           serviceNombre: form.serviceNombre || null,
           ...coordsPayload,
+          ...efectivosPayload(form),
           givenNames: form.givenNames,
           paternalSurname: form.paternalSurname,
           maternalSurname: form.maternalSurname || null,
@@ -2446,6 +2496,7 @@ export default function DispatchUsers({ session }) {
       const created = await createAdminUser(session.token, {
         ...formFields,
         ...coordsPayload,
+        ...efectivosPayload(form),
         role: scope.role || lockedRole,
         profileId: form.profileId || undefined,
         matricula: formatMatriculaInput(form.matricula),
@@ -3521,6 +3572,31 @@ export default function DispatchUsers({ session }) {
                     </span>
                   </label>
                 </div>
+              </section>
+
+              <section className="cc-form-section">
+                <FormSectionTitle icon="efectivos">Efectivos</FormSectionTitle>
+                <div className="cc-form-grid cc-form-grid--3">
+                  {EFECTIVOS_FIELDS.map(([key, label]) => (
+                    <label className="field" key={key}>
+                      <span>
+                        {label} <em className="cc-field-hint-inline">cantidad</em>
+                      </span>
+                      <input
+                        value={form[key]}
+                        onChange={(e) =>
+                          setForm({ ...form, [key]: e.target.value.replace(/\D/g, '').slice(0, 5) })
+                        }
+                        placeholder="0"
+                        inputMode="numeric"
+                        autoComplete="off"
+                      />
+                    </label>
+                  ))}
+                </div>
+                <span className="cc-field-hint">
+                  Cuánto efectivo cuenta el servicio desplegado. Opcional; aparece en la relación y el Excel.
+                </span>
               </section>
 
               <div className="field field-actions cc-form-actions">
