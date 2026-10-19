@@ -487,6 +487,15 @@ export function fetchAdminUserGroups(token, id) {
   return api(`/api/admin/users/${id}/groups`, { token });
 }
 
+/** Catálogo de efectivos → `{ grupos: [{ key, label }], items: [{ id, grupo, name }] }`. */
+export function fetchEfectivosCatalog(token) {
+  return api('/api/admin/efectivos-catalog', { token });
+}
+
+export function createEfectivoItem(token, grupo, name) {
+  return api('/api/admin/efectivos-catalog', { token, method: 'POST', body: { grupo, name } });
+}
+
 export function fetchAnnouncements(token) {
   return api('/api/announcements', { token });
 }

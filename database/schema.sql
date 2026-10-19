@@ -42,12 +42,7 @@ CREATE TABLE users (
  service_geo_colonia VARCHAR(200),
  service_geo_cp VARCHAR(10),
  service_geo_ejido VARCHAR(200),
- service_personal_grals INTEGER,
- service_personal_jefes INTEGER,
- service_personal_ofs INTEGER,
- service_personal_tpa INTEGER,
- service_vehiculos VARCHAR(300),
- service_armamento VARCHAR(300),
+ service_efectivos JSONB,
  given_names VARCHAR(120),
  paternal_surname VARCHAR(80),
  maternal_surname VARCHAR(80),
@@ -379,6 +374,18 @@ CREATE TABLE cat_servicios (
  UNIQUE (organization_id, name)
 );
 CREATE INDEX idx_cat_servicios_org ON cat_servicios (organization_id, sort_order, name);
+
+CREATE TABLE cat_efectivos (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+ organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+ grupo VARCHAR(20) NOT NULL CHECK (grupo IN ('personal', 'armamento', 'vehs_sb', 'vehs_cb', 'otros')),
+ name VARCHAR(60) NOT NULL,
+ sort_order INT NOT NULL DEFAULT 0,
+ is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ UNIQUE (organization_id, grupo, name)
+);
+CREATE INDEX idx_cat_efectivos_org ON cat_efectivos (organization_id, grupo, sort_order, name);
 
 ALTER TABLE users
  ADD CONSTRAINT users_unit_id_fkey FOREIGN KEY (unit_id) REFERENCES org_units(id) ON DELETE SET NULL;

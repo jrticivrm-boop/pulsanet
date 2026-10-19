@@ -19,6 +19,10 @@ import {
   fetchGradesEmpleos,
   createCatalogServicio,
   geoAdminAt,
+  fetchEfectivosCatalog,
+  createEfectivoItem,
+  addGroupMember,
+  removeGroupMember,
 } from '../api';
 import { canModuleAction, canViewModule } from './modulePermissions.js';
 import { EJERCITO_MEXICANO_GRADE_GROUPS } from './armyGrades.js';
@@ -216,12 +220,8 @@ const EMPTY_FORM = {
   serviceNombre: '',
   /** Texto libre «lat, lng» (o liga de Google Maps). */
   serviceCoords: '',
-  servicePersonalGrals: '',
-  servicePersonalJefes: '',
-  servicePersonalOfs: '',
-  servicePersonalTpa: '',
-  serviceVehiculos: '',
-  serviceArmamento: '',
+  /** Cantidades por concepto del catálogo de efectivos: { [itemId]: '12' }. */
+  serviceEfectivos: {},
   givenNames: '',
   paternalSurname: '',
   maternalSurname: '',
@@ -278,63 +278,68 @@ function serviceCoordsPayload(text) {
   return c ? { serviceLat: c.lat, serviceLng: c.lng } : null;
 }
 
-/** Personal por categoría: [clave, plural, singular, nombre accesible]. */
-const PERSONAL_FIELDS = [
-  ['servicePersonalGrals', 'Grals.', 'Gral.', 'Generales'],
-  ['servicePersonalJefes', 'Jefes', 'Jefe', 'Jefes'],
-  ['servicePersonalOfs', 'Ofs.', 'Of.', 'Oficiales'],
-  ['servicePersonalTpa', 'Tpa.', 'Tpa.', 'Tropa'],
+/** Grupos del paso «Efectivos» (mismas claves que cat_efectivos.grupo). */
+const EFECTIVOS_GRUPOS = [
+  { key: 'personal', label: 'Personal', abbr: 'Pers.' },
+  { key: 'armamento', label: 'Armamento', abbr: 'Arm.' },
+  { key: 'vehs_sb', label: 'Vehs. S/B.', abbr: 'S/B' },
+  { key: 'vehs_cb', label: 'Vehs. C/B.', abbr: 'C/B' },
+  { key: 'otros', label: 'Otros', abbr: 'Otros' },
 ];
 
-/** Texto libre: [clave, etiqueta, abreviatura, ejemplo]. */
-const EFECTIVOS_TEXT_FIELDS = [
-  ['serviceVehiculos', 'Vehículos', 'Veh.', 'Ej. 2 Cheyenne, 1 Humvee'],
-  ['serviceArmamento', 'Armamento', 'Arm.', 'Ej. 15 FX-05, 2 pistolas'],
-];
+/** Catálogo vivo de efectivos `[{ id, grupo, name }]` (lo carga la vista; lo usan tabla y Excel). */
+let liveEfectivosItems = [];
 
-function hasNumber(v) {
-  return v != null && String(v).trim() !== '';
+function efectivosGrupoLabel(grupo) {
+  return EFECTIVOS_GRUPOS.find((g) => g.key === grupo)?.label || grupo;
 }
 
-/** Total de personal, o null si no se capturó ninguna categoría. */
-function personalTotal(u) {
-  const vals = PERSONAL_FIELDS.map(([key]) => u[key]).filter(hasNumber);
-  return vals.length ? vals.reduce((s, v) => s + Number(v), 0) : null;
+function efectivoQty(u, itemId) {
+  const v = u?.serviceEfectivos?.[itemId];
+  return v == null || String(v).trim() === '' ? null : Number(v);
 }
 
-/** «1 Gral., 2 Jefes, 3 Ofs., 50 Tpa.» (solo lo capturado). */
-function formatPersonal(u) {
-  return PERSONAL_FIELDS.filter(([key]) => hasNumber(u[key]))
-    .map(([key, plural, singular]) => `${u[key]} ${Number(u[key]) === 1 ? singular : plural}`)
-    .join(', ');
+/** Suma del grupo, o null si no se capturó ningún concepto. */
+function efectivosGrupoTotal(u, grupo) {
+  let total = null;
+  for (const it of liveEfectivosItems) {
+    if (it.grupo !== grupo) continue;
+    const n = efectivoQty(u, it.id);
+    if (n != null) total = (total ?? 0) + n;
+  }
+  return total;
 }
 
-/** Payload API: personal en enteros y vehículos/armamento en texto (vacío = null, borra). */
-function efectivosPayload(form) {
-  return {
-    ...Object.fromEntries(
-      PERSONAL_FIELDS.map(([key]) => {
-        const digits = String(form[key] ?? '').replace(/\D/g, '');
-        return [key, digits ? Number(digits) : null];
-      })
-    ),
-    ...Object.fromEntries(
-      EFECTIVOS_TEXT_FIELDS.map(([key]) => [key, String(form[key] ?? '').trim() || null])
-    ),
-  };
-}
-
-/** «Pers.: 1 Gral., 50 Tpa. · Veh.: 2 Cheyenne» (solo lo capturado). */
+/** «Pers. 58 · Arm. 72 · S/B 4» (totales por grupo, solo lo capturado). */
 function formatEfectivos(u) {
-  const personal = formatPersonal(u);
-  return [
-    personal ? `Pers.: ${personal}` : '',
-    ...EFECTIVOS_TEXT_FIELDS.filter(([key]) => fieldFilled(u[key])).map(
-      ([key, , abbr]) => `${abbr}: ${u[key]}`
-    ),
-  ]
+  return EFECTIVOS_GRUPOS.map((g) => {
+    const t = efectivosGrupoTotal(u, g.key);
+    return t == null ? '' : `${g.abbr} ${t}`;
+  })
     .filter(Boolean)
     .join(' · ');
+}
+
+/** «Personal: GG. 1, TT. 50 · Armamento: Fx. 55» (desglose para tooltip). */
+function formatEfectivosDetail(u) {
+  return EFECTIVOS_GRUPOS.map((g) => {
+    const parts = liveEfectivosItems
+      .filter((it) => it.grupo === g.key && efectivoQty(u, it.id) != null)
+      .map((it) => `${it.name} ${efectivoQty(u, it.id)}`);
+    return parts.length ? `${g.label}: ${parts.join(', ')}` : '';
+  })
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** Payload API: solo conceptos capturados (objeto vacío = borrar). */
+function efectivosPayload(form) {
+  const out = {};
+  for (const [id, v] of Object.entries(form.serviceEfectivos || {})) {
+    const digits = String(v ?? '').replace(/\D/g, '');
+    if (digits) out[id] = Number(digits);
+  }
+  return { serviceEfectivos: out };
 }
 
 function serviceGeoSummary(g) {
@@ -560,18 +565,11 @@ function userEditFlags(sessionUser, u) {
 }
 
 function CreateStepIndicator({ step, editMode = false, basicsOnly = false }) {
-  const steps = basicsOnly
-    ? [{ id: 'datos', n: 1, label: 'Generales' }]
-    : editMode
-    ? [
-        { id: 'datos', n: 1, label: 'Generales' },
-        { id: 'adscripcion', n: 2, label: 'Adscripción' },
-      ]
-    : [
-        { id: 'datos', n: 1, label: 'Generales' },
-        { id: 'adscripcion', n: 2, label: 'Adscripción' },
-        { id: 'grupos', n: 3, label: 'Grupos' },
-      ];
+  const steps = [
+    { id: 'datos', n: 1, label: 'Generales' },
+    { id: 'efectivos', n: 2, label: 'Efectivos' },
+    ...(basicsOnly ? [] : [{ id: 'grupos', n: 3, label: 'Grupos' }]),
+  ];
   const order = steps.map((s) => s.id);
   const currentIdx = order.indexOf(step);
   return (
@@ -838,7 +836,7 @@ function getUserSortValue(u, key) {
     case 'service':
       return u.cargo || '';
     case 'efectivos':
-      return personalTotal(u) ?? formatEfectivos(u);
+      return efectivosGrupoTotal(u, 'personal') ?? formatEfectivos(u);
     case 'profile':
       return roleLabel(u.role) || u.role || '';
     case 'scope':
@@ -899,11 +897,16 @@ const USER_EXPORT_COLS = {
     ['C.P.', (u) => u.serviceGeoCp || ''],
     ['Ejido', (u) => u.serviceGeoEjido || ''],
   ],
-  efectivos: [
-    ...PERSONAL_FIELDS.map(([key, plural]) => [plural, (u) => u[key] ?? '']),
-    ['Total personal', (u) => personalTotal(u) ?? ''],
-    ...EFECTIVOS_TEXT_FIELDS.map(([key, label]) => [label, (u) => u[key] ?? '']),
-  ],
+  get efectivos() {
+    return EFECTIVOS_GRUPOS.flatMap((g) => {
+      const items = liveEfectivosItems.filter((it) => it.grupo === g.key);
+      if (!items.length) return [];
+      return [
+        ...items.map((it) => [`${g.label} ${it.name}`, (u) => efectivoQty(u, it.id) ?? '']),
+        [`${g.label} total`, (u) => efectivosGrupoTotal(u, g.key) ?? ''],
+      ];
+    });
+  },
   profile: [['Perfil', (u) => userExportValue(u, 'profile')]],
   scope: [['Alcance', (u) => userExportValue(u, 'scope')]],
   status: [['Estado', (u) => userExportValue(u, 'status')]],
@@ -958,10 +961,11 @@ function buildUsersExportSummary(list, visibleKeys) {
         break;
       case 'efectivos': {
         const sum = (get) => list.reduce((s, u) => s + (Number(get(u)) || 0), 0);
-        for (const [k, , , name] of PERSONAL_FIELDS) pushCount(`Personal — ${name}`, sum((u) => u[k]));
-        pushCount('Personal — Total', sum(personalTotal));
-        for (const [k, label] of EFECTIVOS_TEXT_FIELDS) {
-          pushCount(`${label} — servicios con dato`, list.filter((u) => fieldFilled(u[k])).length);
+        for (const g of EFECTIVOS_GRUPOS) {
+          for (const it of liveEfectivosItems.filter((x) => x.grupo === g.key)) {
+            pushCount(`${g.label} — ${it.name}`, sum((u) => efectivoQty(u, it.id)));
+          }
+          pushCount(`${g.label} — Total`, sum((u) => efectivosGrupoTotal(u, g.key)));
         }
         break;
       }
@@ -1013,8 +1017,10 @@ function userTableCell(u, key) {
       return u.cargo || '—';
     case 'serviceGeo':
       return [u.serviceGeoMunicipio, u.serviceGeoEstado].filter(Boolean).join(', ') || '—';
-    case 'efectivos':
-      return formatEfectivos(u) || '—';
+    case 'efectivos': {
+      const text = formatEfectivos(u);
+      return text ? <span title={formatEfectivosDetail(u)}>{text}</span> : '—';
+    }
     case 'profile':
       return roleLabel(u.role);
     case 'scope':
@@ -1618,8 +1624,12 @@ export default function DispatchUsers({ session }) {
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
   const [preview, setPreview] = useState({ username: '', displayName: '', fullName: '' });
-  const [step, setStep] = useState('datos'); // 'datos' | 'adscripcion' | 'grupos'
+  const [step, setStep] = useState('datos'); // 'datos' | 'efectivos' | 'grupos'
   const [selectedGroupIds, setSelectedGroupIds] = useState([]);
+  /** Edición: grupos a los que ya pertenece (null = cargando, false = no se pudo) para guardar solo altas/bajas. */
+  const [initialGroupIds, setInitialGroupIds] = useState(null);
+  const [efectivosItems, setEfectivosItems] = useState([]);
+  const editGroupsForRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -2012,13 +2022,18 @@ export default function DispatchUsers({ session }) {
     if (!silent && users.length === 0) setLoading(true);
     else setRefreshing(true);
     try {
-      const [usersData, groupsData, orgData, catData, profilesData] = await Promise.all([
+      const [usersData, groupsData, orgData, catData, profilesData, efectivosData] = await Promise.all([
         fetchAdminUsers(session.token),
         fetchAdminGroups(session.token),
         fetchOrgUnits(session.token).catch(() => ({ tree: [] })),
         fetchGradesEmpleos(session.token).catch(() => null),
         fetchAccessProfiles(session.token).catch(() => null),
+        fetchEfectivosCatalog(session.token).catch(() => null),
       ]);
+      if (efectivosData?.items) {
+        liveEfectivosItems = efectivosData.items;
+        setEfectivosItems(efectivosData.items);
+      }
       setUsers(usersData.users || []);
       setOrgTree(orgData.tree || []);
       setGroups(groupsData.groups || []);
@@ -2117,8 +2132,9 @@ export default function DispatchUsers({ session }) {
       cargo: u.cargo || '',
       serviceNombre: u.serviceNombre || '',
       serviceCoords: formatCoords(u.serviceLat, u.serviceLng),
-      ...Object.fromEntries(PERSONAL_FIELDS.map(([key]) => [key, hasNumber(u[key]) ? String(u[key]) : ''])),
-      ...Object.fromEntries(EFECTIVOS_TEXT_FIELDS.map(([key]) => [key, u[key] || ''])),
+      serviceEfectivos: Object.fromEntries(
+        Object.entries(u.serviceEfectivos || {}).map(([id, n]) => [id, String(n)])
+      ),
       givenNames: u.givenNames || '',
       paternalSurname: u.paternalSurname || '',
       maternalSurname: u.maternalSurname || '',
@@ -2142,8 +2158,25 @@ export default function DispatchUsers({ session }) {
     });
     setStep('datos');
     setSelectedGroupIds([]);
+    setInitialGroupIds(null);
     setError('');
     setCreateOpen(true);
+    editGroupsForRef.current = u.id;
+    if (!flags.basicsOnly) {
+      fetchAdminUserGroups(session.token, u.id)
+        .then((data) => {
+          if (editGroupsForRef.current !== u.id) return;
+          const ids = (data.groups || []).map((g) => g.id);
+          setInitialGroupIds(ids);
+          setSelectedGroupIds(ids);
+        })
+        .catch((err) => {
+          if (editGroupsForRef.current === u.id) {
+            setInitialGroupIds(false);
+            setError(`No se pudieron cargar los grupos del usuario: ${err.message}`);
+          }
+        });
+    }
   }
 
   function closeCreateModal() {
@@ -2240,6 +2273,8 @@ export default function DispatchUsers({ session }) {
     setPreview({ username: '', displayName: '', fullName: '' });
     setStep('datos');
     setSelectedGroupIds([]);
+    setInitialGroupIds(null);
+    editGroupsForRef.current = null;
     setMatriculaStatus(null);
     setMatriculaTakenBy(null);
   }
@@ -2340,7 +2375,8 @@ export default function DispatchUsers({ session }) {
     };
   }, [form.matricula, createOpen, canManage, session.token, editingUser?.id]);
 
-  function goToAdscripcionStep(e) {
+  /** Generales → Efectivos: identidad, contacto y (salvo edición propia) perfil y organismo. */
+  function goToEfectivosStep(e) {
     e.preventDefault();
     if (!form.grade.trim() || !form.matricula.trim()) {
       setError('Completa grado y matrícula.');
@@ -2375,27 +2411,24 @@ export default function DispatchUsers({ session }) {
       setError(phoneErr);
       return;
     }
-    setError('');
-    if (editingUser && editBasicsOnly) {
-      onSaveEdit();
+    if (!serviceCoordsPayload(form.serviceCoords)) {
+      setError('Ubicación: escribe las coordenadas como «latitud, longitud» (ej. 22.233100, -97.861100).');
       return;
     }
-    setStep('adscripcion');
+    if (!(editingUser && editBasicsOnly) && !adscripcionValid()) return;
+    setError('');
+    setStep('efectivos');
   }
 
-  function goToGroupsStep(e) {
-    e.preventDefault();
+  /** Perfil de acceso y organismo de pertenencia (sección de Generales). */
+  function adscripcionValid() {
     if (isActingUnitAdmin && !myScopeUnitId) {
       setError('Tu cuenta no tiene unidad asignada; pide a un administrador que te asigne alcance.');
-      return;
+      return false;
     }
-    if (!isActingUnitAdmin && !String(form.role || '').trim()) {
+    if (!isActingUnitAdmin && (!String(form.role || '').trim() || !String(form.profileId || '').trim())) {
       setError('Selecciona el perfil de acceso.');
-      return;
-    }
-    if (!isActingUnitAdmin && !String(form.profileId || '').trim()) {
-      setError('Selecciona el perfil de acceso.');
-      return;
+      return false;
     }
     const lockedRole = isActingUnitAdmin ? 'unit_user' : form.role;
     if (normalizeClientRole(lockedRole) !== 'root') {
@@ -2405,16 +2438,66 @@ export default function DispatchUsers({ session }) {
       });
       if (probe.error) {
         setError(probe.error);
-        return;
+        return false;
       }
     }
+    return true;
+  }
+
+  /** Efectivos → Grupos (edición propia: guarda aquí). */
+  function goToGroupsStep(e) {
+    e.preventDefault();
     setError('');
-    if (editingUser) {
+    if (editingUser && editBasicsOnly) {
       onSaveEdit();
       return;
     }
-    setSelectedGroupIds([]);
     setStep('grupos');
+  }
+
+  /** Anexa un concepto al grupo de efectivos (catálogo de la organización). */
+  async function addEfectivoItem(grupo) {
+    const label = efectivosGrupoLabel(grupo);
+    const name = String(window.prompt(`Nuevo concepto en ${label}:`) || '').trim();
+    if (!name) return;
+    try {
+      const { item } = await createEfectivoItem(session.token, grupo, name);
+      const next = [...efectivosItems, item];
+      liveEfectivosItems = next;
+      setEfectivosItems(next);
+      setError('');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  /** Edición: aplica solo las altas/bajas de grupos respecto a lo que ya tenía. */
+  async function syncEditGroups(userId, role) {
+    if (!initialGroupIds) return;
+    const memberRole = /_user$/.test(normalizeClientRole(role)) ? 'member' : 'leader';
+    const current = new Set(initialGroupIds);
+    const wanted = new Set(selectedGroupIds);
+    const groupName = (gid) => activeGroups.find((g) => g.id === gid)?.name || 'grupo';
+    const run = async (gid, fn) => {
+      try {
+        await fn();
+      } catch (err) {
+        throw new Error(`Datos guardados, pero el grupo «${groupName(gid)}» no se actualizó: ${err.message}`);
+      }
+    };
+    for (const gid of selectedGroupIds) {
+      if (current.has(gid)) continue;
+      await run(gid, () => addGroupMember(session.token, gid, userId, memberRole));
+      current.add(gid);
+      setInitialGroupIds([...current]);
+    }
+    const shown = new Set(activeGroups.map((g) => g.id));
+    for (const gid of initialGroupIds) {
+      if (wanted.has(gid) || !shown.has(gid)) continue;
+      await run(gid, () => removeGroupMember(session.token, gid, userId));
+      current.delete(gid);
+      setInitialGroupIds([...current]);
+    }
   }
 
   function toggleGroup(id) {
@@ -2501,6 +2584,7 @@ export default function DispatchUsers({ session }) {
           adminScopeUnitId: scope.adminScopeUnitId ?? null,
           ...visibilityForRole(scope.role || lockedRole),
         });
+        await syncEditGroups(editingUser.id, scope.role || lockedRole);
       }
       setEditingUser(null);
       setEditBasicsOnly(false);
@@ -3328,10 +3412,15 @@ export default function DispatchUsers({ session }) {
               className="admin-form cc-users-create-form"
               onSubmit={
                 step === 'datos'
-                  ? goToAdscripcionStep
-                  : step === 'adscripcion'
+                  ? goToEfectivosStep
+                  : step === 'efectivos'
                     ? goToGroupsStep
-                    : onCreate
+                    : editingUser
+                      ? (e) => {
+                          e.preventDefault();
+                          onSaveEdit();
+                        }
+                      : onCreate
               }
             >
               <CreateStepIndicator
@@ -3361,7 +3450,9 @@ export default function DispatchUsers({ session }) {
                   .map((s) => String(s || '').trim().charAt(0).toUpperCase())
                   .join('')}
               />
-              <MissingFieldsList items={datosChecklist} />
+              <MissingFieldsList
+                items={editBasicsOnly ? datosChecklist : [...datosChecklist, ...adscripcionChecklist]}
+              />
               <section className="cc-form-section">
                 <FormSectionTitle icon="identidad">Identidad militar</FormSectionTitle>
                 <div className="cc-form-grid cc-form-grid--3">
@@ -3622,92 +3713,11 @@ export default function DispatchUsers({ session }) {
                 </div>
               </section>
 
-              <section className="cc-form-section">
-                <FormSectionTitle icon="efectivos">Efectivos</FormSectionTitle>
-                <div className="cc-form-grid">
-                  <div className="field cc-form-span-2">
-                    <span>
-                      Personal{' '}
-                      {personalTotal(form) != null && (
-                        <em className="cc-field-hint-inline">total {personalTotal(form)}</em>
-                      )}
-                    </span>
-                    <div className="cc-efectivos-split">
-                      {PERSONAL_FIELDS.map(([key, plural, , name]) => (
-                        <span className="cc-efectivos-cell" key={key}>
-                          <input
-                            className="cc-efectivos-input"
-                            value={form[key]}
-                            onChange={(e) =>
-                              setForm({ ...form, [key]: e.target.value.replace(/\D/g, '').slice(0, 5) })
-                            }
-                            placeholder="0"
-                            inputMode="numeric"
-                            autoComplete="off"
-                            aria-label={`Personal: ${name}`}
-                          />
-                          <span className="cc-efectivos-suffix" aria-hidden="true">
-                            {plural}
-                          </span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  {EFECTIVOS_TEXT_FIELDS.map(([key, label, , placeholder]) => (
-                    <label className="field" key={key}>
-                      <span>{label}</span>
-                      <input
-                        value={form[key]}
-                        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                        placeholder={placeholder}
-                        maxLength={300}
-                        autoComplete="off"
-                      />
-                    </label>
-                  ))}
-                </div>
-                <span className="cc-field-hint">
-                  Con cuánto efectivo cuenta el servicio desplegado. Opcional; aparece en la relación y el Excel.
-                </span>
-              </section>
-
-              <div className="field field-actions cc-form-actions">
-                <button
-                  type="submit"
-                  className="cc-btn primary"
-                  disabled={
-                    busy ||
-                    !preview.username ||
-                    !composedDisplayName ||
-                    !isValidMatricula(form.matricula) ||
-                    matriculaStatus === 'taken' ||
-                    matriculaStatus === 'checking'
-                  }
-                >
-                  {editingUser && editBasicsOnly
-                    ? busy
-                      ? 'Guardando…'
-                      : 'Guardar cambios'
-                    : 'Continuar a adscripción →'}
-                </button>
-              </div>
             </>
           )}
 
-          {step === 'adscripcion' && !editBasicsOnly && (
+          {step === 'datos' && !editBasicsOnly && (
             <>
-              <div className="cc-create-summary">
-                <p>
-                  <strong>{composedDisplayName || preview.displayName || 'Nuevo usuario'}</strong>
-                  {preview.fullName ? (
-                    <span className="muted"> · {preview.fullName}</span>
-                  ) : null}
-                </p>
-                <p className="muted">
-                  Matrícula: <code className="cc-mono">{form.matricula}</code> · {roleLabel(form.role)}
-                </p>
-              </div>
-              <MissingFieldsList items={adscripcionChecklist} />
               <section className="cc-form-section">
                 <FormSectionTitle icon="perfil">Perfil de acceso</FormSectionTitle>
                 <div className="cc-form-grid">
@@ -3756,7 +3766,7 @@ export default function DispatchUsers({ session }) {
                 </div>
               </section>
               <section className="cc-form-section">
-                <FormSectionTitle icon="alcance">Alcance</FormSectionTitle>
+                <FormSectionTitle icon="alcance">Organismo Pert.</FormSectionTitle>
                 <p className="cc-group-pick-hint">
                   {isActingUnitAdmin
                     ? myScopeUnitId
@@ -3894,16 +3904,109 @@ export default function DispatchUsers({ session }) {
                   )}
                 </fieldset>
               </section>
+            </>
+          )}
+
+          {step === 'datos' && (
+            <div className="field field-actions cc-form-actions">
+              <button
+                type="submit"
+                className="cc-btn primary"
+                disabled={
+                  busy ||
+                  !preview.username ||
+                  !composedDisplayName ||
+                  !isValidMatricula(form.matricula) ||
+                  matriculaStatus === 'taken' ||
+                  matriculaStatus === 'checking'
+                }
+              >
+                Continuar a efectivos →
+              </button>
+            </div>
+          )}
+
+          {step === 'efectivos' && (
+            <>
+              <div className="cc-create-summary">
+                <p>
+                  <strong>{composedDisplayName || preview.displayName || 'Nuevo usuario'}</strong>
+                  {preview.fullName ? (
+                    <span className="muted"> · {preview.fullName}</span>
+                  ) : null}
+                </p>
+                <p className="muted">
+                  {formatDistintivo(form.cargo, form.serviceNombre) || 'Sin distintivo'}
+                  {' · '}Matrícula: <code className="cc-mono">{form.matricula}</code>
+                </p>
+              </div>
+              <section className="cc-form-section">
+                <FormSectionTitle icon="efectivos">Efectivos del servicio</FormSectionTitle>
+                <p className="cc-group-pick-hint">
+                  Solo cantidades (opcional). Con «+» anexas un concepto al grupo; queda disponible
+                  para todos los usuarios y aparece en la relación y el Excel.
+                </p>
+                <div className="cc-efectivos-table">
+                  {EFECTIVOS_GRUPOS.map((g) => {
+                    const items = efectivosItems.filter((it) => it.grupo === g.key);
+                    const total = efectivosGrupoTotal(form, g.key);
+                    return (
+                      <div className="cc-efectivos-row" key={g.key}>
+                        <div className="cc-efectivos-row-head">
+                          <span className="cc-efectivos-row-name">{g.label}</span>
+                          {total != null ? (
+                            <span className="cc-efectivos-row-total">{total}</span>
+                          ) : null}
+                        </div>
+                        <div className="cc-efectivos-row-items">
+                          {items.map((it) => (
+                            <label className="cc-efectivos-item" key={it.id}>
+                              <span className="cc-efectivos-item-name" title={it.name}>
+                                {it.name}
+                              </span>
+                              <input
+                                value={form.serviceEfectivos?.[it.id] ?? ''}
+                                onChange={(e) =>
+                                  setForm({
+                                    ...form,
+                                    serviceEfectivos: {
+                                      ...form.serviceEfectivos,
+                                      [it.id]: e.target.value.replace(/\D/g, '').slice(0, 5),
+                                    },
+                                  })
+                                }
+                                inputMode="numeric"
+                                autoComplete="off"
+                                aria-label={`${g.label}: ${it.name}`}
+                              />
+                            </label>
+                          ))}
+                          <button
+                            type="button"
+                            className="cc-efectivos-add"
+                            onClick={() => addEfectivoItem(g.key)}
+                            title={`Anexar concepto a ${g.label}`}
+                            aria-label={`Anexar concepto a ${g.label}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
               <div className="field field-actions cc-form-actions">
                 <button
                   type="button"
                   className="cc-btn ghost"
                   onClick={() => setStep('datos')}
+                  disabled={busy}
                 >
                   ← Atrás
                 </button>
                 <button type="submit" className="cc-btn primary" disabled={busy}>
-                  {editingUser
+                  {editingUser && editBasicsOnly
                     ? busy
                       ? 'Guardando…'
                       : 'Guardar cambios'
@@ -3913,7 +4016,7 @@ export default function DispatchUsers({ session }) {
             </>
           )}
 
-          {step === 'grupos' && !editingUser && (
+          {step === 'grupos' && !editBasicsOnly && (
             <>
               <div className="cc-create-summary">
                 <p>
@@ -3952,12 +4055,21 @@ export default function DispatchUsers({ session }) {
               </div>
 
               <fieldset className="cc-group-pick">
-                <legend>¿A qué grupos ingresa? (opcional)</legend>
+                <legend>
+                  {editingUser ? 'Grupos a los que pertenece' : '¿A qué grupos ingresa? (opcional)'}
+                </legend>
                 <p className="cc-group-pick-hint">
-                  Puedes marcar varios, dejar ninguno y crear el usuario sin canal, o usar los
-                  sugeridos más adelante desde Grupos.
+                  {editingUser
+                    ? 'Marcados = grupos actuales. Al guardar se ingresa a los nuevos y se retira de los desmarcados.'
+                    : 'Puedes marcar varios, dejar ninguno y crear el usuario sin canal, o usar los sugeridos más adelante desde Grupos.'}
                 </p>
-                {activeGroups.length === 0 ? (
+                {editingUser && initialGroupIds == null ? (
+                  <p className="muted">Cargando grupos del usuario…</p>
+                ) : editingUser && initialGroupIds === false ? (
+                  <p className="muted">
+                    No se pudieron cargar sus grupos; al guardar solo se actualizan los datos.
+                  </p>
+                ) : activeGroups.length === 0 ? (
                   <p className="muted">No hay grupos activos. Puedes crear el usuario sin canal.</p>
                 ) : (
                   <>
@@ -4012,17 +4124,25 @@ export default function DispatchUsers({ session }) {
                 <button
                   type="button"
                   className="cc-btn ghost"
-                  onClick={() => setStep('adscripcion')}
+                  onClick={() => setStep('efectivos')}
                   disabled={busy}
                 >
                   ← Atrás
                 </button>
-                <button type="submit" className="cc-btn primary" disabled={busy}>
-                  {busy
-                    ? 'Creando…'
-                    : selectedGroupIds.length
-                      ? `Crear e ingresar a ${selectedGroupIds.length} grupo(s)`
-                      : 'Crear sin grupos'}
+                <button
+                  type="submit"
+                  className="cc-btn primary"
+                  disabled={busy || (editingUser && initialGroupIds == null)}
+                >
+                  {editingUser
+                    ? busy
+                      ? 'Guardando…'
+                      : 'Guardar cambios'
+                    : busy
+                      ? 'Creando…'
+                      : selectedGroupIds.length
+                        ? `Crear e ingresar a ${selectedGroupIds.length} grupo(s)`
+                        : 'Crear sin grupos'}
                 </button>
               </div>
             </>

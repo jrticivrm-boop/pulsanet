@@ -1,3 +1,16 @@
+## 2026-10-19 — Usuarios: Generales integra Adscripción; paso «Efectivos» en tabla; Grupos también al editar
+
+- **Tipo:** feature
+- **Área:** web | backend | database
+- **Qué:**
+  - Según «Análisis completo de la aplicación 2»: el paso **Generales** reúne Identidad, Nombre completo, Contacto y servicio, **Perfil de acceso** y **Organismo Pert.** (antes «Alcance») con «Qué oye en radio y qué ve en el mapa»; desaparece el paso Adscripción. Pasos: Generales → Efectivos → Grupos (alta y edición; la edición propia solo Generales → Efectivos).
+  - Nuevo paso **Efectivos** como tabla de cantidades por grupo: Personal (GG., JJ., OO., TT.), Armamento (Fx., G-3, Adit. L.G.), Vehs. S/B. y Vehs. C/B. (Cheyenne, Humvee, Sandkat), Otros (Cams., Anti dron fijo, Antidron semifijo, Dron); total por grupo y botón «+» para **anexar conceptos** (catálogo de la organización, disponible para todos los usuarios). Sustituye las secciones Efectivos/Otros en texto que estaban dentro de Generales.
+  - **Grupos al editar:** se cargan los grupos actuales marcados; al guardar se ingresa a los nuevos y se retira de los desmarcados (solo grupos visibles para el gestor). Si el backend rechaza un grupo (p. ej. fuera de alcance orgánico) se avisa cuál, con los datos ya guardados.
+  - Relación: columna «Efectivos» con totales por grupo (`Pers. 58 · Arm. 72 · S/B 4`) y desglose en tooltip; se retira la columna «Otros». Excel: una columna por concepto + total por grupo, sumas en «Resumen». CSV: una columna por concepto.
+  - BD: migración `050_service_efectivos.sql` reescrita (no estaba en producción): tabla `cat_efectivos` (grupo, nombre, orden; semilla con los conceptos del documento) y `users.service_efectivos` JSONB `{conceptoId: cantidad}`; retira las columnas `service_personal_*`, `service_vehiculos/armamento/camaras/drones/antidrones` que solo existieron en desarrollo. API: `GET/POST /api/admin/efectivos-catalog`; usuarios aceptan `serviceEfectivos` validado contra el catálogo (enteros 0–99999).
+- **Por qué / notas:** en producción requiere `-Migrate`. Probado en desarrollo: API (catálogo, duplicado 409, validaciones, CSV), build, navegador en claro/obscuro/verde, alta/baja de grupo desde la edición.
+- **Archivos / refs:** `database/migrations/050_service_efectivos.sql`, `database/schema.sql`, `backend/src/routes/admin.js`, `frontend/src/api.js`, `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/command-center.css`
+
 ## 2026-10-19 — Efectivos: Personal dividido en Grals. / Jefes / Ofs. / Tpa.
 
 - **Tipo:** ux

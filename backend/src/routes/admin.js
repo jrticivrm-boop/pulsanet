@@ -200,49 +200,58 @@ function parseServiceCoords(latIn, lngIn) {
   return { lat, lng };
 }
 
-/** [clave API, columna, etiqueta, tipo] — personal por categoría (enteros), resto texto libre. */
-const SERVICE_EFECTIVOS = [
-  ['servicePersonalGrals', 'service_personal_grals', 'Grals.', 'int'],
-  ['servicePersonalJefes', 'service_personal_jefes', 'Jefes', 'int'],
-  ['servicePersonalOfs', 'service_personal_ofs', 'Ofs.', 'int'],
-  ['servicePersonalTpa', 'service_personal_tpa', 'Tpa.', 'int'],
-  ['serviceVehiculos', 'service_vehiculos', 'vehículos', 'text'],
-  ['serviceArmamento', 'service_armamento', 'armamento', 'text'],
+/** Grupos del catálogo de efectivos (orden de captura, relación y Excel). */
+const EFECTIVOS_GRUPOS = [
+  ['personal', 'Personal'],
+  ['armamento', 'Armamento'],
+  ['vehs_sb', 'Vehs. S/B.'],
+  ['vehs_cb', 'Vehs. C/B.'],
+  ['otros', 'Otros'],
 ];
-const SERVICE_EFECTIVOS_COLS = SERVICE_EFECTIVOS.map(([, col]) => col).join(', ');
+const EFECTIVOS_GRUPO_KEYS = EFECTIVOS_GRUPOS.map(([key]) => key);
 
-/** Efectivos del servicio: solo las claves presentes en el body (vacío/`null` = borrar). */
-function parseServiceEfectivos(body) {
+async function listEfectivosCatalog(orgId) {
+  const { rows } = await query(
+    `SELECT id, grupo, name, sort_order FROM cat_efectivos
+     WHERE organization_id = $1 AND is_active
+     ORDER BY array_position($2::text[], grupo::text), sort_order, name`,
+    [orgId, EFECTIVOS_GRUPO_KEYS]
+  );
+  return rows;
+}
+
+/**
+ * Efectivos del servicio `{ <cat_efectivos.id>: cantidad }` validados contra el catálogo de la organización.
+ * `undefined` = no tocar; vacío/`null` = borrar.
+ */
+async function parseServiceEfectivos(orgId, raw) {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Efectivos inválidos');
+  const entries = Object.entries(raw).filter(([, v]) => v != null && String(v).trim() !== '');
+  if (!entries.length) return null;
+  const { rows } = await query(
+    `SELECT id::text AS id, name FROM cat_efectivos WHERE organization_id = $1 AND id::text = ANY($2::text[])`,
+    [orgId, entries.map(([id]) => id)]
+  );
+  const names = new Map(rows.map((r) => [r.id, r.name]));
   const out = {};
-  for (const [key, col, label, type] of SERVICE_EFECTIVOS) {
-    const v = body?.[key];
-    if (v === undefined) continue;
-    const s = v == null ? '' : String(v).trim();
-    if (!s) {
-      out[col] = null;
-    } else if (type === 'int') {
-      const n = Number(s);
-      if (!Number.isInteger(n) || n < 0 || n > 99999) {
-        throw new Error(`Efectivos: ${label} debe ser un número entero entre 0 y 99999`);
-      }
-      out[col] = n;
-    } else if (s.length > 300) {
-      throw new Error(`Efectivos: ${label} admite hasta 300 caracteres`);
-    } else {
-      out[col] = s;
+  for (const [id, v] of entries) {
+    if (!names.has(id)) throw new Error('Efectivos: concepto no encontrado en el catálogo');
+    const n = Number(String(v).trim());
+    if (!Number.isInteger(n) || n < 0 || n > 99999) {
+      throw new Error(`Efectivos: ${names.get(id)} debe ser un número entero entre 0 y 99999`);
     }
+    out[id] = n;
   }
   return out;
 }
 
 async function saveServiceEfectivos(userId, efectivos) {
-  const cols = Object.keys(efectivos);
-  if (!cols.length) return {};
+  if (efectivos === undefined) return {};
   const { rows } = await query(
-    `UPDATE users SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')}, updated_at = NOW()
-     WHERE id = $1
-     RETURNING ${SERVICE_EFECTIVOS_COLS}`,
-    [userId, ...cols.map((c) => efectivos[c])]
+    `UPDATE users SET service_efectivos = $2::jsonb, updated_at = NOW() WHERE id = $1 RETURNING service_efectivos`,
+    [userId, efectivos ? JSON.stringify(efectivos) : null]
   );
   return rows[0] || {};
 }
@@ -300,7 +309,7 @@ function mapUser(u) {
     serviceGeoColonia: u.service_geo_colonia || null,
     serviceGeoCp: u.service_geo_cp || null,
     serviceGeoEjido: u.service_geo_ejido || null,
-    ...Object.fromEntries(SERVICE_EFECTIVOS.map(([key, col]) => [key, u[col] ?? null])),
+    serviceEfectivos: u.service_efectivos || null,
     givenNames: u.given_names || null,
     paternalSurname: u.paternal_surname || null,
     maternalSurname: u.maternal_surname || null,
@@ -707,6 +716,63 @@ adminRouter.delete(
   }
 });
 
+adminRouter.get('/efectivos-catalog', requireUserManager, async (req, res) => {
+  try {
+    const items = await listEfectivosCatalog(req.user.orgId);
+    res.json({
+      ok: true,
+      grupos: EFECTIVOS_GRUPOS.map(([key, label]) => ({ key, label })),
+      items: items.map((r) => ({ id: r.id, grupo: r.grupo, name: r.name })),
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/** Anexa un concepto a un grupo de efectivos (queda disponible para todos los usuarios de la organización). */
+adminRouter.post('/efectivos-catalog', requireUserManager, async (req, res) => {
+  const grupo = String(req.body?.grupo || '').trim();
+  const name = String(req.body?.name || '').trim().replace(/\s+/g, ' ');
+  if (!EFECTIVOS_GRUPO_KEYS.includes(grupo)) {
+    return res.status(400).json({ ok: false, error: 'Grupo de efectivos inválido' });
+  }
+  if (!name || name.length > 60) {
+    return res.status(400).json({ ok: false, error: 'El nombre es requerido (máx. 60 caracteres)' });
+  }
+  try {
+    const { rows: dup } = await query(
+      `SELECT id, is_active FROM cat_efectivos
+       WHERE organization_id = $1 AND grupo = $2 AND lower(name) = lower($3)`,
+      [req.user.orgId, grupo, name]
+    );
+    if (dup[0]?.is_active) {
+      return res.status(409).json({ ok: false, error: `«${name}» ya existe en ese grupo` });
+    }
+    const { rows } = dup[0]
+      ? await query(`UPDATE cat_efectivos SET is_active = TRUE WHERE id = $1 RETURNING id, grupo, name`, [
+          dup[0].id,
+        ])
+      : await query(
+          `INSERT INTO cat_efectivos (organization_id, grupo, name, sort_order)
+           SELECT $1::uuid, $2::varchar, $3::varchar, COALESCE(MAX(sort_order), 0) + 10
+           FROM cat_efectivos WHERE organization_id = $1::uuid AND grupo = $2::varchar
+           RETURNING id, grupo, name`,
+          [req.user.orgId, grupo, name]
+        );
+    await logActivity({
+      organizationId: req.user.orgId,
+      actorId: req.user.sub,
+      action: 'efectivos.catalog_add',
+      entityType: 'cat_efectivos',
+      entityId: rows[0].id,
+      meta: { grupo, name },
+    });
+    res.status(201).json({ ok: true, item: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 adminRouter.get('/users', async (req, res) => {
   const scope = await loadAdminScope(req.user);
   const params = [req.user.orgId];
@@ -726,8 +792,7 @@ adminRouter.get('/users', async (req, res) => {
             u.grade, u.specialty, u.cargo, u.service_nombre,
             u.service_lat, u.service_lng, u.service_geo_estado, u.service_geo_municipio,
             u.service_geo_localidad, u.service_geo_colonia, u.service_geo_cp, u.service_geo_ejido,
-            u.service_personal_grals, u.service_personal_jefes, u.service_personal_ofs,
-            u.service_personal_tpa, u.service_vehiculos, u.service_armamento,
+            u.service_efectivos,
             u.given_names, u.paternal_surname, u.maternal_surname, u.matricula,
             u.phone, u.unit_id, u.admin_scope_unit_id, u.profile_id,
             u.can_see_region, u.can_see_zones, u.can_see_units, u.location_share,
@@ -1060,7 +1125,7 @@ adminRouter.post('/users', requireUserManager, async (req, res) => {
   let serviceEfectivos;
   try {
     serviceCoords = parseServiceCoords(req.body?.serviceLat, req.body?.serviceLng);
-    serviceEfectivos = parseServiceEfectivos(req.body);
+    serviceEfectivos = await parseServiceEfectivos(req.user.orgId, req.body?.serviceEfectivos);
   } catch (err) {
     return res.status(400).json({ ok: false, error: err.message });
   }
@@ -1370,7 +1435,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
   let serviceEfectivos;
   try {
     serviceCoords = parseServiceCoords(serviceLatIn, serviceLngIn);
-    serviceEfectivos = parseServiceEfectivos(req.body);
+    serviceEfectivos = await parseServiceEfectivos(req.user.orgId, req.body?.serviceEfectivos);
   } catch (err) {
     return res.status(400).json({ ok: false, error: err.message });
   }
@@ -1723,9 +1788,7 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
      RETURNING id, username, email, display_name, role, is_active, can_receive_panic,
                must_change_password, last_seen_at, unit_id, admin_scope_unit_id, profile_id,
                can_see_region, can_see_zones, can_see_units,
-               grade, specialty, cargo, service_nombre,
-               service_personal_grals, service_personal_jefes, service_personal_ofs,
-               service_personal_tpa, service_vehiculos, service_armamento,
+               grade, specialty, cargo, service_nombre, service_efectivos,
                given_names, paternal_surname, maternal_surname, matricula, phone`,
     [
       req.params.id,
@@ -1916,12 +1979,13 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
             display_name, role, is_active, last_seen_at, created_at,
             service_nombre, service_lat, service_lng, service_geo_estado, service_geo_municipio,
             service_geo_localidad, service_geo_colonia, service_geo_cp, service_geo_ejido,
-            service_personal_grals, service_personal_jefes, service_personal_ofs,
-            service_personal_tpa, service_vehiculos, service_armamento
+            service_efectivos
      FROM users WHERE organization_id = $1
      ORDER BY display_name`,
     [req.user.orgId]
   );
+  const efectivosCatalog = await listEfectivosCatalog(req.user.orgId);
+  const grupoLabel = Object.fromEntries(EFECTIVOS_GRUPOS);
 
   const esc = (v) => {
     const s = v == null ? '' : String(v);
@@ -1931,8 +1995,8 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
 
   const lines = [
     'username,matricula,phone,grade,specialty,cargo,given_names,paternal_surname,maternal_surname,call_sign,role,is_active,last_seen_at,created_at,' +
-      'service_nombre,service_lat,service_lng,estado,municipio,localidad,colonia,cp,ejido,' +
-      'personal_grals,personal_jefes,personal_ofs,personal_tpa,vehiculos,armamento',
+      'service_nombre,service_lat,service_lng,estado,municipio,localidad,colonia,cp,ejido' +
+      efectivosCatalog.map((it) => `,${esc(`${grupoLabel[it.grupo]} ${it.name}`)}`).join(''),
   ];
   for (const u of rows) {
     lines.push(
@@ -1960,12 +2024,7 @@ adminRouter.get('/users.csv', requireModuleAction('usuarios', 'ver'), async (req
         esc(u.service_geo_colonia),
         esc(u.service_geo_cp),
         esc(u.service_geo_ejido),
-        esc(u.service_personal_grals),
-        esc(u.service_personal_jefes),
-        esc(u.service_personal_ofs),
-        esc(u.service_personal_tpa),
-        esc(u.service_vehiculos),
-        esc(u.service_armamento),
+        ...efectivosCatalog.map((it) => esc(u.service_efectivos?.[it.id])),
       ].join(',')
     );
   }

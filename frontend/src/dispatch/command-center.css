@@ -9640,52 +9640,110 @@ body:not(.leaflet-dragging) .map-frame.pick-mode .leaflet-container.tp-map-curso
   height: 2.5rem;
 }
 
-/* Efectivos: un solo cuadro de Personal dividido en Grals. / Jefes / Ofs. / Tpa. */
-.cc-users-create-modal .cc-efectivos-split {
+/* Paso Efectivos: tabla por grupo (encabezado + total | conceptos con su cantidad | «+»). */
+.cc-users-create-modal .cc-efectivos-table {
   display: flex;
+  flex-direction: column;
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-.cc-users-create-modal .cc-efectivos-cell {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
+.cc-users-create-modal .cc-efectivos-row {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
 }
 
-.cc-users-create-modal .cc-efectivos-cell + .cc-efectivos-cell {
-  margin-left: -1px;
+.cc-users-create-modal .cc-efectivos-row + .cc-efectivos-row {
+  border-top: 1px solid color-mix(in srgb, var(--cc-border) 80%, transparent);
 }
 
-.cc-users-create-modal .admin-form .field .cc-efectivos-split .cc-efectivos-cell input.cc-efectivos-input {
-  width: 100%;
-  padding-right: 3.2rem;
-  border-radius: 0;
+.cc-users-create-modal .cc-efectivos-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.45rem 0.7rem;
+  border-right: 1px solid color-mix(in srgb, var(--cc-border) 80%, transparent);
+  background: color-mix(in srgb, var(--cc-accent) 7%, transparent);
 }
 
-.cc-users-create-modal .admin-form .field .cc-efectivos-split .cc-efectivos-cell:first-child input.cc-efectivos-input {
-  border-top-left-radius: 8px;
-  border-bottom-left-radius: 8px;
+.cc-users-create-modal .cc-efectivos-row-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
-.cc-users-create-modal .admin-form .field .cc-efectivos-split .cc-efectivos-cell:last-child input.cc-efectivos-input {
-  border-top-right-radius: 8px;
-  border-bottom-right-radius: 8px;
+.cc-users-create-modal .cc-efectivos-row-total {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cc-accent) 18%, transparent);
+  color: var(--cc-accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
-.cc-users-create-modal .cc-efectivos-input:focus {
-  position: relative;
-  z-index: 1;
+.cc-users-create-modal .cc-efectivos-row-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.45rem;
+  padding: 0.45rem 0.6rem;
 }
 
-.cc-users-create-modal .cc-efectivos-suffix {
-  position: absolute;
-  top: 50%;
-  right: 0.7rem;
-  z-index: 2;
-  transform: translateY(-50%);
-  font-size: 0.78rem;
-  font-weight: 600;
+.cc-users-create-modal .cc-efectivos-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 5.75rem;
+  cursor: text;
+}
+
+.cc-users-create-modal .cc-efectivos-item-name {
+  overflow: hidden;
   color: var(--cc-muted);
-  pointer-events: none;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cc-users-create-modal .admin-form .cc-efectivos-item input {
+  height: 2rem;
+  padding: 0 0.5rem;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-users-create-modal .cc-efectivos-add {
+  width: 2rem;
+  height: 2rem;
+  border: 1px dashed var(--cc-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cc-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cc-users-create-modal .cc-efectivos-add:hover,
+.cc-users-create-modal .cc-efectivos-add:focus-visible {
+  border-color: var(--cc-accent);
+  color: var(--cc-accent);
+}
+
+@media (max-width: 640px) {
+  .cc-users-create-modal .cc-efectivos-row {
+    grid-template-columns: 1fr;
+  }
+
+  .cc-users-create-modal .cc-efectivos-row-head {
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--cc-border) 80%, transparent);
+  }
 }
 
 .cc-users-create-modal .cc-form-section {
