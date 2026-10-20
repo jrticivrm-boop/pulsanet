@@ -10173,6 +10173,18 @@ body:not(.leaflet-dragging) .map-frame.pick-mode .leaflet-container.tp-map-curso
   font-size: 0.76rem;
 }
 
+.cc-users-create-modal .cc-geo-parsed {
+  color: color-mix(in srgb, #16a34a 70%, var(--cc-text));
+  font-size: 0.74rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-users-create-modal .cc-geo-parsed--error {
+  color: color-mix(in srgb, #dc2626 75%, var(--cc-text));
+  font-weight: 500;
+}
+
 .cc-users-create-modal .cc-geo-extra {
   padding: 0.1rem 0.55rem;
   border-radius: 999px;

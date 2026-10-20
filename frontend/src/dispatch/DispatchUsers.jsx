@@ -34,6 +34,7 @@ import useAdminStickyToolbarHeight from './useAdminStickyToolbarHeight.js';
 import { exportInstitutionalReport } from '../excelReport.js';
 import { formatDistintivo } from './mapOperatorPopup.jsx';
 import { IV_RM_STATE_DEFS } from './ivRmStatesConfig.js';
+import { analyzeCoords, parseCoords } from './coordsParse.js';
 
 const ROLE_OPTIONS = [
   { value: 'root', label: 'Administrador' },
@@ -255,23 +256,6 @@ function fieldFilled(value) {
   return String(value || '').trim().length > 0;
 }
 
-/**
- * «22.2331, -97.8611», «22.2331 -97.8611» o liga de Google Maps (…/@22.23,-97.86,15z).
- * Acepta lng primero si el primer número no cabe como latitud.
- * @returns {{lat:number,lng:number}|null}
- */
-function parseCoordsInput(raw) {
-  const nums = String(raw || '').match(/-?\d+(?:\.\d+)?/g);
-  if (!nums || nums.length < 2) return null;
-  let lat = Number(nums[0]);
-  let lng = Number(nums[1]);
-  if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) [lat, lng] = [lng, lat];
-  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-    return null;
-  }
-  return { lat, lng };
-}
-
 function formatCoords(lat, lng) {
   if (lat == null || lng == null) return '';
   return `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
@@ -280,7 +264,7 @@ function formatCoords(lat, lng) {
 /** Payload API: coordenadas del servicio (null borra). */
 function serviceCoordsPayload(text) {
   if (!fieldFilled(text)) return { serviceLat: null, serviceLng: null };
-  const c = parseCoordsInput(text);
+  const c = parseCoords(text);
   return c ? { serviceLat: c.lat, serviceLng: c.lng } : null;
 }
 
@@ -1670,6 +1654,7 @@ export default function DispatchUsers({ session }) {
   const [placeAutoFilled, setPlaceAutoFilled] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
+  const serviceCoordsInfo = useMemo(() => analyzeCoords(form.serviceCoords), [form.serviceCoords]);
   const [preview, setPreview] = useState({ username: '', displayName: '', fullName: '' });
   const [step, setStep] = useState('datos'); // 'datos' | 'efectivos' | 'grupos'
   const [selectedGroupIds, setSelectedGroupIds] = useState([]);
@@ -2245,7 +2230,7 @@ export default function DispatchUsers({ session }) {
       setServiceGeo({ status: 'idle', data: null });
       return undefined;
     }
-    const c = parseCoordsInput(text);
+    const c = parseCoords(text);
     if (!c) {
       setServiceGeo({ status: 'invalid', data: null });
       return undefined;
@@ -2616,7 +2601,7 @@ export default function DispatchUsers({ session }) {
     }
     const coordsPayload = serviceCoordsPayload(form.serviceCoords);
     if (!coordsPayload) {
-      setError('Ubicación: escribe las coordenadas como «latitud, longitud» (ej. 22.233100, -97.861100).');
+      setError(`Ubicación: ${analyzeCoords(form.serviceCoords).error || 'coordenadas no válidas.'}`);
       return;
     }
     setBusy(true);
@@ -2707,7 +2692,7 @@ export default function DispatchUsers({ session }) {
       }
       const coordsPayload = serviceCoordsPayload(form.serviceCoords);
       if (!coordsPayload) {
-        setError('Ubicación: escribe las coordenadas como «latitud, longitud» (ej. 22.233100, -97.861100).');
+        setError(`Ubicación: ${analyzeCoords(form.serviceCoords).error || 'coordenadas no válidas.'}`);
         setBusy(false);
         return;
       }
@@ -3774,13 +3759,12 @@ export default function DispatchUsers({ session }) {
                   <label className="field cc-geo-coords">
                     <span>
                       Coordenadas{' '}
-                      <em className="cc-field-hint-inline">latitud, longitud o liga de Google Maps</em>
+                      <em className="cc-field-hint-inline">decimales, DMS, cuadrícula o liga de Maps</em>
                     </span>
                     <input
                       value={form.serviceCoords}
                       onChange={(e) => setForm({ ...form, serviceCoords: e.target.value })}
-                      placeholder="22.233100, -97.861100"
-                      inputMode="decimal"
+                      placeholder={`25.712132, -100.329889 · 25°42'42.0"N 100°19'49.3"W · 14R LP 6657 4447`}
                       autoComplete="off"
                       spellCheck={false}
                       aria-invalid={serviceGeo.status === 'invalid'}
@@ -3792,6 +3776,14 @@ export default function DispatchUsers({ session }) {
                             : undefined
                       }
                     />
+                    {serviceCoordsInfo.coords && serviceCoordsInfo.coords.format !== 'DD' ? (
+                      <small className="cc-geo-parsed">
+                        {serviceCoordsInfo.coords.format} →{' '}
+                        {formatCoords(serviceCoordsInfo.coords.lat, serviceCoordsInfo.coords.lng)}
+                      </small>
+                    ) : serviceCoordsInfo.error ? (
+                      <small className="cc-geo-parsed cc-geo-parsed--error">{serviceCoordsInfo.error}</small>
+                    ) : null}
                   </label>
                   <div className="field cc-geo-status-field">
                     <span>Estado de la consulta</span>
@@ -3802,10 +3794,10 @@ export default function DispatchUsers({ session }) {
                       {serviceGeo.status === 'error' && 'Sin datos; captura a mano'}
                       {serviceGeo.status === 'ok' &&
                         (serviceGeo.data?.approx ? 'Lugar aproximado' : 'Lugar encontrado')}
-                      {parseCoordsInput(form.serviceCoords) ? (
+                      {serviceCoordsInfo.coords ? (
                         <a
                           className="cc-geo-maplink"
-                          href={`https://www.google.com/maps?q=${parseCoordsInput(form.serviceCoords).lat},${parseCoordsInput(form.serviceCoords).lng}`}
+                          href={`https://www.google.com/maps?q=${serviceCoordsInfo.coords.lat},${serviceCoordsInfo.coords.lng}`}
                           target="_blank"
                           rel="noreferrer"
                         >

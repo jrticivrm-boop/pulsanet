@@ -3,6 +3,7 @@ import { Marker, Polygon, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { geoSearch, geoReverse, geoMapStatus, fetchGeoPlaceOutline, fetchGeoOsmOutline } from '../api';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
+import { parseCoords } from './coordsParse.js';
 
 const RECENT_KEY = 'tacticalptx_map_search_recent';
 const RECENT_MAX = 8;
@@ -80,34 +81,12 @@ function normalize(s) {
     .trim();
 }
 
-function dmsToDecimal(deg, min, sec, hemi) {
-  let v = Math.abs(Number(deg)) + (Number(min) || 0) / 60 + (Number(sec) || 0) / 3600;
-  if (/[SsWwOo]/.test(hemi || '') || Number(deg) < 0) v = -v;
-  return v;
-}
-
 /**
- * «19.4326, -99.1332», «19.4326 -99.1332» o «19°25'57"N 99°07'59"W».
- * @returns {{ lat: number, lng: number } | null}
+ * «19.4326, -99.1332», «19°25'57"N 99°07'59"W», cuadrícula «14Q MG 8601 4870» o liga de Google Maps.
+ * @returns {{ lat: number, lng: number, format: string } | null}
  */
 export function parseCoordinates(text) {
-  const s = String(text || '').trim();
-  const dec = s.match(/^(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)$/);
-  if (dec) {
-    const lat = Number(dec[1]);
-    const lng = Number(dec[2]);
-    if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng };
-    return null;
-  }
-  const part = String.raw`(-?\d{1,3})\s*[°º]\s*(?:(\d{1,2}(?:\.\d+)?)\s*['′])?\s*(?:(\d{1,2}(?:\.\d+)?)\s*(?:["″]|''))?\s*([NSEWOnsewo])?`;
-  const dms = s.match(new RegExp(`^${part}\\s*[,;]?\\s*${part}$`));
-  if (dms) {
-    const lat = dmsToDecimal(dms[1], dms[2], dms[3], dms[4]);
-    // Sin hemisferio en México la longitud es oeste.
-    const lng = dmsToDecimal(dms[5], dms[6], dms[7], dms[8] || (Number(dms[5]) > 0 ? 'W' : ''));
-    if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng };
-  }
-  return null;
+  return parseCoords(text);
 }
 
 function readRecent() {

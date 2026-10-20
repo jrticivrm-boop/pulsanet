@@ -1,3 +1,15 @@
+## 2026-10-20 — Coordenadas: grados decimales, DMS y cuadrícula MGRS
+
+- **Tipo:** feature | fix
+- **Área:** web
+- **Qué:**
+  - Nuevo intérprete `coordsParse.js`: grados decimales (con signo o N/S/E/W, acepta longitud primero), DMS y grados-minutos (`25°42'42.0"N 100°19'49.3"W`, comillas tipográficas, hemisferio antes o después; sin hemisferio la longitud se toma oeste), cuadrícula MGRS (WGS84, 0–10 dígitos, centro de la celda; valida zona, columna y banda) y ligas completas de Google Maps (`!3d…!4d…`, `q=`, `@`). Las ligas cortas (`maps.app.goo.gl`) se rechazan con indicación.
+  - Ubicación del servicio (Alta/Editar usuario): muestra la conversión («MGRS → 25.712125, -100.329895») o el motivo del error bajo el campo; el error al guardar dice qué corregir; el teclado móvil ya permite letras y símbolos.
+  - Buscador del mapa y panel de rutas usan el mismo intérprete.
+  - Fix: antes un DMS se leía como «25, 42» (tomaba los dos primeros números).
+- **Por qué / notas:** verificado con referencias conocidas (Monumento a Washington `18S UJ 23487 06483`, ejemplo de mgrs.js) e ida y vuelta UTM para Monterrey (`14R LP 66577 44476`), CDMX, Tampico y hemisferio sur. El ejemplo `14Q QS09758` es inválido (5 dígitos; además el cuadro QS no cae en la banda 14Q).
+- **Archivos / refs:** `frontend/src/dispatch/coordsParse.js`, `frontend/src/dispatch/DispatchUsers.jsx`, `frontend/src/dispatch/MapSearchPanel.jsx`, `frontend/src/dispatch/command-center.css`, `docs/CHANGELOG.md`
+
 ## 2026-10-19 — Alta/Editar usuario más visual; Poblado, Mpio. y Estado del servicio
 
 - **Tipo:** ux | feature
