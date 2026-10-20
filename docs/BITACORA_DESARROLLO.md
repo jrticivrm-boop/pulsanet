@@ -1,3 +1,12 @@
+## 2026-10-20 — Mapa: efectivos legibles en la ficha
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - El bloque Personal / Armamento / Vehs. / Otros usa el mismo tamaño de letra que el globo (antes se achicaba dos veces y las etiquetas quedaban ~6 px).
+  - Mejor contraste (texto del tema, fondo un poco más marcado) y el zoom ya no baja tanto la ficha.
+- **Archivos / refs:** `frontend/src/dispatch/mapOperatorPopup.jsx`, `frontend/src/dispatch/command-center.css`
+
 ## 2026-10-20 — Mapa: efectivos debajo del lugar del servicio
 
 - **Tipo:** ux

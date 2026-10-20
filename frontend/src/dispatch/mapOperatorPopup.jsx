@@ -36,16 +36,16 @@ export function mapOperatorDistintivo(loc) {
 /** Globo compacto; el ancho real lo ajusta OperatorPopupZoomFit según el zoom. */
 export const OPERATOR_POPUP_OPTS = {
   className: 'cc-op-leaflet-pop',
-  maxWidth: 220,
-  minWidth: 156,
+  maxWidth: 248,
+  minWidth: 188,
   autoPanPadding: [36, 36],
 };
 
 function scaleForMapZoom(z) {
-  if (z <= 8) return 0.7;
-  if (z <= 10) return 0.78;
-  if (z <= 12) return 0.86;
-  if (z <= 14) return 0.93;
+  if (z <= 8) return 0.86;
+  if (z <= 10) return 0.9;
+  if (z <= 12) return 0.94;
+  if (z <= 14) return 0.97;
   return 1;
 }
 
@@ -56,8 +56,8 @@ export function OperatorPopupZoomFit() {
     const apply = () => {
       const s = scaleForMapZoom(map.getZoom());
       map.getContainer().style.setProperty('--cc-op-pop-scale', String(s));
-      const maxW = Math.round(220 * s);
-      const minW = Math.min(156, maxW);
+      const maxW = Math.round(248 * s);
+      const minW = Math.min(188, maxW);
       const visit = (layer) => {
         const p = layer.getPopup?.();
         if (p?.isOpen?.() && p.getElement?.()?.classList?.contains('cc-op-leaflet-pop')) {
