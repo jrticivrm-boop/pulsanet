@@ -7853,19 +7853,67 @@ html.map-viewport-max .lt-page--maximized,
 
 .leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos {
   /* No aporta ancho propio: se ajusta al de la ficha en lugar de ensancharla. */
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 0.5rem;
+  row-gap: 0;
   width: 0;
   min-width: 100%;
   margin: 0;
-  padding: 0.4rem 0.55rem;
+  padding: 0.35rem 0.5rem 0.4rem 0.55rem;
   border-left: 2px solid color-mix(in srgb, var(--cc-accent, #2a3d22) 60%, transparent);
   border-radius: 0 6px 6px 0;
   background: color-mix(in srgb, var(--cc-accent, #2a3d22) 8%, transparent);
   color: var(--cc-text, inherit);
   font-size: 0.76rem;
-  line-height: 1.4;
-  text-align: justify;
-  overflow-wrap: break-word;
+  line-height: 1.35;
   box-sizing: border-box;
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos-row {
+  display: contents;
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos dt,
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos dd {
+  margin: 0;
+  padding: 0.22rem 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--cc-border, #c2cbb8) 70%, transparent);
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos-row:last-child dt,
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos-row:last-child dd {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos-row:first-child dt,
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos-row:first-child dd {
+  padding-top: 0;
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos dt {
+  color: color-mix(in srgb, var(--cc-accent, #2a3d22) 55%, var(--cc-text, currentColor));
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  column-gap: 0.35rem;
+  row-gap: 0.12rem;
+  min-width: 0;
+}
+
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivo {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .cc-op-pop-chip {

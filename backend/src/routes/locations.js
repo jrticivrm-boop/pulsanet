@@ -27,8 +27,14 @@ function toIsoUtc(value) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-const EFECTIVOS_GRUPO_ORDER = ['personal', 'armamento', 'vehs_sb', 'vehs_cb', 'otros'];
-const EFECTIVOS_VEH_TAG = { vehs_sb: 'S/B.', vehs_cb: 'C/B.' };
+const EFECTIVOS_GRUPOS = [
+  ['personal', 'Personal:'],
+  ['armamento', 'Armamento:'],
+  ['vehs_sb', 'Vehs. S/B.'],
+  ['vehs_cb', 'Vehs. C/B.'],
+  ['otros', 'Otros.'],
+];
+const EFECTIVOS_GRUPO_ORDER = EFECTIVOS_GRUPOS.map(([key]) => key);
 
 async function loadEfectivosCatalog(orgId) {
   const { rows } = await query(
@@ -40,32 +46,32 @@ async function loadEfectivosCatalog(orgId) {
   return rows;
 }
 
-/** ["1 GG.", "2 Vehs. Cheyenne", "55 Fx."…] en orden del catálogo; omite conceptos vacíos o en cero. */
-function efectivosItems(efectivos, catalog) {
+/**
+ * Filas por grupo: [{ key, label, items: ["1 OO.", "15 TT."] }], en orden del catálogo;
+ * omite conceptos vacíos o en cero y grupos sin cantidades.
+ */
+function efectivosGrupos(efectivos, catalog) {
   if (!efectivos || typeof efectivos !== 'object') return [];
-  const filled = catalog
-    .map((it) => ({ ...it, n: Number(efectivos[it.id]) }))
-    .filter((it) => Number.isInteger(it.n) && it.n > 0);
-  // S/B. / C/B. solo si el mismo vehículo trae cantidad en ambos grupos.
-  const vehGrupos = new Map();
-  for (const it of filled) {
-    if (!EFECTIVOS_VEH_TAG[it.grupo]) continue;
-    const key = it.name.toLowerCase();
-    vehGrupos.set(key, (vehGrupos.get(key) || new Set()).add(it.grupo));
+  const byGrupo = new Map();
+  for (const it of catalog) {
+    const n = Number(efectivos[it.id]);
+    if (!Number.isInteger(n) || n <= 0) continue;
+    if (!byGrupo.has(it.grupo)) byGrupo.set(it.grupo, []);
+    byGrupo.get(it.grupo).push(`${n} ${it.name}`);
   }
-  return filled.map((it) => {
-    const tag = EFECTIVOS_VEH_TAG[it.grupo];
-    if (!tag) return `${it.n} ${it.name}`;
-    const both = vehGrupos.get(it.name.toLowerCase()).size > 1;
-    return `${it.n} ${it.n === 1 ? 'Veh.' : 'Vehs.'} ${it.name}${both ? ` ${tag}` : ''}`;
-  });
+  return EFECTIVOS_GRUPOS.filter(([key]) => byGrupo.has(key)).map(([key, label]) => ({
+    key,
+    label,
+    items: byGrupo.get(key),
+  }));
 }
 
-/** «1 GG., 2 OO., 2 Vehs. Cheyenne, 55 Fx. y 3 Cams.» */
-function efectivosResumen(items) {
-  if (!items.length) return null;
-  const text = items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} y ${items[items.length - 1]}`;
-  return text.endsWith('.') ? text : `${text}.`;
+/** «Personal: 1 OO., 15 TT. · Vehs. S/B.: 1 Cheyenne» (texto plano, p. ej. para la app). */
+function efectivosResumen(grupos) {
+  if (!grupos.length) return null;
+  return grupos
+    .map((g) => `${String(g.label).replace(/[:.]$/, '')}: ${g.items.join(', ')}`)
+    .join(' · ');
 }
 
 function mergePresenceRow(prev, next) {
@@ -234,7 +240,7 @@ export function createLocationsRouter(io) {
       const lastSeenAt = toIsoUtc(r.last_seen_at);
       const recordedAt = toIsoUtc(r.recorded_at);
       const aff = await affiliationFor(r.unit_id, r.admin_scope_unit_id);
-      const efectivos = efectivosItems(r.service_efectivos, efectivosCatalog);
+      const efectivos = efectivosGrupos(r.service_efectivos, efectivosCatalog);
       locations.push({
         userId: r.user_id,
         displayName: r.display_name,

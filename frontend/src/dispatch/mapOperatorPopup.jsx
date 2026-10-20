@@ -2,7 +2,7 @@
  * Globo de operador en mapa:
  * L1 Grado Apellido (root sin grado: «Administrador»)
  * L2 unidad|zona|región (root: «Administrador»)
- *    resumen de efectivos del servicio («1 GG., 2 OO., 55 Fx. y 3 Cams.», del backend)
+ *    efectivos del servicio en filas por grupo (Personal, Armamento, Vehs. S/B., Vehs. C/B., Otros)
  * L3 distintivo: B.O.Mvl. "Castillo" (catálogo + nombre libre entre comillas), seguido de
  *    municipio, estado donde está el servicio (guardado o por su posición)
  * L4 teléfono
@@ -222,20 +222,17 @@ function popupInitial(title) {
   return (last.replace(/[^\p{L}]/gu, '')[0] || '?').toLocaleUpperCase('es');
 }
 
-/**
- * «1 GG., 2 G-3 y 2 Vehs. Cheyenne.» — la cantidad no se separa de su concepto ni «G-3» se
- * parte en el guion al justificar.
- */
-function efectivosPopupText(items) {
-  const bound = items.map((s) =>
-    String(s)
-      .replace(/^(\d+) /, '$1\u00a0')
-      .replace(/-/g, '\u2011')
-      .replace(/ ([SC]\/B\.)$/, '\u00a0$1')
-  );
-  const text =
-    bound.length === 1 ? bound[0] : `${bound.slice(0, -1).join(', ')} y\u00a0${bound[bound.length - 1]}`;
-  return text.endsWith('.') ? text : `${text}.`;
+/** Cada concepto va junto (p. ej. «2 Adit. L.G.»); el salto de línea es entre conceptos. */
+function EfectivosRowItems({ items }) {
+  return items.map((s, i) => {
+    const last = i === items.length - 1;
+    const text = String(s);
+    return (
+      <span key={`${i}-${text}`} className="cc-op-pop-efectivo">
+        {last ? (text.endsWith('.') ? text : `${text}.`) : `${text},`}
+      </span>
+    );
+  });
 }
 
 /** Ficha del operador en el globo; `children` = acciones (botones). */
@@ -245,7 +242,9 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
   const affiliation = mapPopupAffiliationLine(loc);
   const place = useOperatorPlace(loc);
   const phone = mapPopupPhoneLine(loc);
-  const efectivos = Array.isArray(loc?.efectivos) ? loc.efectivos : [];
+  const efectivos = Array.isArray(loc?.efectivos)
+    ? loc.efectivos.filter((g) => g?.label && Array.isArray(g.items) && g.items.length)
+    : [];
   const hasCoords = Number.isFinite(Number(loc?.latitude)) && Number.isFinite(Number(loc?.longitude));
   const rows = [
     phone
@@ -275,9 +274,16 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
         </div>
       </div>
       {efectivos.length ? (
-        <p className="cc-op-pop-efectivos" lang="es">
-          {efectivosPopupText(efectivos)}
-        </p>
+        <dl className="cc-op-pop-efectivos" lang="es">
+          {efectivos.map((g) => (
+            <div key={g.key} className="cc-op-pop-efectivos-row">
+              <dt>{g.label}</dt>
+              <dd>
+                <EfectivosRowItems items={g.items} />
+              </dd>
+            </div>
+          ))}
+        </dl>
       ) : null}
       {distintivo || place ? (
         <div className="cc-op-pop-service">

@@ -1,3 +1,13 @@
+## 2026-10-20 — Mapa: efectivos en filas por grupo
+
+- **Tipo:** ux | feature
+- **Área:** web | backend
+- **Qué:**
+  - La ficha del operador muestra los efectivos en filas alineadas: Personal, Armamento, Vehs. S/B., Vehs. C/B. y Otros; se omite el grupo si no hay cantidades (cuadros vacíos o en cero).
+  - Etiquetas en una columna y cantidades en otra (mismo ancho de ficha); cada concepto queda junto y el salto de línea es entre conceptos, no a la mitad.
+  - `GET /api/locations` entrega `efectivos` como filas `{key,label,items}` y `efectivosResumen` en texto plano por grupo.
+- **Archivos / refs:** `backend/src/routes/locations.js`, `frontend/src/dispatch/mapOperatorPopup.jsx`, `frontend/src/dispatch/command-center.css`, `docs/CHANGELOG.md`
+
 ## 2026-10-20 — Mapa: resumen de efectivos en la ficha del operador
 
 - **Tipo:** feature
