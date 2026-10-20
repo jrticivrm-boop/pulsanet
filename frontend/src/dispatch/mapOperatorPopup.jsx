@@ -2,6 +2,7 @@
  * Globo de operador en mapa:
  * L1 Grado Apellido (root sin grado: «Administrador»)
  * L2 unidad|zona|región (root: «Administrador»)
+ *    resumen de efectivos del servicio («1 GG., 2 OO., 55 Fx. y 3 Cams.», del backend)
  * L3 distintivo: B.O.Mvl. "Castillo" (catálogo + nombre libre entre comillas), seguido de
  *    municipio, estado donde está el servicio (guardado o por su posición)
  * L4 teléfono
@@ -221,6 +222,22 @@ function popupInitial(title) {
   return (last.replace(/[^\p{L}]/gu, '')[0] || '?').toLocaleUpperCase('es');
 }
 
+/**
+ * «1 GG., 2 G-3 y 2 Vehs. Cheyenne.» — la cantidad no se separa de su concepto ni «G-3» se
+ * parte en el guion al justificar.
+ */
+function efectivosPopupText(items) {
+  const bound = items.map((s) =>
+    String(s)
+      .replace(/^(\d+) /, '$1\u00a0')
+      .replace(/-/g, '\u2011')
+      .replace(/ ([SC]\/B\.)$/, '\u00a0$1')
+  );
+  const text =
+    bound.length === 1 ? bound[0] : `${bound.slice(0, -1).join(', ')} y\u00a0${bound[bound.length - 1]}`;
+  return text.endsWith('.') ? text : `${text}.`;
+}
+
 /** Ficha del operador en el globo; `children` = acciones (botones). */
 export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
   const title = mapPopupTitleLine(loc);
@@ -228,6 +245,7 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
   const affiliation = mapPopupAffiliationLine(loc);
   const place = useOperatorPlace(loc);
   const phone = mapPopupPhoneLine(loc);
+  const efectivos = Array.isArray(loc?.efectivos) ? loc.efectivos : [];
   const hasCoords = Number.isFinite(Number(loc?.latitude)) && Number.isFinite(Number(loc?.longitude));
   const rows = [
     phone
@@ -256,6 +274,11 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
           {affiliation ? <span className="cc-op-pop-aff">{affiliation}</span> : null}
         </div>
       </div>
+      {efectivos.length ? (
+        <p className="cc-op-pop-efectivos" lang="es">
+          {efectivosPopupText(efectivos)}
+        </p>
+      ) : null}
       {distintivo || place ? (
         <div className="cc-op-pop-service">
           {distintivo ? <span className="cc-op-pop-chip">{distintivo}</span> : null}

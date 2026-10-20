@@ -27,6 +27,47 @@ function toIsoUtc(value) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+const EFECTIVOS_GRUPO_ORDER = ['personal', 'armamento', 'vehs_sb', 'vehs_cb', 'otros'];
+const EFECTIVOS_VEH_TAG = { vehs_sb: 'S/B.', vehs_cb: 'C/B.' };
+
+async function loadEfectivosCatalog(orgId) {
+  const { rows } = await query(
+    `SELECT id::text AS id, grupo, name FROM cat_efectivos
+     WHERE organization_id = $1 AND is_active
+     ORDER BY array_position($2::text[], grupo::text), sort_order, name`,
+    [orgId, EFECTIVOS_GRUPO_ORDER]
+  );
+  return rows;
+}
+
+/** ["1 GG.", "2 Vehs. Cheyenne", "55 Fx."…] en orden del catálogo; omite conceptos vacíos o en cero. */
+function efectivosItems(efectivos, catalog) {
+  if (!efectivos || typeof efectivos !== 'object') return [];
+  const filled = catalog
+    .map((it) => ({ ...it, n: Number(efectivos[it.id]) }))
+    .filter((it) => Number.isInteger(it.n) && it.n > 0);
+  // S/B. / C/B. solo si el mismo vehículo trae cantidad en ambos grupos.
+  const vehGrupos = new Map();
+  for (const it of filled) {
+    if (!EFECTIVOS_VEH_TAG[it.grupo]) continue;
+    const key = it.name.toLowerCase();
+    vehGrupos.set(key, (vehGrupos.get(key) || new Set()).add(it.grupo));
+  }
+  return filled.map((it) => {
+    const tag = EFECTIVOS_VEH_TAG[it.grupo];
+    if (!tag) return `${it.n} ${it.name}`;
+    const both = vehGrupos.get(it.name.toLowerCase()).size > 1;
+    return `${it.n} ${it.n === 1 ? 'Veh.' : 'Vehs.'} ${it.name}${both ? ` ${tag}` : ''}`;
+  });
+}
+
+/** «1 GG., 2 OO., 2 Vehs. Cheyenne, 55 Fx. y 3 Cams.» */
+function efectivosResumen(items) {
+  if (!items.length) return null;
+  const text = items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} y ${items[items.length - 1]}`;
+  return text.endsWith('.') ? text : `${text}.`;
+}
+
 function mergePresenceRow(prev, next) {
   if (!prev) return { ...next };
   const focus = pickBestFocus([prev.focus, next.focus]);
@@ -124,7 +165,7 @@ export function createLocationsRouter(io) {
 
     const { rows } = await query(
       `SELECT u.id AS user_id, u.display_name, u.grade, u.cargo, u.service_nombre, u.phone,
-              u.service_geo_municipio, u.service_geo_estado,
+              u.service_geo_municipio, u.service_geo_estado, u.service_efectivos,
               u.role, u.is_active, u.avatar_url, u.unit_id,
               u.admin_scope_unit_id, u.location_share, u.last_seen_at,
               l.latitude, l.longitude, l.accuracy_m, l.recorded_at
@@ -181,6 +222,10 @@ export function createLocationsRouter(io) {
       return aff;
     }
 
+    const efectivosCatalog = visibleRows.some((r) => r.service_efectivos)
+      ? await loadEfectivosCatalog(req.user.orgId)
+      : [];
+
     const locations = [];
     for (const r of visibleRows) {
       const online = presenceByUser.get(r.user_id);
@@ -189,6 +234,7 @@ export function createLocationsRouter(io) {
       const lastSeenAt = toIsoUtc(r.last_seen_at);
       const recordedAt = toIsoUtc(r.recorded_at);
       const aff = await affiliationFor(r.unit_id, r.admin_scope_unit_id);
+      const efectivos = efectivosItems(r.service_efectivos, efectivosCatalog);
       locations.push({
         userId: r.user_id,
         displayName: r.display_name,
@@ -197,6 +243,8 @@ export function createLocationsRouter(io) {
         serviceNombre: r.service_nombre || null,
         serviceGeoMunicipio: r.service_geo_municipio || null,
         serviceGeoEstado: r.service_geo_estado || null,
+        efectivos,
+        efectivosResumen: efectivosResumen(efectivos),
         phone: r.phone || null,
         role: r.role,
         unitId: r.unit_id || null,

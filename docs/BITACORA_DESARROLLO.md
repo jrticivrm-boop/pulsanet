@@ -1,3 +1,13 @@
+## 2026-10-20 — Mapa: resumen de efectivos en la ficha del operador
+
+- **Tipo:** feature
+- **Área:** web | backend
+- **Qué:**
+  - `GET /api/locations` incluye `efectivos` (p. ej. `["1 GG.", "55 Fx.", "2 Vehs. Cheyenne"]`) y `efectivosResumen`, armados con el catálogo vigente de la organización (una consulta solo si alguien tiene efectivos); omite cuadros vacíos o en cero. Vehículos como «N Vehs. Nombre» (singular «Veh.»); S/B. / C/B. solo si el mismo vehículo trae cantidad en ambos grupos.
+  - Globo del operador (mapa de despacho, Command Center, seguimiento): bloque justificado bajo «Grado Apellido / unidad», sin ensanchar la ficha (el bloque no aporta ancho propio); la cantidad no se separa de su concepto ni «G-3» se parte en el guion.
+- **Por qué / notas:** el mapa de la app móvil no cambia en esta entrega.
+- **Archivos / refs:** `backend/src/routes/locations.js`, `frontend/src/dispatch/mapOperatorPopup.jsx`, `frontend/src/dispatch/command-center.css`, `docs/CHANGELOG.md`
+
 ## 2026-10-20 — Coordenadas: grados decimales, DMS y cuadrícula MGRS
 
 - **Tipo:** feature | fix

@@ -7851,6 +7851,23 @@ html.map-viewport-max .lt-page--maximized,
   overflow-wrap: anywhere;
 }
 
+.leaflet-popup-content .cc-op-pop .cc-op-pop-efectivos {
+  /* No aporta ancho propio: se ajusta al de la ficha en lugar de ensancharla. */
+  width: 0;
+  min-width: 100%;
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border-left: 2px solid color-mix(in srgb, var(--cc-accent, #2a3d22) 60%, transparent);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--cc-accent, #2a3d22) 8%, transparent);
+  color: var(--cc-text, inherit);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  text-align: justify;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+}
+
 .cc-op-pop-chip {
   align-self: flex-start;
   max-width: 100%;
