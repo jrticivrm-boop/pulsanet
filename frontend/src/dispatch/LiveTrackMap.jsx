@@ -41,7 +41,9 @@ import { useMapViewportMaximize } from './useMapViewportMaximize.js';
 import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import {
+  OPERATOR_POPUP_OPTS,
   OperatorMapPopupBody,
+  OperatorPopupZoomFit,
   mapOperatorDistintivo,
   mapOperatorSearchBlob,
 } from './mapOperatorPopup.jsx';
@@ -795,6 +797,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
           >
             <TileLayer key={layer} {...tileLayerProps(tile)} />
             <ZoomControl position="bottomright" />
+            <OperatorPopupZoomFit />
             <MapMaximizeNearZoom maximized={maximized} onClick={toggleMaximize} />
             <IvRmStatesLayer surface={ivRmSurface} />
             <IvRmTerritoryLayer surface={embedRadio ? 'radio' : 'consola'} />
@@ -928,7 +931,7 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
                       })}
                       eventHandlers={{ click: () => focusPerson(p) }}
                     >
-                      <Popup>
+                      <Popup {...OPERATOR_POPUP_OPTS}>
                         <OperatorMapPopupBody
                           loc={p}
                           recordedLabel={

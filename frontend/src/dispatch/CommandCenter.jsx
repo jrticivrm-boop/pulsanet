@@ -45,7 +45,12 @@ import { mapAvatarIcon } from './mapAvatarIcon.js';
 import PresenceMapLegend, { countPresenceLegend } from './PresenceMapLegend.jsx';
 import { PRESENCE_LABELS, resolvePresenceStatus } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
-import { OperatorMapPopupBody, mapOperatorDistintivo } from './mapOperatorPopup.jsx';
+import {
+  OPERATOR_POPUP_OPTS,
+  OperatorMapPopupBody,
+  OperatorPopupZoomFit,
+  mapOperatorDistintivo,
+} from './mapOperatorPopup.jsx';
 import { CursorZoom, MapCursorFix, MapSizeFix, MapWorldFillMinZoom, SmoothMarker, CargoZoomGate } from './mapLeafletUtils.jsx';
 import { ClusteredLocationLayer } from './ClusteredLocationLayer.jsx';
 import { useMapAvatarPhotos } from './useMapAvatarPhotos.js';
@@ -779,6 +784,7 @@ export default function CommandCenter({ session }) {
             >
               <TileLayer key={mapLayer} {...tileLayerProps(mapTile)} />
               <ZoomControl position="bottomright" />
+              <OperatorPopupZoomFit />
               <CursorZoom />
               <MapCursorFix />
               <MapSizeFix />
@@ -891,7 +897,7 @@ export default function CommandCenter({ session }) {
                               }),
                           }}
                         >
-                          <Popup>
+                          <Popup {...OPERATOR_POPUP_OPTS}>
                             <OperatorMapPopupBody
                               loc={loc}
                               recordedLabel={

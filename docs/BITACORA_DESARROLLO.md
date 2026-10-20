@@ -1,3 +1,12 @@
+## 2026-10-20 — Mapa: ficha del operador compacta y acorde al zoom
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Teléfono, hora y coordenadas más compactos (sin segundos); menos margen y botón «Ver ruta» más bajo.
+  - La ficha usa `em` y se achica al alejar el mapa (`--cc-op-pop-scale`); al acercar vuelve al tamaño de lectura. Antes el globo era de tamaño fijo en pantalla y al alejar se veía gigante.
+- **Archivos / refs:** `frontend/src/dispatch/mapOperatorPopup.jsx`, `frontend/src/dispatch/command-center.css`, `frontend/src/dispatch/DispatchMap.jsx`, `frontend/src/dispatch/CommandCenter.jsx`, `frontend/src/dispatch/LiveTrackMap.jsx`, `frontend/src/dispatch/liveTiming.js`
+
 ## 2026-10-20 — Mapa: efectivos en filas por grupo
 
 - **Tipo:** ux | feature

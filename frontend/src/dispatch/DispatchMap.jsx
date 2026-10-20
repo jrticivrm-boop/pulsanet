@@ -50,6 +50,7 @@ import {
   upsertLocation,
   debounceTrailing,
   PRESENCE_RELOAD_DEBOUNCE_MS,
+  recordedAtLocal,
 } from './liveTiming.js';
 import {
   clampTrackRange,
@@ -66,7 +67,9 @@ import { useMapViewportMaximize } from './useMapViewportMaximize.js';
 import { PRESENCE_LABELS, reconcilePresenceFilterIds, resolvePresenceStatus, visiblePresenceStatusIds } from './presenceStatus.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import {
+  OPERATOR_POPUP_OPTS,
   OperatorMapPopupBody,
+  OperatorPopupZoomFit,
   mapOperatorDistintivo,
   mapOperatorSearchBlob,
 } from './mapOperatorPopup.jsx';
@@ -3849,6 +3852,7 @@ export default function DispatchMap({ session }) {
         >
           <TileLayer key={mapLayer} {...tileLayerProps(tile)} />
           <ZoomControl position="bottomright" />
+          <OperatorPopupZoomFit />
           <MapMaximizeNearZoom maximized={maximized} onClick={toggleMaximize} />
           <IvRmStatesLayer surface="consola" />
           <IvRmTerritoryLayer
@@ -4074,14 +4078,10 @@ export default function DispatchMap({ session }) {
                         },
                       }}
                     >
-                      <Popup>
+                      <Popup {...OPERATOR_POPUP_OPTS}>
                         <OperatorMapPopupBody
                           loc={loc}
-                          recordedLabel={
-                            loc.recordedAt
-                              ? new Date(loc.recordedAt).toLocaleString()
-                              : ''
-                          }
+                          recordedLabel={recordedAtLocal(loc.recordedAt)}
                         >
                           <button
                             type="button"

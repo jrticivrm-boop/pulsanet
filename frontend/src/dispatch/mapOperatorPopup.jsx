@@ -8,7 +8,8 @@
  * L4 teléfono
  * Cada línea se omite si está vacía; luego fecha, coords, acciones — sin texto de presencia.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
+import { useMap } from 'react-leaflet';
 import { ensureFreshSession, geoAdminAt } from '../api';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import {
@@ -30,6 +31,53 @@ export function formatDistintivo(tipo, nombre) {
 
 export function mapOperatorDistintivo(loc) {
   return formatDistintivo(loc?.cargo, loc?.serviceNombre);
+}
+
+/** Globo compacto; el ancho real lo ajusta OperatorPopupZoomFit según el zoom. */
+export const OPERATOR_POPUP_OPTS = {
+  className: 'cc-op-leaflet-pop',
+  maxWidth: 220,
+  minWidth: 156,
+  autoPanPadding: [36, 36],
+};
+
+function scaleForMapZoom(z) {
+  if (z <= 8) return 0.7;
+  if (z <= 10) return 0.78;
+  if (z <= 12) return 0.86;
+  if (z <= 14) return 0.93;
+  return 1;
+}
+
+/** Achica la ficha al alejar el mapa (si no, el globo queda en píxeles fijos y se ve gigante). */
+export function OperatorPopupZoomFit() {
+  const map = useMap();
+  useLayoutEffect(() => {
+    const apply = () => {
+      const s = scaleForMapZoom(map.getZoom());
+      map.getContainer().style.setProperty('--cc-op-pop-scale', String(s));
+      const maxW = Math.round(220 * s);
+      const minW = Math.min(156, maxW);
+      const visit = (layer) => {
+        const p = layer.getPopup?.();
+        if (p?.isOpen?.() && p.getElement?.()?.classList?.contains('cc-op-leaflet-pop')) {
+          p.options.maxWidth = maxW;
+          p.options.minWidth = minW;
+          p.update();
+        }
+        if (typeof layer.eachLayer === 'function') layer.eachLayer(visit);
+      };
+      map.eachLayer(visit);
+    };
+    apply();
+    map.on('zoom', apply);
+    map.on('zoomend', apply);
+    return () => {
+      map.off('zoom', apply);
+      map.off('zoomend', apply);
+    };
+  }, [map]);
+  return null;
 }
 
 export function affiliationLabelFromLoc(loc) {
