@@ -1,3 +1,11 @@
+## 2026-10-20 — Mapa: efectivos debajo del lugar del servicio
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - En la ficha del operador, Personal / Armamento / Vehs. / Otros pasan debajo de «Municipio, Edo.» (p. ej. Tampico, Tamps.), después del distintivo.
+- **Archivos / refs:** `frontend/src/dispatch/mapOperatorPopup.jsx`
+
 ## 2026-10-20 — Mapa: ficha del operador compacta y acorde al zoom
 
 - **Tipo:** ux

@@ -2,9 +2,9 @@
  * Globo de operador en mapa:
  * L1 Grado Apellido (root sin grado: «Administrador»)
  * L2 unidad|zona|región (root: «Administrador»)
- *    efectivos del servicio en filas por grupo (Personal, Armamento, Vehs. S/B., Vehs. C/B., Otros)
  * L3 distintivo: B.O.Mvl. "Castillo" (catálogo + nombre libre entre comillas), seguido de
  *    municipio, estado donde está el servicio (guardado o por su posición)
+ *    y debajo los efectivos en filas por grupo (Personal, Armamento, Vehs. S/B., Vehs. C/B., Otros)
  * L4 teléfono
  * Cada línea se omite si está vacía; luego fecha, coords, acciones — sin texto de presencia.
  */
@@ -321,6 +321,17 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
           {affiliation ? <span className="cc-op-pop-aff">{affiliation}</span> : null}
         </div>
       </div>
+      {distintivo || place ? (
+        <div className="cc-op-pop-service">
+          {distintivo ? <span className="cc-op-pop-chip">{distintivo}</span> : null}
+          {place ? (
+            <span className="cc-op-pop-place">
+              <PopupIcon name="place" />
+              {place}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {efectivos.length ? (
         <dl className="cc-op-pop-efectivos" lang="es">
           {efectivos.map((g) => (
@@ -332,17 +343,6 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
             </div>
           ))}
         </dl>
-      ) : null}
-      {distintivo || place ? (
-        <div className="cc-op-pop-service">
-          {distintivo ? <span className="cc-op-pop-chip">{distintivo}</span> : null}
-          {place ? (
-            <span className="cc-op-pop-place">
-              <PopupIcon name="place" />
-              {place}
-            </span>
-          ) : null}
-        </div>
       ) : null}
       {rows.length ? (
         <ul className="cc-op-pop-rows">
