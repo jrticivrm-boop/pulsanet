@@ -4,7 +4,7 @@
  * L2 unidad|zona|región (root: «Administrador»)
  * L3 distintivo: B.O.Mvl. "Castillo" (catálogo + nombre libre entre comillas), seguido de
  *    municipio, estado donde está el servicio (guardado o por su posición)
- *    y debajo los efectivos en filas por grupo (Personal, Armamento, Vehs. S/B., Vehs. C/B., Otros)
+ *    y debajo una flecha que despliega efectivos por grupo (Personal, Armamento, Vehs., Otros)
  * L4 teléfono
  * Cada línea se omite si está vacía; luego fecha, coords, acciones — sin texto de presencia.
  */
@@ -49,6 +49,22 @@ function scaleForMapZoom(z) {
   return 1;
 }
 
+function refreshOpenOperatorPopups(map, scale) {
+  const s = scale ?? scaleForMapZoom(map.getZoom());
+  const maxW = Math.round(300 * s);
+  const minW = Math.min(252, maxW);
+  const visit = (layer) => {
+    const p = layer.getPopup?.();
+    if (p?.isOpen?.() && p.getElement?.()?.classList?.contains('cc-op-leaflet-pop')) {
+      p.options.maxWidth = maxW;
+      p.options.minWidth = minW;
+      p.update();
+    }
+    if (typeof layer.eachLayer === 'function') layer.eachLayer(visit);
+  };
+  map.eachLayer(visit);
+}
+
 /** Achica la ficha al alejar el mapa (si no, el globo queda en píxeles fijos y se ve gigante). */
 export function OperatorPopupZoomFit() {
   const map = useMap();
@@ -56,18 +72,7 @@ export function OperatorPopupZoomFit() {
     const apply = () => {
       const s = scaleForMapZoom(map.getZoom());
       map.getContainer().style.setProperty('--cc-op-pop-scale', String(s));
-      const maxW = Math.round(300 * s);
-      const minW = Math.min(252, maxW);
-      const visit = (layer) => {
-        const p = layer.getPopup?.();
-        if (p?.isOpen?.() && p.getElement?.()?.classList?.contains('cc-op-leaflet-pop')) {
-          p.options.maxWidth = maxW;
-          p.options.minWidth = minW;
-          p.update();
-        }
-        if (typeof layer.eachLayer === 'function') layer.eachLayer(visit);
-      };
-      map.eachLayer(visit);
+      refreshOpenOperatorPopups(map, s);
     };
     apply();
     map.on('zoom', apply);
@@ -285,6 +290,8 @@ function EfectivosRowItems({ items }) {
 
 /** Ficha del operador en el globo; `children` = acciones (botones). */
 export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
+  const map = useMap();
+  const [efectivosOpen, setEfectivosOpen] = useState(false);
   const title = mapPopupTitleLine(loc);
   const distintivo = mapPopupServiceLine(loc);
   const affiliation = mapPopupAffiliationLine(loc);
@@ -293,6 +300,9 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
   const efectivos = Array.isArray(loc?.efectivos)
     ? loc.efectivos.filter((g) => g?.label && Array.isArray(g.items) && g.items.length)
     : [];
+  useLayoutEffect(() => {
+    refreshOpenOperatorPopups(map);
+  }, [map, efectivosOpen]);
   const hasCoords = Number.isFinite(Number(loc?.latitude)) && Number.isFinite(Number(loc?.longitude));
   const rows = [
     phone
@@ -333,16 +343,35 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
         </div>
       ) : null}
       {efectivos.length ? (
-        <dl className="cc-op-pop-efectivos" lang="es">
-          {efectivos.map((g) => (
-            <div key={g.key} className="cc-op-pop-efectivos-row">
-              <dt>{g.label}</dt>
-              <dd>
-                <EfectivosRowItems items={g.items} />
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <div className={`cc-op-pop-efectivos-wrap${efectivosOpen ? ' is-open' : ''}`}>
+          <button
+            type="button"
+            className="cc-op-pop-efectivos-toggle"
+            aria-expanded={efectivosOpen}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setEfectivosOpen((v) => !v);
+            }}
+          >
+            <span>Efectivos</span>
+            <svg className="cc-op-pop-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+          {efectivosOpen ? (
+            <dl className="cc-op-pop-efectivos" lang="es">
+              {efectivos.map((g) => (
+                <div key={g.key} className="cc-op-pop-efectivos-row">
+                  <dt>{g.label}</dt>
+                  <dd>
+                    <EfectivosRowItems items={g.items} />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+        </div>
       ) : null}
       {rows.length ? (
         <ul className="cc-op-pop-rows">

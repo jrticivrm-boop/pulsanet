@@ -1,3 +1,13 @@
+## 2026-10-20 — Mapa: efectivos con flecha y ficha semitransparente
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Los efectivos ya no se muestran siempre: una pastilla «Efectivos» con flecha los despliega debajo de Municipio, Edo.
+  - El globo completo es semitransparente (con desenfoque) para no tapar el mapa.
+  - Se restaura el tamaño de letra de 13 px.
+- **Archivos / refs:** `frontend/src/dispatch/mapOperatorPopup.jsx`, `frontend/src/dispatch/command-center.css`
+
 ## 2026-10-20 — Mapa: ficha sin scroll, más ancha y letra un poco más chica
 
 - **Tipo:** ux
