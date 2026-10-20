@@ -1,3 +1,12 @@
+## 2026-10-20 — Mapa: ficha sin scroll, más ancha y letra un poco más chica
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Se quitan las barras de desplazamiento de la ficha del operador (`max-height` / overflow).
+  - Letra un poco más chica (12 px) y globo más ancho (~300 px) para que Personal / Armamento / vehículos quepan sin recorte.
+- **Archivos / refs:** `frontend/src/dispatch/mapOperatorPopup.jsx`, `frontend/src/dispatch/command-center.css`
+
 ## 2026-10-20 — Mapa: efectivos legibles en la ficha
 
 - **Tipo:** ux | fix
