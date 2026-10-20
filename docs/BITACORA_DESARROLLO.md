@@ -1,3 +1,13 @@
+## 2026-10-20 — Mapa: ficha como la original, con flecha de efectivos
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - Se restaura el diseño de la ficha (avatar, chip, filas, botón «Ver ruta»).
+  - «Efectivos» queda como texto discreto con flecha, al lado de Municipio, Edo.; el desglose se abre debajo.
+  - El globo es semitransparente con el color del panel (sin tinte verde).
+- **Archivos / refs:** `frontend/src/dispatch/mapOperatorPopup.jsx`, `frontend/src/dispatch/command-center.css`
+
 ## 2026-10-20 — Mapa: efectivos con flecha y ficha semitransparente
 
 - **Tipo:** ux

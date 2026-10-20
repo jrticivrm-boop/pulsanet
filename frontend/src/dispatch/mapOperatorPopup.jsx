@@ -36,8 +36,8 @@ export function mapOperatorDistintivo(loc) {
 /** Globo compacto; el ancho real lo ajusta OperatorPopupZoomFit según el zoom. */
 export const OPERATOR_POPUP_OPTS = {
   className: 'cc-op-leaflet-pop',
-  maxWidth: 300,
-  minWidth: 252,
+  maxWidth: 270,
+  minWidth: 220,
   autoPanPadding: [36, 36],
 };
 
@@ -51,8 +51,8 @@ function scaleForMapZoom(z) {
 
 function refreshOpenOperatorPopups(map, scale) {
   const s = scale ?? scaleForMapZoom(map.getZoom());
-  const maxW = Math.round(300 * s);
-  const minW = Math.min(252, maxW);
+  const maxW = Math.round(270 * s);
+  const minW = Math.min(220, maxW);
   const visit = (layer) => {
     const p = layer.getPopup?.();
     if (p?.isOpen?.() && p.getElement?.()?.classList?.contains('cc-op-leaflet-pop')) {
@@ -331,34 +331,38 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
           {affiliation ? <span className="cc-op-pop-aff">{affiliation}</span> : null}
         </div>
       </div>
-      {distintivo || place ? (
+      {distintivo || place || efectivos.length ? (
         <div className="cc-op-pop-service">
           {distintivo ? <span className="cc-op-pop-chip">{distintivo}</span> : null}
-          {place ? (
-            <span className="cc-op-pop-place">
-              <PopupIcon name="place" />
-              {place}
-            </span>
+          {place || efectivos.length ? (
+            <div className={`cc-op-pop-place-line${efectivosOpen ? ' is-open' : ''}`}>
+              {place ? (
+                <span className="cc-op-pop-place">
+                  <PopupIcon name="place" />
+                  {place}
+                </span>
+              ) : (
+                <span />
+              )}
+              {efectivos.length ? (
+                <button
+                  type="button"
+                  className="cc-op-pop-efectivos-toggle"
+                  aria-expanded={efectivosOpen}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setEfectivosOpen((v) => !v);
+                  }}
+                >
+                  Efectivos
+                  <svg className="cc-op-pop-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+              ) : null}
+            </div>
           ) : null}
-        </div>
-      ) : null}
-      {efectivos.length ? (
-        <div className={`cc-op-pop-efectivos-wrap${efectivosOpen ? ' is-open' : ''}`}>
-          <button
-            type="button"
-            className="cc-op-pop-efectivos-toggle"
-            aria-expanded={efectivosOpen}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setEfectivosOpen((v) => !v);
-            }}
-          >
-            <span>Efectivos</span>
-            <svg className="cc-op-pop-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </button>
           {efectivosOpen ? (
             <dl className="cc-op-pop-efectivos" lang="es">
               {efectivos.map((g) => (
