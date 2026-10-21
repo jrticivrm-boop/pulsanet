@@ -36,6 +36,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Usuarios — Alta/Editar más visual:** márgenes uniformes, pasos segmentados, secciones con ícono y subtítulo (incluidos «Qué oye en radio y qué ve en el mapa» y Grupos), foco resaltado y pie de botones fijo de borde a borde; colores legibles en los temas claro, obscuro y verde.
 - **Composer (app/web):** confirmación de envío con miniatura y Enter para enviar; casilla/toggle «Ver una vez» en DM; teclado del composer con acción Enviar.
 
+> Efectivos del servicio, ficha del mapa y avisos del sistema desplegados el 2026-10-21 (`prod-v1.8.107-20261021-1456`, API + web, migración 050).
 > Desplegado en producción el 2026-10-12 (`prod-v1.8.107-20261012-1810`, API + web). APK Android **1.8.183+193**.
 > Teléfono de usuarios (migración 040) y fusión Consola + Seguimiento desplegados el 2026-10-12 (`prod-v1.8.107-20261012-2053`).
 > Ficha de contacto con celular desplegada el 2026-10-12 (`prod-v1.8.107-20261012-2122`, API + web). APK Android **1.8.184+194** lista para distribuir.

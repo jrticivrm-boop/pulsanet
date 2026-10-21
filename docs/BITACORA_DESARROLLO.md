@@ -1,3 +1,12 @@
+## 2026-10-21 — Despliegue a producción: Efectivos, mapa y avisos del sistema
+
+- **Tipo:** otro
+- **Área:** ops
+- **Qué:**
+  - Por orden del usuario: `PROMOVER -A produccion -Migrate` a las 14:56 (fuera de ventana 21:00–07:00). API + web; migración `050_service_efectivos.sql`. Respaldo `/opt/respaldos/pre_deploy_20261021_205545.dump`.
+  - Etiqueta `prod-v1.8.107-20261021-1456` (`30c1917` → `c4579e8`). Health OK. 9 usuarios activos al subir (PTT/video se cortan unos segundos).
+- **Archivos / refs:** Usuarios (Alta/Editar, Efectivos, Poblado/Mpio./Estado, diálogos del sistema), ficha del mapa, coordenadas DD/DMS/MGRS.
+
 ## 2026-10-21 — Usuarios: avisos del sistema, no del navegador
 
 - **Tipo:** fix | ux
