@@ -35,6 +35,7 @@ import { exportInstitutionalReport } from '../excelReport.js';
 import { formatDistintivo } from './mapOperatorPopup.jsx';
 import { IV_RM_STATE_DEFS } from './ivRmStatesConfig.js';
 import { analyzeCoords, parseCoords } from './coordsParse.js';
+import AppDialog from '../AppDialog';
 
 const ROLE_OPTIONS = [
   { value: 'root', label: 'Administrador' },
@@ -2504,41 +2505,97 @@ export default function DispatchUsers({ session }) {
   }
 
   /** Anexa un concepto al grupo de efectivos (catálogo de la organización). */
-  async function addEfectivoItem(grupo) {
+  function addEfectivoItem(grupo) {
     const label = efectivosGrupoLabel(grupo);
-    const name = String(window.prompt(`Nuevo concepto en ${label}:`) || '').trim();
-    if (!name) return;
-    try {
-      const { item } = await createEfectivoItem(session.token, grupo, name);
-      const next = [...efectivosItems, item];
-      liveEfectivosItems = next;
-      setEfectivosItems(next);
-      setError('');
-    } catch (err) {
-      setError(err.message);
-    }
+    setConfirmModal({
+      title: `Nuevo concepto · ${label}`,
+      message: `Nombre del concepto en ${label}.`,
+      promptDefault: '',
+      promptLabel: 'Concepto',
+      promptPlaceholder: 'Ej. Barret',
+      confirmLabel: 'Agregar',
+      onConfirm: async (raw) => {
+        const name = String(raw || '').trim();
+        if (!name) {
+          setConfirmModal(null);
+          return;
+        }
+        try {
+          const { item } = await createEfectivoItem(session.token, grupo, name);
+          const next = [...liveEfectivosItems, item];
+          liveEfectivosItems = next;
+          setEfectivosItems(next);
+          setError('');
+          setConfirmModal(null);
+        } catch (err) {
+          setConfirmModal({
+            title: 'Error',
+            message: err.message || 'No se pudo agregar el concepto',
+            alertOnly: true,
+          });
+        }
+      },
+    });
   }
 
   /** Quita un concepto del catálogo (deja de aparecer para todos los usuarios). */
-  async function removeEfectivoItem(item) {
+  function removeEfectivoItem(item) {
     const label = efectivosGrupoLabel(item.grupo);
-    const ok = window.confirm(
-      `¿Quitar «${item.name}» de ${label}?\n\nDeja de aparecer en el paso Efectivos de todos los usuarios, en la relación y en el Excel.`
-    );
-    if (!ok) return;
-    try {
-      await deleteEfectivoItem(session.token, item.id);
-      const next = efectivosItems.filter((it) => it.id !== item.id);
-      liveEfectivosItems = next;
-      setEfectivosItems(next);
-      setForm((prev) => {
-        const { [item.id]: _removed, ...rest } = prev.serviceEfectivos || {};
-        return { ...prev, serviceEfectivos: rest };
-      });
-      setError('');
-    } catch (err) {
-      setError(err.message);
-    }
+    setConfirmModal({
+      title: `Quitar «${item.name}» de ${label}`,
+      message: `¿Quitar «${item.name}» de ${label}?\n\nDeja de aparecer en el paso Efectivos de todos los usuarios, en la relación y en el Excel.`,
+      confirmLabel: 'Quitar',
+      danger: true,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        try {
+          await deleteEfectivoItem(session.token, item.id);
+          const next = liveEfectivosItems.filter((it) => it.id !== item.id);
+          liveEfectivosItems = next;
+          setEfectivosItems(next);
+          setForm((prev) => {
+            const { [item.id]: _removed, ...rest } = prev.serviceEfectivos || {};
+            return { ...prev, serviceEfectivos: rest };
+          });
+          setError('');
+        } catch (err) {
+          setError(err.message);
+        }
+      },
+    });
+  }
+
+  function askNewServicioTipo() {
+    setConfirmModal({
+      title: 'Nuevo tipo de servicio',
+      message: 'Nombre del tipo (ej. P.M.A.).',
+      promptDefault: '',
+      promptLabel: 'Tipo',
+      promptPlaceholder: 'Ej. P.M.A.',
+      confirmLabel: 'Agregar',
+      onConfirm: async (raw) => {
+        const name = String(raw || '').trim();
+        if (!name) {
+          setConfirmModal(null);
+          return;
+        }
+        try {
+          const created = await createCatalogServicio(session.token, { name });
+          const row = created?.servicio || { name };
+          setServicios((prev) =>
+            prev.some((s) => s.name === row.name) ? prev : [...prev, row]
+          );
+          setForm((f) => ({ ...f, cargo: row.name }));
+          setConfirmModal(null);
+        } catch (err) {
+          setConfirmModal({
+            title: 'Error',
+            message: err.message || 'No se pudo agregar el tipo de servicio',
+            alertOnly: true,
+          });
+        }
+      },
+    });
   }
 
   /** Edición: aplica solo las altas/bajas de grupos respecto a lo que ya tenía. */
@@ -2750,16 +2807,24 @@ export default function DispatchUsers({ session }) {
     }
   }
 
-  async function forceLogout(u) {
+  function forceLogout(u) {
     const name = u.displayName || u.username || 'este usuario';
-    if (!window.confirm(`¿Cerrar todas las sesiones de ${name} (web y app)?`)) return;
-    try {
-      await forceLogoutAdminUser(session.token, u.id);
-      setError('');
-      setMoreUserId(null);
-    } catch (err) {
-      setError(err.message);
-    }
+    setConfirmModal({
+      title: 'Cerrar sesiones',
+      message: `¿Cerrar todas las sesiones de ${name} (web y app)?`,
+      confirmLabel: 'Cerrar sesiones',
+      danger: true,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        try {
+          await forceLogoutAdminUser(session.token, u.id);
+          setError('');
+          setMoreUserId(null);
+        } catch (err) {
+          setError(err.message);
+        }
+      },
+    });
   }
 
   async function togglePanicPerm(u) {
@@ -3703,26 +3768,13 @@ export default function DispatchUsers({ session }) {
                     <span>Tipo de servicio</span>
                     <select
                       value={form.cargo}
-                      onChange={async (e) => {
+                      onChange={(e) => {
                         const v = e.target.value;
                         if (v !== '__new__') {
                           setForm({ ...form, cargo: v });
                           return;
                         }
-                        const name = String(
-                          window.prompt('Nuevo tipo de servicio (ej. P.M.A.):') || ''
-                        ).trim();
-                        if (!name) return;
-                        try {
-                          const created = await createCatalogServicio(session.token, { name });
-                          const row = created?.servicio || { name };
-                          setServicios((prev) =>
-                            prev.some((s) => s.name === row.name) ? prev : [...prev, row]
-                          );
-                          setForm((f) => ({ ...f, cargo: row.name }));
-                        } catch (err) {
-                          setError(err.message || 'No se pudo agregar el tipo de servicio');
-                        }
+                        askNewServicioTipo();
                       }}
                     >
                       <option value="">— Selecciona tipo —</option>
@@ -4445,44 +4497,22 @@ export default function DispatchUsers({ session }) {
         </div>
       )}
 
-      {confirmModal && (
-        <div className="sys-modal-backdrop" role="presentation" data-esc-close>
-          <div
-            className="sys-modal sys-modal--sm"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="confirm-modal-title"
-          >
-            <header className="sys-modal-head">
-              <h2 id="confirm-modal-title">{confirmModal.title}</h2>
-              <button
-                type="button"
-                className="sys-modal-x"
-                data-esc-close-btn
-                aria-label="Cerrar"
-                onClick={() => setConfirmModal(null)}
-              >
-                ×
-              </button>
-            </header>
-            <div className="sys-modal-body">
-              <p>{confirmModal.message}</p>
-            </div>
-            <footer className="sys-modal-actions">
-              <button type="button" className="cc-btn ghost" onClick={() => setConfirmModal(null)}>
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className={`cc-btn ${confirmModal.danger ? 'danger' : 'primary'}`}
-                onClick={() => confirmModal.onConfirm?.()}
-              >
-                {confirmModal.confirmLabel || 'Confirmar'}
-              </button>
-            </footer>
-          </div>
-        </div>
-      )}
+      <AppDialog
+        open={Boolean(confirmModal)}
+        title={confirmModal?.title}
+        message={confirmModal?.message}
+        danger={confirmModal?.danger}
+        alertOnly={confirmModal?.alertOnly}
+        confirmLabel={confirmModal?.confirmLabel || 'Confirmar'}
+        promptDefault={confirmModal?.promptDefault}
+        promptLabel={confirmModal?.promptLabel}
+        promptPlaceholder={confirmModal?.promptPlaceholder}
+        onCancel={() => setConfirmModal(null)}
+        onConfirm={(value) => {
+          if (confirmModal?.onConfirm) confirmModal.onConfirm(value);
+          else setConfirmModal(null);
+        }}
+      />
     </div>
   );
 }

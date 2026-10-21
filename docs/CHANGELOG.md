@@ -31,6 +31,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Chat DM — ver una vez (imagen/video):** al enviar media se puede marcar «Ver una vez»; el destinatario abre una sola vez y el mensaje se elimina (soft-delete). Migración `045_message_view_once.sql`. App y web DM; no aplica a canales/grupo en esta entrega.
 
 ### Changed
+- **Usuarios — avisos del sistema:** quitar o agregar un concepto de Efectivos, agregar tipo de servicio y cerrar sesiones usan el modal del proyecto (ya no el recuadro del navegador «127.0.0.1 dice»).
 - **Ficha del operador:** mismo diseño de siempre (chip, filas, botón); globo semitransparente; «Efectivos ▾» discreto al lado del lugar.
 - **Usuarios — Alta/Editar más visual:** márgenes uniformes, pasos segmentados, secciones con ícono y subtítulo (incluidos «Qué oye en radio y qué ve en el mapa» y Grupos), foco resaltado y pie de botones fijo de borde a borde; colores legibles en los temas claro, obscuro y verde.
 - **Composer (app/web):** confirmación de envío con miniatura y Enter para enviar; casilla/toggle «Ver una vez» en DM; teclado del composer con acción Enviar.

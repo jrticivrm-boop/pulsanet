@@ -2045,6 +2045,11 @@ select option,
   backdrop-filter: blur(2px);
 }
 
+/* Confirmación encima de otro modal del sistema (p. ej. Alta de usuario). */
+.sys-modal-backdrop ~ .sys-modal-backdrop {
+  z-index: 12100;
+}
+
 .sys-modal {
   width: min(440px, 100%);
   background: var(--surface, #f4f7f1);
@@ -2113,6 +2118,11 @@ select option,
 
 .sys-modal-body {
   padding: 1rem 1.1rem 0.4rem;
+}
+
+.sys-modal-body > p {
+  margin: 0 0 0.65rem;
+  white-space: pre-wrap;
 }
 
 .sys-modal-prompt {
