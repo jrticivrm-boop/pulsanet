@@ -77,6 +77,9 @@ export function resolveLiveKitUrl(req) {
   }
 
   if (publicHost) {
+    if (config.isProd || publicDomain) {
+      return `wss://${publicHost.replace(/:\d+$/, '')}`;
+    }
     return `${proto}://${publicHost}:${port}`;
   }
 

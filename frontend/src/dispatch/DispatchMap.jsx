@@ -37,6 +37,7 @@ import {
   deleteGeofence,
   fetchPanicEvents,
   geoReverse,
+  fetchTerritoryCoverage,
   isAdminUser,
 } from '../api';
 import { socketWireKey, unwrapDispatchPayload, applyDispatchJoinedWire } from '../wireCrypto.js';
@@ -108,6 +109,7 @@ import IvRmTerritoryLayer from './IvRmTerritoryLayer.jsx';
 import FitTerritoryFeatures from './FitTerritoryFeatures.jsx';
 import TerritoryOpsPanel from './TerritoryOpsPanel.jsx';
 import {
+  applyTerritoryCoverage,
   filterTerritoryFeatures,
   loadIvRmMunicipios,
   pointInAnyFeature,
@@ -117,6 +119,7 @@ import {
   isSurfaceEnabled,
   useIvRmStatesConfig,
 } from './ivRmStatesConfig.js';
+import { IV_RM_COVERAGE_EVENT, IV_RM_ZONAS, listTerritoryUnidades } from './ivRmTerritoryConfig.js';
 import HighlighterTrack, { PREDICTED_COLOR } from './HighlighterTrack.jsx';
 import MapSearchPanel, { MapSearchLayer, MapReverseLookup } from './MapSearchPanel.jsx';
 import MapRoutePanel, { MapRouteLayer, routePointAt, routePointFrom, useRoutePlan } from './MapRoutePanel.jsx';
@@ -278,35 +281,87 @@ const OPS_TAB_DEFAULT_ORDER = [
   'rutaab',
 ];
 const OPS_TAB_IDS = new Set(OPS_TAB_DEFAULT_ORDER);
-const TERRITORY_FILTER_KEY = 'tacticalptx_map_territory_filter_v1';
+const TERRITORY_FILTER_KEY = 'tacticalptx_map_territory_filter_v2';
+const TERRITORY_FILTER_KEY_V1 = 'tacticalptx_map_territory_filter_v1';
+
+function asIdList(value) {
+  if (Array.isArray(value)) return [...new Set(value.map(String).filter(Boolean))];
+  if (value) return [String(value)];
+  return [];
+}
+
+function uniqueFeatureEstados(features) {
+  const seen = new Set();
+  const out = [];
+  for (const f of features || []) {
+    const e = String(f?.properties?.estado || '').trim();
+    if (!e || seen.has(e)) continue;
+    seen.add(e);
+    out.push(e);
+  }
+  return out;
+}
+
+function emptyTerritoryFilter() {
+  return {
+    zonaIds: [],
+    unidadIds: [],
+    estadoIds: [],
+    municipioIds: [],
+    showColors: true,
+    filterUsers: false,
+    seeded: false,
+    estadoSeeded: false,
+    municipioSeeded: false,
+  };
+}
 
 function readTerritoryFilter() {
   try {
-    const raw = JSON.parse(localStorage.getItem(TERRITORY_FILTER_KEY) || 'null');
-    if (!raw || typeof raw !== 'object') {
+    const raw = JSON.parse(
+      localStorage.getItem(TERRITORY_FILTER_KEY) ||
+        localStorage.getItem(TERRITORY_FILTER_KEY_V1) ||
+        'null'
+    );
+    if (!raw || typeof raw !== 'object') return emptyTerritoryFilter();
+    const hasMulti =
+      Array.isArray(raw.zonaIds) ||
+      Array.isArray(raw.unidadIds) ||
+      Array.isArray(raw.estadoIds) ||
+      Array.isArray(raw.municipioIds);
+    if (hasMulti) {
       return {
-        zonaId: null,
-        unidad: null,
-        municipioId: null,
-        showColors: true,
-        filterUsers: false,
+        zonaIds: asIdList(raw.zonaIds),
+        unidadIds: asIdList(raw.unidadIds),
+        estadoIds: asIdList(raw.estadoIds),
+        municipioIds: asIdList(raw.municipioIds),
+        showColors: raw.showColors !== false,
+        filterUsers: raw.filterUsers === true,
+        seeded: true,
+        estadoSeeded: Array.isArray(raw.estadoIds),
+        municipioSeeded: Array.isArray(raw.municipioIds),
+      };
+    }
+    if (raw.zonaId || raw.unidad || raw.municipioId) {
+      return {
+        zonaIds: asIdList(raw.zonaId),
+        unidadIds: asIdList(raw.unidad),
+        estadoIds: asIdList(raw.estado),
+        municipioIds: asIdList(raw.municipioId),
+        showColors: raw.showColors !== false,
+        filterUsers: raw.filterUsers === true,
+        seeded: true,
+        estadoSeeded: Boolean(raw.estado),
+        municipioSeeded: Boolean(raw.municipioId),
       };
     }
     return {
-      zonaId: raw.zonaId || null,
-      unidad: raw.unidad || null,
-      municipioId: raw.municipioId || null,
+      ...emptyTerritoryFilter(),
       showColors: raw.showColors !== false,
       filterUsers: raw.filterUsers === true,
     };
   } catch {
-    return {
-      zonaId: null,
-      unidad: null,
-      municipioId: null,
-      showColors: true,
-      filterUsers: false,
-    };
+    return emptyTerritoryFilter();
   }
 }
 
@@ -1607,6 +1662,7 @@ export default function DispatchMap({ session }) {
   const [territoryUi, setTerritoryUi] = useState(() => readTerritoryFilter());
   const [territoryFeatures, setTerritoryFeatures] = useState([]);
   const [territoryAllFeatures, setTerritoryAllFeatures] = useState([]);
+  const [territoryCoverageRows, setTerritoryCoverageRows] = useState([]);
   const [territoryFitToken, setTerritoryFitToken] = useState(0);
   /** Pestaña «Buscar»: resultado marcado en el mapa y disparador de vuelo. */
   const [searchSelected, setSearchSelected] = useState(null);
@@ -1892,15 +1948,73 @@ export default function DispatchMap({ session }) {
   }, [territoryUi]);
 
   useEffect(() => {
-    let alive = true;
-    loadIvRmMunicipios().then((list) => {
-      if (!alive) return;
-      setTerritoryAllFeatures(list?.length ? list : []);
+    if (territoryUi.seeded) return;
+    setTerritoryUi((prev) => ({
+      ...prev,
+      zonaIds: IV_RM_ZONAS.map((z) => String(z.id)),
+      unidadIds: listTerritoryUnidades().map((u) => u.unidad),
+      seeded: true,
+    }));
+  }, [territoryUi.seeded]);
+
+  useEffect(() => {
+    if (!territoryUi.seeded || !territoryAllFeatures.length) return;
+    const allE = uniqueFeatureEstados(territoryAllFeatures);
+    const allM = [
+      ...new Set(
+        territoryAllFeatures.map((f) => String(f.properties?.shapeID || '')).filter(Boolean)
+      ),
+    ];
+    const validE = new Set(allE);
+    const validM = new Set(allM);
+    setTerritoryUi((prev) => {
+      let next = prev;
+      if (!prev.estadoSeeded) {
+        next = { ...next, estadoIds: allE, estadoSeeded: true };
+      } else {
+        const estados = (next.estadoIds || []).filter((id) => validE.has(String(id)));
+        if (estados.length !== (next.estadoIds || []).length) {
+          next = { ...next, estadoIds: estados };
+        }
+      }
+      if (!next.municipioSeeded) {
+        next = { ...next, municipioIds: allM, municipioSeeded: true };
+      } else {
+        const munis = (next.municipioIds || []).filter((id) => validM.has(String(id)));
+        if (munis.length !== (next.municipioIds || []).length) {
+          next = { ...next, municipioIds: munis };
+        }
+      }
+      return next;
     });
+  }, [territoryUi.seeded, territoryAllFeatures]);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadTerritory() {
+      const list = await loadIvRmMunicipios();
+      const raw = list?.length ? list : [];
+      let rows = [];
+      try {
+        const cov = await fetchTerritoryCoverage(session.token);
+        rows = cov?.rows || [];
+      } catch {
+        rows = [];
+      }
+      if (!alive) return;
+      setTerritoryCoverageRows(rows);
+      setTerritoryAllFeatures(rows.length ? applyTerritoryCoverage(raw, rows) : raw);
+    }
+    loadTerritory();
+    const onCov = () => {
+      if (alive) loadTerritory();
+    };
+    window.addEventListener(IV_RM_COVERAGE_EVENT, onCov);
     return () => {
       alive = false;
+      window.removeEventListener(IV_RM_COVERAGE_EVENT, onCov);
     };
-  }, []);
+  }, [session.token]);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
@@ -1987,22 +2101,20 @@ export default function DispatchMap({ session }) {
       });
     }
     /* Territorio: opcionalmente solo pines dentro de la selección (zona/unidad/municipio). */
-    if (territoryUi.filterUsers) {
+    if (territoryUi.filterUsers && territoryUi.seeded && territoryAllFeatures.length) {
       const sel = {
-        zonaId: territoryUi.zonaId || null,
-        unidad: territoryUi.unidad || null,
-        municipioId: territoryUi.municipioId || null,
+        zonaIds: territoryUi.zonaIds,
+        unidadIds: territoryUi.unidadIds,
+        estadoIds: territoryUi.estadoSeeded ? territoryUi.estadoIds : undefined,
+        municipioIds: territoryUi.municipioSeeded ? territoryUi.municipioIds : undefined,
       };
-      const hasSel = Boolean(sel.zonaId || sel.unidad || sel.municipioId);
-      if (hasSel && territoryAllFeatures.length) {
-        const feats = filterTerritoryFeatures(territoryAllFeatures, sel);
-        list = list.filter((loc) => {
-          const lat = Number(loc.latitude);
-          const lng = Number(loc.longitude);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-          return pointInAnyFeature(feats, lat, lng);
-        });
-      }
+      const feats = filterTerritoryFeatures(territoryAllFeatures, sel);
+      list = list.filter((loc) => {
+        const lat = Number(loc.latitude);
+        const lng = Number(loc.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+        return pointInAnyFeature(feats, lat, lng);
+      });
     }
     return list;
   }, [
@@ -2018,9 +2130,13 @@ export default function DispatchMap({ session }) {
     showAway,
     showOffline,
     territoryUi.filterUsers,
-    territoryUi.zonaId,
-    territoryUi.unidad,
-    territoryUi.municipioId,
+    territoryUi.seeded,
+    territoryUi.zonaIds,
+    territoryUi.unidadIds,
+    territoryUi.estadoIds,
+    territoryUi.estadoSeeded,
+    territoryUi.municipioIds,
+    territoryUi.municipioSeeded,
     territoryAllFeatures,
   ]);
   const operatorFilterRef = useRef({
@@ -3367,16 +3483,21 @@ export default function DispatchMap({ session }) {
             >
               <TerritoryOpsPanel
                 filter={{
-                  zonaId: territoryUi.zonaId,
-                  unidad: territoryUi.unidad,
-                  municipioId: territoryUi.municipioId,
+                  zonaIds: territoryUi.zonaIds,
+                  unidadIds: territoryUi.unidadIds,
+                  estadoIds: territoryUi.estadoIds,
+                  municipioIds: territoryUi.municipioIds,
                 }}
                 onChange={(next) =>
                   setTerritoryUi((prev) => ({
                     ...prev,
-                    zonaId: next.zonaId ?? null,
-                    unidad: next.unidad ?? null,
-                    municipioId: next.municipioId ?? null,
+                    zonaIds: next.zonaIds || [],
+                    unidadIds: next.unidadIds || [],
+                    estadoIds: next.estadoIds || [],
+                    municipioIds: next.municipioIds || [],
+                    seeded: true,
+                    estadoSeeded: true,
+                    municipioSeeded: true,
                   }))
                 }
                 showColors={territoryUi.showColors}
@@ -3385,6 +3506,24 @@ export default function DispatchMap({ session }) {
                 onFilterUsers={(v) => setTerritoryUi((prev) => ({ ...prev, filterUsers: v }))}
                 municipios={territoryAllFeatures}
                 onFit={() => setTerritoryFitToken((n) => n + 1)}
+                onReset={() =>
+                  setTerritoryUi((prev) => ({
+                    ...prev,
+                    zonaIds: IV_RM_ZONAS.map((z) => String(z.id)),
+                    unidadIds: listTerritoryUnidades().map((u) => u.unidad),
+                    estadoIds: uniqueFeatureEstados(territoryAllFeatures),
+                    municipioIds: [
+                      ...new Set(
+                        territoryAllFeatures
+                          .map((f) => String(f.properties?.shapeID || ''))
+                          .filter(Boolean)
+                      ),
+                    ],
+                    seeded: true,
+                    estadoSeeded: true,
+                    municipioSeeded: true,
+                  }))
+                }
               />
             </div>
           ) : null}
@@ -3857,12 +3996,20 @@ export default function DispatchMap({ session }) {
           <IvRmStatesLayer surface="consola" />
           <IvRmTerritoryLayer
             surface="consola"
-            filter={{
-              zonaId: territoryUi.zonaId || null,
-              unidad: territoryUi.unidad || null,
-              municipioId: territoryUi.municipioId || null,
-            }}
+            filter={
+              territoryUi.seeded
+                ? {
+                    zonaIds: territoryUi.zonaIds,
+                    unidadIds: territoryUi.unidadIds,
+                    estadoIds: territoryUi.estadoSeeded ? territoryUi.estadoIds : undefined,
+                    municipioIds: territoryUi.municipioSeeded
+                      ? territoryUi.municipioIds
+                      : undefined,
+                  }
+                : null
+            }
             showColors={territoryUi.showColors}
+            coverageRows={territoryCoverageRows}
             onFeaturesReady={setTerritoryFeatures}
           />
           <FitTerritoryFeatures features={territoryFeatures} fitToken={territoryFitToken} />

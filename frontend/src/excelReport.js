@@ -6,7 +6,7 @@
  */
 
 const EXCELJS_SRC = `${import.meta.env.BASE_URL || '/'}vendor/exceljs.min.js`;
-const REPORT_ORG = 'IV Región Militar · TacticalPtx';
+const REPORT_ORG = 'IV Región Militar · SICOM';
 const ROW_HEADER = 'No.';
 const FONT = 'Geomanist';
 const MIN_COLS = 21;
@@ -347,7 +347,7 @@ export async function exportInstitutionalReport(opts) {
     r += 1;
   }
 
-  const footerText = `— Fin del reporte · ${fmtInt(rows.length)} registro${rows.length !== 1 ? 's' : ''} · TacticalPtx IV RM —`;
+  const footerText = `— Fin del reporte · ${fmtInt(rows.length)} registro${rows.length !== 1 ? 's' : ''} · SICOM IV RM —`;
   mergeRow(ws, r, 1, colEnd, footerText, 'footer', styles);
   ws.getRow(r).height = 22;
   const pageSetup = {

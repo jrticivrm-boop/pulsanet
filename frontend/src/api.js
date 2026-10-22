@@ -32,33 +32,43 @@ export async function api(path, { token, method = 'GET', body, _retried, cache, 
   return data;
 }
 
+let refreshInFlight = null;
+
 async function tryRefreshStoredSession() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const session = JSON.parse(raw);
+      if (!session?.refreshToken) return null;
+      const data = await fetch(`${API_BASE}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          refreshToken: session.refreshToken,
+          deviceId: getDeviceId() || undefined,
+        }),
+      }).then((r) => r.json());
+      if (!data.ok) return null;
+      const next = {
+        token: data.token,
+        refreshToken: data.refreshToken,
+        user: data.user,
+        crypto: data.crypto || undefined,
+        avatarTicket: data.avatarTicket || undefined,
+      };
+      persistSession(next);
+      window.dispatchEvent(new CustomEvent('tacticalptx:session', { detail: next }));
+      return next;
+    } catch {
+      return null;
+    }
+  })();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const session = JSON.parse(raw);
-    if (!session?.refreshToken) return null;
-    const data = await fetch(`${API_BASE}/api/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        refreshToken: session.refreshToken,
-        deviceId: getDeviceId() || undefined,
-      }),
-    }).then((r) => r.json());
-    if (!data.ok) return null;
-    const next = {
-      token: data.token,
-      refreshToken: data.refreshToken,
-      user: data.user,
-      crypto: data.crypto || undefined,
-      avatarTicket: data.avatarTicket || undefined,
-    };
-    persistSession(next);
-    window.dispatchEvent(new CustomEvent('tacticalptx:session', { detail: next }));
-    return next;
-  } catch {
-    return null;
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
   }
 }
 
@@ -82,7 +92,7 @@ export function jwtExpiresAtMs(token) {
  * @returns {Promise<object|null>} sesión actualizada o la vigente si aún es fresca
  */
 export async function ensureFreshSession(opts = {}) {
-  const minTtlMs = opts.minTtlMs ?? 10 * 60 * 1000;
+  const minTtlMs = opts.minTtlMs ?? 4 * 60 * 1000;
   const force = Boolean(opts.force);
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -153,6 +163,26 @@ export async function login(username, password) {
     throw err;
   }
   return data;
+}
+
+/** Revoca el refresh en el servidor. No lanza: el cliente limpia igual. */
+export async function logoutSession(session) {
+  if (!session?.token) return;
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.token}`,
+      },
+      body: JSON.stringify({
+        refreshToken: session.refreshToken || undefined,
+        deviceId: getDeviceId() || undefined,
+      }),
+    });
+  } catch {
+    /* red caída: igual se limpia el almacenamiento local */
+  }
 }
 
 export function fetchAuthMe(token) {
@@ -618,6 +648,18 @@ export function patchCatalogServicio(token, id, body) {
 
 export function deleteCatalogServicio(token, id) {
   return api(`/api/catalogs/servicios/${id}`, { token, method: 'DELETE' });
+}
+
+export function fetchTerritoryCoverage(token) {
+  return api('/api/geo/territorio-coverage', { token });
+}
+
+export function fetchCatalogTerritorio(token) {
+  return api('/api/catalogs/territorio', { token });
+}
+
+export function putCatalogTerritorio(token, body) {
+  return api('/api/catalogs/territorio', { token, method: 'PUT', body });
 }
 
 export function fetchGeoEstados(token) {

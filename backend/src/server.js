@@ -93,9 +93,11 @@ const io = new Server(server, {
 
 app.use(
   helmet({
-    hsts: tlsOptions
-      ? { maxAge: 15552000, includeSubDomains: false, preload: false }
-      : false,
+    // Caddy termina TLS en SICOM; Node suele ir en HTTP interno.
+    hsts:
+      tlsOptions || config.trustProxy
+        ? { maxAge: 15552000, includeSubDomains: true, preload: false }
+        : false,
   })
 );
 app.use(cors({ origin: config.corsOrigins, credentials: true }));
@@ -201,7 +203,7 @@ io.use((socket, next) => {
   if (!token) return next(new Error('No autorizado'));
   let payload;
   try {
-    payload = jwt.verify(token, config.jwtSecret);
+    payload = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] });
   } catch {
     return next(new Error('Token inválido'));
   }
@@ -216,6 +218,9 @@ io.use((socket, next) => {
     .then((user) => {
       if (user === null) return;
       if (!user) return next(new Error('No autorizado'));
+      if (user.mustChangePassword) {
+        return next(new Error('Debes cambiar la contraseña'));
+      }
       socket.data.user = {
         sub: user.sub,
         role: user.role,
@@ -261,10 +266,21 @@ app.use((err, req, res, _next) => {
   res.status(err.status || 500).json({ ok: false, error: msg });
 });
 
+function redactRedisUrl(raw) {
+  try {
+    const u = new URL(String(raw || ''));
+    if (u.password) u.password = '***';
+    if (u.username && u.username !== 'default') u.username = '***';
+    return u.toString();
+  } catch {
+    return '(redis)';
+  }
+}
+
 async function start() {
   try {
     await connectRedis();
-    console.log(`Redis → ${config.redisUrl}`);
+    console.log(`Redis → ${redactRedisUrl(config.redisUrl)}`);
   } catch (err) {
     console.error('Redis no disponible:', err.message);
     console.error('Arranca Redis (Laragon) antes de usar presencia/PTT floor.');

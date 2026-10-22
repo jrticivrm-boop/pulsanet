@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { ensureFreshSession, jwtExpiresAtMs } from './api';
 
-/** Margen antes del vencimiento del JWT para renovar (evita sockets con token muerto). */
-const REFRESH_BEFORE_MS = 15 * 60 * 1000;
-/** Si no se puede leer exp, renovar cada 3 h (JWT por defecto = 8 h). */
-const FALLBACK_REFRESH_MS = 3 * 60 * 60 * 1000;
+/** Margen antes del vencimiento del JWT para renovar (JWT por defecto = 15 min). */
+const REFRESH_BEFORE_MS = 4 * 60 * 1000;
+/** Si no se puede leer exp, renovar cada 8 min. */
+const FALLBACK_REFRESH_MS = 8 * 60 * 1000;
 /** Revisión periódica (no hace fetch si el token aún es fresco). */
 const TICK_MS = 60 * 1000;
 

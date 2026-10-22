@@ -3,10 +3,9 @@ import path from 'path';
 import { Router } from 'express';
 import multer from 'multer';
 import { randomUUID } from 'crypto';
-import jwt from 'jsonwebtoken';
 import { query } from '../db.js';
 import { config } from '../config.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, verifyAccessToken } from '../middleware/auth.js';
 import { mintAvatarTicket, verifyAvatarTicket } from '../services/avatarTicket.js';
 import { UPLOADS_DIR, mediaDiskPath, prepareAvatarUploadDir, storedUploadRel, ensureUploadAbsDir, resolveAvatarUploadRel } from '../services/uploads.js';
 import { logActivity } from '../services/activity.js';
@@ -79,7 +78,7 @@ function authFromHeaderOrQuery(req, res, next) {
   if (header?.startsWith('Bearer ')) {
     const raw = header.slice(7);
     try {
-      const payload = jwt.verify(raw, config.jwtSecret);
+      const payload = verifyAccessToken(raw);
       return bindLiveUser(payload)
         .then((user) => {
           if (!user) {

@@ -10,6 +10,7 @@ import {
   useIvRmTerritoryConfig,
 } from './ivRmTerritoryConfig.js';
 import {
+  applyTerritoryCoverage,
   filterTerritoryFeatures,
   loadIvRmMunicipios,
   loadedIvRmMunicipios,
@@ -153,6 +154,7 @@ export default function IvRmTerritoryLayer({
   filter = null,
   showColors: showColorsProp = null,
   onFeaturesReady = null,
+  coverageRows = null,
 }) {
   const map = useMap();
   const [config] = useIvRmTerritoryConfig();
@@ -178,13 +180,23 @@ export default function IvRmTerritoryLayer({
     };
   }, [layerOn, features]);
 
+  const coverageKey = JSON.stringify(
+    (coverageRows || []).map((r) => [
+      r.unidadName || r.unidad_name,
+      r.estado,
+      r.municipio,
+      r.zonaKey || r.zona_key,
+    ])
+  );
+
   const visible = useMemo(() => {
     if (!features?.length) return [];
     const cfg = config || loadIvRmTerritoryConfig();
-    let list = features.filter((f) => isZonaEnabled(cfg, f.properties?.zonaId));
+    const overlaid = applyTerritoryCoverage(features, coverageRows);
+    let list = overlaid.filter((f) => isZonaEnabled(cfg, f.properties?.zonaId));
     if (filter) list = filterTerritoryFeatures(list, filter);
     return list;
-  }, [features, configKey, filterKey]);
+  }, [features, configKey, filterKey, coverageKey]);
 
   useEffect(() => {
     if (typeof onFeaturesReady === 'function') onFeaturesReady(visible);

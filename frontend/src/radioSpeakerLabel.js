@@ -27,7 +27,7 @@ export function radioSpeakerStatusLabel({
     if (waking) {
       return count > 0 ? `DESPERTANDO · radios (${count})` : 'DESPERTANDO · radios…';
     }
-    return 'PEDINDO · canal…';
+    return 'PIDIENDO · canal…';
   }
 
   const others = (Array.isArray(speakers) ? speakers : []).filter(

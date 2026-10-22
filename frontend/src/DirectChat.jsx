@@ -46,12 +46,31 @@ import WaEmojiPicker from './WaEmojiPicker';
 import PersonAvatar from './PersonAvatar';
 import { startVideoCall, startVoiceCall } from './peerActions';
 import { createVoiceRecorder, getVoiceStream, voiceFileExtension } from './voiceRecord';
+import { compareByLastMessage, compareContactRows } from './inboxTabOrder';
 import iconTelefono from './assets/icons/telefono.png';
 import iconVideollamada from './assets/icons/videollamada.png';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const SOCKET_URL = socketUrl();
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+function bumpDmConversationList(prev, { peerId, peerName, peerAvatarUrl, peerEmail, lastMessage }) {
+  const id = String(peerId || '');
+  if (!id) return prev;
+  const existing = prev.find((c) => String(c.peerId) === id) || {};
+  const rest = prev.filter((c) => String(c.peerId) !== id);
+  return [
+    {
+      ...existing,
+      peerId: existing.peerId || peerId,
+      peerName: peerName || existing.peerName || 'Chat',
+      peerEmail: peerEmail || existing.peerEmail,
+      peerAvatarUrl: peerAvatarUrl ?? existing.peerAvatarUrl ?? null,
+      lastMessage: lastMessage || existing.lastMessage,
+    },
+    ...rest,
+  ];
+}
 
 /** Vibración + sacudida + buzz aproximado estilo Messenger (~1.5 s). */
 function playNudgeEffect() {
@@ -186,6 +205,7 @@ export default function DirectChat({
   const socketRef = useRef(null);
   const logRef = useRef(null);
   const peerRef = useRef(null);
+  const contactsRef = useRef(contacts);
   const imageRef = useRef(null);
   const cameraRef = useRef(null);
   const videoRef = useRef(null);
@@ -228,6 +248,9 @@ export default function DirectChat({
   useEffect(() => {
     peerRef.current = peer;
   }, [peer]);
+  useEffect(() => {
+    contactsRef.current = contacts;
+  }, [contacts]);
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
@@ -287,6 +310,29 @@ export default function DirectChat({
     },
     [token]
   );
+
+  const bumpPeerThread = useCallback((peerId, lastMessage, extra = {}) => {
+    const id = String(peerId || '');
+    if (!id || !lastMessage) return;
+    const contact = contactsRef.current.find((c) => String(c.id) === id);
+    const p = peerRef.current;
+    const fromPeer = p && String(p.id) === id ? p : null;
+    setConversations((prev) =>
+      bumpDmConversationList(prev, {
+        peerId: id,
+        peerName:
+          extra.peerName ||
+          fromPeer?.displayName ||
+          contact?.displayName,
+        peerAvatarUrl:
+          extra.peerAvatarUrl ?? fromPeer?.avatarUrl ?? contact?.avatarUrl,
+        peerEmail: extra.peerEmail || fromPeer?.email || contact?.email,
+        lastMessage,
+      })
+    );
+  }, []);
+  const bumpPeerThreadRef = useRef(bumpPeerThread);
+  bumpPeerThreadRef.current = bumpPeerThread;
 
   useEffect(() => {
     if (!active || !peer?.id || !messages.length) return undefined;
@@ -377,6 +423,15 @@ export default function DirectChat({
       ) {
         markPeerRead(peerId, msg.id);
       }
+      bumpPeerThreadRef.current?.(peerId, {
+        id: msg.id,
+        body: msg.body,
+        type: msg.type,
+        createdAt: msg.createdAt || new Date().toISOString(),
+        mine: msg.senderId === me.id,
+      }, {
+        peerName: msg.senderId === me.id ? undefined : msg.displayName,
+      });
     });
 
     socket.on('dm:nudge', () => {
@@ -423,23 +478,13 @@ export default function DirectChat({
     });
 
     socket.on('dm:notify', ({ peerId, peerName, message }) => {
-      setConversations((prev) => {
-        const rest = prev.filter((c) => c.peerId !== peerId);
-        return [
-          {
-            peerId,
-            peerName,
-            lastMessage: {
-              id: message.id,
-              body: message.body,
-              type: message.type,
-              createdAt: message.createdAt,
-              mine: false,
-            },
-          },
-          ...rest,
-        ];
-      });
+      bumpPeerThreadRef.current?.(peerId, {
+        id: message?.id,
+        body: message?.body,
+        type: message?.type,
+        createdAt: message?.createdAt,
+        mine: false,
+      }, { peerName });
       const viewingThisChat = isViewingChat('dm', peerId);
 
       if (viewingThisChat) {
@@ -640,6 +685,16 @@ export default function DirectChat({
             : null,
         };
         setMessages((prev) => [...prev, optimistic]);
+        bumpPeerThread(peer.id, {
+          id: clientMsgId,
+          body,
+          type: 'text',
+          createdAt: optimistic.createdAt,
+          mine: true,
+        }, {
+          peerName: peer.displayName,
+          peerAvatarUrl: peer.avatarUrl,
+        });
         socketRef.current.emit('dm:send', {
           peerId: peer.id,
           body,
@@ -649,6 +704,18 @@ export default function DirectChat({
       } else {
         const data = await sendDmMessage(token, peer.id, body, { replyToId: replyId });
         setMessages((prev) => [...prev, data.message]);
+        if (data?.message) {
+          bumpPeerThread(peer.id, {
+            id: data.message.id,
+            body: data.message.body,
+            type: data.message.type,
+            createdAt: data.message.createdAt,
+            mine: true,
+          }, {
+            peerName: peer.displayName,
+            peerAvatarUrl: peer.avatarUrl,
+          });
+        }
       }
     } catch (err) {
       setError(esMsg(err.message));
@@ -856,6 +923,16 @@ export default function DirectChat({
           if (prev.some((m) => m.id === data.message.id)) return prev;
           return [...prev, data.message];
         });
+        bumpPeerThread(peer.id, {
+          id: data.message.id,
+          body: data.message.body,
+          type: data.message.type,
+          createdAt: data.message.createdAt,
+          mine: true,
+        }, {
+          peerName: peer.displayName,
+          peerAvatarUrl: peer.avatarUrl,
+        });
       }
       setDraft('');
       if (replyToId || type === 'audio') setReplyTo(null);
@@ -944,6 +1021,16 @@ export default function DirectChat({
             if (prev.some((m) => m.id === data.message.id)) return prev;
             return [...prev, data.message];
           });
+          bumpPeerThread(peer.id, {
+            id: data.message.id,
+            body: data.message.body,
+            type: data.message.type,
+            createdAt: data.message.createdAt,
+            mine: true,
+          }, {
+            peerName: peer.displayName,
+            peerAvatarUrl: peer.avatarUrl,
+          });
         }
       }
       setDraft('');
@@ -1013,6 +1100,16 @@ export default function DirectChat({
           if (prev.some((m) => m.id === data.message.id)) return prev;
           return [...prev, data.message];
         });
+        bumpPeerThread(peer.id, {
+          id: data.message.id,
+          body: data.message.body,
+          type: data.message.type,
+          createdAt: data.message.createdAt,
+          mine: true,
+        }, {
+          peerName: peer.displayName,
+          peerAvatarUrl: peer.avatarUrl,
+        });
       }
     } catch (err) {
       setError(esMsg(err.message));
@@ -1031,6 +1128,16 @@ export default function DirectChat({
         setMessages((prev) => {
           if (prev.some((m) => m.id === data.message.id)) return prev;
           return [...prev, data.message];
+        });
+        bumpPeerThread(peer.id, {
+          id: data.message.id,
+          body: data.message.body,
+          type: data.message.type,
+          createdAt: data.message.createdAt,
+          mine: true,
+        }, {
+          peerName: peer.displayName,
+          peerAvatarUrl: peer.avatarUrl,
         });
       }
       // Feedback local al emisor (mismo efecto)
@@ -1060,14 +1167,39 @@ export default function DirectChat({
     });
   }
 
-  const recentIds = new Set(conversations.map((c) => c.peerId));
-  const otherContacts = contacts.filter((c) => !recentIds.has(c.id));
-
   const contactPresence = (c) => {
     if (!c) return 'offline';
     if (c.isSelf || String(c.id) === String(me.id)) return 'online';
     return String(c.presence || (c.online ? 'online' : 'offline')).toLowerCase();
   };
+
+  const recentSorted = [...conversations].sort((a, b) =>
+    compareByLastMessage(
+      { at: a.lastMessage?.createdAt || null },
+      { at: b.lastMessage?.createdAt || null }
+    )
+  );
+  const recentIds = new Set(recentSorted.map((c) => c.peerId));
+  const otherContacts = contacts
+    .filter((c) => !recentIds.has(c.id))
+    .sort((a, b) =>
+      compareContactRows(
+        {
+          presence: contactPresence(a),
+          online: Boolean(a.online),
+          gradeSortOrder: Number(a.gradeSortOrder) || 999999,
+          name: a.displayName,
+          contactOnly: true,
+        },
+        {
+          presence: contactPresence(b),
+          online: Boolean(b.online),
+          gradeSortOrder: Number(b.gradeSortOrder) || 999999,
+          name: b.displayName,
+          contactOnly: true,
+        }
+      )
+    );
 
   const peerPresence = (() => {
     if (!peer?.id) return null;
@@ -1092,7 +1224,7 @@ export default function DirectChat({
             <div className="dm-section">
               <p className="dm-label">Recientes</p>
               <div className="dm-list">
-                {conversations.map((c) => (
+                {recentSorted.map((c) => (
                   <button
                     key={c.peerId}
                     type="button"
@@ -1137,7 +1269,7 @@ export default function DirectChat({
           <div className="dm-section">
             <p className="dm-label">Contactos</p>
             <div className="dm-list">
-              {(conversations.length ? otherContacts : contacts).map((c) => (
+              {otherContacts.map((c) => (
                 <button
                   key={c.id}
                   type="button"

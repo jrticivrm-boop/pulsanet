@@ -529,6 +529,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
         { to: '/despacho/catalogos/empleos', permKey: 'empleos' },
         { to: '/despacho/catalogos/servicios', permKey: 'servicios' },
         { to: '/despacho/catalogos/dependencias', permKey: 'dependencias' },
+        { to: '/despacho/catalogos/territorio', permKey: 'territorio' },
       ];
       const allowed = filterTabsByPermission(session.user, 'catalogos', catalogTabDefs).map(
         (t) => t.to
@@ -1277,7 +1278,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                   : ptt.waking
                     ? 'DESPERTANDO'
                     : ptt.pending
-                      ? 'PEDINDO'
+                      ? 'PIDIENDO'
                       : 'PTT'}
               </span>
               <span className="cc-ptt-mini-hint">
@@ -1315,7 +1316,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
             </button>
             {ptt.pending && !ptt.holding && (
               <span className="cc-ptt-mini-waking" role="status">
-                {ptt.waking ? 'DESPERTANDO…' : 'PEDINDO…'}
+                {ptt.waking ? 'DESPERTANDO…' : 'PIDIENDO…'}
               </span>
             )}
             {(ptt.denied || ptt.error) && (
@@ -1410,6 +1411,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                       { to: '/despacho/catalogos/empleos', permKey: 'empleos' },
                       { to: '/despacho/catalogos/servicios', permKey: 'servicios' },
                       { to: '/despacho/catalogos/dependencias', permKey: 'dependencias' },
+                      { to: '/despacho/catalogos/territorio', permKey: 'territorio' },
                     ]).map((t) => t.to),
                     '/despacho/catalogos/jerarquias'
                   )}

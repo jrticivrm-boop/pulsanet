@@ -5,6 +5,7 @@ import { logActivity } from '../services/activity.js';
 import { isAdmin, isDispatch } from '../services/roles.js';
 import { geoSearch, geoReverse, geoAdminAt, geoPlaceOutline, geoOsmOutline, ownGeocoderStatus } from '../services/geoSearch.js';
 import { ETA_MAX_ORIGINS, PLAN_MAX_STOPS, ownRoutingStatus, routeEta, routeOptions } from '../services/routeHint.js';
+import { listTerritoryCoverage } from '../services/territoryCoverage.js';
 
 export const geoRouter = Router();
 const router = geoRouter;
@@ -97,6 +98,19 @@ router.get('/municipios', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message || 'No se pudieron listar municipios' });
+  }
+});
+
+/** Cobertura territorial para el mapa (si no hay filas, se siembra desde el catálogo IV R.M.). */
+router.get('/territorio-coverage', async (req, res) => {
+  try {
+    const data = await listTerritoryCoverage(req.user.orgId);
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    if (err.status === 503) {
+      return res.json({ ok: true, rows: [], zonas: [], units: [], pendingMigration: true });
+    }
+    res.status(err.status || 500).json({ ok: false, error: err.message || 'No se pudo cargar territorio' });
   }
 });
 

@@ -58,6 +58,7 @@ CREATE TABLE users (
  is_active BOOLEAN NOT NULL DEFAULT TRUE,
  can_receive_panic BOOLEAN NOT NULL DEFAULT FALSE,
  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+ token_version INTEGER NOT NULL DEFAULT 1,
  last_seen_at TIMESTAMPTZ,
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -458,6 +459,30 @@ CREATE INDEX idx_user_events_subject_time
 
 CREATE INDEX idx_user_events_kind_time
   ON user_events (organization_id, kind, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Territorio: cobertura unidad ↔ municipio (catálogo, sin CRUD de estados)
+-- ---------------------------------------------------------------------------
+CREATE TABLE cat_territory_coverage (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  region_id UUID REFERENCES org_units(id) ON DELETE SET NULL,
+  zone_id UUID REFERENCES org_units(id) ON DELETE SET NULL,
+  unit_id UUID REFERENCES org_units(id) ON DELETE SET NULL,
+  region_label VARCHAR(80) NOT NULL DEFAULT 'IV R.M.',
+  zona_key VARCHAR(32) NOT NULL,
+  zona_short VARCHAR(32) NOT NULL,
+  unidad_name VARCHAR(120) NOT NULL,
+  estado VARCHAR(80) NOT NULL,
+  municipio VARCHAR(120) NOT NULL,
+  shape_id VARCHAR(64),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX cat_territory_coverage_uniq
+  ON cat_territory_coverage (organization_id, unidad_name, estado, municipio);
+CREATE INDEX idx_cat_territory_coverage_org_zona
+  ON cat_territory_coverage (organization_id, zona_key, unidad_name);
 
 -- ---------------------------------------------------------------------------
 -- Datos semilla (desarrollo)

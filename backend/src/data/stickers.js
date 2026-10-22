@@ -5,7 +5,7 @@
 export const STICKER_PACKS = [
   {
     id: 'tacticalptx',
-    name: 'TacticalPtx',
+    name: 'SICOM',
     stickers: [
       { id: 'pn-radio', kind: 'emoji', value: '📻', label: 'Radio' },
       { id: 'pn-mic', kind: 'emoji', value: '🎤', label: 'Micrófono' },

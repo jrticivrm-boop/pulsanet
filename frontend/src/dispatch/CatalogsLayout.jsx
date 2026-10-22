@@ -17,6 +17,7 @@ const ALL_TABS = [
   { to: `${BASE}/empleos`, label: 'Empleos', permKey: 'empleos' },
   { to: `${BASE}/servicios`, label: 'Servicios', permKey: 'servicios' },
   { to: `${BASE}/dependencias`, label: 'Dependencias', permKey: 'dependencias' },
+  { to: `${BASE}/territorio`, label: 'Territorio', permKey: 'territorio' },
 ];
 
 export default function CatalogsLayout() {

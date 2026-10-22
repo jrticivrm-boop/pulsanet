@@ -58,7 +58,7 @@ class RadioScreen extends StatelessWidget {
     if (session.listenMuted) return 'SILENCIO';
     if (session.holding) return 'AL AIRE';
     if (session.pttWakingActive) return 'DESPERTANDO';
-    if (session.pttArmed) return 'PEDINDO';
+    if (session.pttArmed) return 'PIDIENDO';
     if (session.speakerName != null) return 'OCUPADO';
     return 'LISTO';
   }
@@ -821,7 +821,7 @@ class _PttPad extends StatelessWidget {
     final ready = session.connected && session.livekitReady;
     final padLabel = holding
         ? 'AL AIRE'
-        : (waking ? 'DESPERTANDO' : (pending ? 'PEDINDO' : 'PTT'));
+        : (waking ? 'DESPERTANDO' : (pending ? 'PIDIENDO' : 'PTT'));
     final hint = !ready
         ? '…'
         : pending

@@ -686,6 +686,10 @@ class ChatInboxScreenState extends State<ChatInboxScreen> {
             bAt: b.at,
             aPresence: a.presence,
             bPresence: b.presence,
+            aContactOnly: a.isContactOnly,
+            bContactOnly: b.isContactOnly,
+            aName: a.name,
+            bName: b.name,
           ),
         );
         break;

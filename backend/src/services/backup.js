@@ -409,7 +409,7 @@ async function packBackupZip(zipPath, sqlPath) {
       stagedMeta,
       JSON.stringify(
         {
-          product: 'TacticalPtx',
+          product: 'SICOM',
           version: APP_VERSION,
           createdAt: new Date().toISOString(),
           includesUploads,

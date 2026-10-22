@@ -9,7 +9,9 @@ let cachedKey = null;
 function resolveSecret() {
   const fromEnv = process.env.CONTENT_ENCRYPTION_KEY?.trim();
   if (fromEnv && fromEnv.length >= 16) return fromEnv;
-  // Derivación de respaldo (dev): no usar en prod sin CONTENT_ENCRYPTION_KEY
+  if (config.isProd) {
+    throw new Error('CONTENT_ENCRYPTION_KEY requerido en production');
+  }
   return `tacticalptx-content|${config.jwtSecret}|${config.livekit.apiSecret || 'lk'}`;
 }
 

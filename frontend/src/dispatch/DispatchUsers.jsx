@@ -3028,7 +3028,7 @@ export default function DispatchUsers({ session }) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'tacticalptx-usuarios.csv';
+        a.download = 'sicom-usuarios.csv';
         a.click();
         URL.revokeObjectURL(url);
       })

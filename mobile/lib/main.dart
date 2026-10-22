@@ -66,7 +66,7 @@ class _TacticalPtxAppState extends State<TacticalPtxApp> {
       _booting = true;
       _updateBlocked = false;
       _bootError = null;
-      _bootMessage = 'Cargando sesion...';
+      _bootMessage = 'Cargando sesión…';
       _bootProgress = null;
     });
 

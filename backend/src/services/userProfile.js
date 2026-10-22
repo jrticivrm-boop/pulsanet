@@ -17,7 +17,8 @@ export async function loadUserProfile(userId) {
 
   const { rows } = await query(
     `SELECT u.id, u.organization_id, u.username, u.email, u.display_name, u.role,
-            u.is_active, u.avatar_url, p.modules AS profile_modules
+            u.is_active, u.avatar_url, u.must_change_password, u.login_locked_at,
+            u.token_version, p.modules AS profile_modules
      FROM users u
      LEFT JOIN access_profiles p ON p.id = u.profile_id
      WHERE u.id = $1`,
@@ -35,6 +36,9 @@ export async function loadUserProfile(userId) {
         orgId: u.organization_id,
         isActive: Boolean(u.is_active),
         avatarUrl: u.avatar_url || null,
+        mustChangePassword: Boolean(u.must_change_password),
+        loginLockedAt: u.login_locked_at || null,
+        tokenVersion: Number(u.token_version || 1),
         modules: normalizeModules(u.profile_modules || {}),
       };
   cache.set(key, { at: Date.now(), profile });
@@ -60,11 +64,28 @@ export function clearUserProfileCache() {
   cache.clear();
 }
 
-/** Fusiona claims JWT con perfil vivo de BD. */
+/** Invalida access JWT anteriores (lock, force-logout, cambio de password). */
+export async function bumpTokenVersion(userId) {
+  if (!userId) return null;
+  const { rows } = await query(
+    `UPDATE users
+     SET token_version = COALESCE(token_version, 1) + 1, updated_at = NOW()
+     WHERE id = $1
+     RETURNING token_version`,
+    [userId]
+  );
+  invalidateUserProfile(userId);
+  return Number(rows[0]?.token_version || 1);
+}
+
+/** Fusiona claims JWT con perfil vivo de BD. Rechaza lock y versión de token vieja. */
 export async function bindLiveUser(jwtPayload) {
   if (!jwtPayload?.sub) return null;
   const profile = await loadUserProfile(jwtPayload.sub);
   if (!profile || !profile.isActive) return null;
+  if (profile.loginLockedAt) return null;
+  const jwtTv = Number(jwtPayload.tv ?? 1);
+  if (jwtTv !== Number(profile.tokenVersion || 1)) return null;
   return {
     ...jwtPayload,
     sub: profile.sub,
@@ -74,5 +95,7 @@ export async function bindLiveUser(jwtPayload) {
     role: profile.role,
     orgId: profile.orgId,
     modules: profile.modules || {},
+    mustChangePassword: Boolean(profile.mustChangePassword),
+    tokenVersion: profile.tokenVersion,
   };
 }

@@ -11,6 +11,9 @@ import { config } from '../config.js';
 function resolveVoiceSecret() {
   const fromEnv = process.env.LIVEKIT_E2EE_SECRET?.trim();
   if (fromEnv && fromEnv.length >= 16) return fromEnv;
+  if (config.isProd) {
+    throw new Error('LIVEKIT_E2EE_SECRET requerido en production');
+  }
   return `tacticalptx-voice|${config.livekit.apiSecret || 'dev'}|${config.jwtSecret}`;
 }
 

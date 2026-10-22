@@ -21,6 +21,8 @@ import {
 } from '../services/catalogs.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireModuleAction } from '../services/moduleAccess.js';
+import { listTerritoryCoverage, replaceCoverageForEstado } from '../services/territoryCoverage.js';
+import { logActivity } from '../services/activity.js';
 
 export const catalogsRouter = Router();
 catalogsRouter.use(authMiddleware);
@@ -188,6 +190,35 @@ catalogsRouter.delete('/empleos/:id', requireDelete, async (req, res) => {
   try {
     await deleteEmpleo(req.user.orgId, req.params.id);
     res.json({ ok: true });
+  } catch (err) {
+    sendErr(res, err);
+  }
+});
+
+catalogsRouter.get('/territorio', requireView, async (req, res) => {
+  try {
+    const data = await listTerritoryCoverage(req.user.orgId);
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    sendErr(res, err);
+  }
+});
+
+catalogsRouter.put('/territorio', requireEdit, async (req, res) => {
+  try {
+    const data = await replaceCoverageForEstado(req.user.orgId, req.body || {});
+    await logActivity({
+      organizationId: req.user.orgId,
+      actorId: req.user.id,
+      action: 'territory_coverage_replace',
+      entityType: 'cat_territory_coverage',
+      meta: {
+        unidadName: req.body?.unidadName,
+        estado: req.body?.estado,
+        municipios: Array.isArray(req.body?.municipios) ? req.body.municipios.length : 0,
+      },
+    });
+    res.json({ ok: true, ...data });
   } catch (err) {
     sendErr(res, err);
   }

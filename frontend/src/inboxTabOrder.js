@@ -103,17 +103,26 @@ function presenceSortRank(presence, online) {
   return online ? 0 : 3;
 }
 
-/** Comparador Contactos: presencia → grado militar → último mensaje. */
+function hasChatThread(row) {
+  if (!row) return false;
+  if (row.contactOnly === true) return Boolean(row.at);
+  if (row.contactOnly === false) return true;
+  return Boolean(row.at);
+}
+
+/** Conversaciones con historial primero (último mensaje); sin chat: presencia → grado. */
 export function compareContactRows(a, b) {
+  const aThread = hasChatThread(a);
+  const bThread = hasChatThread(b);
+  if (aThread !== bThread) return aThread ? -1 : 1;
+  if (aThread) return compareByLastMessage(a, b);
   const ar = presenceSortRank(a.presence, a.online);
   const br = presenceSortRank(b.presence, b.online);
   if (ar !== br) return ar - br;
   const ag = Number.isFinite(a.gradeSortOrder) ? a.gradeSortOrder : 999999;
   const bg = Number.isFinite(b.gradeSortOrder) ? b.gradeSortOrder : 999999;
   if (ag !== bg) return ag - bg;
-  const ta = a.at ? new Date(a.at).getTime() : 0;
-  const tb = b.at ? new Date(b.at).getTime() : 0;
-  return tb - ta;
+  return String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' });
 }
 
 export function compareByLastMessage(a, b) {

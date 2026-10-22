@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { canDispatch, fetchContacts } from './api';
 import PersonAvatar from './PersonAvatar';
 import { openDm } from './peerActions';
+import { compareContactRows } from './inboxTabOrder';
 
 /**
  * Lista de contactos para «Nuevo chat» (estilo WhatsApp).
@@ -47,12 +48,31 @@ export default function NewChatSheet({ session, open, onClose, onPick }) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((c) => {
-      const name = String(c.displayName || '').toLowerCase();
-      const user = String(c.username || '').toLowerCase();
-      return name.includes(q) || user.includes(q);
-    });
+    const list = !q
+      ? contacts
+      : contacts.filter((c) => {
+          const name = String(c.displayName || '').toLowerCase();
+          const user = String(c.username || '').toLowerCase();
+          return name.includes(q) || user.includes(q);
+        });
+    return [...list].sort((a, b) =>
+      compareContactRows(
+        {
+          presence: a.presence,
+          online: Boolean(a.online),
+          gradeSortOrder: Number(a.gradeSortOrder) || 999999,
+          name: a.displayName,
+          contactOnly: true,
+        },
+        {
+          presence: b.presence,
+          online: Boolean(b.online),
+          gradeSortOrder: Number(b.gradeSortOrder) || 999999,
+          name: b.displayName,
+          contactOnly: true,
+        }
+      )
+    );
   }, [contacts, query]);
 
   if (!open) return null;

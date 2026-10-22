@@ -116,7 +116,7 @@ function verifyDownloadToken(fileName, token) {
 }
 
 function resolveApkUrl(req, data, updatesDir, token) {
-  const fileName = String(data.apkFile || data.file || 'TacticalPtx.apk').trim();
+  const fileName = String(data.apkFile || data.file || 'SICOM.apk').trim();
   const abs = path.join(updatesDir, 'files', path.basename(fileName));
   if (!fs.existsSync(abs) && !String(data.apkUrl || data.url || '').trim()) {
     return null;
@@ -172,7 +172,7 @@ export function createAppUpdateRouter() {
       ? 'Actualizando...'
       : sanitizeUpdateMessage(rawMessage) || 'Actualizando...';
 
-    const fileName = String(data.apkFile || data.file || 'TacticalPtx.apk').trim();
+    const fileName = String(data.apkFile || data.file || 'SICOM.apk').trim();
     const ttlSec = Math.max(
       60,
       parseInt(process.env.APP_UPDATE_TOKEN_TTL_SEC || '3600', 10) || 3600

@@ -427,7 +427,7 @@ export default function MediaComposerModal({
     const blob = await canvasToBlob(c, { hd, type: 'image/jpeg' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `tacticalptx-${Date.now()}.jpg`;
+    a.download = `sicom-${Date.now()}.jpg`;
     a.click();
     URL.revokeObjectURL(a.href);
   }

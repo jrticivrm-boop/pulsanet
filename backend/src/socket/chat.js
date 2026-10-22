@@ -85,13 +85,13 @@ export function registerChatHandlers(io) {
         notifyGroupMembers({
           groupId,
           excludeUserId: user.sub,
-          title: msg.displayName || 'TacticalPtx',
+          title: msg.displayName || 'SICOM',
           body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
           data: {
             type: 'chat',
             messageId: msg.id,
             groupId,
-            title: msg.displayName || 'TacticalPtx',
+            title: msg.displayName || 'SICOM',
             body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
           },
         }).catch(() => {});
@@ -163,7 +163,7 @@ export function registerChatHandlers(io) {
         notifyGroupMembers({
           groupId,
           excludeUserId: user.sub,
-          title: msg.displayName || 'TacticalPtx',
+          title: msg.displayName || 'SICOM',
           body: 'Nuevo sticker',
           data: { type: 'chat', messageId: msg.id, groupId },
         }).catch(() => {});

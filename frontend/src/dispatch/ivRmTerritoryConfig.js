@@ -7,6 +7,7 @@ import catalog from './ivRmTerritoryCatalog.json';
 
 export const IV_RM_TERRITORY_STORAGE_KEY = 'tacticalptx_iv_rm_territory_v1';
 export const IV_RM_TERRITORY_EVENT = 'tacticalptx-iv-rm-territory-changed';
+export const IV_RM_COVERAGE_EVENT = 'tacticalptx-iv-rm-coverage-changed';
 
 export const IV_RM_ZONAS = catalog.zonas;
 export const IV_RM_ZONA_BY_ID = new Map(IV_RM_ZONAS.map((z) => [z.id, z]));

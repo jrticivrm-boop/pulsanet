@@ -19,12 +19,12 @@ import {
   isLoginLockExempt,
 } from '../services/intrusion.js';
 import { mintAvatarTicket } from '../services/avatarTicket.js';
-import { isAdmin, isDispatch, isRoot } from '../services/roles.js';
+import { isAdmin, isDispatch } from '../services/roles.js';
 import {
   normalizeDeviceId,
   notifySessionReplaced,
 } from '../services/sessionPolicy.js';
-import { loadUserProfile } from '../services/userProfile.js';
+import { bumpTokenVersion, loadUserProfile } from '../services/userProfile.js';
 import { normalizeModules } from '../services/profiles.js';
 
 export const authRouter = Router();
@@ -36,6 +36,26 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: { ok: false, error: 'Demasiados intentos de acceso. Espera unos minutos.' },
 });
+
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.REFRESH_RATE_MAX || '60', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Demasiadas renovaciones de sesión. Espera unos minutos.' },
+});
+
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.CHANGE_PASSWORD_RATE_MAX || '10', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Demasiados intentos de cambio de contraseña.' },
+});
+
+/** Hash bcrypt cost 12 de un secreto que nadie usa: iguala el tiempo si el usuario no existe. */
+const DUMMY_PASSWORD_HASH =
+  '$2b$12$yELGLIEGyoS.IL0uE7T9v.Bj10jzsQ7npg79Y.KtW5Y2OuK1UFvl.';
 
 /**
  * Wire: solo flag para consola de despacho. La clave AES se entrega en
@@ -120,7 +140,7 @@ function sessionExtras(user) {
 }
 
 const USER_SELECT =
-  'id, organization_id, username, email, password_hash, display_name, role, is_active, can_receive_panic, must_change_password, avatar_url, unit_id, admin_scope_unit_id, can_see_region, can_see_zones, can_see_units, login_fail_count, login_locked_at, login_locked_reason';
+  'id, organization_id, username, email, password_hash, display_name, role, is_active, can_receive_panic, must_change_password, avatar_url, unit_id, admin_scope_unit_id, can_see_region, can_see_zones, can_see_units, login_fail_count, login_locked_at, login_locked_reason, token_version';
 
 authRouter.post('/login', loginLimiter, async (req, res) => {
   const { password } = req.body || {};
@@ -166,48 +186,24 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
     }
   }
 
-  if (user?.login_locked_at) {
-    // Perfil Administrador (root): no aplicar bloqueo por intentos.
-    if (isLoginLockExempt(user.role) || isRoot(user.role)) {
-      try {
-        await query(
-          `UPDATE users
-           SET login_locked_at = NULL,
-               login_locked_reason = NULL,
-               login_fail_count = 0,
-               updated_at = NOW()
-           WHERE id = $1`,
-          [user.id]
-        );
-        user = { ...user, login_locked_at: null, login_locked_reason: null, login_fail_count: 0 };
-      } catch (err) {
-        console.error('clear root login lock:', err.message);
-      }
-    } else {
-      return res.status(423).json({
-        ok: false,
-        error:
-          'Tu usuario ha sido bloqueado por exceso de intentos. Contacta a un administrador para liberarlo.',
-        code: 'USER_LOCKED',
-        locked: true,
-        warn: true,
-        attemptsRemaining: 0,
-      });
-    }
+  const match = await bcrypt.compare(password, user?.password_hash || DUMMY_PASSWORD_HASH);
+
+  if (user?.login_locked_at && !isLoginLockExempt(user.role)) {
+    return res.status(423).json({
+      ok: false,
+      error:
+        'Tu usuario ha sido bloqueado por exceso de intentos. Contacta a un administrador para liberarlo.',
+      code: 'USER_LOCKED',
+      locked: true,
+      warn: true,
+    });
   }
 
-  if (!user || !user.is_active) {
+  if (!user || !user.is_active || !match) {
     const result = await registerLoginFailure(req, {
-      user: null,
+      user: user && user.is_active ? user : null,
       usernameAttempt: loginRaw,
     });
-    const { status, body } = loginFailureClientPayload(result);
-    return res.status(status).json(body);
-  }
-
-  const match = await bcrypt.compare(password, user.password_hash);
-  if (!match) {
-    const result = await registerLoginFailure(req, { user });
     const { status, body } = loginFailureClientPayload(result);
     return res.status(status).json(body);
   }
@@ -296,7 +292,7 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
   });
 });
 
-authRouter.post('/refresh', async (req, res) => {
+authRouter.post('/refresh', refreshLimiter, async (req, res) => {
   if (await isLockdownActive()) {
     return res.status(503).json({
       ok: false,
@@ -315,7 +311,7 @@ authRouter.post('/refresh', async (req, res) => {
             u.id AS uid, u.organization_id, u.username, u.email, u.display_name, u.role, u.is_active,
             u.can_receive_panic, u.must_change_password, u.password_hash, u.avatar_url,
             u.unit_id, u.admin_scope_unit_id, u.can_see_region, u.can_see_zones, u.can_see_units,
-            u.login_locked_at
+            u.login_locked_at, u.token_version
      FROM refresh_tokens rt
      INNER JOIN users u ON u.id = rt.user_id
      WHERE rt.token_hash = $1`,
@@ -327,26 +323,14 @@ authRouter.post('/refresh', async (req, res) => {
     return res.status(401).json({ ok: false, error: 'Refresh inválido' });
   }
   if (row.login_locked_at) {
-    if (isLoginLockExempt(row.role) || isRoot(row.role)) {
-      await query(
-        `UPDATE users
-         SET login_locked_at = NULL,
-             login_locked_reason = NULL,
-             login_fail_count = 0,
-             updated_at = NOW()
-         WHERE id = $1`,
-        [row.uid]
-      );
-    } else {
-      await query('DELETE FROM refresh_tokens WHERE user_id = $1', [row.uid]);
-      return res.status(423).json({
-        ok: false,
-        error:
-          'Tu usuario ha sido bloqueado por exceso de intentos. Contacta a un administrador para liberarlo.',
-        code: 'USER_LOCKED',
-        locked: true,
-      });
-    }
+    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [row.uid]);
+    return res.status(423).json({
+      ok: false,
+      error:
+        'Tu usuario ha sido bloqueado por exceso de intentos. Contacta a un administrador para liberarlo.',
+      code: 'USER_LOCKED',
+      locked: true,
+    });
   }
   if (new Date(row.expires_at) < new Date()) {
     await query('DELETE FROM refresh_tokens WHERE id = $1', [row.id]);
@@ -370,6 +354,7 @@ authRouter.post('/refresh', async (req, res) => {
     can_see_region: row.can_see_region,
     can_see_zones: row.can_see_zones,
     can_see_units: row.can_see_units,
+    token_version: row.token_version,
   };
   const deviceId =
     normalizeDeviceId(req.body?.deviceId) || normalizeDeviceId(row.device_id);
@@ -440,7 +425,7 @@ authRouter.get('/me', authMiddleware, async (req, res) => {
 });
 
 /** Cambio de contraseña (obligatorio en primer ingreso). */
-authRouter.post('/change-password', authMiddleware, async (req, res) => {
+authRouter.post('/change-password', changePasswordLimiter, authMiddleware, async (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
   if (!currentPassword || !newPassword) {
     return res.status(400).json({
@@ -486,6 +471,7 @@ authRouter.post('/change-password', authMiddleware, async (req, res) => {
     [user.id, hash]
   );
   await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [user.id]);
+  const nextTv = await bumpTokenVersion(user.id);
 
   await logActivity({
     organizationId: user.organization_id,
@@ -499,6 +485,7 @@ authRouter.post('/change-password', authMiddleware, async (req, res) => {
   const refreshed = {
     ...user,
     must_change_password: false,
+    token_version: nextTv,
   };
   const deviceId = normalizeDeviceId(req.body?.deviceId);
   const token = signAccessToken(refreshed);

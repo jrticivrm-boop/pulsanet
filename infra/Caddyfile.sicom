@@ -12,6 +12,12 @@
 
 (tpx_routes) {
 	encode gzip
+	header {
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
 
 	# /api* y /socket.io* SIEMPRE al API; si caen al SPA el móvil recibe HTML en vez de JSON.
 	handle /api* {
@@ -36,6 +42,9 @@
 }
 
 pulsanet.duckdns.org {
+	tls {
+		protocols tls1.2 tls1.3
+	}
 	import tpx_routes
 }
 

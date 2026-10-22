@@ -744,7 +744,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
                   : ptt.waking
                     ? 'DESPERTANDO'
                     : ptt.pending
-                      ? 'PEDINDO'
+                      ? 'PIDIENDO'
                       : 'PTT'}
               </span>
               <span className="ptt-sub">
@@ -776,7 +776,7 @@ export default function RadioPage({ session, onLogout, dispatchEmbed = null }) {
               <p className="ptt-waking" role="status">
                 {ptt.waking
                   ? `DESPERTANDO · radios${ptt.waking.count ? ` (${ptt.waking.count})` : ''}…`
-                  : 'PEDINDO · canal…'}
+                  : 'PIDIENDO · canal…'}
               </p>
             )}
             {(ptt.denied || ptt.error || err) && (

@@ -32,7 +32,7 @@ const NOMINATIM_URL = (process.env.NOMINATIM_URL || 'https://nominatim.openstree
   .replace(/\/$/, '');
 const NOMINATIM_ENABLED = String(process.env.NOMINATIM_ENABLED ?? '1').trim() !== '0';
 const NOMINATIM_GAP_MS = parseInt(process.env.NOMINATIM_MIN_GAP_MS || '1100', 10);
-const USER_AGENT = 'SICOM-TacticalPtx/1.0 (consola de despacho)';
+const USER_AGENT = 'SICOM/1.0 (consola de despacho)';
 
 /** Recuadro de México (lon/lat) para sesgar y filtrar resultados. */
 const MX_BBOX = '-118.6,14.3,-86.5,32.8';

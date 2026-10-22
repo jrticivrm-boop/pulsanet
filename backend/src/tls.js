@@ -14,6 +14,7 @@ export function loadTlsOptions() {
     return {
       cert: fs.readFileSync(certPath),
       key: fs.readFileSync(keyPath),
+      minVersion: 'TLSv1.2',
     };
   } catch (err) {
     console.error('TLS: no se pudieron leer certificados:', err.message);

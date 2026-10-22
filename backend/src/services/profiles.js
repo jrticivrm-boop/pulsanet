@@ -134,6 +134,7 @@ export const MODULES = [
       { key: 'empleos', label: 'Empleos' },
       { key: 'servicios', label: 'Servicios' },
       { key: 'dependencias', label: 'Dependencias' },
+      { key: 'territorio', label: 'Territorio' },
     ],
   },
   {

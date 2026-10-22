@@ -1,6 +1,6 @@
-# Changelog — TacticalPtx
+# Changelog — SICOM
 
-Registro de versiones y cambios relevantes del producto (TacticalPtx). 
+Registro de versiones y cambios relevantes del producto (SICOM). 
 Bitácora narrativa (día a día): [BITACORA_DESARROLLO.md](BITACORA_DESARROLLO.md)
 
 Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
@@ -10,6 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Territorio — Estado y catálogo de cobertura:** filtro Estado antes de Municipio (cascada, municipios agrupados por estado). En Municipio cada estado se pliega con sus municipios y el check del encabezado marca el grupo; Ascendente/Descendente ordena solo municipios (estados A–Z). Catálogos → Territorio asigna unidades a municipios del registro nacional (sin CRUD de estados/municipios); migración `052_territory_coverage.sql`. El mapa usa esa cobertura sobre los polígonos de IV R.M.
 - **Usuarios — Efectivos del servicio:** nuevo paso «Efectivos» en Alta/Editar usuario (Generales → Efectivos → Grupos): tabla de cantidades por grupo — Personal (GG., JJ., OO., TT.), Armamento (Fx., G-3, Adit. L.G.), Vehs. S/B. y Vehs. C/B. (Cheyenne, Humvee, Sandkat), Otros (Cams., Anti dron fijo, Antidron semifijo, Dron) — con total por grupo, «+» para anexar conceptos al catálogo de la organización y «×» para quitarlos. Columna «Efectivos» en la relación (totales por grupo, desglose en tooltip); Excel y CSV con una columna por concepto y sumas en «Resumen». Migración `050_service_efectivos.sql` (`cat_efectivos` + `users.service_efectivos`).
 - **Usuarios — Generales integra Adscripción:** Perfil de acceso y «Organismo Pert.» (antes «Alcance») pasan al paso Generales; desaparece el paso Adscripción.
 - **Usuarios — Grupos al editar:** el paso Grupos también aparece al editar, con los grupos actuales marcados; guardar aplica altas y bajas.
@@ -30,7 +31,21 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Indicativo root + mapa APK:** solo el Administrador (root) sin adscripción muestra «Administrador»; ficha del mapa en la app con 3 líneas (pertenencia · servicio · teléfono).
 - **Chat DM — ver una vez (imagen/video):** al enviar media se puede marcar «Ver una vez»; el destinatario abre una sola vez y el mensaje se elimina (soft-delete). Migración `045_message_view_once.sql`. App y web DM; no aplica a canales/grupo en esta entrega.
 
+### Fixed
+- **Login «Error interno»:** al firmar el JWT se usaba `algorithms` (opción de verificar). Queda `algorithm: HS256`; el ingreso vuelve a emitir token.
+
+### Security
+- **Sesión revocable:** `token_version` (migración `051`) invalida el JWT al bloquear, forzar logout o cambiar contraseña; el access token pasa a 15 min con renovación automática.
+- **Logout real y contraseña temporal en el servidor:** «Salir» llama a `/api/auth/logout`; con `must_change_password` el API y el socket no dejan usar radio/GPS/admin hasta el cambio.
+- **Login endurecido:** bcrypt de tiempo constante, sin contar intentos al cliente, lockout también para root, HS256 fijado, rate-limit en refresh y cambio de contraseña.
+- **Red y app:** HSTS + cabeceras en Caddy, TLS 1.2 mínimo, ATS iOS sin cargas arbitrarias, Android sin backup ni CAs de usuario, `FLAG_SECURE`, `deviceId` en la APK.
+
 ### Changed
+- **Efectivos en el globo:** las cinco filas llevan dos puntos (Personal:, Armamento:, Vehs. S/B.:, Vehs. C/B.:, Otros:).
+- **Chats tipo WhatsApp:** en Contactos, quien ya tiene conversación sube por el último mensaje; grado y activos solo aplican a quienes aún no tienen chat. Web y app.
+- **Radio — PIDIENDO:** el estado PTT que decía «PEDINDO» pasa a «PIDIENDO» (web y app); el subtítulo «Pidiendo canal…» no cambia.
+- **Marca SICOM:** textos que el usuario ve (Excel, página sin conexión, avisos, stickers, respaldos, nombre de archivo CSV/JPG/APK por omisión) dejan «TacticalPtx» y dicen SICOM. Claves internas (`tacticalptx_*`, cabeceras, paquete Android) no se tocan.
+- **Territorio — filtros con checks:** Zona, Unidad y Municipio en Consola usan lista con casillas, Ascendente/Descendente y Marcar/Desmarcar (como Operadores → Grupos); se quita la opción «Todos».
 - **Usuarios — avisos del sistema:** quitar o agregar un concepto de Efectivos, agregar tipo de servicio y cerrar sesiones usan el modal del proyecto (ya no el recuadro del navegador «127.0.0.1 dice»).
 - **Ficha del operador:** mismo diseño de siempre (chip, filas, botón); globo semitransparente; «Efectivos ▾» discreto al lado del lugar.
 - **Usuarios — Alta/Editar más visual:** márgenes uniformes, pasos segmentados, secciones con ícono y subtítulo (incluidos «Qué oye en radio y qué ve en el mapa» y Grupos), foco resaltado y pie de botones fijo de borde a borde; colores legibles en los temas claro, obscuro y verde.

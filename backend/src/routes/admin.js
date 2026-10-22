@@ -26,8 +26,8 @@ import { canLeaveGroup, actorAssignRejectReason, memberFitsGroupGeo, groupGeoRej
 import { buildUsername, buildCallSign, buildDisplayName } from '../services/rfcUsername.js';
 import { resolveAffiliationLabel } from '../services/orgAffiliation.js';
 import { geoAdminAt } from '../services/geoSearch.js';
-import { generateTemporaryPassword } from '../services/tempPassword.js';
-import { invalidateUserProfile } from '../services/userProfile.js';
+import { generateTemporaryPassword, validateNewPassword } from '../services/tempPassword.js';
+import { bumpTokenVersion, invalidateUserProfile } from '../services/userProfile.js';
 import { getProfileById, roleFromProfile, systemProfileIdByRole } from '../services/profiles.js';
 import {
   requireModuleAction,
@@ -1391,6 +1391,7 @@ adminRouter.post('/users/:id/force-logout', requireUserManager, async (req, res)
     return res.status(403).json({ ok: false, error: 'Solo root puede forzar cierre de un root' });
   }
   await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [existing[0].id]);
+  await bumpTokenVersion(existing[0].id);
   await forceLogoutUserSockets(
     existing[0].id,
     'Tu sesión fue cerrada por un administrador.'
@@ -1803,8 +1804,9 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
     passwordHash = await bcrypt.hash(temporaryPassword, 12);
     forceChange = true;
   } else if (typeof password === 'string' && password.length > 0) {
-    if (password.length < 6) {
-      return res.status(400).json({ ok: false, error: 'Password mínimo 6 caracteres' });
+    const errMsg = validateNewPassword(password);
+    if (errMsg) {
+      return res.status(400).json({ ok: false, error: errMsg });
     }
     passwordHash = await bcrypt.hash(password, 12);
     forceChange = true;
@@ -1898,6 +1900,10 @@ adminRouter.patch('/users/:id', requireUserManager, async (req, res) => {
   await saveServicePlace(u.id, servicePlace);
   Object.assign(u, await saveServiceEfectivos(u.id, serviceEfectivos));
   invalidateUserProfile(u.id);
+  if (passwordHash) {
+    await query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [u.id]);
+    await bumpTokenVersion(u.id);
+  }
   await logActivity({
     organizationId: req.user.orgId,
     actorId: req.user.sub,

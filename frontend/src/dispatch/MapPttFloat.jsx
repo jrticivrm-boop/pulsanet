@@ -290,7 +290,7 @@ export default function MapPttFloat({
   const holding = Boolean(ptt?.holding);
   const pending = Boolean(ptt?.pending) && !holding;
   const waking = Boolean(ptt?.waking) && !holding;
-  const pttLabel = holding ? 'AL AIRE' : waking ? 'DESPERTANDO' : pending ? 'PEDINDO' : 'PTT';
+  const pttLabel = holding ? 'AL AIRE' : waking ? 'DESPERTANDO' : pending ? 'PIDIENDO' : 'PTT';
   const pttBusy = holding || pending || waking;
 
   const style = pos

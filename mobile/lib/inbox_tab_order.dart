@@ -71,6 +71,12 @@ List<String> moveInboxTab(List<String> order, String fromId, String toId) {
   return next;
 }
 
+bool _hasChatThread({required bool contactOnly, String? at}) {
+  if (contactOnly) return at != null && at.isNotEmpty;
+  return true;
+}
+
+/// Conversaciones con historial primero (último mensaje); sin chat: presencia → grado.
 int compareContactRows({
   required bool aOnline,
   required bool bOnline,
@@ -80,14 +86,20 @@ int compareContactRows({
   String? bAt,
   String? aPresence,
   String? bPresence,
+  bool aContactOnly = false,
+  bool bContactOnly = false,
+  String? aName,
+  String? bName,
 }) {
+  final aThread = _hasChatThread(contactOnly: aContactOnly, at: aAt);
+  final bThread = _hasChatThread(contactOnly: bContactOnly, at: bAt);
+  if (aThread != bThread) return aThread ? -1 : 1;
+  if (aThread) return compareByLastMessage(aAt, bAt);
   final ar = presenceSortRank(aPresence, aOnline);
   final br = presenceSortRank(bPresence, bOnline);
   if (ar != br) return ar.compareTo(br);
   if (aGrade != bGrade) return aGrade.compareTo(bGrade);
-  final ta = aAt != null ? DateTime.tryParse(aAt)?.millisecondsSinceEpoch ?? 0 : 0;
-  final tb = bAt != null ? DateTime.tryParse(bAt)?.millisecondsSinceEpoch ?? 0 : 0;
-  return tb.compareTo(ta);
+  return (aName ?? '').toLowerCase().compareTo((bName ?? '').toLowerCase());
 }
 
 /// 0 en línea → 1 ausente → 2 desconectado → 3 fuera de línea.

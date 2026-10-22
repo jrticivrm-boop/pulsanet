@@ -2103,6 +2103,7 @@ class _RadioShellState extends State<RadioShell> with WidgetsBindingObserver {
       _viewingKind = null;
       _viewingId = null;
     });
+    unawaited(_inboxKey.currentState?.refreshInbox() ?? Future<void>.value());
   }
 
   Future<void> _openGroupFromInbox(

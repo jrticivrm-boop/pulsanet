@@ -99,7 +99,7 @@ export const config = {
   version: APP_VERSION,
   databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres:@127.0.0.1:5432/tacticalptx_db',
   jwtSecret,
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '15m',
   jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',').map((s) => s.trim()).filter(Boolean),
   /**

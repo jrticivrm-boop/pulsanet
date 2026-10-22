@@ -78,19 +78,104 @@ export function pointInAnyFeature(features, lat, lng) {
   return false;
 }
 
-/** Filtro por zona / unidad / municipio (shapeID o nombre). */
-export function filterTerritoryFeatures(features, { zonaId, unidad, municipioId, municipioName } = {}) {
-  let list = features || [];
-  if (zonaId) list = list.filter((f) => f.properties?.zonaId === zonaId);
-  if (unidad) {
-    const u = String(unidad);
-    list = list.filter((f) => {
-      const units = f.properties?.unidades || [f.properties?.unidad];
-      return (units || []).some((x) => String(x) === u) || String(f.properties?.unidad || '') === u;
-    });
+function featureUnitNames(f) {
+  const p = f?.properties || {};
+  if (Array.isArray(p.unidades) && p.unidades.length) {
+    return p.unidades.map((u) => String(u).trim()).filter(Boolean);
   }
-  if (municipioId) {
-    list = list.filter((f) => f.properties?.shapeID === municipioId);
+  return String(p.unidad || '')
+    .split(' / ')
+    .map((u) => u.trim())
+    .filter(Boolean);
+}
+
+function idList(filter, pluralKey, singularKey) {
+  if (!filter) return null;
+  if (Array.isArray(filter[pluralKey])) {
+    return filter[pluralKey].map(String).filter(Boolean);
+  }
+  if (filter[singularKey]) return [String(filter[singularKey])];
+  return null;
+}
+
+function normName(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Cruza polígonos GeoJSON con la cobertura del catálogo (unidad ↔ municipio).
+ * Si no hay filas, deja las propiedades del archivo.
+ */
+export function applyTerritoryCoverage(features, rows) {
+  if (!features?.length || !rows?.length) return features || [];
+  const byMuni = new Map();
+  for (const r of rows) {
+    const estado = r.estado || r.estadoName;
+    const municipio = r.municipio || r.municipioName;
+    const key = `${normName(estado)}|${normName(municipio)}`;
+    let bucket = byMuni.get(key);
+    if (!bucket) {
+      bucket = {
+        unidades: [],
+        zonaKey: r.zonaKey || r.zona_key || '',
+        zonaShort: r.zonaShort || r.zona_short || '',
+      };
+      byMuni.set(key, bucket);
+    }
+    const u = String(r.unidadName || r.unidad_name || '').trim();
+    if (u && !bucket.unidades.includes(u)) bucket.unidades.push(u);
+  }
+  return features.map((f) => {
+    const p = f.properties || {};
+    const key = `${normName(p.estado)}|${normName(p.municipio || p.shapeName)}`;
+    const cov = byMuni.get(key);
+    if (!cov) return f;
+    return {
+      ...f,
+      properties: {
+        ...p,
+        unidades: cov.unidades,
+        unidad: cov.unidades.join(' / '),
+        zonaId: cov.zonaKey || p.zonaId,
+        zona: cov.zonaShort || p.zona,
+      },
+    };
+  });
+}
+
+/** Filtro por zona / unidad / estado / municipio. Arrays vacíos = ninguno (sin opción «Todos»). */
+export function filterTerritoryFeatures(features, filter = {}) {
+  let list = features || [];
+  const zonaIds = idList(filter, 'zonaIds', 'zonaId');
+  const unidadIds = idList(filter, 'unidadIds', 'unidad');
+  const estadoIds = idList(filter, 'estadoIds', 'estado');
+  const municipioIds = idList(filter, 'municipioIds', 'municipioId');
+  const municipioName = filter.municipioName;
+
+  if (zonaIds) {
+    if (!zonaIds.length) return [];
+    const zs = new Set(zonaIds);
+    list = list.filter((f) => zs.has(String(f.properties?.zonaId || '')));
+  }
+  if (unidadIds) {
+    if (!unidadIds.length) return [];
+    const us = new Set(unidadIds);
+    list = list.filter((f) => featureUnitNames(f).some((u) => us.has(u)));
+  }
+  if (estadoIds) {
+    if (!estadoIds.length) return [];
+    const es = new Set(estadoIds.map((e) => normName(e)));
+    list = list.filter((f) => es.has(normName(f.properties?.estado)));
+  }
+  if (municipioIds) {
+    if (!municipioIds.length) return [];
+    const ms = new Set(municipioIds);
+    list = list.filter((f) => ms.has(String(f.properties?.shapeID || '')));
   } else if (municipioName) {
     const n = String(municipioName).toLowerCase();
     list = list.filter(

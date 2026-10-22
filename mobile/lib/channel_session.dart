@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import 'api_client.dart';
+import 'secure_store.dart';
 import 'app_focus.dart';
 import 'audio_session_setup.dart';
 import 'call_ringtone.dart';
@@ -700,13 +701,14 @@ class ChannelSession extends ChangeNotifier {
     }
 
     await DuckDnsHairpin.ensure();
+    final deviceId = await SecureStore.deviceId();
 
     _socket = io.io(
       AppConfig.socketUrl,
       () {
         final opts = io.OptionBuilder()
             .setTransports(['websocket', 'polling'])
-            .setAuth({'token': api.token})
+            .setAuth({'token': api.token, 'deviceId': deviceId})
             .enableReconnection()
             // Sin cobertura: reintentos cada 5 s mantenían la antena encendida.
             .setReconnectionDelay(1500)
@@ -723,7 +725,7 @@ class ChannelSession extends ChangeNotifier {
     _socket!
       ..onConnect((_) {
         try {
-          _socket!.auth = {'token': api.token};
+          _socket!.auth = {'token': api.token, 'deviceId': deviceId};
         } catch (_) {}
         connected = true;
         unawaited(warmPttCuePlayers());

@@ -14,8 +14,7 @@ import { query } from '../db.js';
 import { config } from '../config.js';
 import { logActivity } from './activity.js';
 import { notifyUserDevices } from './fcm.js';
-import { clearUserProfileCache } from './userProfile.js';
-import { isRoot } from './roles.js';
+import { bumpTokenVersion, clearUserProfileCache } from './userProfile.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '../../data');
@@ -26,10 +25,10 @@ const FAIL_IP_PREFIX = 'security:fail:ip:';
 const FAIL_USER_PREFIX = 'security:fail:user:';
 
 /**
- * Perfil Administrador (role root): no se bloquea por intentos fallidos (política temporal).
+ * Ya nadie está exento: root también se bloquea (otro admin lo libera).
  */
-export function isLoginLockExempt(role) {
-  return isRoot(role);
+export function isLoginLockExempt(_role) {
+  return false;
 }
 
 let memoryLock = null;
@@ -635,6 +634,11 @@ export async function registerLoginFailure(
     } catch (err) {
       console.error('revoke locked user tokens:', err.message);
     }
+    try {
+      await bumpTokenVersion(user.id);
+    } catch (err) {
+      console.error('bump locked user token_version:', err.message);
+    }
     if (ioRef && user.id) {
       try {
         ioRef.to(`user:${user.id}`).emit('security:user_locked', {
@@ -777,23 +781,17 @@ export function loginFailureClientPayload(result) {
         code: 'USER_LOCKED',
         locked: true,
         warn: true,
-        attemptsRemaining: 0,
       },
     };
   }
   if (result?.warn) {
-    const n = result.attemptsRemaining ?? 0;
     return {
       status: 401,
       body: {
         ok: false,
-        error:
-          n > 0
-            ? `Credenciales inválidas. Te quedan ${n} intento${n === 1 ? '' : 's'} antes del bloqueo.`
-            : 'Credenciales inválidas.',
+        error: 'Credenciales inválidas',
         code: 'AUTH_WARN',
         warn: true,
-        attemptsRemaining: n,
       },
     };
   }
@@ -804,7 +802,6 @@ export function loginFailureClientPayload(result) {
       error: 'Credenciales inválidas',
       code: 'AUTH_FAIL',
       warn: false,
-      attemptsRemaining: result?.attemptsRemaining,
     },
   };
 }

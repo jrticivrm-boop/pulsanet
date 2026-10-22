@@ -89,7 +89,7 @@ devicesRouter.post('/test', async (req, res) => {
       error: 'FCM no configurado. Añade FIREBASE_SERVICE_ACCOUNT en backend/.env',
     });
   }
-  const title = (req.body?.title || 'TacticalPtx').toString().slice(0, 80);
+  const title = (req.body?.title || 'SICOM').toString().slice(0, 80);
   const body = (req.body?.body || 'Notificación de prueba').toString().slice(0, 200);
   const result = await notifyUserDevices({
     userId: req.user.sub,

@@ -5851,6 +5851,133 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   box-sizing: border-box;
 }
 
+.cc-territorio-cat .cc-cat-hint {
+  margin: 0 0 0.85rem;
+  max-width: 52rem;
+}
+.cc-territorio-split {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+  min-height: 22rem;
+}
+.cc-territorio-units {
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem 0.75rem;
+  background: var(--cc-panel);
+  max-height: min(70vh, 640px);
+  overflow: auto;
+}
+.cc-territorio-zona + .cc-territorio-zona {
+  margin-top: 0.75rem;
+}
+.cc-territorio-zona h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cc-muted);
+}
+.cc-territorio-unit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.cc-territorio-unit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 7px;
+  padding: 0.38rem 0.5rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.cc-territorio-unit:hover,
+.cc-territorio-unit.is-on {
+  background: color-mix(in srgb, var(--cc-accent) 12%, var(--cc-panel));
+}
+.cc-territorio-unit em {
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--cc-muted);
+}
+.cc-territorio-assign {
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem 1rem;
+  background: var(--cc-panel);
+  min-height: 22rem;
+}
+.cc-territorio-assign-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.7rem;
+}
+.cc-territorio-assign-head span {
+  font-size: 0.78rem;
+  color: var(--cc-muted);
+}
+.cc-territorio-estado {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  max-width: 22rem;
+  margin-bottom: 0.7rem;
+}
+.cc-territorio-estado select {
+  font-weight: 600;
+  min-height: 2rem;
+}
+.cc-territorio-muni-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.55rem;
+}
+.cc-territorio-muni-tools .cc-cat-input {
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+.cc-territorio-munis {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.2rem 0.65rem;
+  max-height: min(52vh, 480px);
+  overflow: auto;
+}
+.cc-territorio-munis label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.22rem 0.3rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.cc-territorio-munis label.is-on {
+  background: color-mix(in srgb, var(--cc-accent) 10%, transparent);
+}
+@media (max-width: 820px) {
+  .cc-territorio-split {
+    grid-template-columns: 1fr;
+  }
+}
+
 .cc-catalogs-body > .cc-cat-grid,
 .cc-catalogs-body > .cc-cat-grades-wrap,
 .cc-catalogs-body > .cc-dependencias,
@@ -14024,6 +14151,68 @@ html.cc-cat-dragging .cc-cat-item {
   overflow-x: hidden;
   overflow-y: hidden;
   padding: 2px 0;
+}
+.cc-ms-group-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px 2px 8px;
+  min-height: 22px;
+}
+.cc-ms-group-head.is-on {
+  background: color-mix(in srgb, var(--cc-accent) 8%, transparent);
+}
+.cc-ms-group-check {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  cursor: pointer;
+}
+.cc-ms-group-check input {
+  margin: 0;
+  accent-color: var(--cc-accent);
+}
+.cc-ms-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 2px 2px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.cc-ms-group-caret {
+  flex: 0 0 auto;
+  width: 0.7rem;
+  font-size: 0.72rem;
+  color: var(--cc-muted, #5c6b55);
+}
+.cc-ms-group-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cc-muted, #5c6b55);
+}
+.cc-ms-group-n {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--cc-muted, #5c6b55);
+  opacity: 0.85;
+}
+.cc-ms-panel .cc-tactical-ms-option.cc-ms-group-item {
+  padding-left: 22px;
 }
 .cc-ms-panel .cc-tactical-ms-option {
   padding: 3px 8px;

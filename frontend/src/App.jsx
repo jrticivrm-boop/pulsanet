@@ -14,6 +14,7 @@ import {
   changePassword,
   fetchAuthMe,
   login,
+  logoutSession,
   persistSession,
 } from './api';
 import { canViewModule, canViewTab } from './dispatch/modulePermissions.js';
@@ -47,6 +48,7 @@ import CatalogServicios from './dispatch/CatalogServicios.jsx';
 import CatalogTacticalSites from './dispatch/CatalogTacticalSites.jsx';
 import AdminLayout from './dispatch/AdminLayout.jsx';
 import DispatchDependencias from './dispatch/DispatchDependencias.jsx';
+import CatalogTerritorio from './dispatch/CatalogTerritorio.jsx';
 import ConfigLayout from './dispatch/ConfigLayout.jsx';
 import ConfigBackups from './dispatch/ConfigBackups.jsx';
 import ConfigAudit from './dispatch/ConfigAudit.jsx';
@@ -240,10 +242,12 @@ export default function App() {
   }
 
   function logout() {
+    const current = session;
     setLiveWireKey(null);
     clearAvatarBlobCache();
     persistSession(null);
     setSession(null);
+    if (current?.token) void logoutSession(current);
   }
 
   return (
@@ -377,6 +381,7 @@ export default function App() {
           <Route path="servicios" element={<CatalogServicios session={session} />} />
           <Route path="grados-empleos" element={<Navigate to="/despacho/catalogos/grados" replace />} />
           <Route path="dependencias" element={<DispatchDependencias session={session} />} />
+          <Route path="territorio" element={<CatalogTerritorio session={session} />} />
           <Route
             path="sitios-tacticos"
             element={<Navigate to="/despacho/administracion/sitios-tacticos" replace />}

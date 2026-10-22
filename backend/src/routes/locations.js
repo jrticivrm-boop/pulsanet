@@ -30,9 +30,9 @@ function toIsoUtc(value) {
 const EFECTIVOS_GRUPOS = [
   ['personal', 'Personal:'],
   ['armamento', 'Armamento:'],
-  ['vehs_sb', 'Vehs. S/B.'],
-  ['vehs_cb', 'Vehs. C/B.'],
-  ['otros', 'Otros.'],
+  ['vehs_sb', 'Vehs. S/B.:'],
+  ['vehs_cb', 'Vehs. C/B.:'],
+  ['otros', 'Otros:'],
 ];
 const EFECTIVOS_GRUPO_ORDER = EFECTIVOS_GRUPOS.map(([key]) => key);
 

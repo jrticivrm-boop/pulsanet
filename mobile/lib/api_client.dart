@@ -58,6 +58,8 @@ class ApiClient {
         RegExp(r'\b401\b').hasMatch(s);
   }
 
+  Timer? _keepAlive;
+
   Future<void> loadSession() async {
     final s = await SecureStore.readSession();
     _token = s.token;
@@ -69,6 +71,45 @@ class ApiClient {
         _user = null;
       }
     }
+    _armKeepAlive();
+  }
+
+  void _armKeepAlive() {
+    _keepAlive?.cancel();
+    if (_token == null || _token!.isEmpty) return;
+    _keepAlive = Timer.periodic(const Duration(seconds: 45), (_) {
+      unawaited(ensureFresh());
+    });
+    unawaited(ensureFresh());
+  }
+
+  int? _jwtExpMs(String? token) {
+    if (token == null || token.isEmpty) return null;
+    try {
+      final parts = token.split('.');
+      if (parts.length < 2) return null;
+      var b64 = parts[1].replaceAll('-', '+').replaceAll('_', '/');
+      while (b64.length % 4 != 0) {
+        b64 += '=';
+      }
+      final payload = jsonDecode(utf8.decode(base64Decode(b64)));
+      final exp = payload is Map ? payload['exp'] : null;
+      if (exp is int) return exp * 1000;
+      if (exp is num) return exp.toInt() * 1000;
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> ensureFresh() async {
+    if (_token == null || _token!.isEmpty) return;
+    final exp = _jwtExpMs(_token);
+    if (exp != null &&
+        exp - DateTime.now().millisecondsSinceEpoch > 4 * 60 * 1000) {
+      return;
+    }
+    await tryRefresh();
   }
 
   bool get mustChangePassword =>
@@ -79,7 +120,12 @@ class ApiClient {
         .post(
           Uri.parse('${AppConfig.apiBaseUrl}/api/auth/login'),
           headers: {'Content-Type': 'application/json', ..._ua()},
-          body: jsonEncode({'username': username, 'password': password}),
+          body: jsonEncode({
+            'username': username,
+            'password': password,
+            'deviceId': await SecureStore.deviceId(),
+            'client': Platform.isIOS ? 'ios' : 'android',
+          }),
         )
         .timeout(_timeout);
 
@@ -115,6 +161,7 @@ class ApiClient {
     final data = await _post('/api/auth/change-password', {
       'currentPassword': currentPassword,
       'newPassword': newPassword,
+      'deviceId': await SecureStore.deviceId(),
     });
     await _saveSession(
       data['token'] as String,
@@ -154,7 +201,10 @@ class ApiClient {
         .post(
           Uri.parse('${AppConfig.apiBaseUrl}/api/auth/refresh'),
           headers: {'Content-Type': 'application/json', ..._ua()},
-          body: jsonEncode({'refreshToken': refresh}),
+          body: jsonEncode({
+            'refreshToken': refresh,
+            'deviceId': await SecureStore.deviceId(),
+          }),
         )
         .timeout(_timeout);
 
@@ -219,6 +269,7 @@ class ApiClient {
       refreshToken: refreshToken,
       avatarTicket: _avatarTicket,
     );
+    _armKeepAlive();
   }
 
   /// URL absoluta del avatar (sin ticket). Usar con [avatarAuthHeaders].
@@ -313,6 +364,31 @@ class ApiClient {
   }
 
   Future<void> logout() async {
+    final token = _token;
+    String? refresh;
+    try {
+      refresh = (await SecureStore.readSession()).refresh;
+    } catch (_) {}
+    if (token != null && token.isNotEmpty) {
+      try {
+        await http
+            .post(
+              Uri.parse('${AppConfig.apiBaseUrl}/api/auth/logout'),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $token',
+                ..._ua(),
+              },
+              body: jsonEncode({
+                'refreshToken': refresh,
+                'deviceId': await SecureStore.deviceId(),
+              }),
+            )
+            .timeout(_timeout);
+      } catch (_) {}
+    }
+    _keepAlive?.cancel();
+    _keepAlive = null;
     _token = null;
     _user = null;
     _avatarTicket = null;

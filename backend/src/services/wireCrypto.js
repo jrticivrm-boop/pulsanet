@@ -15,6 +15,9 @@ let orgWireKey = null;
 function resolveWireSecret() {
   const fromEnv = process.env.WIRE_ENCRYPTION_KEY?.trim();
   if (fromEnv && fromEnv.length >= 16) return fromEnv;
+  if (config.isProd) {
+    throw new Error('WIRE_ENCRYPTION_KEY requerido en production');
+  }
   const content = process.env.CONTENT_ENCRYPTION_KEY?.trim();
   if (content && content.length >= 16) return `wire|${content}`;
   return `tacticalptx-wire|${config.jwtSecret}`;
