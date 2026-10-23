@@ -1,3 +1,13 @@
+## 2026-10-22 — Producción: fuente APK 1.8.194+204
+
+- **Tipo:** infra
+- **Área:** ops | mobile
+- **Qué:**
+  - Publicado `1d627ec` en SICOM (versión 1.8.194+204 y arreglo de compile `deviceId`). Sin reconstruir API/web (PTT no se cortó).
+  - Health OK. Etiqueta `prod-v1.8.107-20261022-2137`.
+  - Sideload: `C:\pulsanet_soporte\APK\SICOM-1.8.194+204.apk` (sin OTA ni emulador).
+- **Archivos / refs:** commit `1d627ec`
+
 ## 2026-10-22 — APK 1.8.194+204 (sesión 15 min, inbox y endurecimiento)
 
 - **Tipo:** feature
