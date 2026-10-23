@@ -116,18 +116,21 @@ class ApiClient {
       _user != null && (_user!['mustChangePassword'] == true);
 
   Future<Map<String, dynamic>> login(String username, String password) async {
-    Future<http.Response> once() => http
-        .post(
-          Uri.parse('${AppConfig.apiBaseUrl}/api/auth/login'),
-          headers: {'Content-Type': 'application/json', ..._ua()},
-          body: jsonEncode({
-            'username': username,
-            'password': password,
-            'deviceId': await SecureStore.deviceId(),
-            'client': Platform.isIOS ? 'ios' : 'android',
-          }),
-        )
-        .timeout(_timeout);
+    Future<http.Response> once() async {
+      final deviceId = await SecureStore.deviceId();
+      return http
+          .post(
+            Uri.parse('${AppConfig.apiBaseUrl}/api/auth/login'),
+            headers: {'Content-Type': 'application/json', ..._ua()},
+            body: jsonEncode({
+              'username': username,
+              'password': password,
+              'deviceId': deviceId,
+              'client': Platform.isIOS ? 'ios' : 'android',
+            }),
+          )
+          .timeout(_timeout);
+    }
 
     Future<Map<String, dynamic>> attempt() async {
       final res = await once();
@@ -197,16 +200,19 @@ class ApiClient {
     final refresh = s.refresh;
     if (refresh == null || refresh.isEmpty) return false;
 
-    Future<http.Response> once() => http
-        .post(
-          Uri.parse('${AppConfig.apiBaseUrl}/api/auth/refresh'),
-          headers: {'Content-Type': 'application/json', ..._ua()},
-          body: jsonEncode({
-            'refreshToken': refresh,
-            'deviceId': await SecureStore.deviceId(),
-          }),
-        )
-        .timeout(_timeout);
+    Future<http.Response> once() async {
+      final deviceId = await SecureStore.deviceId();
+      return http
+          .post(
+            Uri.parse('${AppConfig.apiBaseUrl}/api/auth/refresh'),
+            headers: {'Content-Type': 'application/json', ..._ua()},
+            body: jsonEncode({
+              'refreshToken': refresh,
+              'deviceId': deviceId,
+            }),
+          )
+          .timeout(_timeout);
+    }
 
     http.Response res;
     try {

@@ -45,7 +45,7 @@ Esta lista es la parte **manual**. Revisa siempre la sección *Base* y, además,
 ## Si toca la app móvil
 
 - [ ] Los cambios del servidor no rompen a la APK instalada (misma API): iniciar sesión desde un teléfono de prueba contra pruebas (Wi-Fi; en inicio de sesión → *Servidor*: `https://192.168.1.77:4200`; al terminar, borrarlo) y revisar mapa/canales/mensajes. Voz y video del teléfono se validan con una cuenta de prueba justo después de subir.
-- [ ] Si el cambio necesita APK nueva: se compila aparte (solo cuando se pida) y se prueba antes de distribuirla.
+- [ ] Si el cambio necesita APK nueva: se compila aparte (solo cuando se pida) y se prueba antes de distribuirla. **Lista para distribuir:** `SICOM-1.8.194+204.apk` en `C:\pulsanet_soporte\APK\` (sesión 15 min + keepalive, inbox por último mensaje, FLAG_SECURE). Instalar sobre la 1.8.193+203: login, radio, mapa y que la sesión no se caiga a los 15 min.
 
 ## Si toca autenticación / seguridad
 

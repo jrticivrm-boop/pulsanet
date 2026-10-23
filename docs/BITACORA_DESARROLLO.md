@@ -1,3 +1,24 @@
+## 2026-10-22 — APK 1.8.194+204 (sesión 15 min, inbox y endurecimiento)
+
+- **Tipo:** feature
+- **Área:** mobile
+- **Qué:**
+  - Empaquetada `SICOM-1.8.194+204.apk` (y `SICOM-latest.apk`) en `C:\pulsanet_soporte\APK\`; sin OTA ni emulador.
+  - Incluye keepalive 45 s (JWT 15 min), `deviceId` en login/refresh/logout, inbox por último mensaje, FLAG_SECURE, sin backup ni CAs de usuario, ATS, «PIDIENDO» y «Cargando sesión…».
+  - Corrección: `await` de `deviceId` en closures `async` de login/refresh (si no, `assembleRelease` no compilaba).
+- **Por qué / notas:** la APK 1.8.193+203 del 17 oct no renueva el JWT de 15 min ya publicado en el servidor.
+- **Archivos / refs:** `mobile/pubspec.yaml`, `mobile/lib/api_client.dart`
+
+## 2026-10-22 — Producción: Territorio, sesión 15 min e inbox
+
+- **Tipo:** infra
+- **Área:** ops | web | backend | database
+- **Qué:**
+  - Publicado `43d991a` en SICOM: catálogo Territorio, JWT 15 min + `051_token_version`, HSTS, inbox por último mensaje, textos SICOM/PIDIENDO.
+  - Health OK. Etiqueta `prod-v1.8.107-20261022-1313`. Respaldo `pre_deploy_20261022_191230.dump`.
+- **Por qué / notas:** fuera de ventana; 15 usuarios. API y web se reconstruyeron (corte breve de PTT). La APK instalada no cambia hasta un empaquetado nuevo.
+- **Archivos / refs:** commit `43d991a`
+
 ## 2026-10-22 — Producción: migración 052 (cat_territory_coverage)
 
 - **Tipo:** infra

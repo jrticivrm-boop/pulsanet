@@ -10,6 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **APK Android 1.8.194+204:** keepalive 45 s (JWT de 15 min), `deviceId`, inbox por último mensaje, FLAG_SECURE, sin backup ni CAs de usuario, ATS, «PIDIENDO» y «Cargando sesión…». Sideload `C:\pulsanet_soporte\APK\SICOM-1.8.194+204.apk` (también `SICOM-latest.apk`); sin OTA.
 - **Territorio — Estado y catálogo de cobertura:** filtro Estado antes de Municipio (cascada, municipios agrupados por estado). En Municipio cada estado se pliega con sus municipios y el check del encabezado marca el grupo; Ascendente/Descendente ordena solo municipios (estados A–Z). Catálogos → Territorio asigna unidades a municipios del registro nacional (sin CRUD de estados/municipios); migración `052_territory_coverage.sql`. El mapa usa esa cobertura sobre los polígonos de IV R.M.
 - **Usuarios — Efectivos del servicio:** nuevo paso «Efectivos» en Alta/Editar usuario (Generales → Efectivos → Grupos): tabla de cantidades por grupo — Personal (GG., JJ., OO., TT.), Armamento (Fx., G-3, Adit. L.G.), Vehs. S/B. y Vehs. C/B. (Cheyenne, Humvee, Sandkat), Otros (Cams., Anti dron fijo, Antidron semifijo, Dron) — con total por grupo, «+» para anexar conceptos al catálogo de la organización y «×» para quitarlos. Columna «Efectivos» en la relación (totales por grupo, desglose en tooltip); Excel y CSV con una columna por concepto y sumas en «Resumen». Migración `050_service_efectivos.sql` (`cat_efectivos` + `users.service_efectivos`).
 - **Usuarios — Generales integra Adscripción:** Perfil de acceso y «Organismo Pert.» (antes «Alcance») pasan al paso Generales; desaparece el paso Adscripción.
@@ -32,6 +33,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Chat DM — ver una vez (imagen/video):** al enviar media se puede marcar «Ver una vez»; el destinatario abre una sola vez y el mensaje se elimina (soft-delete). Migración `045_message_view_once.sql`. App y web DM; no aplica a canales/grupo en esta entrega.
 
 ### Fixed
+- **APK — login/refresh no compilaban en release:** `deviceId` usaba `await` en un closure que no era `async`.
 - **Login «Error interno»:** al firmar el JWT se usaba `algorithms` (opción de verificar). Queda `algorithm: HS256`; el ingreso vuelve a emitir token.
 
 ### Security
