@@ -1,3 +1,761 @@
+## 2026-10-31 — ExploNova 1.9.179: Alta con etiquetas 2160p@60
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Alta reconoce `2160p@60 (4K)` y `1080p Full HD`, y pide ese nivel con la función del reproductor HLS.
+- **Por qué / notas:** Antes solo aceptaba textos como `2160p`, así que en esa página se quedaba en 480p. APK: `ExploNova_Soporte\APK\ExploNova-1.9.179.apk` (211).
+- **Archivos / refs:** `scriptlets.js`
+
+## 2026-10-31 — ExploNova 1.9.178: Alta, Automática y Baja fuera de YouTube
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En sitios que no son YouTube, Alta reproduce la mayor calidad del menú y la deja marcada; Baja, la menor; Automática no cambia lo que elige el sitio.
+- **Por qué / notas:** El clic es el del reproductor. En tapetes no se sustituye el archivo. YouTube sigue con su ajuste. APK: `ExploNova_Soporte\APK\ExploNova-1.9.178.apk` (210).
+- **Archivos / refs:** `scriptlets.js`
+
+## 2026-10-31 — ExploNova 1.9.164 queda como respaldo estable
+
+- **Tipo:** docs
+- **Área:** mobile
+- **Qué:** La 1.9.164 (versionCode 196) queda marcada como punto de retorno. Tag `v1.9.164-estable`, guardado en el repo bare de soporte.
+- **Por qué / notas:** No está al 100. Es la mejor opción hasta ahora. Las modificaciones siguientes salen de aquí; si algo falla, se vuelve a este tag. APK: `ExploNova_Soporte\APK\ExploNova-1.9.164.apk`.
+- **Archivos / refs:** `docs/HILO.md`, tag `v1.9.164-estable`
+
+## 2026-10-30 — ExploNova 1.9.163: el cambio de modo no se echa para atrás
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al pasar de la página al reproductor o a la flotante, y al volver, el video sigue en el mismo instante. Si iba en play, sigue en play; si iba en pausa, no hay audio. La página se oye hasta que ExploNova ya está en ese minuto. El arranque queda en 2,5 s, como en la 1.9.158.
+- **Por qué / notas:** La 1.9.158 ya estaba bien. El salto hacia atrás era un minuto cortado a segundos enteros, o uno viejo mientras cargaba. Se quitó el parpadeo de la superficie.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.163.apk` (195).
+- **Archivos / refs:** `PlayerActivity.kt`, `PlayerNext.kt`, `MainActivity.kt`, `PlaybackService.kt`
+
+## 2026-10-30 — ExploNova 1.9.162: la flotante vuelve a mostrar imagen
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En la 1.9.161 la ventana flotante se oía y no se veía. El arranque vuelve a esperar 2,5 s, como en la 1.9.158, y al encoger se vuelve a pedir la imagen.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.162.apk` (194).
+- **Archivos / refs:** `PlaybackService.kt`, `PlayerActivity.kt`
+
+## 2026-10-30 — ExploNova 1.9.161: Reproductor ya no cierra la app
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** La 1.9.160 seguía cerrándose al pulsar Reproductor. Se quitó el control de carga propio que corría en el hilo del video. El arranque de medio segundo queda en el control normal de ExoPlayer.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.161.apk` (193).
+- **Archivos / refs:** `PlaybackService.kt`
+
+## 2026-10-30 — ExploNova 1.9.160: Reproductor ya no cierra la app
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al pulsar Reproductor la app se cerraba. El aviso de cuánto video esperar preguntaba el reproductor desde otro hilo. Ahora usa el dato de la carga y no lo toca.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.160.apk` (192).
+- **Archivos / refs:** `PlaybackService.kt`
+
+## 2026-10-30 — ExploNova 1.9.159: sin retroceso de medio segundo, reproductor más rápido
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al cambiar de modo ya no se recorta el decimal del minuto ni se usa un minuto viejo. Reproductor y un archivo directo arrancan al tener medio segundo de video. HLS sigue esperando 2,5 s. El archivo de YouTube se pide también al abrir Reproductor.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.159.apk` (191).
+- **Archivos / refs:** `PlayerNext.kt`, `PlayerActivity.kt`, `PlaybackService.kt`, `MainActivity.kt`
+
+## 2026-10-30 — ExploNova 1.9.158: el audio no se corta y el video no vuelve a cero
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al abrir Reproductor o Flotante la página sigue sonando hasta que ExploNova ya está en el mismo minuto. El salto de minuto se hace una sola vez, sobre el archivo real, así que el video no arranca de cero.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.158.apk` (190).
+- **Archivos / refs:** `PlayerActivity.kt`, `MainActivity.kt`, `Tab.kt`, `PlayerNext.kt`
+
+## 2026-10-30 — ExploNova 1.9.157: no pausar al pasar, un solo seek, abre ya
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Si el video de la página va en play, el reproductor y la flotante siguen en play. Si lo pausaste tú, quedan en pausa. El video no se vuelve a buscar al estar listo (el aro no sale dos veces). Reproductor abre al instante; el minuto fino llega en paralelo.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.157.apk` (189).
+- **Archivos / refs:** `PlaybackService.kt`, `PlayerActivity.kt`, `MainActivity.kt`
+
+## 2026-10-30 — ExploNova 1.9.156: un solo reloj (página, reproductor, flotante)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al pasar de YouTube/Facebook al reproductor o a la flotante se usa el minuto real de la página, no una posición vieja. La página sigue oyéndose hasta que el otro ya está en ese minuto. Al volver, primero se busca ese minuto y después suena o queda en pausa.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.156.apk` (188).
+- **Archivos / refs:** `PlayerActivity.kt`, `PlayerNext.kt`, `MainActivity.kt`, `Tab.kt`
+
+## 2026-10-30 — ExploNova 1.9.155: el aro de YouTube no se alarga
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Ya no se llama la API de calidad/sonido del reproductor en 0:00, ni se recarga el video si aparece el aro. La calidad se pide cuando el video ya avanzó; el manifiesto sigue sesgado desde antes.
+- **Por qué / notas:** 1.9.152 volvió a tocar el reproductor al arrancar y 1.9.153 lo recargaba: el aro se quedaba un buen rato. La regla que sí servía es la de 1.9.149.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.155.apk` (187).
+- **Archivos / refs:** `scriptlets.js`
+
+## 2026-10-30 — ExploNova 1.9.154: flotante YouTube sin mostrar el reproductor
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al pasar a ventana flotante desde YouTube no se queda el reproductor negro encima de la página; al quitar la ventanita se vuelve a la página.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.154.apk` (186).
+- **Archivos / refs:** `PlayerActivity.kt`
+
+## 2026-10-30 — ExploNova 1.9.153: YouTube se destraba si se queda cargando
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Si el video de YouTube se queda en el aro al empezar, se suelta la calidad temprana y, si sigue trabado, se recarga solo el reproductor.
+- **Por qué / notas:** El watchdog de 1.9.152 no reiniciaba el player; el usuario tenía que actualizar la página.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.153.apk` (185).
+- **Archivos / refs:** `scriptlets.js`
+
+## 2026-10-30 — ExploNova: vuelta al respaldo estable 1.9.152
+
+- **Tipo:** otro
+- **Área:** mobile
+- **Qué:** Árbol de trabajo de ExploNova restaurado al tag `v1.9.152-estable` (commit `a2df2c2`). Los ensayos 1.9.166–172 quedaron en stash `descartado-post-152-antes-de-volver-a-estable`.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.152.apk` y copia `Respaldos\ExploNova\1.9.152-estable\ExploNova-1.9.152-ESTABLE.apk`.
+
+## 2026-10-30 — ExploNova 1.9.172: Reproductor con video en pausa (arranca + FS)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** `openPagePlayer` manda `bar`+`play` si no hay reproducción; `pagefs` marca intent, fuerza sonido en YT, reproduce antes de fullscreen y reintenta más veces.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.172.apk` (204).
+- **Archivos / refs:** `Tab.kt`, `scriptlets.js`
+
+## 2026-10-30 — ExploNova 1.9.171: Flotante YouTube sin pausas (modo página)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Flotante en YouTube vuelve a ir por el reproductor interno (PiP estable); ya no usa `pipon` de la página aunque Ajustes diga «reproductor de la página».
+- **Por qué / notas:** 1.9.167 excluía page mode de `youtubeBarPipViaPlayer` y regresó el bucle de pausas de YouTube.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.171.apk` (203).
+- **Archivos / refs:** `VideoBarLogic.kt`, `VideoBarLogicTest.kt`, `MainActivity.kt`
+
+## 2026-10-30 — ExploNova 1.9.170: Reproductor → pantalla completa (YouTube)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Reproductor en YouTube usa `openPagePlayer` también en modo «preguntar»; `pagefs` con más selectores y reintentos; toques de barra no bloqueados por `ignoreBarClickUntil` tras jalar.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.170.apk` (202).
+- **Archivos / refs:** `MainActivity.kt`, `Tab.kt`, `scriptlets.js`
+
+## 2026-10-30 — ExploNova 1.9.169: barra visible en fullscreen nativa + toques YouTube
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En `customView`, la barra ya no se apaga por tratar FS como overlay (`wantsVideoBar`); al entrar se fuerza visible si hay video; tras refit de SurfaceView la barra queda encima; `LevelHud` no intercepta toques al reproductor de la página.
+- **Por qué / notas:** 1.9.168 dejaba pantalla negra sin pestaña › ni controles YT al ocultar la barra en cada `syncVideoBar`/`onMediaPlaying`.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.169.apk` (201).
+- **Archivos / refs:** `MainActivity.kt`, `LevelHud.kt`, `app/build.gradle.kts`
+
+## 2026-10-30 — ExploNova 1.9.168: barra video — Ajustar solo en FS, Salir, clics
+
+- **Tipo:** ux | fix
+- **Área:** mobile
+- **Qué:** Fuera de fullscreen se oculta Ajustar/Zoom; dentro fullscreen Reproductor pasa a **Salir**; arrastre solo en pestaña ‹/› para que Flotante/Reproductor/etc. respondan al primer toque.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.168.apk` (200).
+- **Archivos / refs:** `MainActivity.kt`, `activity_main.xml`
+
+## 2026-10-30 — ExploNova 1.9.167: modo «Reproductor de la página» de verdad
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Con Ajustes en «Reproductor de la página», YouTube ya no abre ExploNova al expandir/Flotante/Reproductor; fullscreen nativa (`customView`), PiP web y `pagefs`/`openPagePlayer`.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.167.apk` (199).
+- **Archivos / refs:** `MainActivity.kt`, `VideoBarLogic.kt`, `Tab.kt`, `Prefs.kt`, `scriptlets.js`
+
+## 2026-10-30 — ExploNova 1.9.166: fullscreen nativa desde respaldo 152 + barra unificada
+
+- **Tipo:** fix | ux
+- **Área:** mobile
+- **Qué:**
+  - Base `v1.9.152-estable`: calidad al reproducir (1080p/720p…) y cadena YouTube A→B→C conservadas.
+  - Fullscreen **customView** (sin `webfs` / sin `barChromeSync` de 1.9.162–165).
+  - Barra ExploNova única en página y fullscreen (colapsada); Ajustar/Zoom; gestos HUD; `enxScrubPipLeak` para PiP web.
+  - Reaplicar `pagefit` al entrar en fullscreen + refit SurfaceView.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.166.apk` (198).
+- **Archivos / refs:** `MainActivity.kt`, `activity_main.xml`, `scriptlets.js`, `Prefs.kt`, `docs/HILO.md`
+
+## 2026-10-30 — ExploNova 1.9.165: controles YouTube otra vez en fullscreen de la página
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Causa: 1.9.162 observaba `ytp-autohide` y el overlay negro de `customView` tapaba el HTML de YouTube (calidad, barra, etc.).
+  - YouTube + «Reproductor de la página»: fullscreen **en el WebView** (`data-enx-webfs`), sin SurfaceView opaco. Gestos seek/brillo/volumen se conservan. Barra ExploNova colapsada arriba izquierda.
+  - Recargar la pestaña de YouTube para que no quede el script viejo.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.165.apk` (197).
+- **Archivos / refs:** `MainActivity.kt`, `scriptlets.js`
+
+## 2026-10-30 — ExploNova 1.9.164: barra unificada fullscreen + controles YouTube
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - Página: barra flotante visible con video (sin autohide ligado a controles YouTube); eliminado `barChromeSync`.
+  - Fullscreen web: misma `video_bar` arriba izquierda (colapsada al entrar); gestos seek/brillo/volumen; retirada tira `fs_actions`.
+  - Reproductor: quitados botones/chip Ajustar-Zoom recientes.
+  - Fix: `enxScrubPipLeak` si queda `data-enx-pip` (controles m.youtube invisibles).
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.164.apk` (196).
+- **Archivos / refs:** `MainActivity.kt`, `activity_main.xml`, `scriptlets.js`, `PlayerActivity.kt`, `Prefs.kt`
+
+## 2026-10-30 — ExploNova 1.9.163: fix pastillas YouTube + flotante (regresión 1.9.162)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Pastillas ya no se reabren al evento `playing` en `/watch`; bump genérico ignorado si hay reproductor rastreado; m.youtube prioriza controles móviles; poll de observers más ligero.
+  - Barra de video: no repintar en cada `onMediaPlaying`; `pagefit` solo al mostrar la barra.
+  - Flotante: sale PiP web antes de ExoPlayer; YouTube inline → reproductor; más margen tras `pipon`; PiP ExoPlayer con reintentos unificados; no cerrar PiP del reproductor cuando la página reproduce.
+- **Por qué / notas:** Corrige regresión 1.9.162 (pastillas visibles con controles YT ocultos) y mini-navegador en burbuja.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.163.apk` (195).
+- **Archivos / refs:** `scriptlets.js`, `MainActivity.kt`, `PlayerActivity.kt`, `ExploNova_Soporte/pruebas/chrome_sync_test.js`, `pip_ruta_test.js`
+
+## 2026-10-30 — ExploNova 1.9.162: pastillas en sync con controles del video
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - Pastillas (Descargar/Flotante/Audio…) se ocultan cuando YouTube usa `ytp-autohide` o controles móviles; Video.js / JW Player por clases; resto: toque en el video + ~3,5 s.
+  - Puente `yc` + pref `video_bar_autohide` (default sí).
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.162.apk` (194).
+- **Archivos / refs:** `scriptlets.js`, `MainActivity.kt`, `Tab.kt`, `Prefs.kt`
+
+## 2026-10-30 — ExploNova 1.9.161: flotante tras Reproductor (PiP ExoPlayer, no mini-navegador)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Tras abrir **Reproductor**, **Flotante** reutiliza el ExoPlayer en PiP (`requestPipIfFromPage`) en lugar de la PiP web con barra URL.
+  - PiP web: no restaurar chrome del navegador mientras sigue en ventana flotante; reorden al abrir reproductor desde PiP.
+  - Entrada stealth a PiP reintenta hasta que hay tamaño de video.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.161.apk` (193).
+- **Archivos / refs:** `MainActivity.kt`, `PlayerActivity.kt`
+
+## 2026-10-30 — ExploNova 1.9.160: Ajustar/Zoom en barra del video (página)
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - Botón **Ajustar / Zoom** en la barra flotante del navegador (junto a Flotante, Audio, etc.), alternando `contain` / `cover` en el `<video>` de la página.
+  - Preferencia `pageVideoZoom`; comando `pagefit` en scriptlets; PiP web respeta el mismo modo.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.160.apk` (192).
+- **Archivos / refs:** `activity_main.xml`, `MainActivity.kt`, `Prefs.kt`, `scriptlets.js`
+
+## 2026-10-30 — ExploNova 1.9.159: reproductor UX (Ajustar/Zoom, flotante stealth)
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - Píldora **Ajustar / Zoom** visible abajo; barra superior con scroll de iconos.
+  - Flotante desde barra (YouTube): reproductor en modo stealth (sin flash de UI) hasta PiP.
+  - Calidad «alta» = mejor del menú; embed 360→1080 (scriptlets previo).
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.159.apk` (191).
+- **Archivos / refs:** `PlayerActivity.kt`, `activity_player.xml`, `scriptlets.js`
+
+## 2026-10-30 — ExploNova: calidad «alta» = siempre la mejor del menú
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:** Quitado el tope por píxeles que bajaba a 1080 cuando había etiqueta 4K; «alta» elige el peldaño más alto (4K incluido). Se mantiene subida desde 360p en embeds y reenvío `setq` al iframe.
+- **Por qué / notas:** pedido del usuario; Descargar sigue usando altura real del archivo.
+- **Archivos / refs:** `scriptlets.js`, `calidad_test.js` (sin APK)
+
+## 2026-10-30 — ExploNova 1.9.158: calidad embed (360p→1080) sin romper 4K falso
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Tope de calidad solo si el menú miente respecto al peldaño **estable** (4K a 1080); no capar cuando el reproductor arranca en 360p pero ofrece 1080.
+  - Reenvío `setq` al iframe cuando termina de cargar (embed del acortador).
+- **Por qué / notas:** 1.9.157 dejaba 360p en players HLS/embed; tapetes sigue en 1080 real.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.158.apk` (code 190).
+- **Archivos / refs:** `scriptlets.js`, `calidad_test.js`
+
+## 2026-10-30 — ExploNova 1.9.157: calidad «alta» acorde a píxeles reales (tapetes 4K falso)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - En página, modo «alta»: tope por `videoHeight` (menú 4K pero stream 1080 → se elige y marca 1080p).
+  - `syncQualityMenu` y revisión tras `loadedmetadata` / `playing` para no dejar engañosa la etiqueta 4K.
+  - Prueba jsdom «4K falso» en `calidad_test.js`.
+- **Por qué / notas:** sitios tipo tapetes etiquetan 4K y solo entregan 1080p; Descargar ya usaba altura real desde 1.9.139.
+- **APK:** `ExploNova_Soporte\APK\ExploNova-1.9.157.apk` (code 189, firma v2+v3).
+- **Archivos / refs:** `scriptlets.js`, `calidad_test.js`, `app/build.gradle.kts` (1.9.157)
+
+## 2026-10-30 — ExploNova 1.9.156: calidad sin parpadeo e iframe embed
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Calidad «alta»: video.js con `enabled` en el peldaño correcto; no re-pedir en cada `playing` si ya está.
+  - Reproductor en iframe: `setq` por postMessage; rutas `/hdporn/` reconocidas para la barra.
+- **Por qué / notas:** sitios móvil con reproductor embebido parpadeaban y tardaban por recargas en bucle.
+- **Archivos / refs:** `scriptlets.js`, `VideoBarLogic.kt`, `calidad_test.js`
+
+## 2026-10-30 — ExploNova 1.9.155: fix flotante y reproductor (zoom/controles)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - YouTube: botón flotante de la barra siempre vía reproductor (evita PiP web rota en m.youtube).
+  - PiP de página: ocultar chrome antes de pipon; retraso al entrar; no coexistir con PiP del reproductor.
+  - Reproductor: ajuste a pantalla por defecto; barra superior con zoom/velocidad visible; PiP al tener tamaño de video.
+- **Archivos / refs:** `MainActivity.kt`, `VideoBarLogic.kt`, `PlayerActivity.kt`, `scriptlets.js`
+
+## 2026-10-30 — ExploNova 1.9.154 Parte 2: HUD seek y handoff YouTube
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:**
+  - HUD de avance en dos líneas (`LevelHud.seek`) en reproductor y fullscreen web.
+  - Handoff: mute web al abrir nativo; pausa con `commitHandoff` cuando ExoPlayer suena; prefetch YT en `/watch`.
+  - Versión 1.9.154 / 186; APK `ExploNova_Soporte\APK\ExploNova-1.9.154.apk`; commit `71af5a4`.
+- **Archivos / refs:** `LevelHud.kt`, `PlayerActivity.kt`, `MainActivity.kt`, `PlayerNext.kt`, `docs/HILO.md`
+
+## 2026-10-30 — ExploNova 1.9.153 Parte 1: dos modos reproductor y calidad
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:**
+  - Ajuste solo ExploNova o página (expandir + barra Reproductor unificados); sin «Preguntar».
+  - YouTube sin forzar calidad; resto en máxima; quitado «Calidad al reproducir».
+  - Respaldo estable 1.9.152 (`v1.9.152-estable`). Código 1.9.153 / 185; APK no generado aún.
+- **Archivos / refs:** `MainActivity.kt`, `Tab.kt`, `scriptlets.js`, `Prefs.kt`, `PlaybackService.kt`, `VideoBarLogic.kt`, `preferences.xml`
+
+## 2026-10-30 — ExploNova respaldo estable 1.9.152
+
+- **Tipo:** ops
+- **Área:** mobile
+- **Qué:** `ExploNova_Soporte\Respaldos\ExploNova\1.9.152-estable\` + tag `v1.9.152-estable`.
+- **Archivos / refs:** respaldo git `a2df2c2`
+
+## 2026-10-30 — ExploNova 1.9.152: YouTube calidad A→B→C
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Calidad al ver en YouTube: sesgar streamingData (A), API temprana (B), poll (C). Watchdog ~1 s si B trababa en 0:00.
+  - Objetivo: arrancar en 1080p configurado, sin aro negro permanente.
+  - APK 1.9.152 (versionCode 184).
+- **Archivos / refs:** `scriptlets.js`, `ExploNova_Soporte\pruebas\yt_bias_test.js`, `ExploNova_Soporte\APK\ExploNova-1.9.152.apk`
+
+## 2026-10-30 — ExploNova 1.9.151: m.youtube 1080p y carga más rápida
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - m.youtube ignoraba la calidad: API móvil con un solo argumento; vigilancia periódica y en cambio de video.
+  - YouTube ya no espera 1 s al bloqueador al abrir la app.
+  - APK 1.9.151 (versionCode 183).
+- **Archivos / refs:** `scriptlets.js`, `Tab.kt`, `ExploNova_Soporte\APK\ExploNova-1.9.151.apk`
+
+## 2026-10-30 — ExploNova 1.9.150: 1080p, icono de volumen y arranque YouTube
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Con 1080p en Ajustes, YouTube ya no se quedaba en 360p (1.9.149 había dejado de aplicar calidad).
+  - Icono de silenciado desincronizado: se vuelve a llamar unMute del reproductor solo cuando el video ya avanzó.
+  - Menos demora en Auto antes de subir a la calidad elegida; sin aro negro en 0:00.
+  - APK 1.9.150 (versionCode 182).
+- **Archivos / refs:** `scriptlets.js`, `Tab.kt`, `ExploNova_Soporte\APK\ExploNova-1.9.150.apk`
+
+## 2026-10-30 — ExploNova 1.9.149: YouTube ya no se queda en el aro
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Algunos /watch se quedaban en negro con el aro en 0:00 y había que recargar. ExploNova llamaba la API del reproductor al arrancar y YouTube lo reiniciaba.
+  - La calidad y el volumen se guardan antes de que exista el reproductor. Ya no se llama unMute ni setPlaybackQuality. El sonido del video entra cuando ya avanzó.
+  - APK 1.9.149 (versionCode 181), firma v2+v3. No se borraron los anteriores.
+- **Por qué / notas:** 1.9.147 y 1.9.148 seguían tocando el reproductor en el primer instante. Por eso el arreglo anterior no alcanzaba.
+- **Archivos / refs:** `scriptlets.js`, `Tab.kt`, `ExploNova_Soporte\APK\ExploNova-1.9.149.apk`
+
+## 2026-10-30 — ExploNova 1.9.148: calidad al ver en un listado
+
+- **Tipo:** feature
+- **Área:** mobile
+- **Qué:**
+  - Calidad al reproducir: interruptor y listado 2160p–144p (por defecto 1080p). Una sola vez; si no está, la de al lado.
+  - Apagado: el sitio elige. Descargar ahora sigue en la mejor calidad.
+  - APK 1.9.148 (versionCode 180), firma v2+v3. No se borraron los anteriores.
+- **Archivos / refs:** `VideoQuality.kt`, `scriptlets.js`, `preferences.xml`, `ExploNova_Soporte\APK\ExploNova-1.9.148.apk`
+
+## 2026-10-30 — ExploNova 1.9.147: APK play YouTube y rampa 1,5 s
+
+- **Tipo:** otro
+- **Área:** mobile
+- **Qué:**
+  - APK 1.9.147 (versionCode 179): YouTube ya no se traba en 0:00; 720 y a 1,5 s el tope.
+  - Incluye la tanda 1.9.146 (búsqueda, barra, radios, Ajustes, flotante, sonido).
+  - Firma v2+v3. Solo el `.apk`; no se borraron los anteriores.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.147.apk`
+
+## 2026-10-30 — ExploNova 1.9.147: YouTube se traba en 0:00
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Un /watch ya no se queda en el aro de 0:00 ni obliga a recargar o pulsar play dos veces.
+  - Calidad (720 y luego el tope) se pide cuando el video ya va; el overlay de unmute no se toca al arrancar.
+  - Código 1.9.147 (versionCode 179); sin APK hasta que lo pida.
+- **Archivos / refs:** `scriptlets.js`, `Tab.kt`, `yt_calidad_test.js`, `start_sound_test.js`
+
+## 2026-10-30 — ExploNova 1.9.146: APK de la tanda
+
+- **Tipo:** otro
+- **Área:** mobile
+- **Qué:**
+  - APK 1.9.146 (versionCode 178): YouTube (búsqueda, barra, calidad, sonido), Ajustes unificados, flotante automática. Incluye 1.9.145.
+  - Firma v2+v3. Solo el `.apk`; no se borraron los anteriores.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.146.apk`
+
+## 2026-10-30 — ExploNova 1.9.146: YouTube a veces mudo con sonido on
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - YouTube /watch ya no se queda mudo a veces (anuncio, calidad o lo que guarda la cuenta).
+  - Un toque en el video no cuenta como silencio a mano; el botón Silenciar sí.
+  - Código 1.9.146 (versionCode 178); sin APK hasta que lo pida.
+- **Archivos / refs:** `scriptlets.js`, `start_sound_test.js`
+
+## 2026-10-30 — ExploNova 1.9.146: Ajustes unificados y texto de flotante
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - Página de inicio, ventanas emergentes y anuncios unificados; historial sync solo con sesión; JavaScript siempre on.
+  - Flotante automática: texto con «pantalla de inicio de Android»; off sigue en el reproductor ExploNova (pausa o fondo).
+  - Código 1.9.146 (versionCode 178); sin APK hasta que lo pida.
+- **Por qué / notas:** más adelante se puede ocultar «Facebook con estilo de app» y dejarlo siempre on.
+- **Archivos / refs:** `preferences.xml`, `SettingsActivity.kt`, `Prefs.kt`, `Sync.kt`
+
+## 2026-10-30 — ExploNova 1.9.146: calidad YouTube, Descargar ahora, promoción
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - Ajustes: Alta/Media/Baja con radios (4K/2K/1080, 720/480, 360/240/144) solo al ver YouTube.
+  - 1080+ arranca en 720 y sube. Chip de promoción pagada oculto.
+  - Descargar ahora siempre el techo (`4K · WebM`); el listado no cambia.
+  - Código 1.9.146 (versionCode 178); sin APK hasta que lo pida.
+- **Archivos / refs:** `VideoQuality.kt`, `Prefs.kt`, `scriptlets.js`, `Sheets.kt`, `youtube.js`
+
+## 2026-10-30 — ExploNova 1.9.146: YouTube búsqueda y barra; tope 1 s
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Primera búsqueda en YouTube sin parpadeo ni aro de actualizar.
+  - Principal / Shorts / Tú un poco más abajo (se aprovecha el hueco).
+  - La primera carga espera al bloqueador como máximo 1 s (antes 2 s).
+  - Código 1.9.146 (versionCode 178); sin APK hasta que lo pida.
+- **Archivos / refs:** `youtube.js`, `Tab.kt`, `shorts_test.js`
+
+## 2026-10-30 — ExploNova 1.9.145: flotante YouTube de la barra sin pausas
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - En YouTube, ventana flotante desde la barra pasa por el reproductor por dentro (ya en PiP).
+  - Así no se pausa en bucle. Facebook y el resto no cambian.
+  - Código 1.9.145 (versionCode 177); sin APK hasta que lo pida.
+- **Archivos / refs:** `VideoBarLogic.kt`, `MainActivity.enterSmoothPip`
+
+## 2026-10-29 — ExploNova 1.9.144: ficha con varios reproductores, descarga HLS
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - En fichas de un solo slug sale Descargar al abrir.
+  - Si el reproductor trae un maestro HLS, se baja la calidad de Ajustes o se elige.
+  - APK 1.9.144 (versionCode 176); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.144.apk`
+
+## 2026-10-29 — ExploNova 1.9.143: Cuevana sin anuncios y con play
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - En Cuevana Anuncios queda siempre en No (rojo); Reproducir abre la película.
+  - Se ocultan el letrero amarillo y el banner de apuestas.
+  - APK 1.9.143 (versionCode 175); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.143.apk`
+
+## 2026-10-29 — ExploNova 1.9.142: ficha de película, play sin anuncios
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - En fichas `/pelicula/` sale Descargar; Reproducir abre el video, no el anuncio.
+  - Banners y precarga del reproductor siguen bloqueados.
+  - APK 1.9.142 (versionCode 174); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.142.apk`
+
+## 2026-10-29 — ExploNova 1.9.141: pestañas en pila sin empalmarse
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - Vista Pila: cada pestaña asoma el título; la actual queda al frente, sin taparse.
+  - APK 1.9.141 (versionCode 173); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.141.apk`
+
+## 2026-10-29 — ExploNova 1.9.140: miniaturas de pestañas y configuración clara
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - Las vistas previas de las pestañas ya no salen negras o corridas.
+  - En Configuración las opciones se ven siempre; si no aplican, quedan en gris con una explicación.
+  - APK 1.9.140 (versionCode 172); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.140.apk`
+
+## 2026-10-29 — ExploNova 1.9.139: ficha genérica, anti-muro de bloqueador, calidad real
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - En cualquier ficha de video sale Descargar por la URL; listados y muro siguen pidiendo toque.
+  - Si el sitio pide apagar el bloqueador, el video igual se puede ver; los anuncios siguen tapados.
+  - Al descargar se muestra la altura real del archivo, no el 4K de mentira del sitio.
+  - APK 1.9.139 (versionCode 171); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.139.apk`
+
+## 2026-10-29 — ExploNova 1.9.138: ficha iframe, permalink social, TikTok y Messenger
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - Ficha con reproductor incrustado: barra por URL; archivo sin .mp4 se reconoce; calidad si se sabe.
+  - Facebook/Instagram: reel o publicación muestran Descargar al abrir; el muro sigue pidiendo toque.
+  - TikTok: se oculta «usa la app» sin tapar el video.
+  - Messenger en su pestaña; el muro no se recarga ni vuelve al inicio.
+  - APK 1.9.138 (versionCode 170); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.138.apk`
+
+## 2026-10-28 — ExploNova 1.9.137: muro, calidad, Instagram y video más rápido
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - En el muro, un toque muestra Descargar aunque el video vaya mudo.
+  - El panel muestra HD/4K también en Facebook, Instagram y TikTok.
+  - Instagram: el jalón no pelea el scroll; anuncios igual de bloqueados.
+  - El archivo de video no se filtra; YouTube Descargar abre ya expandido.
+  - APK 1.9.137 (versionCode 169); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.137.apk`
+
+## 2026-10-28 — ExploNova 1.9.136: panel de descarga limpio y Mega
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - El panel de Descargar ya no explica cómo baja el archivo por dentro.
+  - Mega: si hay app se abre; si no, se queda en la web. El bloqueador no tapa el panel.
+  - APK 1.9.136 (versionCode 168); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.136.apk`
+
+## 2026-10-28 — ExploNova 1.9.135: cascarones de anuncios y espera 2 s
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:**
+  - En episodios de ese sitio se ocultan recuadros vacíos (sin tocar el video).
+  - En cualquier web se colapsa el hueco de un anuncio ya bloqueado.
+  - Primera carga: espera máxima 2 s (antes 3 s).
+  - APK 1.9.135 (versionCode 167); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.135.apk`
+
+## 2026-10-28 — ExploNova 1.9.134: calidad HD/4K visible con una sola fila
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:**
+  - El panel muestra HD 720p / HD 1080p / 4K también cuando el sitio solo tiene una calidad.
+  - No se inventan resoluciones; se lee el video, el manifiesto o el init.
+  - APK 1.9.134 (versionCode 166); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.134.apk`
+
+## 2026-10-28 — ExploNova 1.9.133: descarga HLS al cambiar de página
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - HLS de una sola calidad se encola como archivo (sigue al salir de la página).
+  - El panel muestra esa calidad («Calidad del sitio»), sin inventar resoluciones.
+  - APK 1.9.133 (versionCode 165); solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.133.apk`
+
+## 2026-10-28 — ExploNova 1.9.132: APK para comprobar descarga
+
+- **Tipo:** infra
+- **Área:** mobile
+- **Qué:**
+  - APK 1.9.132 (versionCode 164) listo para instalar.
+  - Solo el `.apk` en la carpeta APK.
+- **Archivos / refs:** `ExploNova_Soporte\APK\ExploNova-1.9.132.apk`
+
+## 2026-10-28 — ExploNova 1.9.132: Descargar en página de episodios embebidos
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - En el episodio del acortador (reproductor en iframe) sale la barra y se puede Descargar.
+  - El HLS sin `.m3u8` (`/m3u8/{id}`, segmentos `.html`) ya se detecta y no lo corta el bloqueo de anuncios.
+- **Archivos / refs:** ExploNova 1.9.132 (versionCode 164) · sin APK hasta que lo pida
+
+## 2026-10-28 — ExploNova 1.9.131: Descargar no pausa el video
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Tocar Descargar ya no pausa el video de la página. Play/pausa solo si el usuario lo pide.
+  - Si sigue sonando, se descarga a la vez (pocas conexiones para no trabar). Si lo pausa, la descarga sigue y acelera.
+- **Archivos / refs:** ExploNova 1.9.131 (versionCode 163) · sin APK hasta que lo pida
+
+## 2026-10-28 — ExploNova 1.9.130: barra de video en tapetes
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - En tapetes la barra Flotante/Reproductor/Descargar sale al abrir el video (por la URL).
+  - Sigue el arreglo de descargas por partes sin trabar.
+- **Archivos / refs:** ExploNova 1.9.130 (versionCode 162) · APK `ExploNova_Soporte\APK\ExploNova-1.9.130.apk`
+
+## 2026-10-28 — ExploNova 1.9.129: Google sin ganchos HLS; Descargar pausa
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Google/Bing ya no envuelven fetch (búsqueda y jalón no se traban).
+  - Al descargar, la página se pausa; el archivo sigue con audio. Flotante/Audio no se tocan.
+- **Archivos / refs:** ExploNova 1.9.129 (versionCode 161) · APK `ExploNova_Soporte\APK\ExploNova-1.9.129.apk`
+
+## 2026-10-28 — ExploNova 1.9.128: descarga por partes sin trabar el video
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Al descargar HLS/DASH (por partes) el video de la página ya no se pausa a trozos: se dejan 2 conexiones para el reproductor.
+  - Firma v4 + AAB + checklist Play Console. El aviso «sin analizar» sigue hasta dar de alta la app en Play.
+- **Archivos / refs:** ExploNova 1.9.128 (versionCode 160) · APK `ExploNova_Soporte\APK\ExploNova-1.9.128.apk`
+
+## 2026-10-23 — ExploNova 1.9.127: TikTok sin «overload-protect»
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - El reproductor de TikTok vuelve a pintarse. Se quitó el sondeo que dejaba la página en blanco con «overload-protect triggered».
+  - La barra sigue. YouTube y el resto de videos no cambian de regla.
+- **Archivos / refs:** ExploNova 1.9.127 (versionCode 159) · APK `ExploNova_Soporte\APK\ExploNova-1.9.127.apk`
+
+## 2026-10-23 — ExploNova 1.9.126: barra de video en TikTok
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - En el reproductor de TikTok vuelve la barra para descargar y abrir el reproductor.
+- **Por qué / notas:** el atajo que dejó de parchear TikTok también dejó de avisar que había un video.
+- **Archivos / refs:** ExploNova 1.9.126 (versionCode 158) · APK `ExploNova_Soporte\APK\ExploNova-1.9.126.apk`
+
+## 2026-10-23 — ExploNova 1.9.125: el video de TikTok abre en el reproductor
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Un enlace de video de TikTok abre el reproductor embebido y el video se ve, sin la carga larga de la ficha.
+- **Por qué / notas:** la ficha `/video/` no monta el reproductor en el WebView y recorrer su JSON congelaba la página. `embed/v2/ID` trae el `<video>` listo.
+- **Archivos / refs:** ExploNova 1.9.125 (versionCode 157) · APK `ExploNova_Soporte\APK\ExploNova-1.9.125.apk`
+
+## 2026-10-23 — ExploNova 1.9.124: TikTok reproduce (scripts y red ya no lo tapan)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - En tiktok.com ya no se envuelve fetch/play/MediaSource ni se miente la visibilidad (eso dejaba el reproductor en blanco).
+  - El bloqueo de anuncios no corta las peticiones de TikTok. El `?_r` se quita solo al abrir.
+- **Por qué / notas:** 1.9.123 quitó el bucle de URL, pero el script global seguía parcheando APIs que TikTok exige nativas.
+- **Archivos / refs:** ExploNova 1.9.124 (versionCode 156) · APK `ExploNova_Soporte\APK\ExploNova-1.9.124.apk`
+
+## 2026-10-23 — ExploNova 1.9.123: TikTok carga (se quitó el bucle de URL)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - El video de TikTok llega a verse: ya no se reescribe la URL ni se pelea con el historial de la página.
+  - Si sale el aviso de la app, se cierra a mano.
+- **Por qué / notas:** 1.9.122 dejaba la pantalla en blanco (recarga `?_r` + `replaceState` + `snssdk://`).
+- **Archivos / refs:** ExploNova 1.9.123 (versionCode 155) · APK `ExploNova_Soporte\APK\ExploNova-1.9.123.apk`
+
+## 2026-10-23 — ExploNova 1.9.122: TikTok se reproduce (se quitó el bloqueo «Ver ahora»)
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Ya no se oculta el aviso de la app en TikTok (eso tapaba el video). Si sale, se cierra a mano.
+  - El enlace compartido (`?_r=1&_t=…`) se abre limpio y el video se ve en el navegador.
+- **Por qué / notas:** el bloqueo pedido en 1.9.117 (CTA, AdGuard cosmética, AppNag, sessionStorage) impedía reproducir.
+- **Archivos / refs:** ExploNova 1.9.122 (versionCode 154) · APK `ExploNova_Soporte\APK\ExploNova-1.9.122.apk`
+
+## 2026-10-23 — ExploNova 1.9.121: TikTok compartido se ve en el navegador
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Enlaces TikTok con `?_r=1&_t=…` (el de @_mercha05) se abren y reproducen sin la app.
+- **Por qué / notas:** esos parámetros activan el aviso «Ver ahora»; esconder ese modal tapaba el `<video>`.
+- **Archivos / refs:** ExploNova 1.9.121 (versionCode 153) · APK `ExploNova_Soporte\APK\ExploNova-1.9.121.apk`
+
+## 2026-10-23 — ExploNova 1.9.120: TikTok vuelve a mostrar el video
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - TikTok: los videos vuelven a cargarse/verse. El aviso «Ver ahora» sigue oculto.
+- **Por qué / notas:** en 1.9.117 se escondía `DivGuestMode` y todos los `DivModalContainer`; eso tapaba el reproductor web.
+- **Archivos / refs:** ExploNova 1.9.120 (versionCode 152) · APK `ExploNova_Soporte\APK\ExploNova-1.9.120.apk`
+
+## 2026-10-23 — ExploNova 1.9.119: pausa al salir; APK release
+
+- **Tipo:** fix | ux
+- **Área:** mobile
+- **Qué:**
+  - El video de la página se pausa al cambiar de pestaña, ir a Inicio, atrás o salir, salvo flotante o Audio que hayas puesto.
+  - El siguiente video en la misma pestaña no se corta. Home ya no abre ventana flotante sola.
+  - APK release firmado (v2+v3): instala encima de 1.9.117. El 1.9.118 debug daba conflicto de paquete.
+- **Por qué / notas:** 1.9.118 se armó con assembleDebug; hold se perdía con un pause corto; SoloAudio reanudaba otra pestaña.
+- **Archivos / refs:** ExploNova 1.9.119 (versionCode 151) · APK `ExploNova_Soporte\APK\ExploNova-1.9.119.apk`
+
+## 2026-10-23 — ExploNova 1.9.117: TikTok sin modal «Ver ahora»; descarga CDN
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Enlaces TikTok: se quita el modal «Ver ahora» y se reproduce en la web; no intenta abrir la app.
+  - Descarga TikTok/Facebook: archivo del CDN (URLs largas, JSON de la página); ya no MSE «reproductor compatible».
+  - YouTube y demás sitios sin cambios.
+- **Archivos / refs:** ExploNova 1.9.117 (versionCode 149) · APK `ExploNova_Soporte\APK\ExploNova-1.9.117.apk`
+
+## 2026-10-23 — ExploNova 1.9.116: Facebook, Instagram y TikTok vuelven a descargar
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - En Facebook, Instagram y TikTok, Descargar vuelve a guardar el video (en Meta, con audio).
+  - YouTube y el resto no cambian. No era Wi‑Fi vs datos: esas redes mandan URLs sin `.mp4` y el botón grababa la página.
+- **Por qué / notas:** MSE está desactivado en Meta; «Descargar ahora» iba a `startCapture`.
+- **Archivos / refs:** ExploNova 1.9.116 (versionCode 148) · APK `ExploNova_Soporte\APK\ExploNova-1.9.116.apk`
+
 ## 2026-10-22 — Producción: fuente APK 1.8.194+204
 
 - **Tipo:** infra
