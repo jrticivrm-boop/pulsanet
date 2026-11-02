@@ -130,160 +130,70 @@ export async function ensureTerritoryCoverage(orgId) {
 }
 
 /**
- * Árbol Región → Zona → Unidad solo con regiones de Dependencias (org_units)
- * que ya tienen al menos 1 municipio en cobertura territorial.
+ * Árbol Región → Zona → Unidad SOLO desde cobertura (municipios asignados).
+ * Dependencias aporta la etiqueta oficial de la región si existe; no inventa
+ * unidades de otras regiones por coincidencia de nombre.
  */
 function buildRegionsTree(orgs, mapped) {
   if (!mapped.length) return [];
-  const regions = orgs.filter((r) => r.kind === 'region');
-  const zones = orgs.filter((r) => r.kind === 'zone');
-  const units = orgs.filter((r) => r.kind === 'unit');
-  const byParent = new Map();
-  for (const row of [...zones, ...units]) {
-    const pid = String(row.parent_id || '');
-    if (!byParent.has(pid)) byParent.set(pid, []);
-    byParent.get(pid).push(row);
-  }
+  const depRegions = orgs.filter((r) => r.kind === 'region');
+  const depById = new Map(depRegions.map((r) => [String(r.id), r]));
+  const depByName = new Map(depRegions.map((r) => [norm(r.name), r]));
 
-  function rowBelongsToRegion(r, region) {
-    if (r.regionId && String(r.regionId) === String(region.id)) return true;
-    if (norm(r.regionLabel) && norm(r.regionLabel) === norm(region.name)) return true;
-    return false;
-  }
-
-  function coverageForUnit(unit, region) {
-    const byId = mapped.filter(
-      (r) => r.unitId && String(r.unitId) === String(unit.id) && rowBelongsToRegion(r, region)
-    );
-    if (byId.length) return byId;
-    // Nombre solo dentro de la misma región (evita que V R.M. herede municipios de IV).
-    return mapped.filter(
-      (r) => norm(r.unidadName) === norm(unit.name) && rowBelongsToRegion(r, region)
-    );
-  }
-
-  function coverageForRegion(region) {
-    return mapped.filter((r) => rowBelongsToRegion(r, region));
-  }
-
-  const tree = [];
-  const usedZonaKeys = new Set();
-
-  for (const region of regions) {
-    const regionZones = byParent.get(String(region.id)) || [];
-    const zoneNodes = [];
-    for (const zone of regionZones) {
-      const zoneUnits = byParent.get(String(zone.id)) || [];
-      const unitNodes = [];
-      let zonaKey = '';
-      let zonaShort = '';
-      for (const unit of zoneUnits) {
-        const cov = coverageForUnit(unit, region);
-        if (!cov.length) continue;
-        if (!zonaKey) {
-          zonaKey = cov[0].zonaKey || '';
-          zonaShort = cov[0].zonaShort || '';
-        }
-        unitNodes.push({
-          id: cov[0].unidadName || unit.name,
-          label: unit.name,
-          unitId: unit.id,
-        });
-      }
-      if (!unitNodes.length) continue;
-      if (!zonaKey) {
-        const byZoneId = mapped.find((r) => r.zoneId && String(r.zoneId) === String(zone.id));
-        zonaKey = byZoneId?.zonaKey || String(zone.id);
-        zonaShort = byZoneId?.zonaShort || zone.name;
-      }
-      usedZonaKeys.add(zonaKey);
-      zoneNodes.push({
-        id: zonaKey,
-        label: zonaShort || zone.name,
-        zoneId: zone.id,
-        children: unitNodes,
-      });
-    }
-
-    // Cobertura ligada a la región pero sin match de zona/unidad en el árbol.
-    if (!zoneNodes.length) {
-      const regionCov = coverageForRegion(region);
-      const byZona = new Map();
-      for (const r of regionCov) {
-        if (!byZona.has(r.zonaKey)) {
-          byZona.set(r.zonaKey, {
-            id: r.zonaKey,
-            label: r.zonaShort || r.zonaKey,
-            zoneId: r.zoneId,
-            children: [],
-            seen: new Set(),
-          });
-        }
-        const z = byZona.get(r.zonaKey);
-        if (z.seen.has(r.unidadName)) continue;
-        z.seen.add(r.unidadName);
-        z.children.push({ id: r.unidadName, label: r.unidadName, unitId: r.unitId });
-      }
-      for (const z of byZona.values()) {
-        if (!z.children.length) continue;
-        usedZonaKeys.add(z.id);
-        zoneNodes.push({
-          id: z.id,
-          label: z.label,
-          zoneId: z.zoneId,
-          children: z.children,
-        });
-      }
-    }
-
-    if (!zoneNodes.length) continue;
-    tree.push({
-      id: String(region.id),
-      label: region.name,
-      children: zoneNodes,
-    });
-  }
-
-  // Filas de cobertura sin región en Dependencias (legado): un nodo por region_label.
-  const orphanByLabel = new Map();
+  // Agrupar filas reales de cobertura: región → zona → unidad.
+  const byRegion = new Map();
   for (const r of mapped) {
-    if (usedZonaKeys.has(r.zonaKey)) continue;
-    const matchedRegion = tree.some((reg) =>
-      (reg.children || []).some((z) => z.id === r.zonaKey)
-    );
-    if (matchedRegion) continue;
-    const label = r.regionLabel || 'Sin región';
-    if (!orphanByLabel.has(label)) {
-      orphanByLabel.set(label, {
-        id: `label:${norm(label)}`,
-        label,
+    const dep =
+      (r.regionId && depById.get(String(r.regionId))) ||
+      depByName.get(norm(r.regionLabel)) ||
+      null;
+    // Solo regiones que existen en Dependencias (o etiqueta de cobertura si no hay match).
+    const regionId = dep ? String(dep.id) : String(r.regionId || `label:${norm(r.regionLabel)}`);
+    const regionLabel = dep?.name || r.regionLabel || 'Sin región';
+    if (!byRegion.has(regionId)) {
+      byRegion.set(regionId, {
+        id: regionId,
+        label: regionLabel,
+        inDependencias: Boolean(dep),
         zonas: new Map(),
       });
     }
-    const reg = orphanByLabel.get(label);
-    if (!reg.zonas.has(r.zonaKey)) {
-      reg.zonas.set(r.zonaKey, {
-        id: r.zonaKey,
-        label: r.zonaShort || r.zonaKey,
+    const reg = byRegion.get(regionId);
+    const zonaKey = String(r.zonaKey || '').trim();
+    if (!zonaKey) continue;
+    if (!reg.zonas.has(zonaKey)) {
+      reg.zonas.set(zonaKey, {
+        id: zonaKey,
+        label: r.zonaShort || zonaKey,
         zoneId: r.zoneId,
-        children: [],
-        seen: new Set(),
+        units: new Map(),
       });
     }
-    const z = reg.zonas.get(r.zonaKey);
-    if (z.seen.has(r.unidadName)) continue;
-    z.seen.add(r.unidadName);
-    z.children.push({ id: r.unidadName, label: r.unidadName, unitId: r.unitId });
-  }
-  for (const reg of orphanByLabel.values()) {
-    const zoneNodes = [...reg.zonas.values()]
-      .filter((z) => z.children.length)
-      .map(({ id, label, zoneId, children }) => ({ id, label, zoneId, children }));
-    if (!zoneNodes.length) continue;
-    tree.push({ id: reg.id, label: reg.label, children: zoneNodes });
+    const zone = reg.zonas.get(zonaKey);
+    const unitName = String(r.unidadName || '').trim();
+    if (!unitName || zone.units.has(unitName)) continue;
+    zone.units.set(unitName, {
+      id: unitName,
+      label: unitName,
+      unitId: r.unitId,
+    });
   }
 
-  return tree;
+  return [...byRegion.values()]
+    .filter((r) => r.inDependencias)
+    .map((r) => ({
+      id: r.id,
+      label: r.label,
+      children: [...r.zonas.values()]
+        .filter((z) => z.units.size > 0)
+        .map((z) => ({
+          id: z.id,
+          label: z.label,
+          zoneId: z.zoneId,
+          children: [...z.units.values()],
+        })),
+    }))
+    .filter((r) => r.children.length > 0);
 }
 
 export async function listTerritoryCoverage(orgId) {

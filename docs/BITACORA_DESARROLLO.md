@@ -1,4 +1,18 @@
-﻿## 2026-11-02 — ExploNova 2.0.0-alpha10
+﻿## 2026-11-02 — Territorio: árbol solo desde cobertura (sin V R.M. fantasma)
+
+- **Tipo:** fix
+- **Área:** backend | web
+- **Qué:** El select Región/Zona/Unidad se arma solo con filas de `cat_territory_coverage` (municipios asignados). Ya no copia unidades de IV a V por coincidencia de nombre en Dependencias.
+- **Archivos / refs:** `backend/src/services/territoryCoverage.js`
+## 2026-11-02 — ExploNova 2.0.0-alpha11
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha11.apk` (versionCode 231). En pantalla completa se oculta la lista que YouTube deja al lado del video y el reproductor ocupa la ventana. La ventanita recorta el video, no el hueco blanco y negro.
+- **Por qué / notas:** Alpha10 dejaba el panel de mixes a la derecha y la flotante salía partida. Copiado a `ExploNova_Soporte\APK`. Sin emulador.
+- **Archivos / refs:** `ExploNovaX` `BrowserEngine.kt`
+
+## 2026-11-02 — ExploNova 2.0.0-alpha10
 
 - **Tipo:** fix
 - **Área:** mobile
