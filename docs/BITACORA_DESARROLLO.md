@@ -1,4 +1,30 @@
-﻿## 2026-11-02 — Territorio: 2 selects en cascada
+﻿## 2026-11-02 — ExploNova 2.0.0-alpha10
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha10.apk` (versionCode 230). Alpha09 ocultaba un contenedor de YouTube que también tenía el video: el reproductor se cerraba al instante, la ventanita no abría y los iconos parpadeaban. Ya no se toca el elemento del video ni se oculta nada que lo contenga.
+- **Por qué / notas:** Diagnóstico 12:15: `inline_fullscreen_enter` e `inline_fullscreen_exit` a los pocos milisegundos, sin `pip_entered`. Copiado a `ExploNova_Soporte\APK`. Sin emulador.
+- **Archivos / refs:** `ExploNovaX` `BrowserEngine.kt`, `AstroActivity.kt`
+
+## 2026-11-02 — ExploNova 2.0.0-alpha09
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha09.apk` (versionCode 229). La ventanita muestra el reproductor completo, sin el botón Acceder. En pantalla completa el reproductor mide el alto visible y los dos iconos quedan en la esquina superior izquierda. Al salir, la página no se corre a la izquierda.
+- **Por qué / notas:** Copiado a `ExploNova_Soporte\APK`. Sin emulador.
+- **Archivos / refs:** `ExploNovaX` `BrowserEngine.kt`, `AstroActivity.kt`
+
+## 2026-11-02 — Territorio: select vacío + árbol Región/Zona/Unidad
+
+- **Tipo:** fix | ux
+- **Área:** web | backend
+- **Qué:**
+  - Consola → Territorio en 2 multi-check (Región→Zona→Unidad | Estado→Municipio); sin Encuadrar ni «Solo en selección».
+  - El select salía vacío porque el API de pruebas seguía un proceso viejo sin `regions`; se reinició y el front arma árbol desde `units`/`rows` si falta `regions`.
+  - Match de cobertura por región (evita que V R.M. herede unidades de IV solo por mismo nombre).
+- **Archivos / refs:** `TerritoryOpsPanel.jsx`, `MapTreeCheckSelect.jsx`, `territoryCoverage.js`, `DispatchMap.jsx`
+
+## 2026-11-02 — Territorio: 2 selects en cascada
 
 - **Tipo:** ux
 - **Área:** web | backend

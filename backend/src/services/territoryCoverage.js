@@ -145,21 +145,25 @@ function buildRegionsTree(orgs, mapped) {
     byParent.get(pid).push(row);
   }
 
-  function coverageForUnit(unit) {
+  function rowBelongsToRegion(r, region) {
+    if (r.regionId && String(r.regionId) === String(region.id)) return true;
+    if (norm(r.regionLabel) && norm(r.regionLabel) === norm(region.name)) return true;
+    return false;
+  }
+
+  function coverageForUnit(unit, region) {
+    const byId = mapped.filter(
+      (r) => r.unitId && String(r.unitId) === String(unit.id) && rowBelongsToRegion(r, region)
+    );
+    if (byId.length) return byId;
+    // Nombre solo dentro de la misma región (evita que V R.M. herede municipios de IV).
     return mapped.filter(
-      (r) =>
-        (r.unitId && String(r.unitId) === String(unit.id)) ||
-        norm(r.unidadName) === norm(unit.name)
+      (r) => norm(r.unidadName) === norm(unit.name) && rowBelongsToRegion(r, region)
     );
   }
 
   function coverageForRegion(region) {
-    return mapped.filter(
-      (r) =>
-        (r.regionId && String(r.regionId) === String(region.id)) ||
-        norm(r.regionLabel) === norm(region.name) ||
-        (norm(region.name) && norm(r.regionLabel).includes(norm(region.name)))
-    );
+    return mapped.filter((r) => rowBelongsToRegion(r, region));
   }
 
   const tree = [];
@@ -174,7 +178,7 @@ function buildRegionsTree(orgs, mapped) {
       let zonaKey = '';
       let zonaShort = '';
       for (const unit of zoneUnits) {
-        const cov = coverageForUnit(unit);
+        const cov = coverageForUnit(unit, region);
         if (!cov.length) continue;
         if (!zonaKey) {
           zonaKey = cov[0].zonaKey || '';
