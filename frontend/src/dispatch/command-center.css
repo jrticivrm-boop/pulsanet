@@ -14224,6 +14224,31 @@ html.cc-cat-dragging .cc-cat-item {
 }
 .cc-ms-panel .cc-tactical-ms-option.cc-ms-tree-unit {
   padding-left: 34px;
+  gap: 6px;
+}
+.cc-ms-color-dot {
+  flex: 0 0 auto;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+.cc-ms-color-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  flex: 0 0 auto;
+}
+.cc-ms-color-dots .cc-ms-color-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+}
+.cc-ms-color-dots-more {
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: var(--cc-muted, #5c6b55);
+  margin-left: 1px;
 }
 .cc-ms-panel .cc-tactical-ms-option {
   padding: 3px 8px;

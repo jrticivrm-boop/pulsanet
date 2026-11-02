@@ -1664,6 +1664,7 @@ export default function DispatchMap({ session }) {
   const [territoryAllFeatures, setTerritoryAllFeatures] = useState([]);
   const [territoryCoverageRows, setTerritoryCoverageRows] = useState([]);
   const [territoryRegions, setTerritoryRegions] = useState([]);
+  const [territoryHoverPreview, setTerritoryHoverPreview] = useState(null);
   const [territoryFitToken, setTerritoryFitToken] = useState(0);
   /** Pestaña «Buscar»: resultado marcado en el mapa y disparador de vuelo. */
   const [searchSelected, setSearchSelected] = useState(null);
@@ -3568,6 +3569,7 @@ export default function DispatchMap({ session }) {
                 onShowColors={(v) => setTerritoryUi((prev) => ({ ...prev, showColors: v }))}
                 municipios={territoryAllFeatures}
                 regions={territoryRegions}
+                onHoverPreview={setTerritoryHoverPreview}
                 onReset={() => {
                   const zonaIds = territoryRegions.length
                     ? territoryRegions.flatMap((r) =>
@@ -4084,6 +4086,7 @@ export default function DispatchMap({ session }) {
             }
             showColors={territoryUi.showColors}
             coverageRows={territoryCoverageRows}
+            hoverPreview={territoryHoverPreview}
             onFeaturesReady={setTerritoryFeatures}
           />
           <FitTerritoryFeatures features={territoryFeatures} fitToken={territoryFitToken} />

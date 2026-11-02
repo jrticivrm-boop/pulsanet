@@ -76,6 +76,7 @@ export default function TerritoryOpsPanel({
   municipios = [],
   regions = [],
   onReset,
+  onHoverPreview = null,
 }) {
   const zonaIds = useMemo(() => (filter?.zonaIds || []).map(String), [filter?.zonaIds]);
   const unidadIds = useMemo(() => (filter?.unidadIds || []).map(String), [filter?.unidadIds]);
@@ -229,12 +230,13 @@ export default function TerritoryOpsPanel({
         zonaIds={zonaIds}
         unidadIds={unidadIds}
         onChange={onAdscripcionChange}
+        onHoverPreview={onHoverPreview}
         emptyMessage={
           allZonas.length || allUnidades.length
             ? 'Sin coincidencias'
             : 'Sin regiones con cobertura. Configure Catálogos → Territorio.'
         }
-        hintTitle="Solo regiones de Dependencias que ya tienen municipios en Catálogos → Territorio. El check de región o zona marca sus unidades."
+        hintTitle="Bolita = color del mapa. Al pasar el mouse se resaltan esos municipios. Solo regiones con cobertura en Catálogos → Territorio."
         searchPlaceholder="Buscar región, zona o unidad…"
       />
 

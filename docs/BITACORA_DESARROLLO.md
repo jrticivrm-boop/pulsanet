@@ -1,4 +1,45 @@
-﻿## 2026-11-02 — Territorio: árbol solo desde cobertura (sin V R.M. fantasma)
+﻿## 2026-11-02 — ExploNova 2.0.0-alpha15
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha15.apk` (versionCode 235). La ventana flotante tomaba un contenedor vacío y YouTube se creía en segundo plano, así que la ventanita salía negra. Ahora el recorte es el `<video>` real y, mientras está en flotante, la página sigue “visible”. El video no se redimensiona a mano.
+- **Por qué / notas:** Alpha14 solo cubría los iconos del silencio (`ytp-hide-controls`). Copiado a `ExploNova_Soporte\APK`. Sin emulador.
+- **Archivos / refs:** `ExploNovaX` `BrowserEngine.kt`
+
+## 2026-11-02 — ExploNova 2.0.0-alpha14
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha14.apk` (versionCode 234). En el mix de `m.youtube.com` el video entra mudo y con los controles ocultos (`ytp-hide-controls`). El primer aviso de los iconos se perdía y ya no se repetía. Ahora se guarda después de detectar el video y sigue el silencio de YouTube: toca el video y salen con la barra.
+- **Por qué / notas:** Revisado `watch?v=a5uQMwRMHcs&list=RD…`. Copiado a `ExploNova_Soporte\APK`. Sin emulador.
+- **Archivos / refs:** `ExploNovaX` `BrowserEngine.kt`, `AstroActivity.kt`
+
+## 2026-11-02 — ExploNova 2.0.0-alpha13
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha13.apk` (versionCode 233). En `m.youtube.com` el video está dentro del reproductor y no se veía desde la página, así que los iconos no se encendían. Ahora se busca ahí, y si no aparece la etiqueta se usa el reproductor visible.
+- **Por qué / notas:** Alpha12 solo corregía la barra. Copiado a `ExploNova_Soporte\APK`. Sin emulador.
+- **Archivos / refs:** `ExploNovaX` `BrowserEngine.kt`
+
+## 2026-11-02 — ExploNova 2.0.0-alpha12
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha12.apk` (versionCode 232). En `m.youtube.com` los iconos del video no salían: el lector tomaba barras vacías como controles ocultos. Ahora lee la barra real dentro del reproductor y, si no la ve, deja los iconos visibles.
+- **Por qué / notas:** Página `m.youtube.com/watch` con mix. Copiado a `ExploNova_Soporte\APK`. Sin emulador.
+- **Archivos / refs:** `ExploNovaX` `BrowserEngine.kt`
+
+## 2026-11-02 — Territorio: bolitas de color y hover árbol→mapa
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:**
+  - En Región/Zona/Unidad cada unidad lleva bolita del mismo color que el relleno del mapa; la zona muestra las bolitas de sus unidades.
+  - Al pasar el mouse por región/zona/unidad se resaltan esos municipios en el mapa (el resto se atenúa), aunque no estén marcados.
+- **Archivos / refs:** `MapTreeCheckSelect.jsx`, `IvRmTerritoryLayer.jsx`, `TerritoryOpsPanel.jsx`, `DispatchMap.jsx`
+
+## 2026-11-02 — Territorio: árbol solo desde cobertura (sin V R.M. fantasma)
 
 - **Tipo:** fix
 - **Área:** backend | web

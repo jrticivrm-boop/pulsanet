@@ -1,4 +1,4 @@
-# Changelog — SICOM
+﻿# Changelog — SICOM
 
 Registro de versiones y cambios relevantes del producto (SICOM). 
 Bitácora narrativa (día a día): [BITACORA_DESARROLLO.md](BITACORA_DESARROLLO.md)
@@ -10,6 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Territorio — 2 selects en cascada:** Región→Zona→Unidad (árbol; solo regiones de Dependencias con cobertura ≥1 municipio) y Estado→Municipio (grupos plegables). Sin Encuadrar ni «Solo en selección».
 - **APK Android 1.8.194+204:** keepalive 45 s (JWT de 15 min), `deviceId`, inbox por último mensaje, FLAG_SECURE, sin backup ni CAs de usuario, ATS, «PIDIENDO» y «Cargando sesión…». Sideload `C:\pulsanet_soporte\APK\SICOM-1.8.194+204.apk` (también `SICOM-latest.apk`); sin OTA.
 - **Territorio — Estado y catálogo de cobertura:** filtro Estado antes de Municipio (cascada, municipios agrupados por estado). En Municipio cada estado se pliega con sus municipios y el check del encabezado marca el grupo; Ascendente/Descendente ordena solo municipios (estados A–Z). Catálogos → Territorio asigna unidades a municipios del registro nacional (sin CRUD de estados/municipios); migración `052_territory_coverage.sql`. El mapa usa esa cobertura sobre los polígonos de IV R.M.
@@ -70,6 +71,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 > «Ruta» sin manita con una sola ruta desplegado el 2026-10-15 (`prod-v1.8.107-20261015-0802`, solo web). APK Android **1.8.192+202** (`SICOM-1.8.192+202.apk`, arreglo de Wi‑Fi) lista para distribuir, sin OTA.
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Mapa — Territorio IV R.M.:** municipios por unidad (colores tenues); hover con globo (mpio arriba); Config → Estados para capas; pestaña Consola **Territorio**. Incluye Carmen (16/o. B.I.) y Rioverde (36/o. B.I.).
 
 ### Changed
@@ -113,6 +115,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Presencia por socket:** `presence:ping` con `groupId` solo aplica a canales a los que el socket se unió.
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Web — mapa, «Ruta» más útil:** el botón «Google Maps» copia la ruta y la abre en Google Maps (sustituye la lista de indicaciones); «Enviar» por chat de SICOM a un operador; QR para el celular; «¿Quién llega primero?» ordena a los operadores en línea por tiempo por carretera; origen opcional «Desde operador»; hasta 9 paradas; avisos de punto lejos del camino y de geocercas cruzadas; rutas frecuentes compartidas por organización. Requiere migración 044. API /api/geo/route?points=, /api/geo/eta, /api/geo/saved-routes. Solo consola web.
 - **Web — mapa, pestaña «Ruta» (cómo llegar de A a B):** origen y destino por dirección, lugar, operador, coordenadas o clic en el mapa (puntos arrastrables); ruta recomendada en vehículo con hasta 2 alternativas, duración, distancia, hora estimada de llegada e indicaciones paso a paso en español. Atajos «Cómo llegar» (Buscar) y «Ruta desde/hasta aquí» (clic derecho). La pestaña de historial del operador pasa a llamarse «Trayecto». API GET /api/geo/route. Solo consola web.
 - **Web — mapa, pestaña «Buscar» (quinta pestaña):** buscador con autocompletado mientras escribes, como Google Maps: estados, municipios, ciudades, pueblos, colonias, calles, direcciones con número, carreteras (p. ej. «MEX 15D»), lugares, **ejidos y comunidades agrarias del RAN** (30 mil, con su contorno real) y coordenadas pegadas (decimales o grados/minutos/segundos). También encuentra sitios tácticos, geocercas y operadores propios. Al elegir, el mapa vuela al lugar con marcador; botones Centrar, Copiar coordenadas, Crear geocerca y Quitar. Clic derecho en el mapa: «¿Qué hay aquí?» (dirección y ejido del punto). Historial de búsquedas recientes; casilla «Mundo» para buscar fuera de México. Solo consola web (no la app).
@@ -152,6 +155,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Despliegue SICOM:** `sicom-deploy.sh` ya no se corta tras el respaldo de BD (docker leía el script por stdin).
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Infra — despliegue SICOM (VM Proxmox):** `infra/docker-compose.sicom.yml` (PostgreSQL 18, LiveKit 1.13.3 en red host, volúmenes persistentes `uploads`/`data`/`secrets`), `Caddyfile.sicom` (dominio LE + IP LAN con `tls internal`), `gen-sicom-env.py` (genera `.env.sicom` y `livekit.sicom.yaml` desde `backend/.env` conservando llaves) y `sicom-edge-keepalive.sh` (DuckDNS + UPnP por cron).
 - **API Docker:** imagen incluye `postgresql18-client` y `bsdtar` para que los respaldos `.zip` funcionen en Linux; `.dockerignore` excluye `data/` y `uploads/` del contexto.
 - **Perfiles — enforcement Catálogos/Avisos/Config:** UI y API usan `modules.*.agregar|editar|eliminar` (no solo el rol). Helper `requireModuleAction` en backend.
@@ -257,6 +261,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **APK 1.8.179+189:** Enterado en avisos globales ahora detiene la vibración (carrera start/stop + FCM tardío).
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Grupos — rol de miembro:** `PATCH /api/admin/groups/:id/members/:userId` para actualizar `member` / `leader` / `listen_only` (auth `requireUserManager` + scope).
 - **Administración — Avisos:** destinatarios por **usuarios específicos** o **canales/grupos** (además de subordinados/zona/unidad/admins). Migración 038.
 - **APK 1.8.178+188:** avisos globales (warning + Enterado) en app; sideload sin OTA → `pulsanet_soporte\APK\`.
@@ -331,6 +336,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Routing huecos:** `ROUTING_OSRM_FALLBACKS`, `ROUTING_OSRM_ALLOW_PUBLIC`; timeout default 20 s; `TRACK_POST_SIMPLIFY_JUMP_M` default 700; `TRACK_GAP_JUMP_METERS` default 1000.
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Consola — maximizado + barra ops:** al maximizar se mantienen Operadores/Ruta/Geocerca/Sitios; solo ahí «Ocultar» / «Mostrar» para mapa a pantalla completa (preferencia local).
 - **Consola — pin «Ver ruta»:** selecciona ese operador en Ruta; conserva Desde/Hasta si ya había periodo/ruta; si no, hoy 00:00→ahora.
 - **Consola Ruta — check «Ruta probable»:** activa/desactiva huecos GPS (naranja) en mapa y leyenda; preferencia en localStorage.
@@ -392,6 +398,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Wire keys por socket:** GPS/pánico se sellan con AES por conexión de despacho (`dispatch:joined`); login/`/me` ya no exportan `wireKey` org-wide (solo `wireEnabled` a despacho).
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **APK 1.8.162 clusters pastel:** misma gráfica de pastel por presencia/pánico que web (colores, orden, radio 55, tamaño 44/48/52).
 - **Clusters GPS pastel:** el círculo de agrupación se divide por colores de presencia/pánico (verde/amarillo/gris/rojo), web + APK.
 - **Semáforo presencia configurable:** checks en Config → Presencia para mostrar/ocultar Ausente (amarillo) y Desconectado (gris); verde y rojo siempre. Leyenda, pines y filtro Estado se adaptan. Manual: `docs/MANUAL_SEMAFORO_PRESENCIA.md`.
@@ -437,6 +444,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Rebrand SICOM:** nombre visible **SICOM** (*Sistema de Comunicaciones para Operaciones Militares*); logo nuevo; paleta bronce/oliva/HUD alineada al logotipo (Web + APK). Sin cambiar package id, crypto, BD ni IDs FCM.
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Menú PTT mapa (pestañas/encabezado):** click derecho en PTT maximizado → Escuchar/Hablar/Video/Alerta; preferencia en Configuración → Canales.
 - **PTT flotante en mapa maximizado:** arrastrable; click izquierdo hablar/soltar; click derecho menú Hablar/Oír + alarma + reset de posición (Despacho y Seguimiento).
 - **GPS en APK (mando):** pestaña **GPS** junto a Radio para root / admin región / zona / unidad — lista + mapa en vivo de compañeros (`GET /api/locations`), sin consola de despacho.
@@ -451,6 +459,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Ruta probable naranja no visible (Orión / Hwy 54):** al cancelar el efecto de huecos (Strict Mode / cambio de traza), claves quedaban atrapadas en `pendingRef` y OSRM no se reintentaba; con ~37 huecos en 48 h el naranja nunca aparecía. Fetch en paralelo (6), reintentos más rápidos, contraste naranja subido (`#e87812` opacity 0.58 / weight 14) y marcas temporales en extremos mientras OSRM responde (sin recta por campo).
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Respaldos con multimedia:** el ZIP de Config → Respaldos incluye `database.sql`, `meta.json` y el árbol `uploads/` (avatares, chat, grabaciones, etc.). Al restaurar se reemplaza también la multimedia; el uploads previo queda en `uploads_pre_restore_*`. Respaldos `.sql`/ZIP sin media siguen restaurando solo BD y conservan uploads actuales. Límite de subida por defecto `BACKUP_UPLOAD_MAX_MB=2048` (override por env).
 - **Guía otra máquina:** `docs/INSTALAR_OTRA_MAQUINA.md` (checklist software, `.env`, respaldo ZIP con media, flags `/noedge`).
 
@@ -464,6 +473,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Panel despacho (11-sep ~15:41):** consola con mapa de inicio, catálogos (jerarquías/grados/empleos), administración (usuarios/grupos/sitios tácticos), config (canales Escuchar/Hablar/Video/Alerta, grabaciones, presencia) y PTT Individual/Múltiple. Evita que un merge de `main` viejo vuelva a servir la consola del 6-sep.
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Marcadores Consola según Operadores:** en modo **Todos** / **Uno** el pin muestra la foto del usuario; en **Por grupo**, la foto del grupo (si no hay, fallback a la del usuario).
 - **Mini reproductor en Grabaciones PTT:** cada fila de grabación trae reproductor embebido con play/pausa, barra de progreso arrastrable con tiempo transcurrido/total, saltos −10 s / +10 s, velocidad 0.5×–2× y **realce de voz ×1/×2/×3** (Web Audio: compresor + gain) para escuchar lo que se habla bajito. Descarga del audio desde el mismo menú. El endpoint de audio ahora soporta peticiones parciales (HTTP 206 / `Accept-Ranges`).
 - **Estados en mapa — en qué mapas se dibujan:** en Configuración → Estados, bloque **Mostrar en mapas** con checks Consola / Seguimiento / Radio (`surfaces` en `tacticalptx_iv_rm_states_v1`, default los tres activos). Cada mapa solo pinta delimitaciones si su check está on.
@@ -517,6 +527,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Ver cámara (silenciosa):** con permiso previo no notifica ni abre UI en el móvil; solo proyecta en el panel web. APK **1.8.65+74**.
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Panel video redimensionable:** tamaños Compacto → Máximo + Expandir a pantalla completa sin perder el feed.
 
 ### Changed
@@ -528,6 +539,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Video pixelado / sin nitidez:** el perfil 540p de estabilidad se sube a 720p con bitrate suficiente.
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Cámara remota auto:** permiso inicial en el móvil; luego despacho puede activar la cámara sin Contestar (APK **1.8.63+72**).
 
 ### Fixed
@@ -541,6 +553,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Video streaming:** perfiles tipo RTMP — H.264 @ 30 FPS con capas **480p (1500 Kbps)** + **720p (4500 Kbps)** estables (1080 reservado; no se emiten las 3 a la vez).
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Ver cámara del dispositivo (despacho):** desde el módulo Video / Operaciones se puede solicitar la cámara del teléfono de campo y proyectarla en el panel (intent `remote_camera`, cámara trasera preferida en el móvil).
 - **Dominio permanente (DuckDNS):** `SETUP-STABLE-DOMAIN.ps1` + sync automático del A-record; el APK deja de romperse al rotar la IP del ISP.
 - **Módulo Video en despacho:** entrada en el menú lateral (`/despacho/video`) con transmisiones de canal, videollamadas 1:1 y activación de cámara web del puesto.
@@ -559,6 +572,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **Llamadas / videollamadas:** iconos ya no se montan sobre el video (mobile); botón **Apagar cam** funciona en web y app (ya no se reactiva solo).
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Estabilizadores de llamada:** periodo de gracia ante caídas de red, ping de sesión, refresh de token LiveKit y reconexión automática (web + mobile).
 - **Consola web — videoconferencia en mosaico:** grid adaptativo de participantes, panel embebido en despacho (mapa + canales siguen visibles), botón expandir a pantalla completa.
 - **Transmisión de video grupal** (web + mobile + despacho): notificaciones push + invitación entrante con tono/vibración según modo del teléfono.
@@ -566,6 +580,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.8.57] — 2026-09-01
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Transmisión de video grupal** (web + mobile + despacho): sala LiveKit `gvid_*` paralela al PTT; botón en chat de grupo; mosaico multi-participante; E2EE.
 - API `GET/POST /api/group-video/:groupId/*` (start, join, leave, end, ping, status).
 
@@ -588,6 +603,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.8.55] — 2026-09-01
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Historial de llamadas** (mobile): pestaña Llamadas en inbox con registro de voz, videollamadas y radio; filtros Todas/Perdidas; callback desde cada fila.
 - Persistencia en PostgreSQL (`private_call_logs`) vía `GET /api/calls/history`.
 
@@ -606,6 +622,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.8.53] — 2026-09-01
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Videollamadas 1:1** (web + mobile): modo `video` en llamadas privadas LiveKit con preview local/remoto y E2EE.
 - **Solicitud de cámara** durante llamada de voz: el peer debe aceptar explícitamente (`/video/request`, `/video/respond`).
 - Botón **Video** en chat directo (web), inbox de canal y menú de miembros (mobile).
@@ -654,6 +671,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Pitido al liberar canal PTT (otro operador, no al soltar el propio botón).
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **APK 1.8.47+56:** lista de canales solo con membresía real; pitido breve cuando otro operador suelta el PTT.
 
 ### Changed
@@ -705,6 +723,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - **PTT móvil sin audio (LiveKit ICE):** UDP 7882 no escuchaba (rango 50000+ sin UPnP); config simplificada + rutas LAN/4G.
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - **Configuración → Historial / Auditoría:** quién / qué / cuándo (solo admins); filtros y paginación sobre `activity_logs`.
 - **Seguimiento:** delimitación tenue de NL, Tamaulipas y SLP sobre el mapa (fondo visible).
 - **Indicativo al aire editable:** formato `SGTO GOMEZ`, `B.O. LINARES`, `S.O. IV R.M. (SALA…)`; login separado; grados SGTO/B.O./S.O./C.G.
@@ -771,6 +790,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 - Móvil: **Enterado** en alerta de pánico ya no cierra la app (doble `Navigator.pop` + stop de sirena seguro); APK **1.8.6+15**.
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Móvil: burbujas de chat (DM/grupo) más estéticas estilo WhatsApp.
 - Inbox móvil: vaciar/borrar chats y vaciar grupos (estilo WhatsApp); miniaturas de imagen en chat personal (DM).
@@ -866,6 +886,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.8.0] — 2026-08-22
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Vista **Seguimiento** en vivo (lista + mapa natural/satélite, avatares, precisión, ruta 2 h)
 - Sección **Catálogos** (Usuarios, Grupos, Geocercas) en despacho
@@ -925,6 +946,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.7.1] — 2026-08-11
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Ticks de lectura en chat Radio (✓✓ enviado / leído / leído por todos)
 - Tabla `message_reads`, socket `chat:read` / `chat:receipts`
@@ -939,6 +961,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.7.0] — 2026-08-11
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Botón de pánico en app móvil (canal)
 - Tabla `panic_events` + flag `users.can_receive_panic`
@@ -951,6 +974,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.6.0] — 2026-08-11
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Reacciones y stickers en chat
 - Docs `V1_6_REACTIONS.md`, `V1_6_STICKERS.md`
@@ -960,6 +984,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.5.0] — 2026-08-11
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Chat Radio estilo WhatsApp: burbujas, reply, búsqueda, emojis, adjuntos, notas de voz, typing
 - Tipo de mensaje `audio` + `reply_to_id`
@@ -974,6 +999,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.4.0] — 2026-08-11
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Grabación PTT desde Radio web (MediaRecorder → `POST /api/recordings/groups/:id`)
 - Listado y reproducción en Consola de despacho
@@ -991,6 +1017,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.3.0] — 2026-08-11
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Geocercas circulares (CRUD + evaluación enter/exit en GPS)
 - Consola Command (mapa, canales, actividad, detalle)
@@ -1009,6 +1036,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.2.0] — 2026-08-10
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Pipeline FCM (Firebase Admin + registro devices + push en chat/PTT)
 - Documentación `FCM_PUSH.md`
@@ -1018,6 +1046,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [1.1.0] — 2026-08-10
 
 ### Added
+- **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.
 - Proyecto **iOS** preparado (bundle `com.tacticalptx.app`); IPA requiere Mac — ver `Soporte/Documentos/APP_IOS.md`.
 - Chat multimedia (imagen/archivo)
 - GPS live + historial de rutas en mapa despacho

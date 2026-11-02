@@ -8,6 +8,33 @@ import {
   subscribeMsPanelExclusive,
 } from './exclusiveMsPanel.js';
 import { applyMsPanelListLayout, fitMsPanelHeight } from './fitMsPanelHeight.js';
+import { unidadColor } from './ivRmTerritoryConfig.js';
+
+function ColorDot({ unidad, title }) {
+  const color = unidadColor(unidad);
+  return (
+    <span
+      className="cc-ms-color-dot"
+      style={{ background: color }}
+      title={title || undefined}
+      aria-hidden
+    />
+  );
+}
+
+function ZoneColorDots({ zone }) {
+  const units = zone?.children || [];
+  if (!units.length) return null;
+  const shown = units.slice(0, 5);
+  return (
+    <span className="cc-ms-color-dots" aria-hidden>
+      {shown.map((u) => (
+        <ColorDot key={String(u.id)} unidad={u.label || u.id} />
+      ))}
+      {units.length > 5 ? <span className="cc-ms-color-dots-more">+</span> : null}
+    </span>
+  );
+}
 
 function walkLeaves(nodes, out = []) {
   for (const n of nodes || []) {
@@ -61,9 +88,10 @@ export default function MapTreeCheckSelect({
   zonaIds = [],
   unidadIds = [],
   onChange,
+  onHoverPreview = null,
   fieldLabel = 'Adscripción',
   ariaLabel,
-  hintTitle = 'Región → Zona → Unidad. Solo regiones con municipios asignados en Catálogos → Territorio.',
+  hintTitle = 'Región → Zona → Unidad. Solo regiones con municipios asignados en Catálogos → Territorio. Bolita = color del mapa; al pasar el mouse se resaltan esos municipios.',
   emptyMessage = 'Sin regiones con cobertura',
   searchPlaceholder = 'Buscar región, zona o unidad…',
 }) {
@@ -185,6 +213,14 @@ export default function MapTreeCheckSelect({
   useEffect(() => {
     if (!open) setQuery('');
   }, [open]);
+
+  useEffect(() => {
+    if (!open && typeof onHoverPreview === 'function') onHoverPreview(null);
+  }, [open, onHoverPreview]);
+
+  function emitPreview(next) {
+    if (typeof onHoverPreview === 'function') onHoverPreview(next);
+  }
 
   function isCollapsed(key) {
     return Boolean(key) && !q && collapsed.has(key);
@@ -370,6 +406,13 @@ export default function MapTreeCheckSelect({
                           className="cc-ms-group-toggle"
                           aria-expanded={!regionFolded}
                           onClick={() => toggleCollapsed(rk)}
+                          onMouseEnter={() =>
+                            emitPreview({
+                              zonaIds: rZ,
+                              unidadIds: rU,
+                            })
+                          }
+                          onMouseLeave={() => emitPreview(null)}
                         >
                           <span className="cc-ms-group-caret" aria-hidden>
                             {regionFolded ? '▸' : '▾'}
@@ -411,11 +454,19 @@ export default function MapTreeCheckSelect({
                                     className="cc-ms-group-toggle"
                                     aria-expanded={!zoneFolded}
                                     onClick={() => toggleCollapsed(zk)}
+                                    onMouseEnter={() =>
+                                      emitPreview({
+                                        zonaIds: [String(zone.id)],
+                                        unidadIds: uids,
+                                      })
+                                    }
+                                    onMouseLeave={() => emitPreview(null)}
                                   >
                                     <span className="cc-ms-group-caret" aria-hidden>
                                       {zoneFolded ? '▸' : '▾'}
                                     </span>
                                     <span className="cc-ms-group-title">{zone.label}</span>
+                                    <ZoneColorDots zone={zone} />
                                     <span className="cc-ms-group-n">
                                       {uSel}/{uids.length}
                                     </span>
@@ -430,12 +481,20 @@ export default function MapTreeCheckSelect({
                                         <label
                                           key={id}
                                           className={`cc-tactical-ms-option cc-ms-group-item cc-ms-tree-unit${checked ? ' is-on' : ''}`}
+                                          onMouseEnter={() =>
+                                            emitPreview({
+                                              zonaIds: [String(zone.id)],
+                                              unidadIds: [id],
+                                            })
+                                          }
+                                          onMouseLeave={() => emitPreview(null)}
                                         >
                                           <input
                                             type="checkbox"
                                             checked={checked}
                                             onChange={() => toggleUnit(zone.id, id)}
                                           />
+                                          <ColorDot unidad={unit.label || id} title={unit.label || id} />
                                           <span className="cc-tactical-ms-name">{unit.label}</span>
                                         </label>
                                       );

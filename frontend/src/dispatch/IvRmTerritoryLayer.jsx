@@ -145,6 +145,38 @@ function styleForFeature(feature, showColors) {
   };
 }
 
+function featureMatchesHover(feature, hoverPreview) {
+  if (!hoverPreview) return false;
+  const p = feature?.properties || {};
+  const unidadIds = (hoverPreview.unidadIds || []).map(String);
+  const zonaIds = (hoverPreview.zonaIds || []).map(String);
+  if (unidadIds.length) {
+    const names = territoryUnidades(p);
+    if (names.some((u) => unidadIds.includes(String(u)))) return true;
+  }
+  if (zonaIds.length && zonaIds.includes(String(p.zonaId || ''))) return true;
+  return false;
+}
+
+function styleWithHover(feature, showColors, hoverPreview) {
+  const base = styleForFeature(feature, showColors);
+  if (!hoverPreview) return base;
+  if (featureMatchesHover(feature, hoverPreview)) {
+    return {
+      ...base,
+      weight: 2.6,
+      opacity: 0.98,
+      fillOpacity: showColors ? 0.72 : 0.22,
+    };
+  }
+  return {
+    ...base,
+    weight: 0.7,
+    opacity: 0.22,
+    fillOpacity: showColors ? 0.08 : 0.015,
+  };
+}
+
 /**
  * Municipios IV R.M. coloreados por Unidad (tonos tenues).
  * Hover: resalta la porción y muestra globo al lado del municipio, sin taparlo.
@@ -155,6 +187,7 @@ export default function IvRmTerritoryLayer({
   showColors: showColorsProp = null,
   onFeaturesReady = null,
   coverageRows = null,
+  hoverPreview = null,
 }) {
   const map = useMap();
   const [config] = useIvRmTerritoryConfig();
@@ -164,9 +197,12 @@ export default function IvRmTerritoryLayer({
     showColorsProp == null ? config.showColors !== false : Boolean(showColorsProp);
   const configKey = JSON.stringify(config);
   const filterKey = JSON.stringify(filter || {});
+  const hoverKey = JSON.stringify(hoverPreview || null);
   const [features, setFeatures] = useState(() => loadedIvRmMunicipios());
   const layerRef = useRef(null);
   const rendererRef = useRef(null);
+  const hoverRef = useRef(hoverPreview);
+  hoverRef.current = hoverPreview;
 
   useEffect(() => {
     if (!layerOn || features != null) return undefined;
@@ -189,7 +225,7 @@ export default function IvRmTerritoryLayer({
     ])
   );
 
-  const visible = useMemo(() => {
+  const baseVisible = useMemo(() => {
     if (!features?.length) return [];
     const cfg = config || loadIvRmTerritoryConfig();
     const overlaid = applyTerritoryCoverage(features, coverageRows);
@@ -198,9 +234,36 @@ export default function IvRmTerritoryLayer({
     return list;
   }, [features, configKey, filterKey, coverageKey]);
 
+  /** Selección actual + municipios del hover del árbol (aunque no estén marcados). */
+  const visible = useMemo(() => {
+    if (!hoverPreview?.unidadIds?.length && !hoverPreview?.zonaIds?.length) {
+      return baseVisible;
+    }
+    if (!features?.length) return baseVisible;
+    const cfg = config || loadIvRmTerritoryConfig();
+    const overlaid = applyTerritoryCoverage(features, coverageRows);
+    const pool = overlaid.filter((f) => isZonaEnabled(cfg, f.properties?.zonaId));
+    const preview = filterTerritoryFeatures(pool, {
+      zonaIds: hoverPreview.zonaIds?.length ? hoverPreview.zonaIds : undefined,
+      unidadIds: hoverPreview.unidadIds?.length ? hoverPreview.unidadIds : undefined,
+    });
+    const byId = new Map();
+    for (const f of baseVisible) {
+      const id = String(f.properties?.shapeID || '');
+      if (id) byId.set(id, f);
+      else byId.set(`i:${byId.size}`, f);
+    }
+    for (const f of preview) {
+      const id = String(f.properties?.shapeID || '');
+      if (id) byId.set(id, f);
+      else byId.set(`p:${byId.size}`, f);
+    }
+    return [...byId.values()];
+  }, [baseVisible, features, configKey, coverageKey, hoverKey]);
+
   useEffect(() => {
-    if (typeof onFeaturesReady === 'function') onFeaturesReady(visible);
-  }, [visible, onFeaturesReady]);
+    if (typeof onFeaturesReady === 'function') onFeaturesReady(baseVisible);
+  }, [baseVisible, onFeaturesReady]);
 
   useEffect(() => {
     if (!layerOn) {
@@ -234,18 +297,18 @@ export default function IvRmTerritoryLayer({
         pane: 'ivRmTerritoryPane',
         renderer: rendererRef.current,
         interactive: true,
-        style: (feature) => styleForFeature(feature, showColors),
+        style: (feature) => styleWithHover(feature, showColors, hoverRef.current),
         onEachFeature: (feature, lyr) => {
           lyr.on('mouseover', (e) => {
             tip.setContent(territoryTooltipHtml(feature?.properties));
             if (!map.hasLayer(tip)) map.openTooltip(tip, e.latlng);
             tipMode = placeTerritoryTip(map, tip, lyr, e.latlng);
-            const base = styleForFeature(feature, showColors);
+            const base = styleWithHover(feature, showColors, hoverRef.current);
             lyr.setStyle({
               ...base,
-              weight: 2.4,
+              weight: Math.max(base.weight || 1, 2.4),
               opacity: 0.95,
-              fillOpacity: showColors ? 0.62 : 0.16,
+              fillOpacity: showColors ? Math.max(base.fillOpacity || 0.4, 0.62) : 0.16,
             });
             if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
               lyr.bringToFront();
@@ -258,7 +321,7 @@ export default function IvRmTerritoryLayer({
           });
           lyr.on('mouseout', () => {
             map.closeTooltip(tip);
-            layer.resetStyle(lyr);
+            lyr.setStyle(styleWithHover(feature, showColors, hoverRef.current));
           });
         },
       }
@@ -274,6 +337,16 @@ export default function IvRmTerritoryLayer({
       }
     };
   }, [map, configKey, filterKey, layerOn, showColors, visible]);
+
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return;
+    layer.eachLayer((lyr) => {
+      const feature = lyr.feature;
+      if (!feature) return;
+      lyr.setStyle(styleWithHover(feature, showColors, hoverPreview));
+    });
+  }, [hoverKey, showColors]);
 
   return null;
 }
