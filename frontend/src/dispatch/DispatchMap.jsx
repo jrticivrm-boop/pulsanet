@@ -1663,6 +1663,7 @@ export default function DispatchMap({ session }) {
   const [territoryFeatures, setTerritoryFeatures] = useState([]);
   const [territoryAllFeatures, setTerritoryAllFeatures] = useState([]);
   const [territoryCoverageRows, setTerritoryCoverageRows] = useState([]);
+  const [territoryRegions, setTerritoryRegions] = useState([]);
   const [territoryFitToken, setTerritoryFitToken] = useState(0);
   /** Pestaña «Buscar»: resultado marcado en el mapa y disparador de vuelo. */
   const [searchSelected, setSearchSelected] = useState(null);
@@ -1949,13 +1950,20 @@ export default function DispatchMap({ session }) {
 
   useEffect(() => {
     if (territoryUi.seeded) return;
+    const fromTree = territoryRegions.length > 0;
     setTerritoryUi((prev) => ({
       ...prev,
-      zonaIds: IV_RM_ZONAS.map((z) => String(z.id)),
-      unidadIds: listTerritoryUnidades().map((u) => u.unidad),
+      zonaIds: fromTree
+        ? territoryRegions.flatMap((r) => (r.children || []).map((z) => String(z.id)))
+        : IV_RM_ZONAS.map((z) => String(z.id)),
+      unidadIds: fromTree
+        ? territoryRegions.flatMap((r) =>
+            (r.children || []).flatMap((z) => (z.children || []).map((u) => String(u.id)))
+          )
+        : listTerritoryUnidades().map((u) => u.unidad),
       seeded: true,
     }));
-  }, [territoryUi.seeded]);
+  }, [territoryUi.seeded, territoryRegions]);
 
   useEffect(() => {
     if (!territoryUi.seeded || !territoryAllFeatures.length) return;
@@ -1995,14 +2003,18 @@ export default function DispatchMap({ session }) {
       const list = await loadIvRmMunicipios();
       const raw = list?.length ? list : [];
       let rows = [];
+      let regions = [];
       try {
         const cov = await fetchTerritoryCoverage(session.token);
         rows = cov?.rows || [];
+        regions = Array.isArray(cov?.regions) ? cov.regions : [];
       } catch {
         rows = [];
+        regions = [];
       }
       if (!alive) return;
       setTerritoryCoverageRows(rows);
+      setTerritoryRegions(regions);
       setTerritoryAllFeatures(rows.length ? applyTerritoryCoverage(raw, rows) : raw);
     }
     loadTerritory();
@@ -3502,15 +3514,25 @@ export default function DispatchMap({ session }) {
                 }
                 showColors={territoryUi.showColors}
                 onShowColors={(v) => setTerritoryUi((prev) => ({ ...prev, showColors: v }))}
-                filterUsers={territoryUi.filterUsers}
-                onFilterUsers={(v) => setTerritoryUi((prev) => ({ ...prev, filterUsers: v }))}
                 municipios={territoryAllFeatures}
-                onFit={() => setTerritoryFitToken((n) => n + 1)}
-                onReset={() =>
+                regions={territoryRegions}
+                onReset={() => {
+                  const zonaIds = territoryRegions.length
+                    ? territoryRegions.flatMap((r) =>
+                        (r.children || []).map((z) => String(z.id))
+                      )
+                    : IV_RM_ZONAS.map((z) => String(z.id));
+                  const unidadIds = territoryRegions.length
+                    ? territoryRegions.flatMap((r) =>
+                        (r.children || []).flatMap((z) =>
+                          (z.children || []).map((u) => String(u.id))
+                        )
+                      )
+                    : listTerritoryUnidades().map((u) => u.unidad);
                   setTerritoryUi((prev) => ({
                     ...prev,
-                    zonaIds: IV_RM_ZONAS.map((z) => String(z.id)),
-                    unidadIds: listTerritoryUnidades().map((u) => u.unidad),
+                    zonaIds,
+                    unidadIds,
                     estadoIds: uniqueFeatureEstados(territoryAllFeatures),
                     municipioIds: [
                       ...new Set(
@@ -3522,8 +3544,8 @@ export default function DispatchMap({ session }) {
                     seeded: true,
                     estadoSeeded: true,
                     municipioSeeded: true,
-                  }))
-                }
+                  }));
+                }}
               />
             </div>
           ) : null}

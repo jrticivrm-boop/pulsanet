@@ -1,9 +1,6 @@
 import { useMemo } from 'react';
-import {
-  IV_RM_ZONAS,
-  listTerritoryUnidades,
-} from './ivRmTerritoryConfig.js';
 import MapCheckSelect from './MapCheckSelect.jsx';
+import MapTreeCheckSelect from './MapTreeCheckSelect.jsx';
 
 function featureUnidades(f) {
   const p = f?.properties || {};
@@ -41,19 +38,43 @@ function featuresForZonaUnidad(municipios, zonaSet, unidadSet) {
   return list;
 }
 
+function flattenTreeUnits(nodes) {
+  const out = [];
+  for (const region of nodes || []) {
+    for (const zone of region.children || []) {
+      for (const unit of zone.children || []) {
+        out.push({
+          unidad: String(unit.id),
+          zonaId: String(zone.id),
+          regionId: String(region.id),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+function flattenTreeZonas(nodes) {
+  const out = [];
+  for (const region of nodes || []) {
+    for (const zone of region.children || []) {
+      out.push({ id: String(zone.id), regionId: String(region.id) });
+    }
+  }
+  return out;
+}
+
 /**
- * Barra de filtros territoriales (pestaña Consola → Territorio).
- * Multi-check como Operadores → Grupos (sin «Todos»).
+ * Barra de filtros Territorio: 2 selects en cascada
+ * (Región→Zona→Unidad | Estado→Municipio) + colores + limpiar.
  */
 export default function TerritoryOpsPanel({
   filter,
   onChange,
   showColors,
   onShowColors,
-  filterUsers,
-  onFilterUsers,
   municipios = [],
-  onFit,
+  regions = [],
   onReset,
 }) {
   const zonaIds = useMemo(() => (filter?.zonaIds || []).map(String), [filter?.zonaIds]);
@@ -65,56 +86,19 @@ export default function TerritoryOpsPanel({
   );
   const zonaSet = useMemo(() => new Set(zonaIds), [zonaIds]);
   const unidadSet = useMemo(() => new Set(unidadIds), [unidadIds]);
-  const estadoSet = useMemo(() => new Set(estadoIds), [estadoIds]);
 
-  const zonaItems = useMemo(
-    () =>
-      IV_RM_ZONAS.map((z) => ({
-        id: String(z.id),
-        label: `${z.short} · ${z.estado}`,
-      })),
-    []
-  );
-
-  const allUnidades = useMemo(() => {
-    const fromCatalog = listTerritoryUnidades();
-    const extra = [];
-    const seen = new Set(fromCatalog.map((u) => u.unidad));
-    for (const f of municipios || []) {
-      const zonaId = String(f.properties?.zonaId || '');
-      for (const u of featureUnidades(f)) {
-        if (!u || seen.has(u)) continue;
-        seen.add(u);
-        extra.push({ unidad: u, zonaId });
-      }
-    }
-    return extra.length ? [...fromCatalog, ...extra] : fromCatalog;
-  }, [municipios]);
-
-  const unidadItems = useMemo(() => {
-    const list = zonaSet.size ? allUnidades.filter((u) => zonaSet.has(String(u.zonaId))) : [];
-    return list.map((u) => ({ id: u.unidad, label: u.unidad }));
-  }, [allUnidades, zonaSet]);
+  const allUnidades = useMemo(() => flattenTreeUnits(regions), [regions]);
+  const allZonas = useMemo(() => flattenTreeZonas(regions), [regions]);
 
   const scopedFeatures = useMemo(
     () => featuresForZonaUnidad(municipios, zonaSet, unidadSet),
     [municipios, zonaSet, unidadSet]
   );
 
-  const estadoItems = useMemo(
-    () => uniqueEstados(scopedFeatures).map((e) => ({ id: e, label: e })),
-    [scopedFeatures]
-  );
-
-  const muniFeatures = useMemo(() => {
-    if (!estadoSet.size) return [];
-    return scopedFeatures.filter((f) => estadoSet.has(featureEstado(f)));
-  }, [scopedFeatures, estadoSet]);
-
   const municipioItems = useMemo(() => {
     const seen = new Set();
     const items = [];
-    for (const f of muniFeatures) {
+    for (const f of scopedFeatures) {
       const id = String(f.properties?.shapeID || '');
       if (!id || seen.has(id)) continue;
       seen.add(id);
@@ -125,7 +109,7 @@ export default function TerritoryOpsPanel({
       });
     }
     return items;
-  }, [muniFeatures]);
+  }, [scopedFeatures]);
 
   function patch(partial) {
     onChange({
@@ -174,145 +158,98 @@ export default function TerritoryOpsPanel({
     return nextMuni;
   }
 
-  function onZonaChange(nextZonaIds) {
-    const nextSet = new Set(nextZonaIds.map(String));
-    const prevSet = zonaSet;
-    const added = nextZonaIds.filter((id) => !prevSet.has(String(id)));
-    const unidadKeep = unidadIds.filter((u) => {
-      const row = allUnidades.find((x) => x.unidad === u);
-      return row && nextSet.has(String(row.zonaId));
-    });
-    let nextUnidad = [...unidadKeep];
-    const addedUnidades = [];
-    for (const z of added) {
-      for (const u of allUnidades) {
-        if (String(u.zonaId) === String(z) && !nextUnidad.includes(u.unidad)) {
-          nextUnidad.push(u.unidad);
-          addedUnidades.push(u.unidad);
-        }
-      }
+  function estadosFromMunicipios(muniIds, scoped) {
+    const set = new Set();
+    for (const id of muniIds) {
+      const f = (scoped || municipios || []).find(
+        (x) => String(x.properties?.shapeID) === String(id)
+      );
+      const e = featureEstado(f);
+      if (e) set.add(e);
     }
-    const unidadNextSet = new Set(nextUnidad);
-    const scoped = featuresForZonaUnidad(municipios, nextSet, unidadNextSet);
-    const estadosInScope = uniqueEstados(scoped);
-    const estadoKeep = estadoIds.filter((e) => estadosInScope.includes(e));
-    let nextEstados = [...estadoKeep];
-    const addedEstados = uniqueEstados(
-      featuresForZonaUnidad(
-        (municipios || []).filter((f) => added.some((z) => String(f.properties?.zonaId || '') === String(z))),
-        nextSet,
-        unidadNextSet
-      )
-    );
-    for (const e of addedEstados) {
-      if (!nextEstados.includes(e)) nextEstados.push(e);
-    }
-    patch({
-      zonaIds: nextZonaIds.map(String),
-      unidadIds: nextUnidad,
-      estadoIds: nextEstados,
-      municipioIds: pruneAndFillMunicipios(
-        nextSet,
-        unidadNextSet,
-        nextEstados,
-        addedEstados,
-        added,
-        addedUnidades
-      ),
-    });
+    return [...set];
   }
 
-  function onUnidadChange(nextUnidadIds) {
-    const nextSet = new Set(nextUnidadIds.map(String));
-    const prevSet = unidadSet;
-    const added = nextUnidadIds.filter((id) => !prevSet.has(String(id)));
-    const scoped = featuresForZonaUnidad(municipios, zonaSet, nextSet);
+  function onAdscripcionChange({ zonaIds: nextZonaIds, unidadIds: nextUnidadIds }) {
+    const nextZonaSet = new Set((nextZonaIds || []).map(String));
+    const nextUnidadSet = new Set((nextUnidadIds || []).map(String));
+    const prevZona = zonaSet;
+    const prevUnidad = unidadSet;
+    const addedZonas = (nextZonaIds || []).filter((id) => !prevZona.has(String(id)));
+    const addedUnidades = (nextUnidadIds || []).filter((id) => !prevUnidad.has(String(id)));
+
+    const scoped = featuresForZonaUnidad(municipios, nextZonaSet, nextUnidadSet);
     const estadosInScope = uniqueEstados(scoped);
     const estadoKeep = estadoIds.filter((e) => estadosInScope.includes(e));
     let nextEstados = [...estadoKeep];
     const addedEstados = uniqueEstados(
       (municipios || []).filter((f) => {
-        if (zonaSet.size && !zonaSet.has(String(f.properties?.zonaId || ''))) return false;
-        return featureUnidades(f).some((u) => added.includes(u));
+        const zid = String(f.properties?.zonaId || '');
+        if (addedZonas.some((z) => String(z) === zid)) return true;
+        return featureUnidades(f).some((u) => addedUnidades.includes(u));
       })
     );
     for (const e of addedEstados) {
-      if (!nextEstados.includes(e)) nextEstados.push(e);
+      if (estadosInScope.includes(e) && !nextEstados.includes(e)) nextEstados.push(e);
     }
+    // Si no había estados y se acaba de marcar adscripción, rellenar todos los del alcance.
+    if (!estadoIds.length && nextEstados.length === 0 && estadosInScope.length) {
+      nextEstados = [...estadosInScope];
+    }
+
     patch({
-      unidadIds: nextUnidadIds.map(String),
+      zonaIds: (nextZonaIds || []).map(String),
+      unidadIds: (nextUnidadIds || []).map(String),
       estadoIds: nextEstados,
-      municipioIds: pruneAndFillMunicipios(zonaSet, nextSet, nextEstados, addedEstados, [], added),
+      municipioIds: pruneAndFillMunicipios(
+        nextZonaSet,
+        nextUnidadSet,
+        nextEstados,
+        addedEstados.length ? addedEstados : nextEstados.filter((e) => !estadoIds.includes(e)),
+        addedZonas,
+        addedUnidades
+      ),
     });
   }
 
-  function onEstadoChange(nextEstadoIds) {
-    const prevSet = estadoSet;
-    const added = nextEstadoIds.filter((id) => !prevSet.has(String(id)));
+  function onMunicipioChange(nextMuniIds) {
+    const ids = nextMuniIds.map(String);
+    const scoped = featuresForZonaUnidad(municipios, zonaSet, unidadSet);
     patch({
-      estadoIds: nextEstadoIds.map(String),
-      municipioIds: pruneAndFillMunicipios(zonaSet, unidadSet, nextEstadoIds, added, []),
+      municipioIds: ids,
+      estadoIds: estadosFromMunicipios(ids, scoped),
     });
   }
 
   return (
     <div className="map-ops-panel map-ops-panel--row map-ops-panel--territorio">
-      <label className="map-field map-field--ops-primary">
-        <span className="map-field-label-row">
-          Región
-          <span
-            className="cc-ms-hint map-ops-field-hint"
-            title="IV R.M. = Nuevo León, Tamaulipas y San Luis Potosí (todas las Z.M.). Más regiones se agregan en Catálogos → Dependencias."
-          >
-            ?
-          </span>
-        </span>
-        <select value="ivrm" disabled aria-label="Región militar">
-          <option value="ivrm">IV R.M.</option>
-        </select>
-      </label>
-
-      <MapCheckSelect
-        fieldLabel="Zona"
-        items={zonaItems}
-        selectedIds={zonaIds}
-        onChange={onZonaChange}
-        allWord="Todas"
-        emptyMessage="Sin zonas"
-        hintTitle="Ascendente/Descendente ordena. Marcar/Desmarcar alterna las zonas visibles. Sin «Todas»: vacío no muestra territorio."
-        searchPlaceholder="Buscar zona…"
+      <MapTreeCheckSelect
+        fieldLabel="Región / Zona / Unidad"
+        nodes={regions}
+        zonaIds={zonaIds}
+        unidadIds={unidadIds}
+        onChange={onAdscripcionChange}
+        emptyMessage={
+          allZonas.length || allUnidades.length
+            ? 'Sin coincidencias'
+            : 'Sin regiones con cobertura. Configure Catálogos → Territorio.'
+        }
+        hintTitle="Solo regiones de Dependencias que ya tienen municipios en Catálogos → Territorio. El check de región o zona marca sus unidades."
+        searchPlaceholder="Buscar región, zona o unidad…"
       />
 
       <MapCheckSelect
-        fieldLabel="Unidad"
-        items={unidadItems}
-        selectedIds={unidadIds}
-        onChange={onUnidadChange}
-        allWord="Todas"
-        emptyMessage={zonaIds.length ? 'Sin unidades' : 'Marca una zona'}
-        hintTitle="Ascendente/Descendente ordena. Marcar/Desmarcar alterna las unidades de las zonas marcadas."
-        searchPlaceholder="Buscar unidad…"
-      />
-
-      <MapCheckSelect
-        fieldLabel="Estado"
-        items={estadoItems}
-        selectedIds={estadoIds}
-        onChange={onEstadoChange}
-        allWord="Todos"
-        emptyMessage={unidadIds.length ? 'Sin estados' : 'Marca una unidad'}
-        hintTitle="Solo estados de la selección Zona/Unidad. Marcar un estado muestra sus municipios abajo."
-        searchPlaceholder="Buscar estado…"
-      />
-
-      <MapCheckSelect
-        fieldLabel="Municipio"
+        fieldLabel="Estado / Municipio"
         items={municipioItems}
         selectedIds={municipioIds}
-        onChange={(ids) => patch({ municipioIds: ids.map(String) })}
+        onChange={onMunicipioChange}
         allWord="Todos"
-        emptyMessage={estadoIds.length ? 'Sin municipios' : 'Marca un estado'}
-        hintTitle="El estado se pliega con sus municipios. El check del estado marca todos. Ascendente/Descendente ordena municipios; los estados quedan A–Z."
+        emptyMessage={
+          unidadIds.length || zonaIds.length
+            ? 'Sin municipios en la selección'
+            : 'Marque región, zona o unidad'
+        }
+        hintTitle="Estado se pliega con sus municipios. El check del estado marca el grupo. Ascendente/Descendente ordena municipios; estados A–Z."
         searchPlaceholder="Buscar municipio o estado…"
       />
 
@@ -328,22 +265,7 @@ export default function TerritoryOpsPanel({
         </label>
       </label>
 
-      <label className="map-field map-field--check">
-        <span className="map-field-label-row">Usuarios</span>
-        <label className="map-ops-check">
-          <input
-            type="checkbox"
-            checked={filterUsers}
-            onChange={(e) => onFilterUsers(e.target.checked)}
-          />
-          <span>Solo en selección</span>
-        </label>
-      </label>
-
       <div className="map-field map-field--actions">
-        <button type="button" className="cc-btn ghost map-ops-fit-btn" onClick={onFit}>
-          Encuadrar
-        </button>
         <button type="button" className="cc-btn ghost map-ops-fit-btn" onClick={onReset}>
           Limpiar
         </button>

@@ -1,3 +1,13 @@
+﻿## 2026-11-02 — Territorio: 2 selects en cascada
+
+- **Tipo:** ux
+- **Área:** web | backend
+- **Qué:**
+  - Consola → Territorio queda en 2 multi-check: Región→Zona→Unidad y Estado→Municipio.
+  - Regiones salen de Dependencias (`org_units`) vía `GET /territorio-coverage` → `regions`; solo aparecen si ya tienen ≥1 municipio en cobertura.
+  - Quitados Encuadrar y Usuarios («Solo en selección»). Se mantienen Colores y Limpiar.
+- **Por qué / notas:** pendiente de revisión; se puede revertir si no convence.
+- **Archivos / refs:** `TerritoryOpsPanel.jsx`, `MapTreeCheckSelect.jsx`, `territoryCoverage.js`, `DispatchMap.jsx`
 ## 2026-10-31 — ExploNova 1.9.179: Alta con etiquetas 2160p@60
 
 - **Tipo:** fix

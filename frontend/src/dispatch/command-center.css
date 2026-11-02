@@ -14214,6 +14214,17 @@ html.cc-cat-dragging .cc-cat-item {
 .cc-ms-panel .cc-tactical-ms-option.cc-ms-group-item {
   padding-left: 22px;
 }
+.cc-ms-panel .cc-ms-tree-zone {
+  margin-left: 10px;
+}
+.cc-ms-panel .cc-ms-tree-zone-head .cc-ms-group-title {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 700;
+}
+.cc-ms-panel .cc-tactical-ms-option.cc-ms-tree-unit {
+  padding-left: 34px;
+}
 .cc-ms-panel .cc-tactical-ms-option {
   padding: 3px 8px;
   font-size: 10px;

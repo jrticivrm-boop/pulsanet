@@ -59,7 +59,9 @@ Esta lista es la parte **manual**. Revisa siempre la sección *Base* y, además,
 
 ## Si toca Territorio / catálogo de cobertura
 
-- [ ] Consola → Territorio: aparece Estado entre Unidad y Municipio; al marcar Tamaulipas solo salen sus municipios, agrupados (Abasolo Tamps. vs Abasolo N.L. en grupos distintos). En Municipio cada estado se pliega (▸) con sus municipios; el check del encabezado marca el grupo; Descendente no mueve el orden de estados.
+- [ ] Consola → Territorio: solo 2 selects (Región/Zona/Unidad y Estado/Municipio) + Colores + Limpiar; sin Encuadrar ni Usuarios.
+- [ ] Región/Zona/Unidad: aparece IV R.M. (u otras) solo si tienen municipios en Catálogos → Territorio; check de región/zona marca hijos; el mapa filtra al marcar.
+- [ ] Estado/Municipio: estados plegables con municipios; Abasolo Tamps. vs Abasolo N.L. en grupos distintos; el check del estado marca el grupo.
 - [ ] Catálogos → Territorio: elegir una unidad, un estado, marcar/desmarcar municipios; no hay alta ni baja de estados.
 - [ ] Tras guardar, el mapa pinta la unidad en esos municipios (sin recargar a mano si la consola sigue abierta).
 - [ ] Migración `052_territory_coverage.sql` aplicada (`-Migrate` en producción).

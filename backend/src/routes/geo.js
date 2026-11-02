@@ -108,7 +108,14 @@ router.get('/territorio-coverage', async (req, res) => {
     res.json({ ok: true, ...data });
   } catch (err) {
     if (err.status === 503) {
-      return res.json({ ok: true, rows: [], zonas: [], units: [], pendingMigration: true });
+      return res.json({
+        ok: true,
+        rows: [],
+        zonas: [],
+        units: [],
+        regions: [],
+        pendingMigration: true,
+      });
     }
     res.status(err.status || 500).json({ ok: false, error: err.message || 'No se pudo cargar territorio' });
   }
