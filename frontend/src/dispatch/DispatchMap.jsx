@@ -1999,6 +1999,58 @@ export default function DispatchMap({ session }) {
 
   useEffect(() => {
     let alive = true;
+    function regionsFromCoverage(cov) {
+      if (Array.isArray(cov?.regions) && cov.regions.length) return cov.regions;
+      // Fallback: armar árbol desde units/rows si el API aún no manda `regions`.
+      const units = Array.isArray(cov?.units) ? cov.units : [];
+      const rows = Array.isArray(cov?.rows) ? cov.rows : [];
+      const src = units.length
+        ? units
+        : rows.map((r) => ({
+            unidadName: r.unidadName || r.unidad_name,
+            zonaKey: r.zonaKey || r.zona_key,
+            zonaShort: r.zonaShort || r.zona_short,
+            regionLabel: r.regionLabel || r.region_label || 'IV R.M.',
+            regionId: r.regionId || r.region_id,
+            zoneId: r.zoneId || r.zone_id,
+            unitId: r.unitId || r.unit_id,
+          }));
+      if (!src.length) return [];
+      const byRegion = new Map();
+      for (const u of src) {
+        const regionLabel = String(u.regionLabel || 'IV R.M.').trim() || 'IV R.M.';
+        const regionId = String(u.regionId || `label:${regionLabel}`);
+        if (!byRegion.has(regionId)) {
+          byRegion.set(regionId, { id: regionId, label: regionLabel, zonas: new Map() });
+        }
+        const reg = byRegion.get(regionId);
+        const zonaKey = String(u.zonaKey || '').trim();
+        if (!zonaKey) continue;
+        if (!reg.zonas.has(zonaKey)) {
+          reg.zonas.set(zonaKey, {
+            id: zonaKey,
+            label: String(u.zonaShort || zonaKey),
+            zoneId: u.zoneId,
+            children: [],
+            seen: new Set(),
+          });
+        }
+        const zone = reg.zonas.get(zonaKey);
+        const unitId = String(u.unidadName || '').trim();
+        if (!unitId || zone.seen.has(unitId)) continue;
+        zone.seen.add(unitId);
+        zone.children.push({ id: unitId, label: unitId, unitId: u.unitId });
+      }
+      return [...byRegion.values()]
+        .map((r) => ({
+          id: r.id,
+          label: r.label,
+          children: [...r.zonas.values()]
+            .filter((z) => z.children.length)
+            .map(({ id, label, zoneId, children }) => ({ id, label, zoneId, children })),
+        }))
+        .filter((r) => r.children.length);
+    }
     async function loadTerritory() {
       const list = await loadIvRmMunicipios();
       const raw = list?.length ? list : [];
@@ -2007,7 +2059,7 @@ export default function DispatchMap({ session }) {
       try {
         const cov = await fetchTerritoryCoverage(session.token);
         rows = cov?.rows || [];
-        regions = Array.isArray(cov?.regions) ? cov.regions : [];
+        regions = regionsFromCoverage(cov);
       } catch {
         rows = [];
         regions = [];
