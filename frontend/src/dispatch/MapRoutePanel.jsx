@@ -1369,11 +1369,7 @@ export default function MapRoutePanel({
             </button>
           </span>
         </div>
-      ) : (
-        <p className="map-ops-hint muted map-route-hint">
-          Escribe origen y destino, elígelos en el mapa (también con clic derecho) o carga una ruta frecuente.
-        </p>
-      )}
+      ) : null}
 
       {alerts.length ? (
         <ul className="map-route-alerts">

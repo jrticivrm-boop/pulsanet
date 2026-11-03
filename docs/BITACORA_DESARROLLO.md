@@ -1,10 +1,74 @@
-﻿## 2026-11-02 — ExploNova 2.0.0-alpha15
+﻿## 2026-11-03 — ExploNova: reproductor grande y flotante sin encoger la página
 
 - **Tipo:** fix
 - **Área:** mobile
-- **Qué:** APK `ExploNova-2.0.0-alpha15.apk` (versionCode 235). La ventana flotante tomaba un contenedor vacío y YouTube se creía en segundo plano, así que la ventanita salía negra. Ahora el recorte es el `<video>` real y, mientras está en flotante, la página sigue “visible”. El video no se redimensiona a mano.
-- **Por qué / notas:** Alpha14 solo cubría los iconos del silencio (`ytp-hide-controls`). Copiado a `ExploNova_Soporte\APK`. Sin emulador.
+- **Qué:** El botón Reproductor agranda el cuadro del reproductor y muestra la barra de arriba. La flotante guarda el estilo de ese cuadro antes de encogerse, lo llena al entrar y lo devuelve al salir. El elemento `<video>` no se reescribe. Sin APK todavía.
+- **Por qué / notas:** En alpha21 el reproductor no cambiaba de tamaño y la flotante metía toda la página en la ventanita (bloque blanco y pausa).
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha21
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha21.apk` (versionCode 241). Los iconos Reproductor y flotante quedan encima del video y se contraen con `<` / `>`. En pantalla completa la barra sigue los controles de YouTube y, solo ahí, el dedo adelanta el video, cambia el brillo o el volumen. Al pasar a flotante no se reacomoda la página: se recorta el cuadro del video que ya se ve.
+- **Por qué / notas:** El mismo `<video>` sigue sonando. No se pinta el fondo de negro ni se gira la pantalla. Sin emulador. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `AstroScreen.kt`, `FullscreenGestures.kt`, `FullscreenControlBar.kt`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha20
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha20.apk` (versionCode 240). Al abrir el reproductor y al pasar a flotante ya no se le cambia el tamaño ni `object-fit` al `<video>`, para que YouTube no lo pause. En pantalla completa se quitan los botones duplicados. Si YouTube no tiene barra, los iconos salen en la capa de la aplicación y siguen su visibilidad.
+- **Por qué / notas:** El mismo elemento de video sigue de principio a fin. Sin emulador. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `astro_youtube_controls.js`, `AstroScreen.kt`
+
+## 2026-11-03 — ExploNova: botones de YouTube en el reproductor
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En `m.youtube.com` los dos botones se buscaban en el DOM visible y se colgaban de `ytm-player`, así que no se veían, tampoco en un mix. Ahora se anclan al reproductor principal (incluso dentro del shadow DOM) y siguen la barra de YouTube.
+- **Por qué / notas:** Sin APK. El silencio del video no los esconde. Pruebas `test_youtube_controls.cjs` y `test_youtube_observer.cjs` en verde.
+- **Archivos / refs:** `ExploNova` `astro_youtube_controls.js`, `BrowserEngine.kt`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha19
+
+- **Tipo:** otro
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha19.apk` (versionCode 239) compilado desde `Explonova\ExploNova`. Había dos `onResume` y no compilaba; quedó uno solo, con el registro y la orientación.
+- **Por qué / notas:** El usuario pidió el APK de esa carpeta. Firmado con la misma clave. Copiado a `ExploNova_Soporte\APK`. Sin emulador.
+- **Archivos / refs:** `ExploNova` `AstroActivity.kt`
+
+## 2026-11-02 — ExploNova 2.0.0-alpha18
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha18.apk` (versionCode 238), sobre el árbol `ExploNova chatgpt`. Los iconos siguen la barra de YouTube: se muestran y se ocultan con ella.
+- **Por qué / notas:** Un temporizador los dejaba visibles 2.2 s después del toque, aunque YouTube ya hubiera ocultado sus controles. Copiado a `ExploNova_Soporte\APK`. Sin emulador.
+- **Archivos / refs:** `ExploNova chatgpt` `BrowserEngine.kt`
+
+## 2026-11-02 — ExploNova 2.0.0-alpha17 (árbol ChatGPT)
+
+- **Tipo:** otro
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha17.apk` (versionCode 237) compilado desde `Explonova\ExploNova chatgpt`, firmado con la misma clave. Sirve para probar ese código encima de alpha16.
+- **Por qué / notas:** El usuario pidió el APK de ese árbol. Copiado a `ExploNova_Soporte\APK`. Sin emulador. No sustituye el código de `ExploNovaX`.
+- **Archivos / refs:** `ExploNova chatgpt` `app/build.gradle.kts`
+
+## 2026-11-02 — ExploNova 2.0.0-alpha16
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha16.apk` (versionCode 236). La flotante sigue recortando el `<video>` real y YouTube sigue viendo la página como visible. Ya no se le cambia ancho, alto ni `object-fit` al video, ni se reescribe su estilo en bucle.
+- **Por qué / notas:** Alpha15 estiraba el elemento del video; eso ya había pausado la reproducción. Copiado a `ExploNova_Soporte\APK`. Sin emulador.
 - **Archivos / refs:** `ExploNovaX` `BrowserEngine.kt`
+
+## 2026-11-02 — ExploNova 2.0.0-alpha15
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha15.apk` (versionCode 235). La ventanita recorta el `<video>` real (también dentro de ytm-player), lo fija en píxeles con object-fit contain y YouTube sigue viendo la página como visible, así no sale negra. En el mix de m.youtube.com los iconos siguen el silencio: ocultos con `ytp-hide-controls` / `ytp-autohide` y visibles al tocar el video.
+- **Por qué / notas:** Antes el recorte era el contenedor vacío pintado de negro, o YouTube apagaba el cuadro al pasar a segundo plano. Alpha14 ya estaba copiado. No se pausa el video ni se abre otro reproductor. Sin emulador.
+- **Archivos / refs:** `ExploNovaX` `BrowserEngine.kt`, `AstroActivity.kt`
 
 ## 2026-11-02 — ExploNova 2.0.0-alpha14
 
@@ -29,6 +93,13 @@
 - **Qué:** APK `ExploNova-2.0.0-alpha12.apk` (versionCode 232). En `m.youtube.com` los iconos del video no salían: el lector tomaba barras vacías como controles ocultos. Ahora lee la barra real dentro del reproductor y, si no la ve, deja los iconos visibles.
 - **Por qué / notas:** Página `m.youtube.com/watch` con mix. Copiado a `ExploNova_Soporte\APK`. Sin emulador.
 - **Archivos / refs:** `ExploNovaX` `BrowserEngine.kt`
+
+## 2026-11-03 — Ruta: quitar texto de ayuda bajo el panel
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Se eliminó la etiqueta «Escribe origen y destino…» del panel Ruta.
+- **Archivos / refs:** `frontend/src/dispatch/MapRoutePanel.jsx`
 
 ## 2026-11-02 — Territorio: bolitas de color y hover árbol→mapa
 
