@@ -699,9 +699,13 @@ export default function CatalogTerritorio({ session }) {
       window.dispatchEvent(new Event(IV_RM_COVERAGE_EVENT));
       showSaveFlash(`Color de ${u.unidadName} · ${u.zonaShort || u.zonaKey} actualizado en el mapa.`);
     } catch (err) {
+      const msg = err.message || 'No se pudo guardar el color';
       setDialog({
         title: 'Error',
-        message: err.message || 'No se pudo guardar el color',
+        message:
+          msg === 'Ruta no encontrada'
+            ? 'No se pudo guardar el color: la API no tiene la ruta (reinicie pruebas / despliegue).'
+            : msg,
         alertOnly: true,
       });
     }

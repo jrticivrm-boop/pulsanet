@@ -228,7 +228,7 @@ catalogsRouter.put('/territorio', requireEdit, async (req, res) => {
   }
 });
 
-catalogsRouter.put('/territorio/unit-color', requireEdit, async (req, res) => {
+async function handleTerritorioUnitColor(req, res) {
   try {
     const unitColors = await upsertUnitColor(req.user.orgId, req.body || {});
     await logActivity({
@@ -246,4 +246,8 @@ catalogsRouter.put('/territorio/unit-color', requireEdit, async (req, res) => {
   } catch (err) {
     sendErr(res, err);
   }
-});
+}
+
+/** Preferir ruta plana (proxy/caches a veces fallan con /territorio/…). */
+catalogsRouter.put('/territorio-unit-color', requireEdit, handleTerritorioUnitColor);
+catalogsRouter.put('/territorio/unit-color', requireEdit, handleTerritorioUnitColor);

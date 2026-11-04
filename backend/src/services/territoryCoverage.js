@@ -281,13 +281,22 @@ export async function upsertUnitColor(orgId, body = {}) {
     e.status = 400;
     throw e;
   }
-  await query(
-    `INSERT INTO cat_territory_unit_colors (organization_id, zona_key, unidad_name, color, updated_at)
-     VALUES ($1, $2, $3, $4, NOW())
-     ON CONFLICT (organization_id, zona_key, unidad_name)
-     DO UPDATE SET color = EXCLUDED.color, updated_at = NOW()`,
-    [orgId, zonaKey, unidadName, color]
-  );
+  try {
+    await query(
+      `INSERT INTO cat_territory_unit_colors (organization_id, zona_key, unidad_name, color, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (organization_id, zona_key, unidad_name)
+       DO UPDATE SET color = EXCLUDED.color, updated_at = NOW()`,
+      [orgId, zonaKey, unidadName, color]
+    );
+  } catch (err) {
+    if (err?.code === '42P01') {
+      const e = new Error('Falta la migración 053_territory_ui_prefs_colors.sql');
+      e.status = 503;
+      throw e;
+    }
+    throw err;
+  }
   return listUnitColorsMap(orgId);
 }
 

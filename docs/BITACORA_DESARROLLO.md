@@ -1,3 +1,20 @@
+## 2026-11-04 — ExploNova 2.0.0-alpha37
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha37.apk` (versionCode 257). Los subtítulos de YouTube se quedan donde YouTube los pone: arriba si van arriba y abajo si van abajo. En pantalla completa el video ya no cambia de sitio.
+- **Por qué / notas:** El recuadro de subtítulos se medía con toda la pantalla, así que el texto caía en las franjas negras, y un ajuste repetido lo movía. Ahora el recuadro sigue al video y no se reescribe seguido. En el emulador, Despacito en pantalla completa quedó centrado sin saltos y el subtítulo siguió abajo (`bottom: 2%`, igual que en la página); un toque mostró Pausa, Siguiente y subtítulos. Un Short llenó la flotante 128×228 con el subtítulo arriba (`top: 2%`) dentro del cuadro, y un video horizontal pasó de 51.5 s a 53.7 s en la flotante 228×128 (`paused=false`). alpha26 a alpha36 no se reemplazaron.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `app/build.gradle.kts`
+
+## 2026-11-04 — Territorio: color API + manita solo al arrastrar
+
+- **Tipo:** fix | ux
+- **Área:** web | backend
+- **Qué:**
+  - Color de unidad: ruta plana `PUT /api/catalogs/territorio-unit-color` (evita 404 «Ruta no encontrada»).
+  - Cursor grab/manita solo cuando ya hay arrastre real de región; clic normal = pointer.
+- **Archivos / refs:** `catalogs.js` · `api.js` · `command-center.css` · `CatalogTerritorio.jsx`
+
 ## 2026-11-04 — Territorio: tipografía, acomodo y arrastre de regiones
 
 - **Tipo:** ux | mejora
@@ -17,6 +34,14 @@
   - Permisos: pestaña Territorio independiente de Dependencias; hint en Perfiles/Dependencias.
 - **Por qué / notas:** Migración `053_territory_ui_prefs_colors.sql` (también corrige unique de cobertura a zona+unidad).
 - **Archivos / refs:** `CatalogTerritorio.jsx` · `userUiPrefs.js` · `territoryCoverage.js` · `053_territory_ui_prefs_colors.sql` · `ivRmTerritoryConfig.js`
+
+## 2026-11-04 — ExploNova 2.0.0-alpha36
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha36.apk` (versionCode 256). En un video normal volvieron los controles de YouTube (pausa, siguiente, subtítulos, ajustes). En la flotante de un Short los subtítulos quedan dentro del cuadro y el video lo llena. Se quitó una petición extra que competía con la descarga del video.
+- **Por qué / notas:** Los controles se estaban ocultando al abrir el reproductor, y un toque no les llegaba. Los subtítulos del reel seguían medidos para la página y se salían de la ventanita. En el emulador, un toque mostró Pausa, Anterior, Siguiente y Pantalla completa con el video en marcha; un Short pasó con los subtítulos completos dentro de 128×228 y un video horizontal de 61.7 s a 63.7 s en la flotante (`paused=false`). alpha26 a alpha35 no se reemplazaron.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `assets/youtube-ads.js`, `media/YoutubeStreams.kt`, `app/build.gradle.kts`
 
 ## 2026-11-04 — ExploNova 2.0.0-alpha35
 

@@ -663,7 +663,7 @@ export function putCatalogTerritorio(token, body) {
 }
 
 export function putCatalogTerritorioUnitColor(token, body) {
-  return api('/api/catalogs/territorio/unit-color', { token, method: 'PUT', body });
+  return api('/api/catalogs/territorio-unit-color', { token, method: 'PUT', body });
 }
 
 export function fetchUiPrefs(token) {

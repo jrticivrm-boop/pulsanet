@@ -5916,14 +5916,19 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 .cc-territorio-region + .cc-territorio-region {
   margin-top: 0.35rem;
 }
+/* Manita solo al arrastrar de verdad (umbral), no al pasar o hacer clic. */
 .cc-territorio-region.is-draggable > .cc-territorio-fold {
-  cursor: grab;
+  cursor: pointer;
 }
 .cc-territorio-region.is-dragging {
   opacity: 0.55;
 }
-.cc-territorio-region.is-dragging > .cc-territorio-fold {
-  cursor: grabbing;
+.cc-territorio-region.is-dragging > .cc-territorio-fold,
+.cc-territorio-units.is-reordering {
+  cursor: grabbing !important;
+}
+.cc-territorio-units.is-reordering .cc-territorio-fold {
+  cursor: grabbing !important;
 }
 .cc-territorio-region.is-drag-over {
   box-shadow: inset 0 2px 0 0 color-mix(in srgb, var(--cc-accent) 70%, transparent);
