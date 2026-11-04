@@ -62,9 +62,12 @@ Esta lista es la parte **manual**. Revisa siempre la sección *Base* y, además,
 - [ ] Consola → Territorio: solo 2 selects (Región/Zona/Unidad y Estado/Municipio) + Colores + Limpiar; sin Encuadrar ni Usuarios.
 - [ ] Región/Zona/Unidad: aparece IV R.M. (u otras) solo si tienen municipios en Catálogos → Territorio; check de región/zona marca hijos; el mapa filtra al marcar.
 - [ ] Estado/Municipio: estados plegables con municipios; Abasolo Tamps. vs Abasolo N.L. en grupos distintos; el check del estado marca el grupo.
-- [ ] Catálogos → Territorio: elegir una unidad, un estado, marcar/desmarcar municipios; no hay alta ni baja de estados.
-- [ ] Tras guardar, el mapa pinta la unidad en esos municipios (sin recargar a mano si la consola sigue abierta).
-- [ ] Migración `052_territory_coverage.sql` aplicada (`-Migrate` en producción).
+- [ ] Catálogos → Territorio: árbol Región→Zona→Unidad plegable (PRUEBA_ZONA bajo su región de Dependencias); búsqueda en el árbol; contadores; unidades (0) en gris «sin municipios».
+- [ ] Al marcar/desmarcar municipios aparece el resumen «Se asignaron N municipios a X · zona (estado)» arriba del panel (no en silencio).
+- [ ] Bolita / «Color en mapa»: cambia el relleno en Consola → Territorio (mapa). Misma unidad en dos zonas: se ve `zona|unidad` y colores independientes.
+- [ ] Pliegues del árbol se recuerdan al recargar (por usuario, no solo este navegador).
+- [ ] Región distinta de IV: banner de que aún no hay polígonos GeoJSON; la asignación igual se guarda.
+- [ ] Migración `052` + `053_territory_ui_prefs_colors.sql` aplicadas (`-Migrate` en producción).
 
 ## Si hay migraciones de BD
 
