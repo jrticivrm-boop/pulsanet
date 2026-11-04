@@ -1,3 +1,12 @@
+## 2026-11-04 — Territorio: tipografía, acomodo y arrastre de regiones
+
+- **Tipo:** ux | mejora
+- **Área:** web
+- **Qué:**
+  - Catálogos → Territorio: textos más grandes y contraste; panel derecho alineado; botón «Color en mapa» más visible.
+  - Orden de regiones por arrastre sutil (sin asas), guardado en `users.ui_prefs.territorioRegionOrder` por usuario.
+- **Archivos / refs:** `CatalogTerritorio.jsx` · `command-center.css`
+
 ## 2026-11-04 — Catálogos Territorio: árbol, colores, prefs por usuario
 
 - **Tipo:** feature | ux

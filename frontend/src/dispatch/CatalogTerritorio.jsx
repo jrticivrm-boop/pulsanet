@@ -19,7 +19,38 @@ import {
 import AppDialog from '../AppDialog.jsx';
 
 const PREFS_FOLDS_KEY = 'territorioFolds';
+const PREFS_ORDER_KEY = 'territorioRegionOrder';
 const NO_COVER_COLOR = '#9aa3ad';
+/** Umbral: clic pliega; arrastre reordena. */
+const DRAG_THRESHOLD_PX = 6;
+
+function orderRegions(list, orderIds) {
+  if (!Array.isArray(list) || !list.length) return list || [];
+  if (!Array.isArray(orderIds) || !orderIds.length) return list;
+  const byId = new Map(list.map((r) => [String(r.id), r]));
+  const next = [];
+  for (const id of orderIds) {
+    const item = byId.get(String(id));
+    if (item) {
+      next.push(item);
+      byId.delete(String(id));
+    }
+  }
+  for (const item of list) {
+    if (byId.has(String(item.id))) next.push(item);
+  }
+  return next;
+}
+
+function mergeRegionOrder(prev, regionIds) {
+  const known = new Set(regionIds.map(String));
+  const next = (Array.isArray(prev) ? prev : []).map(String).filter((id) => known.has(id));
+  for (const id of regionIds) {
+    const s = String(id);
+    if (!next.includes(s)) next.push(s);
+  }
+  return next;
+}
 
 function zonaMeta(zonaKey, zonaShort, zoneName) {
   const z = IV_RM_ZONAS.find((row) => row.id === zonaKey);
@@ -86,11 +117,17 @@ export default function CatalogTerritorio({ session }) {
   const [saveFlash, setSaveFlash] = useState('');
   const [openRegions, setOpenRegions] = useState({});
   const [openZones, setOpenZones] = useState({});
+  const [regionOrder, setRegionOrder] = useState([]);
   const [prefsReady, setPrefsReady] = useState(false);
+  const [dragFrom, setDragFrom] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
   const colorInputRef = useRef(null);
   const colorTargetRef = useRef(null);
   const prefsTimerRef = useRef(0);
   const flashTimerRef = useRef(0);
+  const treeListRef = useRef(null);
+  const dragSessionRef = useRef(null);
+  const suppressRegionClickRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,6 +148,8 @@ export default function CatalogTerritorio({ session }) {
       const folds = prefsRes?.prefs?.[PREFS_FOLDS_KEY] || {};
       if (folds.regions && typeof folds.regions === 'object') setOpenRegions(folds.regions);
       if (folds.zones && typeof folds.zones === 'object') setOpenZones(folds.zones);
+      const savedOrder = prefsRes?.prefs?.[PREFS_ORDER_KEY];
+      if (Array.isArray(savedOrder)) setRegionOrder(savedOrder.map(String));
       setPrefsReady(true);
       setErr('');
     } catch (e) {
@@ -128,23 +167,46 @@ export default function CatalogTerritorio({ session }) {
     () => () => {
       window.clearTimeout(prefsTimerRef.current);
       window.clearTimeout(flashTimerRef.current);
+      const sess = dragSessionRef.current;
+      if (sess?.onMove) window.removeEventListener('pointermove', sess.onMove, true);
+      if (sess?.onUp) {
+        window.removeEventListener('pointerup', sess.onUp, true);
+        window.removeEventListener('pointercancel', sess.onUp, true);
+      }
+      dragSessionRef.current = null;
     },
     []
   );
 
-  const persistFolds = useCallback(
-    (regions, zones) => {
+  const persistPrefs = useCallback(
+    (patch) => {
       if (!prefsReady || !session.token) return;
       window.clearTimeout(prefsTimerRef.current);
       prefsTimerRef.current = window.setTimeout(() => {
-        patchUiPrefs(session.token, {
-          [PREFS_FOLDS_KEY]: { regions, zones },
-        }).catch(() => {
+        patchUiPrefs(session.token, patch).catch(() => {
           /* silencioso: UI sigue usable */
         });
       }, 400);
     },
     [prefsReady, session.token]
+  );
+
+  const persistFolds = useCallback(
+    (regions, zones) => {
+      persistPrefs({
+        [PREFS_FOLDS_KEY]: { regions, zones },
+      });
+    },
+    [persistPrefs]
+  );
+
+  const persistRegionOrder = useCallback(
+    (order) => {
+      persistPrefs({
+        [PREFS_ORDER_KEY]: order,
+      });
+    },
+    [persistPrefs]
   );
 
   const regionTree = useMemo(() => {
@@ -245,18 +307,34 @@ export default function CatalogTerritorio({ session }) {
     });
   }, [depTree, units]);
 
+  const orderedTree = useMemo(
+    () => orderRegions(regionTree, regionOrder),
+    [regionTree, regionOrder]
+  );
+
+  /** Incorporar regiones nuevas al orden guardado (sin reordenar las ya colocadas). */
+  useEffect(() => {
+    if (!prefsReady || !regionTree.length) return;
+    const ids = regionTree.map((r) => String(r.id));
+    setRegionOrder((prev) => {
+      const next = mergeRegionOrder(prev, ids);
+      if (next.length === prev.length && next.every((v, i) => v === prev[i])) return prev;
+      return next;
+    });
+  }, [prefsReady, regionTree]);
+
   const defaultsAppliedRef = useRef(false);
   /** Primera expansión por defecto: región IV (o la de más municipios). */
   useEffect(() => {
-    if (!prefsReady || !regionTree.length || defaultsAppliedRef.current) return;
+    if (!prefsReady || !orderedTree.length || defaultsAppliedRef.current) return;
     if (Object.keys(openRegions).length || Object.keys(openZones).length) {
       defaultsAppliedRef.current = true;
       return;
     }
     defaultsAppliedRef.current = true;
     const preferred =
-      regionTree.find((r) => isIvRmRegion(r.label)) ||
-      [...regionTree].sort((a, b) => b.municipioCount - a.municipioCount)[0];
+      orderedTree.find((r) => isIvRmRegion(r.label)) ||
+      [...orderedTree].sort((a, b) => b.municipioCount - a.municipioCount)[0];
     if (!preferred) return;
     const nextRegions = { [preferred.id]: true };
     const nextZones = {};
@@ -264,11 +342,11 @@ export default function CatalogTerritorio({ session }) {
     setOpenRegions(nextRegions);
     setOpenZones(nextZones);
     persistFolds(nextRegions, nextZones);
-  }, [prefsReady, regionTree, openRegions, openZones, persistFolds]);
+  }, [prefsReady, orderedTree, openRegions, openZones, persistFolds]);
 
   const nameCollision = useMemo(() => {
     const map = new Map();
-    for (const r of regionTree) {
+    for (const r of orderedTree) {
       for (const z of r.zones) {
         for (const u of z.units) {
           const name = u.unidadName;
@@ -278,12 +356,13 @@ export default function CatalogTerritorio({ session }) {
       }
     }
     return map;
-  }, [regionTree]);
+  }, [orderedTree]);
 
   const tq = treeQuery.trim().toLowerCase();
+  const filtering = Boolean(tq);
   const filteredTree = useMemo(() => {
-    if (!tq) return regionTree;
-    return regionTree
+    if (!tq) return orderedTree;
+    return orderedTree
       .map((r) => {
         const regionHit = String(r.label || '')
           .toLowerCase()
@@ -317,12 +396,119 @@ export default function CatalogTerritorio({ session }) {
         return { ...r, zones };
       })
       .filter(Boolean);
-  }, [regionTree, tq]);
+  }, [orderedTree, tq]);
 
   const flatUnits = useMemo(
-    () => regionTree.flatMap((r) => r.zones.flatMap((z) => z.units)),
-    [regionTree]
+    () => orderedTree.flatMap((r) => r.zones.flatMap((z) => z.units)),
+    [orderedTree]
   );
+
+  function regionIdFromPoint(clientX, clientY) {
+    const el = document.elementFromPoint(clientX, clientY);
+    const row = el?.closest?.('[data-region-id]');
+    if (!row || !treeListRef.current?.contains(row)) return null;
+    return row.getAttribute('data-region-id');
+  }
+
+  function clearRegionDrag() {
+    const sess = dragSessionRef.current;
+    if (sess) {
+      if (sess.onMove) window.removeEventListener('pointermove', sess.onMove, true);
+      if (sess.onUp) {
+        window.removeEventListener('pointerup', sess.onUp, true);
+        window.removeEventListener('pointercancel', sess.onUp, true);
+      }
+      if (sess.target) {
+        try {
+          if (sess.target.hasPointerCapture?.(sess.pointerId)) {
+            sess.target.releasePointerCapture(sess.pointerId);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    dragSessionRef.current = null;
+    setDragFrom(null);
+    setDragOver(null);
+  }
+
+  function reorderRegions(fromId, toId) {
+    if (!fromId || !toId || fromId === toId) return;
+    setRegionOrder((prev) => {
+      const base = mergeRegionOrder(
+        prev,
+        orderedTree.map((r) => String(r.id))
+      );
+      const next = [...base];
+      const fromIdx = next.indexOf(String(fromId));
+      const toIdx = next.indexOf(String(toId));
+      if (fromIdx < 0 || toIdx < 0) return prev;
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, String(fromId));
+      persistRegionOrder(next);
+      return next;
+    });
+  }
+
+  function onRegionPointerDown(e, regionId) {
+    if (filtering || e.button !== 0) return;
+    if (dragSessionRef.current) return;
+    const target = e.currentTarget;
+    const pointerId = e.pointerId;
+    const session = {
+      id: String(regionId),
+      x: e.clientX,
+      y: e.clientY,
+      moved: false,
+      pointerId,
+      target,
+      onMove: null,
+      onUp: null,
+    };
+    dragSessionRef.current = session;
+    try {
+      target.setPointerCapture?.(pointerId);
+    } catch {
+      /* ignore */
+    }
+
+    const onMove = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      const start = dragSessionRef.current;
+      if (!start || start.id !== String(regionId)) return;
+      if (!start.moved) {
+        if (
+          Math.abs(ev.clientX - start.x) < DRAG_THRESHOLD_PX &&
+          Math.abs(ev.clientY - start.y) < DRAG_THRESHOLD_PX
+        ) {
+          return;
+        }
+        start.moved = true;
+        setDragFrom(String(regionId));
+        setDragOver(regionIdFromPoint(ev.clientX, ev.clientY));
+        return;
+      }
+      setDragOver(regionIdFromPoint(ev.clientX, ev.clientY));
+    };
+
+    const onUp = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      const start = dragSessionRef.current;
+      if (start && start.id === String(regionId) && start.moved) {
+        suppressRegionClickRef.current = true;
+        const hit = regionIdFromPoint(ev.clientX, ev.clientY);
+        if (hit) reorderRegions(String(regionId), hit);
+      }
+      clearRegionDrag();
+    };
+
+    session.onMove = onMove;
+    session.onUp = onUp;
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onUp, true);
+  }
   const selected = flatUnits.find((u) => unitKey(u) === selectedKey) || null;
 
   const assignedNames = useMemo(() => {
@@ -539,11 +725,8 @@ export default function CatalogTerritorio({ session }) {
   return (
     <div className="cc-cat-grades-wrap cc-territorio-cat">
       <p className="cc-cat-hint">
-        Aquí solo se asignan municipios; alta de región/zona/unidad en Dependencias.
-      </p>
-      <p className="cc-territorio-perm-hint">
-        Editar cobertura: permiso <em>Catálogos → editar</em> + pestaña Territorio. La estructura
-        orgánica se controla aparte en Dependencias.
+        Aquí solo se asignan municipios; alta de región/zona/unidad en Dependencias. Editar
+        cobertura: Catálogos → editar + pestaña Territorio.
       </p>
       {saveFlash ? (
         <div className="cc-territorio-flash" role="status">
@@ -559,7 +742,11 @@ export default function CatalogTerritorio({ session }) {
         onChange={onColorPicked}
       />
       <div className="cc-territorio-split">
-        <aside className="cc-territorio-units" aria-label="Regiones, zonas y unidades">
+        <aside
+          ref={treeListRef}
+          className={`cc-territorio-units${dragFrom ? ' is-reordering' : ''}`}
+          aria-label="Regiones, zonas y unidades"
+        >
           <input
             type="search"
             className="cc-cat-input cc-territorio-tree-search"
@@ -574,21 +761,43 @@ export default function CatalogTerritorio({ session }) {
             filteredTree.map((r) => {
               const forceOpen = Boolean(tq);
               const showRegion = forceOpen || Boolean(openRegions[r.id]);
+              const rid = String(r.id);
+              const isDragging = dragFrom === rid;
+              const isOver = Boolean(dragOver === rid && dragFrom && dragOver !== dragFrom);
               return (
-                <section key={r.id} className="cc-territorio-region">
+                <section
+                  key={r.id}
+                  className={[
+                    'cc-territorio-region',
+                    !filtering ? 'is-draggable' : '',
+                    isDragging ? 'is-dragging' : '',
+                    isOver ? 'is-drag-over' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  data-region-id={rid}
+                >
                   <button
                     type="button"
                     className="cc-territorio-fold"
                     aria-expanded={showRegion}
-                    onClick={() => toggleRegion(r.id)}
+                    title={!filtering ? 'Arrastre para reordenar (su orden)' : undefined}
+                    onPointerDown={(e) => onRegionPointerDown(e, rid)}
+                    onClick={() => {
+                      if (suppressRegionClickRef.current) {
+                        suppressRegionClickRef.current = false;
+                        return;
+                      }
+                      toggleRegion(r.id);
+                    }}
                   >
                     <span className="cc-territorio-fold-caret" aria-hidden>
                       {showRegion ? '▾' : '▸'}
                     </span>
                     <span className="cc-territorio-fold-label">
-                      {r.label}
+                      <span className="cc-territorio-fold-title">{r.label}</span>
                       <em>
-                        · {r.unitCount} unidad{r.unitCount === 1 ? '' : 'es'} · {r.municipioCount}{' '}
+                        {r.unitCount} unidad{r.unitCount === 1 ? '' : 'es'} · {r.municipioCount}{' '}
                         mpio{r.municipioCount === 1 ? '' : 's'}
                       </em>
                     </span>
@@ -609,9 +818,9 @@ export default function CatalogTerritorio({ session }) {
                                 {expanded ? '▾' : '▸'}
                               </span>
                               <span className="cc-territorio-fold-label">
-                                {z.label}
+                                <span className="cc-territorio-fold-title">{z.label}</span>
                                 <em>
-                                  · {z.unitCount} · {z.municipioCount} mpios
+                                  {z.unitCount} · {z.municipioCount} mpios
                                 </em>
                               </span>
                             </button>
@@ -681,14 +890,16 @@ export default function CatalogTerritorio({ session }) {
             <>
               <header className="cc-territorio-assign-head">
                 <strong>{selected.unidadName}</strong>
-                <span>
-                  {selected.regionLabel || 'Región'} · {selected.zonaShort || selected.zonaKey} ·
-                  clave <code>{unitKey(selected)}</code>
+                <span className="cc-territorio-assign-path">
+                  {selected.regionLabel || 'Región'} · {selected.zonaShort || selected.zonaKey}
+                </span>
+                <span className="cc-territorio-assign-key">
+                  Clave <code>{unitKey(selected)}</code>
                 </span>
                 {canEdit ? (
                   <button
                     type="button"
-                    className="cc-ms-link cc-territorio-color-btn"
+                    className="cc-territorio-color-btn"
                     onClick={(e) => openUnitColorPicker(selected, e)}
                   >
                     <i
@@ -726,7 +937,9 @@ export default function CatalogTerritorio({ session }) {
                 </select>
               </label>
               {!estado ? (
-                <p className="cc-hint">Elija un estado para ver sus municipios.</p>
+                <p className="cc-hint cc-territorio-assign-hint">
+                  Elija un estado para ver sus municipios.
+                </p>
               ) : muniLoading ? (
                 <p className="cc-hint">Cargando municipios…</p>
               ) : (
