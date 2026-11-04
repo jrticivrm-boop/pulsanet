@@ -59,6 +59,7 @@ CREATE TABLE users (
  can_receive_panic BOOLEAN NOT NULL DEFAULT FALSE,
  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
  token_version INTEGER NOT NULL DEFAULT 1,
+ ui_prefs JSONB NOT NULL DEFAULT '{}'::jsonb,
  last_seen_at TIMESTAMPTZ,
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -480,9 +481,23 @@ CREATE TABLE cat_territory_coverage (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE UNIQUE INDEX cat_territory_coverage_uniq
-  ON cat_territory_coverage (organization_id, unidad_name, estado, municipio);
+  ON cat_territory_coverage (organization_id, zona_key, unidad_name, estado, municipio);
 CREATE INDEX idx_cat_territory_coverage_org_zona
   ON cat_territory_coverage (organization_id, zona_key, unidad_name);
+
+CREATE TABLE cat_territory_unit_colors (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  zona_key VARCHAR(32) NOT NULL DEFAULT '',
+  unidad_name VARCHAR(120) NOT NULL,
+  color VARCHAR(7) NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX cat_territory_unit_colors_uniq
+  ON cat_territory_unit_colors (organization_id, zona_key, unidad_name);
+CREATE INDEX idx_cat_territory_unit_colors_org
+  ON cat_territory_unit_colors (organization_id);
 
 -- ---------------------------------------------------------------------------
 -- Datos semilla (desarrollo)

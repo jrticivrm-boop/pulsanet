@@ -1,10 +1,149 @@
-﻿## 2026-11-03 — ExploNova: reproductor grande y flotante sin encoger la página
+## 2026-11-04 — Catálogos Territorio: árbol, colores, prefs por usuario
+
+- **Tipo:** feature | ux
+- **Área:** web | backend | database
+- **Qué:**
+  - Catálogos → Territorio: árbol plegable Región→Zona→Unidad (desde Dependencias), búsqueda, contadores, bolitas de color editables, unidades sin cobertura en gris, clave `zona|unidad` visible, resumen al guardar municipios, aviso GeoJSON solo IV R.M.
+  - Pliegues del árbol en `users.ui_prefs` (por usuario, no solo localStorage). Colores de unidad en `cat_territory_unit_colors` (org) y pintan el mapa de la consola.
+  - Permisos: pestaña Territorio independiente de Dependencias; hint en Perfiles/Dependencias.
+- **Por qué / notas:** Migración `053_territory_ui_prefs_colors.sql` (también corrige unique de cobertura a zona+unidad).
+- **Archivos / refs:** `CatalogTerritorio.jsx` · `userUiPrefs.js` · `territoryCoverage.js` · `053_territory_ui_prefs_colors.sql` · `ivRmTerritoryConfig.js`
+
+## 2026-11-04 — ExploNova 2.0.0-alpha35
 
 - **Tipo:** fix
 - **Área:** mobile
-- **Qué:** El botón Reproductor agranda el cuadro del reproductor y muestra la barra de arriba. La flotante guarda el estilo de ese cuadro antes de encogerse, lo llena al entrar y lo devuelve al salir. El elemento `<video>` no se reescribe. Sin APK todavía.
-- **Por qué / notas:** En alpha21 el reproductor no cambiaba de tamaño y la flotante metía toda la página en la ventanita (bloque blanco y pausa).
-- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`
+- **Qué:** APK `ExploNova-2.0.0-alpha35.apk` (versionCode 255). La flotante usa la proporción del video: un reel vertical queda vertical y uno horizontal queda horizontal. El cuadro ya no abre en blanco ni a medias. El video de YouTube ya no se salta al arrancar si no hay un anuncio en pantalla.
+- **Por qué / notas:** El retraso al cargar venía de adelantar el video cada vez que la duración todavía era corta. La ventana blanca era la página, que se veía un instante antes de acomodar el video. En el emulador, un video horizontal pasó de 49.6 s a 51.6 s en la flotante (`paused=false`, ventana 229×129) y un Short vertical llenó una ventana 129×229 sin cortarse. alpha26 a alpha34 no se reemplazaron.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `assets/youtube-ads.js`, `media/YoutubeStreams.kt`, `app/build.gradle.kts`
+
+## 2026-11-04 — ExploNova 2.0.0-alpha34
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha34.apk` (versionCode 254). Un solo interruptor «Bloquear anuncios»; se quitaron Equilibrado y Estricto. Una ventana se bloquea solo si se abre sola y es un anuncio. Compartir y abrir una aplicación siguen. El video de YouTube no entra al bloqueador.
+- **Por qué / notas:** El reproductor propio queda listo para la página, la pantalla completa y la flotante, pero YouTube no suelta un archivo que se pueda abrir: la dirección de la página responde 403. No se movió el video, para no perder la continuidad. En el emulador, con el bloqueador activo, pasó de 38 s a 41 s al abrir nuestro reproductor (`paused=false`, 37 ms) y de 48 s a 51 s al pasar a la flotante (`paused=false`). alpha26 a alpha33 no se reemplazaron.
+- **Archivos / refs:** `ExploNova` `AstroScreen.kt`, `adblock/AdBlock.kt`, `BrowserEngine.kt`, `media/YoutubeMovie.kt`, `media/YoutubeStreams.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha33
+
+- **Tipo:** feature
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha33.apk` (versionCode 253). En YouTube se borra el anuncio de la nota del reproductor al abrir la página. Si el anuncio igual empieza, se salta. La película sigue por googlevideo.
+- **Por qué / notas:** El bloqueador de alpha32 no podía quitar el anuncio de antes del video porque viaja en la misma nota que la película. Esta es la pieza del navegador anterior. Probado en el emulador: la nota de prueba perdió `adPlacements` y el video pasó de 8.8 s a 10.8 s, `paused=false`, duración completa 633 s. alpha26 a alpha32 no se reemplazaron.
+- **Archivos / refs:** `ExploNova` `assets/youtube-ads.js`, `adblock/YoutubeAdSkip.kt`, `BrowserEngine.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha32
+
+- **Tipo:** feature
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha32.apk` (versionCode 252). Bloqueo de anuncios con interruptor, nivel Equilibrado o Estricto, y un escudo junto a la dirección para pausar la protección en el sitio actual. El contador del escudo es de peticiones bloqueadas de verdad.
+- **Por qué / notas:** Usa el motor de listas del navegador anterior. No toca el video: no bloquea googlevideo ni los servidores de YouTube, y en YouTube no inyecta estilos. Probado en el emulador: un video de YouTube pasó de 23.9 s a 25.9 s con `paused=false` y el bloqueador activo; en example.com una petición de anuncio sí quedó bloqueada. Los anuncios de YouTube que viajan dentro del video siguen. alpha26 a alpha31 no se reemplazaron.
+- **Archivos / refs:** `ExploNova` `adblock/`, `BrowserEngine.kt`, `AstroScreen.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha31
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha31.apk` (versionCode 251). Al abrir la flotante o nuestro reproductor, el video que ya iba en reproducción sigue. Si estaba en pausa, se queda en pausa.
+- **Por qué / notas:** En alpha30 el foco de audio pausaba el video al entrar. Probado en el emulador antes de empaquetar: reproductor, flotante, Inicio, pantalla bloqueada y gestos. alpha26 a alpha30 no se reemplazaron. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `AstroActivity.kt`, `BrowserEngine.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova: la flotante y el reproductor ya no pausan al entrar
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al abrir la ventana flotante o nuestro reproductor, el video que ya iba en reproducción sigue. Si el usuario lo había pausado, se queda en pausa.
+- **Por qué / notas:** Pedir `AUDIOFOCUS_GAIN` le quitaba el foco al WebView y el listener trataba esa pérdida como una llamada: pausaba el video y lo marcaba como pausa del usuario, así que ya no se reanudaba. Una pausa instantánea al cambiar de modo también apagaba el audio en segundo plano. Ahora el video conserva su foco; la llamada se detecta por el modo de audio del teléfono. Probado en el emulador: el tiempo avanza con `paused=false` al entrar al reproductor y a la flotante. Todavía no hay APK.
+- **Archivos / refs:** `ExploNova` `AstroActivity.kt`, `BrowserEngine.kt`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha30
+
+- **Tipo:** feature
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha30.apk` (versionCode 250). Incluye los gestos del reproductor (pastilla de segundos al soltar, barras propias de brillo y volumen) y el paso de Inicio: si el video de YouTube va en reproducción, abre nuestra flotante. Con la pantalla bloqueada el audio sigue en la flotante y en nuestro reproductor.
+- **Por qué / notas:** Probado en el emulador antes de empaquetar. Si el video está en pausa, Inicio no abre la flotante. Atrás no la abre. Desde la página normal, bloquear la pantalla sigue pausando. alpha26 a alpha29 no se reemplazaron. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `AstroActivity.kt`, `BrowserEngine.kt`, `FullscreenGestures.kt`, `GestureHint.kt`, `AstroPlaybackService.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova inicio en flotante y audio con pantalla bloqueada
+
+- **Tipo:** feature
+- **Área:** mobile
+- **Qué:** En YouTube, si el video va en reproducción, Inicio abre nuestra flotante tanto desde la página como desde nuestro reproductor. Si está en pausa, Inicio no hace nada. Atrás no abre la flotante. Con la pantalla bloqueada el audio sigue en la flotante y en nuestro reproductor, y al desbloquear se queda en el mismo modo. La notificación de Astro permite pausar y seguir. Desconectar audífonos o una llamada dejan el video en pausa.
+- **Por qué / notas:** Antes Inicio llegaba tarde y Android rechazaba la flotante, y al apagar la pantalla el video se pausaba. Desde la página normal, sin nuestro reproductor ni la flotante, bloquear sigue pausando. Probado en el emulador: Inicio con reproducción entra en la ventanita, en pausa no, y con el reproductor abierto el tiempo avanzó unos 5 segundos con la pantalla apagada. Todavía no hay APK.
+- **Archivos / refs:** `ExploNova` `AstroActivity.kt`, `BrowserEngine.kt`, `AstroPlaybackService.kt`, `AndroidManifest.xml`
+
+## 2026-11-03 — ExploNova gestos del reproductor
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:** En pantalla completa, deslizar en horizontal muestra una pastilla propia (`+5 s`, `−3 s`) y el salto se aplica al soltar. El primer tercio del ancho son 5 segundos; un ancho completo llega cerca de 90. A la izquierda, una barra de brillo; a la derecha, una de volumen. No sale el panel de volumen de Android. Un toque corto sigue abriendo los controles.
+- **Por qué / notas:** El gesto anterior movía el video en cada instante y un recorrido corto llevaba brillo o volumen de un extremo al otro. La pastilla va en una ventana encima de la imagen, porque el video tapa las vistas de la actividad. Probado en el emulador: la imagen no salta con el dedo abajo, y al soltar sí. Todavía no hay APK; sigue en 2.0.0-alpha29.
+- **Archivos / refs:** `ExploNova` `FullscreenGestures.kt`, `GestureHint.kt`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha29
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha29.apk` (versionCode 249). En pantalla completa se ocultan el reloj, las notificaciones, la batería, la red y los botones de Android. Vuelven junto con los controles del video, y también al salir. La imagen ya no queda debajo de esas barras.
+- **Por qué / notas:** En alpha28 esas barras seguían encima del video. YouTube las esconde cuando el video está solo y las muestra otra vez con los controles. Probado en el emulador, en vertical y en horizontal. Los iconos de la esquina no se tocaron. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `AstroActivity.kt`, `AstroScreen.kt`, `FullscreenControlBar.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha28
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha28.apk` (versionCode 248). La pantalla completa de YouTube ya no deja la página con sugerencias ni el video en vertical: esa petición abre nuestro reproductor, el resto de la página queda oculto y Atrás regresa al video en la página. En la flotante ya no aparece el logo de YouTube.
+- **Por qué / notas:** En alpha27, en un Razr, la pantalla completa nativa de YouTube mostraba título, likes y recomendaciones sin forma de salir, y el cuadro propio se quedaba del tamaño de la página. La flotante arrancaba con el logo y un instante en blanco. Probado en el emulador: el reproductor queda centrado a 16:9 sin sugerencias, Atrás restaura la página con el video siguiendo, y la ventanita termina solo con la imagen. Mientras Android encoge la ventana todavía se ve un recuadro blanco un instante; no vuelve el negro de toda la pantalla. Los iconos de la esquina no se tocaron. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha27
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha27.apk` (versionCode 247). En pantalla completa, las dos flechas de YouTube salen del reproductor y devuelven el video a la página. El botón de pausa del centro vuelve a verse y responde. Los botones propios (salir, flotante y más opciones) quedan a la izquierda, sin tapar autoplay, subtítulos ni el engranaje. El menú del engranaje de YouTube se ve encima del reproductor.
+- **Por qué / notas:** En alpha26 las dos flechas dejaban la imagen en negro, los tres puntos atrapaban la pantalla y el engranaje abría el menú detrás del cuadro negro. Probado en el emulador. La flotante sigue mostrando un instante en negro y luego en blanco al abrirse; eso no quedó resuelto en este APK. Los iconos de la esquina de la página no se tocaron. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `FullscreenControlBar.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha26
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha26.apk` (versionCode 246). Al salir de la flotante el video de YouTube vuelve a su ancho. Dentro de la flotante ya no se queda el botón grande de reproducir: el video sigue y los controles de YouTube no tapan la imagen.
+- **Por qué / notas:** En alpha25, al cerrar la ventanita el cuadro se quedaba con el ancho de la flotante (imagen a la izquierda y negro a la derecha) y YouTube dejaba el icono de reproducir aunque el video siguiera. Probado en el emulador: reproducir, flotante desde la página y salida. Los dos iconos de la esquina no se tocaron. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `AstroApp.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha25
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha25.apk` (versionCode 245). El reproductor tapa la página y deja el video a su proporción, centrado. Al girar, el cuadro se vuelve a centrar y la imagen sigue. La flotante llena la ventanita y no deja que YouTube pause el video si el usuario no lo pausó.
+- **Por qué / notas:** En alpha24 el cuadro quedaba al doble de alto, la página seguía alrededor y al girar se ponía negro. La flotante mostraba la cabecera de YouTube y se pausaba. Probado en un teléfono Android virtual (pantalla completa, giro y flotante). Los dos iconos no se tocaron. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha24
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha24.apk` (versionCode 244). El reproductor se centra con el cuadro de afuera, en píxeles nuevos, y el video lo llena desde su esquina. La flotante ignora el alto falso de 84 px y espera a que la página encoja de verdad.
+- **Por qué / notas:** En alpha23 el segundo acomodo sumaba el desplazamiento y el video se salía por abajo; la flotante aplastaba el cuadro a 84 px y el video quedaba en 0×0. Los iconos no se tocaron. Sin emulador. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha23
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha23.apk` (versionCode 243). El reproductor abre el cuadro propio, centrado a la proporción del video, y ya no pide la pantalla completa de YouTube. La flotante espera a que la ventanita encoja, no suspende la WebView y reanuda el mismo video si la transición lo pausó. El diagnóstico guarda modo, `object-fit`, tiempo y el tamaño real de la WebView.
+- **Por qué / notas:** En alpha22 el cuadro quedaba más alto que el video (franja y recorte) y la pausa de la actividad llegaba con la marca de flotante ya apagada. Los dos iconos no se tocaron. Sin emulador. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `app/build.gradle.kts`
+
+## 2026-11-03 — ExploNova 2.0.0-alpha22
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha22.apk` (versionCode 242). El botón Reproductor agranda el cuadro del reproductor y muestra la barra de arriba. La flotante guarda ese cuadro antes de encogerse, lo llena al entrar y lo devuelve al salir. El elemento `<video>` no se reescribe.
+- **Por qué / notas:** En alpha21 el reproductor no cambiaba de tamaño y la flotante metía toda la página en la ventanita (bloque blanco y pausa). Sin emulador. Copiado a `ExploNova_Soporte\APK`.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `app/build.gradle.kts`
 
 ## 2026-11-03 — ExploNova 2.0.0-alpha21
 

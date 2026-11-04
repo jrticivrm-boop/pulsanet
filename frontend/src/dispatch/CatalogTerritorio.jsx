@@ -1,34 +1,78 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchCatalogTerritorio,
   fetchDependencias,
   fetchGeoEstados,
   fetchGeoMunicipios,
+  fetchUiPrefs,
+  patchUiPrefs,
   putCatalogTerritorio,
+  putCatalogTerritorioUnitColor,
 } from '../api';
-import { canModuleAction } from './modulePermissions.js';
-import { IV_RM_COVERAGE_EVENT, IV_RM_ZONAS } from './ivRmTerritoryConfig.js';
+import { canModuleAction, canViewTab } from './modulePermissions.js';
+import {
+  IV_RM_COVERAGE_EVENT,
+  IV_RM_ZONAS,
+  setOrgUnitColorOverrides,
+  unidadColor,
+} from './ivRmTerritoryConfig.js';
 import AppDialog from '../AppDialog.jsx';
 
-function zonaMeta(zonaKey, zonaShort) {
+const PREFS_FOLDS_KEY = 'territorioFolds';
+const NO_COVER_COLOR = '#9aa3ad';
+
+function zonaMeta(zonaKey, zonaShort, zoneName) {
   const z = IV_RM_ZONAS.find((row) => row.id === zonaKey);
+  const short = zonaShort || z?.short || zoneName || zonaKey || '';
   return {
-    key: zonaKey || '',
-    short: zonaShort || z?.short || zonaKey || '',
-    label: z ? `${z.short} · ${z.estado}` : zonaShort || zonaKey || 'Zona',
+    key: zonaKey || short || '',
+    short,
+    label: z ? `${z.short} · ${z.estado}` : short || 'Zona',
   };
+}
+
+function resolveZonaKey(zoneName, fallbackKey = '') {
+  const name = String(zoneName || '');
+  const z = IV_RM_ZONAS.find(
+    (row) => name.includes(row.short) || name.toLowerCase().includes(row.id)
+  );
+  if (z) return z.id;
+  const raw = String(fallbackKey || name)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 32);
+  return raw || 'zona';
 }
 
 function unitKey(u) {
   return `${u.zonaKey || ''}|${u.unidadName || ''}`;
 }
 
+function isIvRmRegion(label) {
+  const n = String(label || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return n.includes('iv r.m') || n.includes('iv rm') || /(^|\s)iv(\s|$)/.test(n);
+}
+
+function countAssigned(rows, u) {
+  return (rows || []).filter(
+    (r) => r.unidadName === u.unidadName && String(r.zonaKey || '') === String(u.zonaKey || '')
+  ).length;
+}
+
 export default function CatalogTerritorio({ session }) {
-  const canEdit = canModuleAction(session.user, 'catalogos', 'editar');
+  const canSee = canViewTab(session.user, 'catalogos', 'territorio');
+  const canEdit = canSee && canModuleAction(session.user, 'catalogos', 'editar');
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [units, setUnits] = useState([]);
   const [rows, setRows] = useState([]);
+  const [unitColors, setUnitColors] = useState({});
   const [depTree, setDepTree] = useState([]);
   const [estados, setEstados] = useState([]);
   const [selectedKey, setSelectedKey] = useState('');
@@ -36,21 +80,38 @@ export default function CatalogTerritorio({ session }) {
   const [municipios, setMunicipios] = useState([]);
   const [muniLoading, setMuniLoading] = useState(false);
   const [query, setQuery] = useState('');
+  const [treeQuery, setTreeQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState(null);
+  const [saveFlash, setSaveFlash] = useState('');
+  const [openRegions, setOpenRegions] = useState({});
+  const [openZones, setOpenZones] = useState({});
+  const [prefsReady, setPrefsReady] = useState(false);
+  const colorInputRef = useRef(null);
+  const colorTargetRef = useRef(null);
+  const prefsTimerRef = useRef(0);
+  const flashTimerRef = useRef(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [cov, deps, geo] = await Promise.all([
+      const [cov, deps, geo, prefsRes] = await Promise.all([
         fetchCatalogTerritorio(session.token),
         fetchDependencias(session.token).catch(() => ({ tree: [] })),
         fetchGeoEstados(session.token).catch(() => ({ estados: [] })),
+        fetchUiPrefs(session.token).catch(() => ({ prefs: {} })),
       ]);
       setUnits(cov.units || []);
       setRows(cov.rows || []);
+      const colors = cov.unitColors || {};
+      setUnitColors(colors);
+      setOrgUnitColorOverrides(colors);
       setDepTree(deps.tree || []);
       setEstados(geo.estados || []);
+      const folds = prefsRes?.prefs?.[PREFS_FOLDS_KEY] || {};
+      if (folds.regions && typeof folds.regions === 'object') setOpenRegions(folds.regions);
+      if (folds.zones && typeof folds.zones === 'object') setOpenZones(folds.zones);
+      setPrefsReady(true);
       setErr('');
     } catch (e) {
       setErr(e.message || 'No se pudo cargar el territorio.');
@@ -63,54 +124,206 @@ export default function CatalogTerritorio({ session }) {
     load();
   }, [load]);
 
-  const mergedUnits = useMemo(() => {
-    const list = [...units];
-    const seen = new Set(list.map(unitKey));
+  useEffect(
+    () => () => {
+      window.clearTimeout(prefsTimerRef.current);
+      window.clearTimeout(flashTimerRef.current);
+    },
+    []
+  );
+
+  const persistFolds = useCallback(
+    (regions, zones) => {
+      if (!prefsReady || !session.token) return;
+      window.clearTimeout(prefsTimerRef.current);
+      prefsTimerRef.current = window.setTimeout(() => {
+        patchUiPrefs(session.token, {
+          [PREFS_FOLDS_KEY]: { regions, zones },
+        }).catch(() => {
+          /* silencioso: UI sigue usable */
+        });
+      }, 400);
+    },
+    [prefsReady, session.token]
+  );
+
+  const regionTree = useMemo(() => {
+    const countByKey = new Map();
+    for (const u of units) {
+      countByKey.set(unitKey(u), u.municipioCount || 0);
+    }
+    const byRegion = new Map();
+
+    const ensureRegion = (id, label) => {
+      const key = String(id || label || 'region');
+      if (!byRegion.has(key)) {
+        byRegion.set(key, {
+          id: key,
+          label: label || 'Región',
+          zones: new Map(),
+        });
+      }
+      return byRegion.get(key);
+    };
+
+    const ensureZone = (reg, zonaKey, zonaShort, zoneId, zoneName) => {
+      const meta = zonaMeta(zonaKey, zonaShort, zoneName);
+      const key = meta.key || String(zoneId || meta.short);
+      if (!reg.zones.has(key)) {
+        reg.zones.set(key, {
+          id: key,
+          zoneId,
+          ...meta,
+          units: [],
+        });
+      }
+      return reg.zones.get(key);
+    };
+
     for (const region of depTree || []) {
+      const reg = ensureRegion(region.id, region.name);
       for (const zone of region.children || []) {
-        const z = IV_RM_ZONAS.find(
-          (row) =>
-            String(zone.name || '').includes(row.short) ||
-            String(zone.name || '').toLowerCase().includes(row.id)
-        );
-        const zonaKey = z?.id || '';
-        const zonaShort = z?.short || zone.name;
+        const zonaKey = resolveZonaKey(zone.name);
+        const zRow = IV_RM_ZONAS.find((r) => r.id === zonaKey);
+        const zonaShort = zRow?.short || zone.name;
+        const zoneBucket = ensureZone(reg, zonaKey, zonaShort, zone.id, zone.name);
         for (const org of zone.children || []) {
           const u = {
             unidadName: org.name,
             zonaKey,
             zonaShort,
-            regionLabel: region.name || 'IV R.M.',
+            regionLabel: region.name,
             regionId: region.id,
             zoneId: zone.id,
             unitId: org.id,
-            municipioCount: 0,
+            municipioCount: countByKey.get(`${zonaKey}|${org.name}`) || 0,
             fromDependencias: true,
           };
-          const k = unitKey(u);
-          if (seen.has(k)) continue;
-          const byName = list.find((x) => x.unidadName === org.name);
-          if (byName) continue;
-          seen.add(k);
-          list.push(u);
+          if (!zoneBucket.units.some((x) => unitKey(x) === unitKey(u))) {
+            zoneBucket.units.push(u);
+          }
         }
       }
     }
-    return list;
-  }, [units, depTree]);
 
-  const grouped = useMemo(() => {
-    const map = new Map();
-    for (const u of mergedUnits) {
-      const meta = zonaMeta(u.zonaKey, u.zonaShort);
-      const key = meta.key || meta.short;
-      if (!map.has(key)) map.set(key, { ...meta, units: [] });
-      map.get(key).units.push(u);
+    // Unidades solo en cobertura (sin fila en Dependencias) → bajo su región/zona.
+    for (const u of units) {
+      const reg = ensureRegion(u.regionId || u.regionLabel, u.regionLabel || 'Sin región');
+      const zoneBucket = ensureZone(reg, u.zonaKey, u.zonaShort, u.zoneId, u.zonaShort);
+      const k = unitKey(u);
+      if (!zoneBucket.units.some((x) => unitKey(x) === k)) {
+        zoneBucket.units.push({
+          ...u,
+          municipioCount: countByKey.get(k) || u.municipioCount || 0,
+          fromDependencias: false,
+        });
+      } else {
+        const existing = zoneBucket.units.find((x) => unitKey(x) === k);
+        if (existing) existing.municipioCount = countByKey.get(k) || existing.municipioCount || 0;
+      }
     }
-    return [...map.values()];
-  }, [mergedUnits]);
 
-  const selected = mergedUnits.find((u) => unitKey(u) === selectedKey) || null;
+    return [...byRegion.values()].map((r) => {
+      const zones = [...r.zones.values()].map((z) => ({
+        ...z,
+        units: [...z.units].sort((a, b) =>
+          String(a.unidadName).localeCompare(String(b.unidadName), 'es')
+        ),
+        unitCount: z.units.length,
+        municipioCount: z.units.reduce(
+          (n, u) => n + (countByKey.get(unitKey(u)) || u.municipioCount || 0),
+          0
+        ),
+      }));
+      return {
+        id: r.id,
+        label: r.label,
+        zones,
+        unitCount: zones.reduce((n, z) => n + z.unitCount, 0),
+        municipioCount: zones.reduce((n, z) => n + z.municipioCount, 0),
+      };
+    });
+  }, [depTree, units]);
+
+  const defaultsAppliedRef = useRef(false);
+  /** Primera expansión por defecto: región IV (o la de más municipios). */
+  useEffect(() => {
+    if (!prefsReady || !regionTree.length || defaultsAppliedRef.current) return;
+    if (Object.keys(openRegions).length || Object.keys(openZones).length) {
+      defaultsAppliedRef.current = true;
+      return;
+    }
+    defaultsAppliedRef.current = true;
+    const preferred =
+      regionTree.find((r) => isIvRmRegion(r.label)) ||
+      [...regionTree].sort((a, b) => b.municipioCount - a.municipioCount)[0];
+    if (!preferred) return;
+    const nextRegions = { [preferred.id]: true };
+    const nextZones = {};
+    for (const z of preferred.zones || []) nextZones[`${preferred.id}|${z.id}`] = true;
+    setOpenRegions(nextRegions);
+    setOpenZones(nextZones);
+    persistFolds(nextRegions, nextZones);
+  }, [prefsReady, regionTree, openRegions, openZones, persistFolds]);
+
+  const nameCollision = useMemo(() => {
+    const map = new Map();
+    for (const r of regionTree) {
+      for (const z of r.zones) {
+        for (const u of z.units) {
+          const name = u.unidadName;
+          if (!map.has(name)) map.set(name, []);
+          map.get(name).push(u);
+        }
+      }
+    }
+    return map;
+  }, [regionTree]);
+
+  const tq = treeQuery.trim().toLowerCase();
+  const filteredTree = useMemo(() => {
+    if (!tq) return regionTree;
+    return regionTree
+      .map((r) => {
+        const regionHit = String(r.label || '')
+          .toLowerCase()
+          .includes(tq);
+        const zones = r.zones
+          .map((z) => {
+            const zoneHit =
+              regionHit ||
+              String(z.label || '')
+                .toLowerCase()
+                .includes(tq) ||
+              String(z.short || '')
+                .toLowerCase()
+                .includes(tq);
+            const unitsHit = z.units.filter(
+              (u) =>
+                zoneHit ||
+                String(u.unidadName || '')
+                  .toLowerCase()
+                  .includes(tq)
+            );
+            if (!unitsHit.length && !zoneHit) return null;
+            return {
+              ...z,
+              units: zoneHit ? z.units : unitsHit,
+              unitCount: (zoneHit ? z.units : unitsHit).length,
+            };
+          })
+          .filter(Boolean);
+        if (!zones.length && !regionHit) return null;
+        return { ...r, zones };
+      })
+      .filter(Boolean);
+  }, [regionTree, tq]);
+
+  const flatUnits = useMemo(
+    () => regionTree.flatMap((r) => r.zones.flatMap((z) => z.units)),
+    [regionTree]
+  );
+  const selected = flatUnits.find((u) => unitKey(u) === selectedKey) || null;
 
   const assignedNames = useMemo(() => {
     if (!selected || !estado) return [];
@@ -119,6 +332,7 @@ export default function CatalogTerritorio({ session }) {
       .filter(
         (r) =>
           r.unidadName === selected.unidadName &&
+          String(r.zonaKey || '') === String(selected.zonaKey || '') &&
           String(r.estado || '').toLowerCase() === est
       )
       .map((r) => r.municipio);
@@ -126,9 +340,13 @@ export default function CatalogTerritorio({ session }) {
 
   useEffect(() => {
     if (!selectedKey) return;
-    const u = mergedUnits.find((x) => unitKey(x) === selectedKey);
+    const u = flatUnits.find((x) => unitKey(x) === selectedKey);
     if (!u) return;
-    const first = rows.find((r) => r.unidadName === u.unidadName)?.estado || '';
+    const first =
+      rows.find(
+        (r) =>
+          r.unidadName === u.unidadName && String(r.zonaKey || '') === String(u.zonaKey || '')
+      )?.estado || '';
     if (first) setEstado(first);
   }, [selectedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -162,6 +380,12 @@ export default function CatalogTerritorio({ session }) {
     return list.filter((m) => String(m.name || '').toLowerCase().includes(q));
   }, [municipios, q]);
 
+  function showSaveFlash(msg) {
+    setSaveFlash(msg);
+    window.clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = window.setTimeout(() => setSaveFlash(''), 4500);
+  }
+
   async function saveMunicipios(nextNames) {
     if (!selected || !estado || !canEdit) return;
     setBusy(true);
@@ -183,8 +407,17 @@ export default function CatalogTerritorio({ session }) {
       });
       setUnits(data.units || []);
       setRows(data.rows || []);
+      if (data.unitColors) {
+        setUnitColors(data.unitColors);
+        setOrgUnitColorOverrides(data.unitColors);
+      }
       setSelectedKey(`${zonaKey}|${selected.unidadName}`);
       window.dispatchEvent(new Event(IV_RM_COVERAGE_EVENT));
+      const n = data.saved?.municipios ?? nextNames.length;
+      const zona = selected.zonaShort || zonaKey;
+      showSaveFlash(
+        `Se asignaron ${n} municipio${n === 1 ? '' : 's'} a ${selected.unidadName} · ${zona} (${estado}).`
+      );
     } catch (e) {
       setDialog({ title: 'Error', message: e.message || 'No se pudo guardar', alertOnly: true });
     } finally {
@@ -212,49 +445,233 @@ export default function CatalogTerritorio({ session }) {
     saveMunicipios(assignedNames.filter((n) => !drop.has(n)));
   }
 
+  function toggleRegion(id) {
+    setOpenRegions((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      persistFolds(next, openZones);
+      return next;
+    });
+  }
+
+  function toggleZone(regionId, zoneId) {
+    const key = `${regionId}|${zoneId}`;
+    setOpenZones((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      persistFolds(openRegions, next);
+      return next;
+    });
+  }
+
+  function colorForUnit(u) {
+    const n = countAssigned(rows, u) || u.municipioCount || 0;
+    if (n === 0) return NO_COVER_COLOR;
+    const keyed = unitColors[unitKey(u)];
+    if (keyed) return keyed;
+    return unidadColor(u.unidadName, u.zonaKey);
+  }
+
+  function openUnitColorPicker(u, e) {
+    e?.stopPropagation?.();
+    if (!canEdit) return;
+    colorTargetRef.current = u;
+    const input = colorInputRef.current;
+    if (!input) return;
+    input.value = colorForUnit(u) || '#6a8f4a';
+    try {
+      input.focus({ preventScroll: true });
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (typeof input.showPicker === 'function') {
+        input.showPicker();
+        return;
+      }
+    } catch {
+      /* fallback */
+    }
+    try {
+      input.click();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function onColorPicked(e) {
+    const u = colorTargetRef.current;
+    const color = String(e.target.value || '').toLowerCase();
+    if (!u || !canEdit || !/^#[0-9a-f]{6}$/.test(color)) return;
+    try {
+      const data = await putCatalogTerritorioUnitColor(session.token, {
+        unidadName: u.unidadName,
+        zonaKey: u.zonaKey,
+        color,
+      });
+      const next = data.unitColors || {};
+      setUnitColors(next);
+      setOrgUnitColorOverrides(next);
+      window.dispatchEvent(new Event(IV_RM_COVERAGE_EVENT));
+      showSaveFlash(`Color de ${u.unidadName} · ${u.zonaShort || u.zonaKey} actualizado en el mapa.`);
+    } catch (err) {
+      setDialog({
+        title: 'Error',
+        message: err.message || 'No se pudo guardar el color',
+        alertOnly: true,
+      });
+    }
+  }
+
   const visibleAssigned = visibleMunis.filter((m) => assignedNames.includes(m.name)).length;
   const allVisibleOn = visibleMunis.length > 0 && visibleAssigned === visibleMunis.length;
+  const mapHasPolygons = selected ? isIvRmRegion(selected.regionLabel) : true;
 
+  if (!canSee) {
+    return (
+      <p className="cc-error">
+        Sin permiso para la pestaña Territorio. Un administrador puede habilitarla en Perfiles →
+        Catálogos → Territorio (independiente de Dependencias).
+      </p>
+    );
+  }
   if (loading) return <p className="cc-hint">Cargando territorio…</p>;
   if (err) return <p className="cc-error">{err}</p>;
 
   return (
     <div className="cc-cat-grades-wrap cc-territorio-cat">
       <p className="cc-cat-hint">
-        Asigne unidades a municipios del registro nacional. No se dan de alta ni se borran estados
-        ni municipios. Las unidades salen de Dependencias; para otra región, créela ahí y delimite
-        igual que IV R.M.
+        Aquí solo se asignan municipios; alta de región/zona/unidad en Dependencias.
       </p>
+      <p className="cc-territorio-perm-hint">
+        Editar cobertura: permiso <em>Catálogos → editar</em> + pestaña Territorio. La estructura
+        orgánica se controla aparte en Dependencias.
+      </p>
+      {saveFlash ? (
+        <div className="cc-territorio-flash" role="status">
+          {saveFlash}
+        </div>
+      ) : null}
+      <input
+        ref={colorInputRef}
+        type="color"
+        className="cc-territorio-color-input"
+        aria-hidden
+        tabIndex={-1}
+        onChange={onColorPicked}
+      />
       <div className="cc-territorio-split">
-        <aside className="cc-territorio-units" aria-label="Unidades">
-          {grouped.length === 0 ? (
+        <aside className="cc-territorio-units" aria-label="Regiones, zonas y unidades">
+          <input
+            type="search"
+            className="cc-cat-input cc-territorio-tree-search"
+            placeholder="Buscar región, zona o unidad…"
+            value={treeQuery}
+            onChange={(e) => setTreeQuery(e.target.value)}
+            aria-label="Buscar en el árbol"
+          />
+          {filteredTree.length === 0 ? (
             <span className="cc-hint">Sin unidades. Revise Catálogos → Dependencias.</span>
           ) : (
-            grouped.map((g) => (
-              <section key={g.key || g.short} className="cc-territorio-zona">
-                <h3>{g.label}</h3>
-                <div className="cc-territorio-unit-list">
-                  {g.units.map((u) => {
-                    const k = unitKey(u);
-                    const n = units.find((x) => x.unidadName === u.unidadName)?.municipioCount || 0;
-                    return (
-                      <button
-                        key={k}
-                        type="button"
-                        className={`cc-territorio-unit${k === selectedKey ? ' is-on' : ''}`}
-                        onClick={() => {
-                          setSelectedKey(k);
-                          setQuery('');
-                        }}
-                      >
-                        <span>{u.unidadName}</span>
-                        <em>{n}</em>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            ))
+            filteredTree.map((r) => {
+              const forceOpen = Boolean(tq);
+              const showRegion = forceOpen || Boolean(openRegions[r.id]);
+              return (
+                <section key={r.id} className="cc-territorio-region">
+                  <button
+                    type="button"
+                    className="cc-territorio-fold"
+                    aria-expanded={showRegion}
+                    onClick={() => toggleRegion(r.id)}
+                  >
+                    <span className="cc-territorio-fold-caret" aria-hidden>
+                      {showRegion ? '▾' : '▸'}
+                    </span>
+                    <span className="cc-territorio-fold-label">
+                      {r.label}
+                      <em>
+                        · {r.unitCount} unidad{r.unitCount === 1 ? '' : 'es'} · {r.municipioCount}{' '}
+                        mpio{r.municipioCount === 1 ? '' : 's'}
+                      </em>
+                    </span>
+                  </button>
+                  {showRegion
+                    ? r.zones.map((z) => {
+                        const zKey = `${r.id}|${z.id}`;
+                        const expanded = forceOpen || Boolean(openZones[zKey]);
+                        return (
+                          <div key={zKey} className="cc-territorio-zona">
+                            <button
+                              type="button"
+                              className="cc-territorio-fold cc-territorio-fold--zona"
+                              aria-expanded={expanded}
+                              onClick={() => toggleZone(r.id, z.id)}
+                            >
+                              <span className="cc-territorio-fold-caret" aria-hidden>
+                                {expanded ? '▾' : '▸'}
+                              </span>
+                              <span className="cc-territorio-fold-label">
+                                {z.label}
+                                <em>
+                                  · {z.unitCount} · {z.municipioCount} mpios
+                                </em>
+                              </span>
+                            </button>
+                            {expanded ? (
+                              <div className="cc-territorio-unit-list">
+                                {z.units.map((u) => {
+                                  const k = unitKey(u);
+                                  const n = countAssigned(rows, u) || u.municipioCount || 0;
+                                  const twins = nameCollision.get(u.unidadName) || [];
+                                  const collision = twins.length > 1;
+                                  const noCover = n === 0;
+                                  return (
+                                    <button
+                                      key={k}
+                                      type="button"
+                                      className={`cc-territorio-unit${k === selectedKey ? ' is-on' : ''}${noCover ? ' is-empty' : ''}`}
+                                      onClick={() => {
+                                        setSelectedKey(k);
+                                        setQuery('');
+                                      }}
+                                      title={
+                                        collision
+                                          ? `Clave ${k} (mismo nombre en ${twins.length} zonas)`
+                                          : k
+                                      }
+                                    >
+                                      <span
+                                        role="presentation"
+                                        className="cc-territorio-unit-dot"
+                                        style={{ background: colorForUnit(u) }}
+                                        title={
+                                          canEdit
+                                            ? 'Doble clic para color del mapa'
+                                            : 'Color en consola / mapa'
+                                        }
+                                        onDoubleClick={(e) => openUnitColorPicker(u, e)}
+                                      />
+                                      <span className="cc-territorio-unit-text">
+                                        <span className="cc-territorio-unit-name">
+                                          {u.unidadName}
+                                        </span>
+                                        <span className="cc-territorio-unit-meta">
+                                          {u.zonaShort || z.short}
+                                          {collision ? ' · misma clave zona|unidad' : ''}
+                                          {noCover ? ' · sin municipios' : ''}
+                                        </span>
+                                      </span>
+                                      <em className={noCover ? 'is-empty' : ''}>{n}</em>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    : null}
+                </section>
+              );
+            })
           )}
         </aside>
         <section className="cc-territorio-assign">
@@ -265,9 +682,31 @@ export default function CatalogTerritorio({ session }) {
               <header className="cc-territorio-assign-head">
                 <strong>{selected.unidadName}</strong>
                 <span>
-                  {selected.zonaShort} · {selected.regionLabel || 'IV R.M.'}
+                  {selected.regionLabel || 'Región'} · {selected.zonaShort || selected.zonaKey} ·
+                  clave <code>{unitKey(selected)}</code>
                 </span>
+                {canEdit ? (
+                  <button
+                    type="button"
+                    className="cc-ms-link cc-territorio-color-btn"
+                    onClick={(e) => openUnitColorPicker(selected, e)}
+                  >
+                    <i
+                      className="cc-territorio-unit-dot"
+                      style={{ background: colorForUnit(selected) }}
+                      aria-hidden
+                    />
+                    Color en mapa
+                  </button>
+                ) : null}
               </header>
+              {!mapHasPolygons ? (
+                <p className="cc-territorio-geo-banner" role="note">
+                  El mapa de la consola solo tiene polígonos GeoJSON de IV R.M. por ahora. Esta
+                  asignación se guarda igual; los municipios se pintarán cuando exista la capa de{' '}
+                  {selected.regionLabel}.
+                </p>
+              ) : null}
               <label className="cc-territorio-estado">
                 Estado
                 <select

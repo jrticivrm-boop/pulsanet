@@ -21,7 +21,11 @@ import {
 } from '../services/catalogs.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireModuleAction } from '../services/moduleAccess.js';
-import { listTerritoryCoverage, replaceCoverageForEstado } from '../services/territoryCoverage.js';
+import {
+  listTerritoryCoverage,
+  replaceCoverageForEstado,
+  upsertUnitColor,
+} from '../services/territoryCoverage.js';
 import { logActivity } from '../services/activity.js';
 
 export const catalogsRouter = Router();
@@ -219,6 +223,26 @@ catalogsRouter.put('/territorio', requireEdit, async (req, res) => {
       },
     });
     res.json({ ok: true, ...data });
+  } catch (err) {
+    sendErr(res, err);
+  }
+});
+
+catalogsRouter.put('/territorio/unit-color', requireEdit, async (req, res) => {
+  try {
+    const unitColors = await upsertUnitColor(req.user.orgId, req.body || {});
+    await logActivity({
+      organizationId: req.user.orgId,
+      actorId: req.user.id,
+      action: 'territory_unit_color',
+      entityType: 'cat_territory_unit_colors',
+      meta: {
+        unidadName: req.body?.unidadName,
+        zonaKey: req.body?.zonaKey,
+        color: req.body?.color,
+      },
+    });
+    res.json({ ok: true, unitColors });
   } catch (err) {
     sendErr(res, err);
   }

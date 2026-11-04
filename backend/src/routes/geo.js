@@ -114,6 +114,7 @@ router.get('/territorio-coverage', async (req, res) => {
         zonas: [],
         units: [],
         regions: [],
+        unitColors: {},
         pendingMigration: true,
       });
     }

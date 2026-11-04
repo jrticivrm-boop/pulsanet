@@ -119,7 +119,12 @@ import {
   isSurfaceEnabled,
   useIvRmStatesConfig,
 } from './ivRmStatesConfig.js';
-import { IV_RM_COVERAGE_EVENT, IV_RM_ZONAS, listTerritoryUnidades } from './ivRmTerritoryConfig.js';
+import {
+  IV_RM_COVERAGE_EVENT,
+  IV_RM_ZONAS,
+  listTerritoryUnidades,
+  setOrgUnitColorOverrides,
+} from './ivRmTerritoryConfig.js';
 import HighlighterTrack, { PREDICTED_COLOR } from './HighlighterTrack.jsx';
 import MapSearchPanel, { MapSearchLayer, MapReverseLookup } from './MapSearchPanel.jsx';
 import MapRoutePanel, { MapRouteLayer, routePointAt, routePointFrom, useRoutePlan } from './MapRoutePanel.jsx';
@@ -2061,6 +2066,7 @@ export default function DispatchMap({ session }) {
         const cov = await fetchTerritoryCoverage(session.token);
         rows = cov?.rows || [];
         regions = regionsFromCoverage(cov);
+        if (cov?.unitColors) setOrgUnitColorOverrides(cov.unitColors);
       } catch {
         rows = [];
         regions = [];

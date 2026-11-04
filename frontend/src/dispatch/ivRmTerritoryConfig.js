@@ -113,10 +113,43 @@ export function primaryUnidad(props) {
   return String(props?.unidad || '').split(' / ')[0].trim();
 }
 
+/** Overrides de color por org: clave `zonaKey|unidad` o solo `unidad`. */
+let orgUnitColorOverrides = {};
+
+export const UNIT_COLOR_EVENT = 'tacticalptx-unit-colors-changed';
+
+export function setOrgUnitColorOverrides(map) {
+  orgUnitColorOverrides =
+    map && typeof map === 'object' && !Array.isArray(map) ? { ...map } : {};
+  try {
+    window.dispatchEvent(new CustomEvent(UNIT_COLOR_EVENT, { detail: orgUnitColorOverrides }));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function getOrgUnitColorOverrides() {
+  return { ...orgUnitColorOverrides };
+}
+
+function overrideColor(unidad, zonaKey) {
+  const name = String(unidad || '').trim();
+  if (!name) return null;
+  const z = String(zonaKey || '').trim();
+  if (z) {
+    const keyed = orgUnitColorOverrides[`${z}|${name}`];
+    if (keyed) return normalizeHex(keyed) || keyed;
+  }
+  const byName = orgUnitColorOverrides[`|${name}`] || orgUnitColorOverrides[name];
+  return byName ? normalizeHex(byName) || byName : null;
+}
+
 /** Color tenue de relleno por unidad; borde más suave derivado. */
-export function unidadColor(unidad) {
+export function unidadColor(unidad, zonaKey) {
   const key = String(unidad || '').trim();
   if (!key) return '#9aa3ad';
+  const fromOrg = overrideColor(key, zonaKey);
+  if (fromOrg) return fromOrg;
   const direct = IV_RM_UNIDAD_COLORS[key];
   if (direct) return direct;
   // Normalizar "22/o. B.I." vs "22/o. B.I"

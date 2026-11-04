@@ -183,6 +183,8 @@ export default function DispatchDependencias({ session }) {
             <strong>Zona Militar (ZZ.MM.)</strong> → <strong>Organismos</strong>.
             <br />
             Solo se pueden eliminar entradas que <strong>no estén en uso</strong> ni tengan elementos hijos.
+            <br />
+            Asignación de municipios y colores del mapa: Catálogos → Territorio (permiso de pestaña aparte).
           </p>
         </div>
         <p className="cc-units-summary">

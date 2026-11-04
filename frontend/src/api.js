@@ -662,6 +662,18 @@ export function putCatalogTerritorio(token, body) {
   return api('/api/catalogs/territorio', { token, method: 'PUT', body });
 }
 
+export function putCatalogTerritorioUnitColor(token, body) {
+  return api('/api/catalogs/territorio/unit-color', { token, method: 'PUT', body });
+}
+
+export function fetchUiPrefs(token) {
+  return api('/api/me/ui-prefs', { token });
+}
+
+export function patchUiPrefs(token, prefs) {
+  return api('/api/me/ui-prefs', { token, method: 'PATCH', body: { prefs } });
+}
+
 export function fetchGeoEstados(token) {
   return api('/api/geo/estados', { token });
 }

@@ -240,7 +240,55 @@ export async function listTerritoryCoverage(orgId) {
   } catch {
     regions = buildRegionsTree([], mapped);
   }
-  return { rows: mapped, zonas, units, regions };
+  let unitColors = {};
+  try {
+    unitColors = await listUnitColorsMap(orgId);
+  } catch {
+    unitColors = {};
+  }
+  return { rows: mapped, zonas, units, regions, unitColors };
+}
+
+function colorKey(zonaKey, unidadName) {
+  return `${String(zonaKey || '').trim()}|${String(unidadName || '').trim()}`;
+}
+
+async function listUnitColorsMap(orgId) {
+  const { rows } = await query(
+    `SELECT zona_key, unidad_name, color
+     FROM cat_territory_unit_colors
+     WHERE organization_id = $1`,
+    [orgId]
+  );
+  const out = {};
+  for (const r of rows) {
+    out[colorKey(r.zona_key, r.unidad_name)] = String(r.color || '').toLowerCase();
+  }
+  return out;
+}
+
+export async function upsertUnitColor(orgId, body = {}) {
+  const unidadName = cleanText(body.unidadName, 120);
+  const zonaKey = cleanText(body.zonaKey, 32);
+  let color = String(body.color || '').trim().toLowerCase();
+  if (!unidadName) {
+    const e = new Error('unidadName es obligatorio');
+    e.status = 400;
+    throw e;
+  }
+  if (!/^#[0-9a-f]{6}$/.test(color)) {
+    const e = new Error('color debe ser #rrggbb');
+    e.status = 400;
+    throw e;
+  }
+  await query(
+    `INSERT INTO cat_territory_unit_colors (organization_id, zona_key, unidad_name, color, updated_at)
+     VALUES ($1, $2, $3, $4, NOW())
+     ON CONFLICT (organization_id, zona_key, unidad_name)
+     DO UPDATE SET color = EXCLUDED.color, updated_at = NOW()`,
+    [orgId, zonaKey, unidadName, color]
+  );
+  return listUnitColorsMap(orgId);
 }
 
 function cleanText(value, max) {
@@ -271,9 +319,10 @@ export async function replaceCoverageForEstado(orgId, body = {}) {
     await client.query(
       `DELETE FROM cat_territory_coverage
        WHERE organization_id = $1
-         AND unidad_name = $2
-         AND LOWER(TRIM(estado)) = LOWER(TRIM($3))`,
-      [orgId, unidadName, estado]
+         AND zona_key = $2
+         AND unidad_name = $3
+         AND LOWER(TRIM(estado)) = LOWER(TRIM($4))`,
+      [orgId, zonaKey, unidadName, estado]
     );
     for (const municipio of municipios) {
       await client.query(
@@ -306,5 +355,16 @@ export async function replaceCoverageForEstado(orgId, body = {}) {
   } finally {
     client.release();
   }
-  return listTerritoryCoverage(orgId);
+  const data = await listTerritoryCoverage(orgId);
+  return {
+    ...data,
+    saved: {
+      unidadName,
+      zonaKey,
+      zonaShort,
+      regionLabel,
+      estado,
+      municipios: municipios.length,
+    },
+  };
 }

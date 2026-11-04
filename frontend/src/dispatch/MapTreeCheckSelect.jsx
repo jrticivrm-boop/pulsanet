@@ -10,8 +10,8 @@ import {
 import { applyMsPanelListLayout, fitMsPanelHeight } from './fitMsPanelHeight.js';
 import { unidadColor } from './ivRmTerritoryConfig.js';
 
-function ColorDot({ unidad, title }) {
-  const color = unidadColor(unidad);
+function ColorDot({ unidad, zonaKey, title }) {
+  const color = unidadColor(unidad, zonaKey);
   return (
     <span
       className="cc-ms-color-dot"
@@ -26,10 +26,11 @@ function ZoneColorDots({ zone }) {
   const units = zone?.children || [];
   if (!units.length) return null;
   const shown = units.slice(0, 5);
+  const zonaKey = zone?.id;
   return (
     <span className="cc-ms-color-dots" aria-hidden>
       {shown.map((u) => (
-        <ColorDot key={String(u.id)} unidad={u.label || u.id} />
+        <ColorDot key={String(u.id)} unidad={u.label || u.id} zonaKey={zonaKey} />
       ))}
       {units.length > 5 ? <span className="cc-ms-color-dots-more">+</span> : null}
     </span>

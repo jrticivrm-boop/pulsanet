@@ -5852,12 +5852,43 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 }
 
 .cc-territorio-cat .cc-cat-hint {
-  margin: 0 0 0.85rem;
+  margin: 0 0 0.35rem;
   max-width: 52rem;
+}
+.cc-territorio-perm-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.72rem;
+  color: var(--cc-muted);
+  max-width: 52rem;
+}
+.cc-territorio-flash {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--cc-accent) 35%, var(--cc-border));
+  background: color-mix(in srgb, var(--cc-accent) 14%, var(--cc-panel));
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.cc-territorio-geo-banner {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, #c4a35a 40%, var(--cc-border));
+  background: color-mix(in srgb, #c4a35a 12%, var(--cc-panel));
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.cc-territorio-color-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 .cc-territorio-split {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
   min-height: 22rem;
@@ -5870,46 +5901,113 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
   max-height: min(70vh, 640px);
   overflow: auto;
 }
-.cc-territorio-zona + .cc-territorio-zona {
-  margin-top: 0.75rem;
+.cc-territorio-tree-search {
+  width: 100%;
+  margin-bottom: 0.55rem;
 }
-.cc-territorio-zona h3 {
-  margin: 0 0 0.35rem;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--cc-muted);
+.cc-territorio-region + .cc-territorio-region {
+  margin-top: 0.55rem;
 }
-.cc-territorio-unit-list {
+.cc-territorio-zona {
+  margin: 0.15rem 0 0.35rem 0.55rem;
+}
+.cc-territorio-fold {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.cc-territorio-unit {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  align-items: flex-start;
+  gap: 0.35rem;
   width: 100%;
   text-align: left;
   border: 0;
   border-radius: 7px;
-  padding: 0.38rem 0.5rem;
+  padding: 0.32rem 0.4rem;
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.cc-territorio-fold:hover {
+  background: color-mix(in srgb, var(--cc-accent) 8%, var(--cc-panel));
+}
+.cc-territorio-fold--zona {
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: var(--cc-muted);
+}
+.cc-territorio-fold-caret {
+  flex: 0 0 auto;
+  width: 0.85rem;
+  opacity: 0.7;
+}
+.cc-territorio-fold-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cc-territorio-fold-label em {
+  font-style: normal;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.cc-territorio-unit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.15rem 0 0.25rem 0.85rem;
+}
+.cc-territorio-unit {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 7px;
+  padding: 0.34rem 0.45rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.8rem;
 }
 .cc-territorio-unit:hover,
 .cc-territorio-unit.is-on {
   background: color-mix(in srgb, var(--cc-accent) 12%, var(--cc-panel));
+}
+.cc-territorio-unit.is-empty {
+  opacity: 0.72;
+}
+.cc-territorio-unit-dot {
+  flex: 0 0 auto;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, #000 25%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 20%, transparent);
+}
+.cc-territorio-unit-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+.cc-territorio-unit-name {
+  font-weight: 650;
+  line-height: 1.2;
+}
+.cc-territorio-unit-meta {
+  font-size: 0.68rem;
+  color: var(--cc-muted);
+  line-height: 1.2;
 }
 .cc-territorio-unit em {
   font-style: normal;
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--cc-muted);
+  margin-left: auto;
+}
+.cc-territorio-unit em.is-empty {
+  color: color-mix(in srgb, var(--cc-muted) 70%, #888);
 }
 .cc-territorio-assign {
   border: 1px solid var(--cc-border);
@@ -5927,6 +6025,19 @@ html.cc-catalogs-tabs-dragging .cc-catalogs-tabs a {
 .cc-territorio-assign-head span {
   font-size: 0.78rem;
   color: var(--cc-muted);
+}
+.cc-territorio-assign-head code {
+  font-size: 0.72rem;
+  padding: 0.05rem 0.28rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cc-muted) 12%, transparent);
+}
+.cc-territorio-color-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  width: fit-content;
 }
 .cc-territorio-estado {
   display: flex;

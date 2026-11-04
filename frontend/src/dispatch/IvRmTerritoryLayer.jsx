@@ -6,6 +6,7 @@ import {
   isZonaEnabled,
   loadIvRmTerritoryConfig,
   primaryUnidad,
+  UNIT_COLOR_EVENT,
   unidadColor,
   useIvRmTerritoryConfig,
 } from './ivRmTerritoryConfig.js';
@@ -42,11 +43,11 @@ function territoryTooltipHtml(props) {
     ? (String(p.zona).includes('Z.M.') ? String(p.zona) : `${p.zona} Z.M.`)
     : null;
   const unidades = territoryUnidades(p);
-  const accent = unidadColor(primaryUnidad(p));
+  const accent = unidadColor(primaryUnidad(p), p.zonaId);
   const unitChips = unidades
     .map(
       (u) =>
-        `<span class="ivrm-tip-unit"><i style="background:${escapeHtml(unidadColor(u))}"></i>${escapeHtml(u)}</span>`
+        `<span class="ivrm-tip-unit"><i style="background:${escapeHtml(unidadColor(u, p.zonaId))}"></i>${escapeHtml(u)}</span>`
     )
     .join('');
   const rows =
@@ -129,7 +130,7 @@ function darkenHex(hex, amount) {
 
 function styleForFeature(feature, showColors) {
   const unit = primaryUnidad(feature?.properties);
-  const fill = unidadColor(unit);
+  const fill = unidadColor(unit, feature?.properties?.zonaId);
   return {
     // Borde más oscuro que el relleno: delimita municipios vecinos de la misma unidad.
     color: showColors ? darkenHex(fill, 0.35) : fill,
@@ -199,10 +200,17 @@ export default function IvRmTerritoryLayer({
   const filterKey = JSON.stringify(filter || {});
   const hoverKey = JSON.stringify(hoverPreview || null);
   const [features, setFeatures] = useState(() => loadedIvRmMunicipios());
+  const [colorRev, setColorRev] = useState(0);
   const layerRef = useRef(null);
   const rendererRef = useRef(null);
   const hoverRef = useRef(hoverPreview);
   hoverRef.current = hoverPreview;
+
+  useEffect(() => {
+    const onColors = () => setColorRev((n) => n + 1);
+    window.addEventListener(UNIT_COLOR_EVENT, onColors);
+    return () => window.removeEventListener(UNIT_COLOR_EVENT, onColors);
+  }, []);
 
   useEffect(() => {
     if (!layerOn || features != null) return undefined;
@@ -336,7 +344,7 @@ export default function IvRmTerritoryLayer({
         layerRef.current = null;
       }
     };
-  }, [map, configKey, filterKey, layerOn, showColors, visible]);
+  }, [map, configKey, filterKey, layerOn, showColors, visible, colorRev]);
 
   useEffect(() => {
     const layer = layerRef.current;
@@ -346,7 +354,7 @@ export default function IvRmTerritoryLayer({
       if (!feature) return;
       lyr.setStyle(styleWithHover(feature, showColors, hoverPreview));
     });
-  }, [hoverKey, showColors]);
+  }, [hoverKey, showColors, colorRev]);
 
   return null;
 }

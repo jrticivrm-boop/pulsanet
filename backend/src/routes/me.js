@@ -11,6 +11,7 @@ import { UPLOADS_DIR, mediaDiskPath, prepareAvatarUploadDir, storedUploadRel, en
 import { logActivity } from '../services/activity.js';
 import { bindLiveUser } from '../services/userProfile.js';
 import { getOrgGpsSettings } from '../services/orgGpsSettings.js';
+import { getUserUiPrefs, patchUserUiPrefs } from '../services/userUiPrefs.js';
 
 /** @deprecated prefer mediaDiskPath — mantenido para imports existentes */
 const AVATAR_DIR = path.join(UPLOADS_DIR, 'avatars');
@@ -172,6 +173,34 @@ export function createMeRouter() {
         intervalSec: gps.intervalSec,
       },
     });
+  });
+
+  /** Preferencias de interfaz por usuario (pliegues, etc.). Persistidas en BD, no solo en el navegador. */
+  router.get('/ui-prefs', authMiddleware, async (req, res) => {
+    try {
+      const prefs = await getUserUiPrefs(req.user.sub);
+      res.json({ ok: true, prefs });
+    } catch (err) {
+      if (err?.code === '42703') {
+        return res.json({ ok: true, prefs: {}, pendingMigration: true });
+      }
+      res.status(500).json({ ok: false, error: err.message || 'No se pudieron leer preferencias' });
+    }
+  });
+
+  router.patch('/ui-prefs', authMiddleware, async (req, res) => {
+    try {
+      const prefs = await patchUserUiPrefs(req.user.sub, req.body?.prefs || req.body || {});
+      res.json({ ok: true, prefs });
+    } catch (err) {
+      if (err?.code === '42703') {
+        return res.status(503).json({
+          ok: false,
+          error: 'Falta la migración 053_territory_ui_prefs_colors.sql',
+        });
+      }
+      res.status(500).json({ ok: false, error: err.message || 'No se pudieron guardar preferencias' });
+    }
   });
 
   /** Subir / cambiar icono de perfil */

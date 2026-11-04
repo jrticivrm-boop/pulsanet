@@ -124,7 +124,7 @@ export const MODULES = [
   {
     key: 'catalogos',
     label: 'Catálogos',
-    hint: 'Jerarquías, grados y más',
+    hint: 'Dependencias = estructura; Territorio = municipios. Permisos de pestaña independientes.',
     group: 'sistema',
     groupLabel: 'Sistema',
     actions: ['ver', 'agregar', 'editar', 'eliminar'],
