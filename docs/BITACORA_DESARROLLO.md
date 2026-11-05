@@ -1,3 +1,10 @@
+## 2026-11-05 — Mapa: globo en dos líneas (grado/empleo centrado)
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** El título del globo queda en dos líneas: Grado y Empleo centrados; debajo, el nombre completo.
+- **Archivos / refs:** `mapOperatorPopup.jsx` · `command-center.css`
+
 ## 2026-11-05 — Mapa: globo con grado, empleo y nombre completo
 
 - **Tipo:** ux | mejora

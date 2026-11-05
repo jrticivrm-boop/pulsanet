@@ -1,7 +1,8 @@
 /**
  * Globo de operador en mapa:
- * L1 Grado · Empleo · Nombre completo (root sin grado: «Administrador»)
- * L2 unidad|zona|región (root: «Administrador»)
+ * L1 Grado · Empleo (centrado)
+ * L2 Nombre completo
+ * L3 unidad|zona|región (root: «Administrador»)
  * L3 distintivo: B.O.Mvl. "Castillo" (catálogo + nombre libre entre comillas), seguido de
  *    municipio, estado donde está el servicio (guardado o por su posición)
  *    y debajo una flecha que despliega efectivos por grupo (Personal, Armamento, Vehs., Otros)
@@ -105,24 +106,39 @@ function mapPopupFullName(loc) {
   return String(loc?.fullName || '').trim();
 }
 
-/** Título del globo: Grado + Empleo + Nombre completo (no solo apellido del indicativo). */
-export function mapPopupTitleLine(loc) {
+function mapPopupFallbackShort(loc) {
+  const fromDisplay = String(loc?.displayName || '').trim();
+  return (fromDisplay.split(',')[0] || '').trim();
+}
+
+/** Primera línea del globo: Grado y Empleo (centrada). */
+export function mapPopupRankLine(loc) {
   const role = String(loc?.role || '').trim().toLowerCase();
   const grade = String(loc?.grade || '').trim();
   if (role === 'root' && !grade) return 'Administrador';
-
   const specialty = String(loc?.specialty || '').trim();
-  const fullName = mapPopupFullName(loc);
   const parts = [];
   if (grade) parts.push(grade);
   if (specialty && specialty.toLowerCase() !== grade.toLowerCase()) parts.push(specialty);
-  if (fullName) parts.push(fullName);
   const built = parts.join(' ').trim();
   if (built) return built;
+  const name = mapPopupFullName(loc);
+  return name ? '' : mapPopupFallbackShort(loc) || 'Operador';
+}
 
-  // Fallback: indicativo corto «Grado Apellido» (sin pertenencia tras la coma).
-  const fromDisplay = String(loc?.displayName || '').trim();
-  return (fromDisplay.split(',')[0] || '').trim() || 'Operador';
+/** Segunda línea del globo: nombre completo. */
+export function mapPopupNameLine(loc) {
+  const role = String(loc?.role || '').trim().toLowerCase();
+  const grade = String(loc?.grade || '').trim();
+  if (role === 'root' && !grade) return '';
+  return mapPopupFullName(loc);
+}
+
+/** Título combinado (búsqueda, inicial del avatar, comparaciones). */
+export function mapPopupTitleLine(loc) {
+  const rank = mapPopupRankLine(loc);
+  const name = mapPopupNameLine(loc);
+  return [rank, name].filter(Boolean).join(' ') || 'Operador';
 }
 
 export function mapPopupServiceLine(loc) {
@@ -318,6 +334,8 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
   const map = useMap();
   const [efectivosOpen, setEfectivosOpen] = useState(false);
   const title = mapPopupTitleLine(loc);
+  const rank = mapPopupRankLine(loc);
+  const fullName = mapPopupNameLine(loc);
   const distintivo = mapPopupServiceLine(loc);
   const affiliation = mapPopupAffiliationLine(loc);
   const place = useOperatorPlace(loc);
@@ -352,7 +370,11 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
           {popupInitial(title)}
         </span>
         <div className="cc-op-pop-id">
-          <strong className="cc-op-pop-title">{title}</strong>
+          <strong className="cc-op-pop-title">
+            {rank ? <span className="cc-op-pop-rank">{rank}</span> : null}
+            {fullName ? <span className="cc-op-pop-name">{fullName}</span> : null}
+            {!rank && !fullName ? title : null}
+          </strong>
           {affiliation ? <span className="cc-op-pop-aff">{affiliation}</span> : null}
         </div>
       </div>
