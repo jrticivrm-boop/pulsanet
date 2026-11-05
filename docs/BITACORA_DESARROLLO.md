@@ -1,3 +1,10 @@
+## 2026-11-05 — Mapa: globo alineado a la izquierda
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Grado/empleo y nombre completo del globo quedan alineados a la izquierda (siguen en dos líneas).
+- **Archivos / refs:** `command-center.css`
+
 ## 2026-11-05 — Mapa: globo en dos líneas (grado/empleo centrado)
 
 - **Tipo:** ux

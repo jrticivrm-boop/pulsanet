@@ -1,6 +1,6 @@
 /**
  * Globo de operador en mapa:
- * L1 Grado · Empleo (centrado)
+ * L1 Grado · Empleo (alineado a la izquierda)
  * L2 Nombre completo
  * L3 unidad|zona|región (root: «Administrador»)
  * L3 distintivo: B.O.Mvl. "Castillo" (catálogo + nombre libre entre comillas), seguido de
@@ -111,7 +111,7 @@ function mapPopupFallbackShort(loc) {
   return (fromDisplay.split(',')[0] || '').trim();
 }
 
-/** Primera línea del globo: Grado y Empleo (centrada). */
+/** Primera línea del globo: Grado y Empleo. */
 export function mapPopupRankLine(loc) {
   const role = String(loc?.role || '').trim().toLowerCase();
   const grade = String(loc?.grade || '').trim();

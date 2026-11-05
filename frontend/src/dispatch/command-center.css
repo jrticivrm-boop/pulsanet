@@ -8182,28 +8182,28 @@ html.map-viewport-max .lt-page--maximized,
 .cc-op-pop-id {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   flex: 1 1 auto;
   min-width: 0;
-  text-align: center;
+  text-align: left;
 }
 
 .cc-op-pop-title {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.08rem;
   width: 100%;
   font-size: 0.98rem;
   font-weight: 700;
-  text-align: center;
+  text-align: left;
   overflow-wrap: anywhere;
 }
 
 .cc-op-pop-rank {
   display: block;
   width: 100%;
-  text-align: center;
+  text-align: left;
   font-weight: 750;
   line-height: 1.25;
 }
@@ -8211,7 +8211,7 @@ html.map-viewport-max .lt-page--maximized,
 .cc-op-pop-name {
   display: block;
   width: 100%;
-  text-align: center;
+  text-align: left;
   font-size: 0.92rem;
   font-weight: 650;
   line-height: 1.3;
