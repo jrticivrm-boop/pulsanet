@@ -1,3 +1,90 @@
+## 2026-11-05 — Mapa: globo con grado, empleo y nombre completo
+
+- **Tipo:** ux | mejora
+- **Área:** web | backend
+- **Qué:** En el globo del operador (línea del título) se muestra Grado + Empleo + Nombre completo, no solo el apellido del indicativo. `GET /api/locations` entrega specialty y nombre.
+- **Archivos / refs:** `mapOperatorPopup.jsx` · `locations.js`
+
+## 2026-11-05 — ExploNova 2.0.0-alpha43
+
+- **Tipo:** fix | ux
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha43.apk` (versionCode 263). El icono es el orbe original, sin su cuadro, sobre el fondo morado. También entra la pantalla completa que ya no se regresa: deslizar hacia abajo o el botón de YouTube abre el nuestro y se queda; el mismo botón sale; un video de abajo no agranda el de arriba.
+- **Por qué / notas:** El icono anterior metía el dibujo ya enmarcado dentro de otro cuadro morado. En el emulador, el desliz con la petición de YouTube dejó el video en 412×232@342 a velocidad 1; Inicio abrió la flotante 230×129 y al ampliar volvió centrado. alpha26–alpha42 no se reemplazaron.
+- **Archivos / refs:** `ExploNova` iconos `drawable/ic_launcher_foreground.png`, `mipmap-*/ic_launcher.png`, `BrowserEngine.kt`, `app/build.gradle.kts`
+
+## 2026-11-05 — ExploNova: pantalla completa de YouTube ya no se regresa
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Deslizar hacia abajo sobre el video, o el botón de pantalla completa de YouTube, abre nuestro reproductor y se queda. El mismo botón, ya dentro, sale. Un video de la lista de abajo sigue abriendo ese video. Sin APK nuevo.
+- **Por qué / notas:** alpha42 tragaba la petición de YouTube, el video crecía y se regresaba, y el botón no respondía. En el emulador: el 2x volvió a 1; sin el dedo en el video no entra; con el desliz y la petición de YouTube quedó 412×232@342 reproduciendo; deslizar abajo ya dentro no lo movió; Inicio abrió la flotante 230×129 y al ampliar volvió a 412×232; el botón sacó a la página; un video de abajo cambió la URL y no agrandó el de arriba.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`
+
+## 2026-11-04 — ExploNova 2.0.0-alpha42
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha42.apk` (versionCode 262). El 2x de YouTube ya no se queda pegado si el dedo no sigue presionado. Tocar un video de abajo abre ese video y ya no agranda el de arriba. El botón de pantalla completa de YouTube sigue abriendo el nuestro.
+- **Por qué / notas:** El diagnóstico de alpha41 (sesión del Razr) repetía entrar y salir de completa al tocar la página: cualquier etiqueta que contuviera “pantalla completa” se tomaba como el botón. En el emulador: el 2x volvió a 1; un toque en un video relacionado cambió la URL y dejó el reproductor en la página; el botón Enter full screen centró Despacito en 412×232@342 a velocidad 1; deslizar abajo no movió el cuadro; Inicio abrió la flotante 229×129 en negro y al ampliar volvió a 412×232; un Short quedó 412×732 y salió con el gesto hacia arriba siguiendo en reproducción. alpha26–alpha41 no se reemplazaron.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `app/build.gradle.kts`
+
+## 2026-11-04 — ExploNova 2.0.0-alpha41
+
+- **Tipo:** fix | ux
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha41.apk` (versionCode 261). El video ya no se va abajo al usar los gestos. Brillo y volumen quedan en los bordes, más grandes en vertical y con menos recorrido. Al ampliar la flotante la imagen vuelve centrada. Icono adaptativo completo (el arte cabe en el círculo, sin recorte).
+- **Por qué / notas:** Un dedo en la franja negra se lo quedaba YouTube y empujaba el cuadro; el alto quedaba en 0 y al agrandar la flotante se veía negro. En el emulador, deslizar abajo dejó el video en 412×232@342; la flotante 229×129 siguió; al ampliar volvió a 412×232. alpha26–alpha40 no se reemplazaron.
+- **Archivos / refs:** `FullscreenGestures.kt`, `GestureHint.kt`, `BrowserEngine.kt`, `AstroActivity.kt`, iconos `mipmap` / `drawable`, `app/build.gradle.kts`
+
+## 2026-11-04 — ExploNova 2.0.0-alpha40
+
+- **Tipo:** fix | ux
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha40.apk` (versionCode 260). En videos de YouTube: ya no parpadean las barras del sistema al tocar; se ocultan sugerencias/end screen en nuestra completa; deslizar hacia arriba (o vertical en el centro) sale de pantalla completa. Icono adaptativo con el arte con fondo donde el sistema lo exige. Reels siguen igual.
+- **Por qué / notas:** El diagnóstico del teléfono (alpha39) mostraba `astro_controls` true/false en ráfaga y eso acoplaba las barras → flash. Emulador: Despacito FS estable continuo, seek OK, swipe arriba → página 412×232 reproduciendo; al terminar endShown=0; Inicio → PiP 228×128; Short 9:16 y sale con el mismo gesto. OTA no se tocó. alpha26–alpha39 no se reemplazaron.
+- **Archivos / refs:** `AstroActivity.kt`, `FullscreenGestures.kt`, `BrowserEngine.kt`, `mipmap-anydpi-v26/`, `drawable-nodpi/ic_launcher_bg_fill.png`, `app/build.gradle.kts`
+
+## 2026-11-04 — ExploNova 2.0.0-alpha39
+
+- **Tipo:** ux | mejora
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha39.apk` (versionCode 259). En YouTube se ocultan los botones flotantes de Astro y la barra de pantalla completa (atrás / flotante / tres puntos). Respaldados en `ExploNova/_backup_ui/`. El botón o `requestFullscreen` de YouTube abre nuestro reproductor. Flotante con Inicio; salir con Atrás. Otros sitios siguen con el chrome anterior.
+- **Por qué / notas:** Menos botones propios, más flujo nativo. En el emulador: Despacito página 412×232 → pantalla completa 412×232@342 continuo, gestos de seek y volumen, Inicio → flotante 228×128 fondo negro, Atrás vuelve a la página; Short 412×732 en nuestro player y flotante 129×229; sin etiquetas de chrome Astro en la jerarquía UI. alpha26–alpha38 no se reemplazaron.
+- **Archivos / refs:** `AstroScreen.kt`, `AstroActivity.kt`, `BrowserEngine.kt`, `_backup_ui/`, `app/build.gradle.kts`
+
+## 2026-11-04 — ExploNova 2.0.0-alpha38
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK `ExploNova-2.0.0-alpha38.apk` (versionCode 258). Junta lo que alpha37 no traía: el video ya no se queda en negro, una pausa no pedida no se queda, los controles de YouTube vuelven al salir de la flotante, el fondo de la flotante queda negro, el botón de quitar silencio ya no tapa el subtítulo del reel, y una llamada deja el video en pausa hasta que el usuario lo reanuda.
+- **Por qué / notas:** En el emulador, Despacito quedó en la página a 412×232, en pantalla completa centrado a 412×232 y en la flotante a 229×129 con fondo negro, siguiendo en reproducción. Una pausa ajena no se quedó. Inicio abrió la flotante y el tiempo siguió. Un Short llenó la flotante vertical y el subtítulo de arriba quedó completo, con el botón de silencio en la esquina de abajo. Durante una llamada el video se quedó en pausa y un toque de reproducir lo reanudó. alpha26 a alpha37 no se reemplazaron.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `app/build.gradle.kts`
+
+## 2026-11-04 — ExploNova: subtítulos de reels completos
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En la flotante, el botón de quitar silencio de YouTube ya no tapa el subtítulo. En un Short se va a la esquina de abajo; en un video normal, a la de arriba. El texto sigue donde YouTube lo pone.
+- **Por qué / notas:** En el reel el subtítulo iba arriba y el botón lo cubría, así que se leía cortado. En el emulador, el Short dejó el texto arriba (`top: 2%`), completo y sin tapar. Despacito en pantalla completa dejó la frase entera abajo (`bottom: 2%`) dentro del video. Sin APK nuevo.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`
+
+## 2026-11-04 — ExploNova: el video ya no se queda en negro
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Si el cuadro del video se quedaba en alto 0, la imagen vuelve al tamaño real. Al salir de la flotante, los controles de YouTube regresan. Detrás de la flotante el fondo queda negro.
+- **Por qué / notas:** En el emulador se veía una pantalla negra porque el video medía 0 px de alto. Probado en debug, sin APK nuevo. Despacito: página 412×232, pantalla completa centrada 412×232, reproducción continua; un toque muestra Pausa, Siguiente y subtítulos; una pausa no pedida no se queda y una pedida sí. Flotante horizontal 230×129, fondo negro, subtítulo abajo (`bottom: 2%`). Al volver, los controles siguen. Inicio abre la flotante y el video continúa. Un Short ocupa 412×732 en la página y llena la flotante vertical 129×229. alpha37 no trae estos arreglos.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`
+
+## 2026-11-04 — ExploNova: el video ya no se pausa solo
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En pantalla completa y en la flotante, una pausa que no pidió el usuario se ignora y el video sigue. Tocar Reproducir ya no queda marcado como pausa. Al salir de la flotante ya no se simula un toque en el botón de play, que era lo que detenía el video.
+- **Por qué / notas:** En el emulador el video se detenía solo y volvía a arrancar. Probado en debug: una pausa ajena no se queda, y una pausa pedida sí. Aún no hay APK nuevo.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`
+
 ## 2026-11-04 — ExploNova 2.0.0-alpha37
 
 - **Tipo:** fix

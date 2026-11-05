@@ -170,7 +170,8 @@ export function createLocationsRouter(io) {
     }
 
     const { rows } = await query(
-      `SELECT u.id AS user_id, u.display_name, u.grade, u.cargo, u.service_nombre, u.phone,
+      `SELECT u.id AS user_id, u.display_name, u.grade, u.specialty, u.cargo, u.service_nombre,
+              u.given_names, u.paternal_surname, u.maternal_surname, u.phone,
               u.service_geo_municipio, u.service_geo_estado, u.service_efectivos,
               u.role, u.is_active, u.avatar_url, u.unit_id,
               u.admin_scope_unit_id, u.location_share, u.last_seen_at,
@@ -241,10 +242,19 @@ export function createLocationsRouter(io) {
       const recordedAt = toIsoUtc(r.recorded_at);
       const aff = await affiliationFor(r.unit_id, r.admin_scope_unit_id);
       const efectivos = efectivosGrupos(r.service_efectivos, efectivosCatalog);
+      const givenNames = String(r.given_names || '').trim();
+      const paternalSurname = String(r.paternal_surname || '').trim();
+      const maternalSurname = String(r.maternal_surname || '').trim();
+      const fullName = [givenNames, paternalSurname, maternalSurname].filter(Boolean).join(' ');
       locations.push({
         userId: r.user_id,
         displayName: r.display_name,
         grade: r.grade || null,
+        specialty: r.specialty || null,
+        givenNames: givenNames || null,
+        paternalSurname: paternalSurname || null,
+        maternalSurname: maternalSurname || null,
+        fullName: fullName || null,
         cargo: r.cargo || null,
         serviceNombre: r.service_nombre || null,
         serviceGeoMunicipio: r.service_geo_municipio || null,

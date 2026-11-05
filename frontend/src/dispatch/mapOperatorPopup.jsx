@@ -1,6 +1,6 @@
 /**
  * Globo de operador en mapa:
- * L1 Grado Apellido (root sin grado: «Administrador»)
+ * L1 Grado · Empleo · Nombre completo (root sin grado: «Administrador»)
  * L2 unidad|zona|región (root: «Administrador»)
  * L3 distintivo: B.O.Mvl. "Castillo" (catálogo + nombre libre entre comillas), seguido de
  *    municipio, estado donde está el servicio (guardado o por su posición)
@@ -36,8 +36,8 @@ export function mapOperatorDistintivo(loc) {
 /** Globo compacto; el ancho real lo ajusta OperatorPopupZoomFit según el zoom. */
 export const OPERATOR_POPUP_OPTS = {
   className: 'cc-op-leaflet-pop',
-  maxWidth: 270,
-  minWidth: 220,
+  maxWidth: 320,
+  minWidth: 240,
   autoPanPadding: [36, 36],
 };
 
@@ -51,8 +51,8 @@ function scaleForMapZoom(z) {
 
 function refreshOpenOperatorPopups(map, scale) {
   const s = scale ?? scaleForMapZoom(map.getZoom());
-  const maxW = Math.round(270 * s);
-  const minW = Math.min(220, maxW);
+  const maxW = Math.round(320 * s);
+  const minW = Math.min(240, maxW);
   const visit = (layer) => {
     const p = layer.getPopup?.();
     if (p?.isOpen?.() && p.getElement?.()?.classList?.contains('cc-op-leaflet-pop')) {
@@ -96,13 +96,33 @@ export function affiliationLabelFromLoc(loc) {
   return role === 'root' ? 'Administrador' : '';
 }
 
+function mapPopupFullName(loc) {
+  const fromParts = [loc?.givenNames, loc?.paternalSurname, loc?.maternalSurname]
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  if (fromParts) return fromParts;
+  return String(loc?.fullName || '').trim();
+}
+
+/** Título del globo: Grado + Empleo + Nombre completo (no solo apellido del indicativo). */
 export function mapPopupTitleLine(loc) {
-  const fromDisplay = String(loc?.displayName || '').trim();
   const role = String(loc?.role || '').trim().toLowerCase();
-  if (role === 'root' && !String(loc?.grade || '').trim()) return 'Administrador';
-  // display_name = «Grado Apellido[, pertenencia]»; la pertenencia va en su propia línea.
-  const base = (fromDisplay.split(',')[0] || '').trim();
-  return base || 'Operador';
+  const grade = String(loc?.grade || '').trim();
+  if (role === 'root' && !grade) return 'Administrador';
+
+  const specialty = String(loc?.specialty || '').trim();
+  const fullName = mapPopupFullName(loc);
+  const parts = [];
+  if (grade) parts.push(grade);
+  if (specialty && specialty.toLowerCase() !== grade.toLowerCase()) parts.push(specialty);
+  if (fullName) parts.push(fullName);
+  const built = parts.join(' ').trim();
+  if (built) return built;
+
+  // Fallback: indicativo corto «Grado Apellido» (sin pertenencia tras la coma).
+  const fromDisplay = String(loc?.displayName || '').trim();
+  return (fromDisplay.split(',')[0] || '').trim() || 'Operador';
 }
 
 export function mapPopupServiceLine(loc) {
@@ -239,6 +259,11 @@ export function mapOperatorSearchBlob(loc) {
   return [
     loc?.displayName,
     loc?.grade,
+    loc?.specialty,
+    loc?.fullName,
+    loc?.givenNames,
+    loc?.paternalSurname,
+    loc?.maternalSurname,
     mapOperatorDistintivo(loc),
     loc?.phone,
     loc?.unitName,
