@@ -59,7 +59,7 @@ Esta lista es la parte **manual**. Revisa siempre la sección *Base* y, además,
 
 ## Si toca Territorio / catálogo de cobertura
 
-- [ ] Consola → Territorio: solo 2 selects (Región/Zona/Unidad y Estado/Municipio) + Colores + Limpiar; sin Encuadrar ni Usuarios.
+- [ ] Consola → Territorio: solo 2 selects (Región/Zona/Unidad y Estado/Municipio) + Colores; sin Limpiar, Encuadrar ni Usuarios.
 - [ ] Región/Zona/Unidad: aparece IV R.M. (u otras) solo si tienen municipios en Catálogos → Territorio; check de región/zona marca hijos; el mapa filtra al marcar.
 - [ ] Estado/Municipio: estados plegables con municipios; Abasolo Tamps. vs Abasolo N.L. en grupos distintos; el check del estado marca el grupo.
 - [ ] Catálogos → Territorio: árbol Región→Zona→Unidad plegable (PRUEBA_ZONA bajo su región de Dependencias); búsqueda en el árbol; contadores; unidades (0) en gris «sin municipios».

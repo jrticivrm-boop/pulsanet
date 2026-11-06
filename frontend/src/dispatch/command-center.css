@@ -15037,20 +15037,6 @@ body.tp-theme-dark .cc-tactical-ms-panel {
 .cc-shell .map-field--check .map-ops-check {
   min-height: var(--map-ops-ctrl-min-h, 2rem);
 }
-.cc-shell .map-ops-panel--territorio > .map-field--actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: flex-end;
-  gap: 0.4rem;
-  max-width: none;
-}
-.cc-shell .map-ops-panel--territorio > .map-field--actions .map-ops-fit-btn {
-  white-space: nowrap;
-}
-.cc-shell .map-ops-fit-btn {
-  padding: 0.35rem 0.65rem;
-  font-size: 0.75rem;
-}
 .leaflet-tooltip.ivrm-territory-tip {
   padding: 0;
   border: none;

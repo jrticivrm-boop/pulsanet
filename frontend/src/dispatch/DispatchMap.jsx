@@ -3576,36 +3576,6 @@ export default function DispatchMap({ session }) {
                 municipios={territoryAllFeatures}
                 regions={territoryRegions}
                 onHoverPreview={setTerritoryHoverPreview}
-                onReset={() => {
-                  const zonaIds = territoryRegions.length
-                    ? territoryRegions.flatMap((r) =>
-                        (r.children || []).map((z) => String(z.id))
-                      )
-                    : IV_RM_ZONAS.map((z) => String(z.id));
-                  const unidadIds = territoryRegions.length
-                    ? territoryRegions.flatMap((r) =>
-                        (r.children || []).flatMap((z) =>
-                          (z.children || []).map((u) => String(u.id))
-                        )
-                      )
-                    : listTerritoryUnidades().map((u) => u.unidad);
-                  setTerritoryUi((prev) => ({
-                    ...prev,
-                    zonaIds,
-                    unidadIds,
-                    estadoIds: uniqueFeatureEstados(territoryAllFeatures),
-                    municipioIds: [
-                      ...new Set(
-                        territoryAllFeatures
-                          .map((f) => String(f.properties?.shapeID || ''))
-                          .filter(Boolean)
-                      ),
-                    ],
-                    seeded: true,
-                    estadoSeeded: true,
-                    municipioSeeded: true,
-                  }));
-                }}
               />
             </div>
           ) : null}

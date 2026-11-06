@@ -1,3 +1,21 @@
+## 2026-11-06 — Territorio: se quita Limpiar
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Consola → Territorio ya no muestra el botón Limpiar (restauraba todo el filtro y, con «Todas», no se notaba).
+- **Archivos / refs:** `TerritoryOpsPanel.jsx` · `DispatchMap.jsx`
+
+## 2026-11-06 — ExploNova: calidades con audio y pantalla completa
+
+- **Tipo:** feature | fix
+- **Área:** mobile
+- **Qué:**
+  - Descargar un video abre «Elige la calidad». En YouTube salen de 144p a 1080p con audio, unidas sin recomprimir y por bloques para que no se frene. Un MP4 directo se guarda con su audio.
+  - En YouTube se ven la pausa, el tiempo y el botón de pantalla completa dentro de la nuestra, y ese botón sale de ella.
+  - En otras páginas el video entra a pantalla completa a todo el ancho, vuelve a su cuadro y la flotante restaura sin zoom.
+- **Por qué / notas:** Probado en el emulador. No se generó APK ni se instaló en el teléfono.
+- **Archivos / refs:** `YoutubeQualities.kt` · `QualityDownload.kt` · `VideoSaver.kt` · `BrowserEngine.kt`
+
 ## 2026-11-06 — Mapa: teléfono abre Contactar; ficha según tema
 
 - **Tipo:** ux | fix

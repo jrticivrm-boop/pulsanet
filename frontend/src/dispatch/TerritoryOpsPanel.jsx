@@ -66,7 +66,7 @@ function flattenTreeZonas(nodes) {
 
 /**
  * Barra de filtros Territorio: 2 selects en cascada
- * (Región→Zona→Unidad | Estado→Municipio) + colores + limpiar.
+ * (Región→Zona→Unidad | Estado→Municipio) + colores.
  */
 export default function TerritoryOpsPanel({
   filter,
@@ -75,7 +75,6 @@ export default function TerritoryOpsPanel({
   onShowColors,
   municipios = [],
   regions = [],
-  onReset,
   onHoverPreview = null,
 }) {
   const zonaIds = useMemo(() => (filter?.zonaIds || []).map(String), [filter?.zonaIds]);
@@ -266,12 +265,6 @@ export default function TerritoryOpsPanel({
           <span>Relleno por unidad</span>
         </label>
       </label>
-
-      <div className="map-field map-field--actions">
-        <button type="button" className="cc-btn ghost map-ops-fit-btn" onClick={onReset}>
-          Limpiar
-        </button>
-      </div>
     </div>
   );
 }
