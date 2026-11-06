@@ -1,3 +1,10 @@
+## 2026-11-06 — RESERVADO: filtros en secuencia y más bajos
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En Grabaciones y Conversaciones primero solo aparece ¿De quién? El siguiente campo se muestra al elegir el anterior. Los selects y las fechas quedan del mismo ancho y más bajos.
+- **Archivos / refs:** `ReservedWhoBar.jsx` · `command-center.css`
+
 ## 2026-11-06 — RESERVADO: revisión del filtro y del expediente
 
 - **Tipo:** fix

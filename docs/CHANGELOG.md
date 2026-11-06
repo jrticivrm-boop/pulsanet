@@ -10,6 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RESERVADO — barra de consulta:** los campos aparecen en orden (de quién, con quién, periodo) y quedan del mismo tamaño, más bajos.
 - **RESERVADO — revisión:** la copia del mes abierto no sustituye el cierre oficial; el expediente de cada organización queda separado; si el ZIP falla sigue el aviso; la conversación de auditoría muestra foto y audio.
 - **RESERVADO — consulta y expediente:** Grabaciones y Conversaciones filtran por ¿De quién? y ¿Con quién? (otro operador o un grupo) y por periodo (hoy, mes en curso o rango). No muestran el volcado de las últimas 24 h. Nueva pestaña Respaldos: cierre automático del mes anterior («Respaldo completo del mes de …»), copia manual de un mes o rango, y copia parcial cada 6, 12 o 24 h mientras el mes sigue abierto. Lista con tamaño, descarga y estado completo o falló; si el cierre falla, aparece un aviso. La copia no borra los audios del servidor.
 - **Mapa — teléfono del globo:** abre la ficha Contactar (mensaje, llamada SICOM, videollamada). La ficha sigue el tema claro, verde u oscuro.

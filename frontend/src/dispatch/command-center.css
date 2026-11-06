@@ -852,25 +852,56 @@
   white-space: nowrap;
 }
 
-.cc-reserved-who {
+.cc-card.cc-reserved-who {
   grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 0.75rem 1rem;
+  gap: 0.4rem 0.65rem;
+  padding: 0.5rem 0.7rem;
 }
 
 .cc-reserved-who label {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  min-width: min(100%, 12rem);
-  font-size: 0.82rem;
+  gap: 0.15rem;
+  width: 12.25rem;
+  flex: 0 0 12.25rem;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .cc-reserved-who select,
 .cc-reserved-who input {
-  min-height: 2.1rem;
+  width: 100%;
+  height: 1.75rem;
+  min-height: 1.75rem;
+  max-height: 1.75rem;
+  margin: 0;
+  padding: 0 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.2;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.cc-reserved-who select {
+  text-overflow: ellipsis;
+}
+
+.cc-reserved-who .cc-error {
+  flex: 1 0 100%;
+  margin: 0.15rem 0 0;
+}
+
+@media (max-width: 720px) {
+  .cc-reserved-who label {
+    width: 100%;
+    flex-basis: 100%;
+  }
 }
 
 .cc-reserved-who-wait,

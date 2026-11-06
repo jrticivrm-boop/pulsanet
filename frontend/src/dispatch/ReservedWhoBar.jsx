@@ -13,7 +13,7 @@ export function defaultWhoFilter() {
   return {
     userId: '',
     userName: '',
-    withKind: 'operador',
+    withKind: '',
     peerId: '',
     peerName: '',
     groupId: '',
@@ -27,7 +27,10 @@ export function defaultWhoFilter() {
 export function whoFilterReady(filter) {
   if (!filter?.userId || !filter.from || !filter.to || filter.from > filter.to) return false;
   if (filter.withKind === 'grupo') return Boolean(filter.groupId);
-  return Boolean(filter.peerId) && filter.peerId !== filter.userId;
+  if (filter.withKind === 'operador') {
+    return Boolean(filter.peerId) && filter.peerId !== filter.userId;
+  }
+  return false;
 }
 
 function rangeFor(period, current) {
@@ -91,15 +94,15 @@ export default function ReservedWhoBar({ token, value, onChange }) {
 
   function pickUser(id) {
     const picked = userOptions.find((u) => String(u.id) === String(id));
-    const next = {
+    patch({
       userId: id,
       userName: picked?.displayName || picked?.username || '',
-    };
-    if (value.peerId && String(value.peerId) === String(id)) {
-      next.peerId = '';
-      next.peerName = '';
-    }
-    patch(next);
+      withKind: '',
+      peerId: '',
+      peerName: '',
+      groupId: '',
+      groupName: '',
+    });
   }
 
   function pickPeer(id) {
@@ -115,15 +118,30 @@ export default function ReservedWhoBar({ token, value, onChange }) {
     patch({ groupId: id, groupName: picked?.name || '' });
   }
 
+  function pickKind(kind) {
+    patch({
+      withKind: kind,
+      peerId: '',
+      peerName: '',
+      groupId: '',
+      groupName: '',
+    });
+  }
+
   function pickPeriod(period) {
     patch({ period, ...rangeFor(period, value) });
   }
+
+  const hasSpeaker = Boolean(value.userId);
+  const hasKind = value.withKind === 'operador' || value.withKind === 'grupo';
+  const hasTarget =
+    value.withKind === 'grupo' ? Boolean(value.groupId) : Boolean(value.peerId);
 
   return (
     <section className="cc-card cc-reserved-who" aria-label="Filtro de consulta">
       <label>
         ¿De quién?
-        <select value={value.userId} onChange={(e) => pickUser(e.target.value)}>
+        <select value={value.userId} onChange={(e) => pickUser(e.target.value)} title={value.userName || undefined}>
           <option value="">Operador…</option>
           {userOptions.map((u) => (
             <option key={u.id} value={u.id}>
@@ -133,20 +151,20 @@ export default function ReservedWhoBar({ token, value, onChange }) {
           ))}
         </select>
       </label>
-      <label>
-        ¿Con quién?
-        <select
-          value={value.withKind}
-          onChange={(e) => patch({ withKind: e.target.value })}
-        >
-          <option value="operador">Otro operador</option>
-          <option value="grupo">Grupo o canal</option>
-        </select>
-      </label>
-      {value.withKind === 'grupo' ? (
+      {hasSpeaker ? (
+        <label>
+          ¿Con quién?
+          <select value={value.withKind} onChange={(e) => pickKind(e.target.value)}>
+            <option value="">Elige…</option>
+            <option value="operador">Otro operador</option>
+            <option value="grupo">Grupo o canal</option>
+          </select>
+        </label>
+      ) : null}
+      {hasSpeaker && hasKind && value.withKind === 'grupo' ? (
         <label>
           Grupo
-          <select value={value.groupId} onChange={(e) => pickGroup(e.target.value)}>
+          <select value={value.groupId} onChange={(e) => pickGroup(e.target.value)} title={value.groupName || undefined}>
             <option value="">Grupo…</option>
             {groups.map((g) => (
               <option key={g.id} value={g.id}>
@@ -155,10 +173,11 @@ export default function ReservedWhoBar({ token, value, onChange }) {
             ))}
           </select>
         </label>
-      ) : (
+      ) : null}
+      {hasSpeaker && hasKind && value.withKind === 'operador' ? (
         <label>
           Operador
-          <select value={value.peerId} onChange={(e) => pickPeer(e.target.value)} disabled={!value.userId}>
+          <select value={value.peerId} onChange={(e) => pickPeer(e.target.value)} title={value.peerName || undefined}>
             <option value="">Operador…</option>
             {peers.map((u) => (
               <option key={u.id} value={u.id}>
@@ -167,16 +186,18 @@ export default function ReservedWhoBar({ token, value, onChange }) {
             ))}
           </select>
         </label>
-      )}
-      <label>
-        Periodo
-        <select value={value.period} onChange={(e) => pickPeriod(e.target.value)}>
-          <option value="hoy">Hoy</option>
-          <option value="mes">Mes en curso</option>
-          <option value="rango">Rango</option>
-        </select>
-      </label>
-      {value.period === 'rango' ? (
+      ) : null}
+      {hasSpeaker && hasKind && hasTarget ? (
+        <label>
+          Periodo
+          <select value={value.period} onChange={(e) => pickPeriod(e.target.value)}>
+            <option value="hoy">Hoy</option>
+            <option value="mes">Mes en curso</option>
+            <option value="rango">Rango</option>
+          </select>
+        </label>
+      ) : null}
+      {hasSpeaker && hasKind && hasTarget && value.period === 'rango' ? (
         <>
           <label>
             Desde
@@ -192,7 +213,7 @@ export default function ReservedWhoBar({ token, value, onChange }) {
           </label>
         </>
       ) : null}
-      {value.from && value.to && value.from > value.to ? (
+      {hasTarget && value.period === 'rango' && value.from && value.to && value.from > value.to ? (
         <p className="cc-error">La fecha desde no puede ser posterior a hasta.</p>
       ) : null}
       {err ? <p className="cc-error">{err}</p> : null}
