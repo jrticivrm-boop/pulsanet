@@ -83,7 +83,7 @@ export default function ReservedPick({
 
   useEffect(() => {
     if (!open) return;
-    menuRef.current?.querySelector('.is-active')?.scrollIntoView({ block: 'nearest' });
+    menuRef.current?.querySelector('.cc-tactical-ms-option.is-active')?.scrollIntoView({ block: 'nearest' });
   }, [active, open, box]);
 
   useEffect(() => {
@@ -128,43 +128,64 @@ export default function ReservedPick({
     }
   }
 
+  const total = options.length;
   const count =
-    options.length === 0
+    total === 0
       ? 'Sin opciones'
-      : visible.length === 0
-        ? 'Sin coincidencias'
-        : q.trim()
-          ? `${visible.length} de ${options.length}`
-          : `${options.length} en la lista`;
+      : value
+        ? `1 de ${total} seleccionado`
+        : `Selecciona 1 de ${total}`;
+  const visibleNote = q.trim() && visible.length !== total ? ` · ${visible.length} visibles` : '';
 
   const menu =
     open && box
       ? createPortal(
           <div
             ref={menuRef}
-            className="cc-rsv-pick-menu"
+            className="cc-tactical-ms-panel cc-ms-panel cc-rsv-ms"
             role="listbox"
             id={listId}
             aria-label={label}
-            style={{ top: box.top, left: box.left, width: box.width, height: box.height }}
+            style={{
+              position: 'fixed',
+              zIndex: 200200,
+              top: box.top,
+              left: box.left,
+              width: box.width,
+              height: box.height,
+            }}
           >
-            <div className="cc-rsv-pick-head">
-              <button
-                type="button"
-                className="cc-rsv-pick-sort"
-                title={
-                  sortDir === 'desc'
-                    ? 'Orden de la Z a la A. Otro clic lo invierte.'
-                    : 'Orden de la A a la Z. Otro clic lo invierte.'
-                }
-                onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-              >
-                {sortDir === 'desc' ? 'Descendente' : 'Ascendente'}
-              </button>
-              <span className="cc-rsv-pick-count">{count}</span>
+            <div className="cc-ms-head">
+              <div className="cc-ms-actions">
+                <button
+                  type="button"
+                  className="cc-ms-link"
+                  title={
+                    sortDir === 'desc'
+                      ? 'Orden de la Z a la A. Otro clic lo invierte.'
+                      : 'Orden de la A a la Z. Otro clic lo invierte.'
+                  }
+                  onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                >
+                  {sortDir === 'desc' ? 'Descendente' : 'Ascendente'}
+                </button>
+              </div>
+              <div className="cc-ms-meta">
+                <span className="cc-ms-count">
+                  {count}
+                  {visibleNote}
+                </span>
+                <span
+                  className="cc-ms-hint"
+                  title="Ascendente o Descendente ordena la lista. Buscar filtra por nombre. Un clic elige."
+                >
+                  ?
+                </span>
+              </div>
               <input
                 ref={searchRef}
-                type="text"
+                type="search"
+                className="cc-ms-search"
                 value={q}
                 placeholder="Buscar en lista…"
                 aria-label={`Buscar en ${label}`}
@@ -173,27 +194,27 @@ export default function ReservedPick({
                 onKeyDown={onSearchKey}
               />
             </div>
-            <ul className="cc-rsv-pick-list">
+            <div className="cc-ms-list">
               {visible.length === 0 ? (
-                <li className="cc-rsv-pick-empty">Sin coincidencias</li>
+                <div className="cc-route-ms-empty">Sin coincidencias</div>
               ) : (
                 visible.map((o, i) => (
-                  <li key={o.id}>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={String(o.id) === String(value)}
-                      className={i === active ? 'is-active' : ''}
-                      title={o.label}
-                      onMouseEnter={() => setActive(i)}
-                      onClick={() => choose(o.id)}
-                    >
-                      {o.label}
-                    </button>
-                  </li>
+                  <div
+                    key={o.id}
+                    role="option"
+                    aria-selected={String(o.id) === String(value)}
+                    className={`cc-tactical-ms-option${
+                      String(o.id) === String(value) ? ' is-on' : ''
+                    }${i === active ? ' is-active' : ''}`}
+                    title={o.label}
+                    onMouseEnter={() => setActive(i)}
+                    onClick={() => choose(o.id)}
+                  >
+                    <span className="cc-tactical-ms-name">{o.label}</span>
+                  </div>
                 ))
               )}
-            </ul>
+            </div>
           </div>,
           document.body
         )

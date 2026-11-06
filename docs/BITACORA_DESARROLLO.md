@@ -1,3 +1,18 @@
+## 2026-11-06 — ExploNova: borde de la flotante, jalón limpio y favorito, alpha51
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** La flotante de YouTube desborda el video un par de píxeles y pinta de negro el fondo de esa ventanita, para tapar las líneas blancas de abajo y de la derecha. El jalón a pantalla completa termina en YouTube; brillo, volumen y avance entran en el siguiente toque. El menú de tres puntos solo tiene Ajustes, y Favorito quedó a la izquierda de Actualizar.
+- **Por qué / notas:** En el emulador la flotante midió 231×131 sobre una ventana de 229×129, sin línea blanca en el borde. Al volver, el video quedó 412×232 en y=48 y siguió reproduciéndose. El menú mostró solo Ajustes y el favorito guardó example.com. APK `ExploNova-2.0.0-alpha51.apk`, versionCode 271, 4 376 419 bytes, SHA256 `3C61D3DACA75818DE9019782160CBE741FD635DA19283429CE9F7256B7AD8E2B`. No se instaló en el teléfono. alpha50 queda intacto.
+- **Archivos / refs:** `BrowserEngine.kt` · `AstroActivity.kt` · `AstroScreen.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha51.apk`
+
+## 2026-11-06 — RESERVADO: la lista usa el panel de Persona
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** ¿De quién?, Operador y Grupo abren el mismo panel que Persona en Operaciones: Ascendente, conteo, ? y Buscar en lista. Sin Marcar, Desmarcar ni checks. El tema claro, verde u obscuro lo pinta ese panel.
+- **Archivos / refs:** `ReservedPick.jsx` · `command-center.css`
+
 ## 2026-11-06 — RESERVADO: la barra de consulta cruza el ancho
 
 - **Tipo:** ux

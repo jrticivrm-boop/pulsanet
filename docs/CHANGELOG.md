@@ -10,6 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RESERVADO — lista de Persona:** ¿De quién?, Operador y Grupo abren el panel de Operaciones (Ascendente, conteo, buscar). Sin Marcar ni checks. Sigue el tema activo.
 - **RESERVADO — barra a todo el ancho:** en Conversaciones la tarjeta de consulta cruza la página, como en Grabaciones.
 - **RESERVADO — listas y acomodo:** Conversaciones usa todo el ancho. La foto llena el recuadro. ¿De quién?, Operador y Grupo buscan y ordenan en la lista; se elige uno.
 - **RESERVADO — hilo, búsqueda y ZIP:** la barra de consulta queda arriba. La foto del hilo va en su recuadro, con Ampliar aparte. Lo eliminado y lo de una sola vez se conserva en RESERVADO (con etiqueta) y sigue oculto en el chat. Entre operadores: texto, foto o video de una sola vez. Buscar en este hilo, filtro Solo eliminados, y Exportar ZIP (HTML más fotos y audios).
