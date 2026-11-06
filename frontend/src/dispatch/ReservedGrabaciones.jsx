@@ -4,12 +4,21 @@ import { fetchAuditChatAudio, fetchRecordings } from '../api';
 import { socketIoOptions, socketUrl } from '../socketConfig';
 import RecordingPlayer from './RecordingPlayer.jsx';
 import ChatMedia from '../ChatMedia.jsx';
+import ReservedWhoBar, { defaultWhoFilter, whoFilterReady } from './ReservedWhoBar.jsx';
 
 const SOCKET_URL = socketUrl();
-/** Refresco en vivo sin F5 / sin botón (misma idea que Video). */
 const POLL_MS = 12000;
 
-function RadioRecordingsSection({ token }) {
+function inRange(iso, from, to) {
+  if (!iso || !from || !to) return true;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return true;
+  const start = new Date(`${from}T00:00:00`).getTime();
+  const end = new Date(`${to}T23:59:59`).getTime();
+  return t >= start && t <= end;
+}
+
+function RadioRecordingsSection({ token, filter }) {
   const [recordings, setRecordings] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -18,7 +27,12 @@ function RadioRecordingsSection({ token }) {
     async ({ silent = false } = {}) => {
       if (!silent) setLoading(true);
       try {
-        const data = await fetchRecordings(token, { hours: 24 });
+        const data = await fetchRecordings(token, {
+          userId: filter.userId,
+          groupId: filter.groupId,
+          from: filter.from,
+          to: filter.to,
+        });
         setRecordings(data.recordings || []);
         setError('');
       } catch (e) {
@@ -27,7 +41,7 @@ function RadioRecordingsSection({ token }) {
         if (!silent) setLoading(false);
       }
     },
-    [token]
+    [token, filter.userId, filter.groupId, filter.from, filter.to]
   );
 
   useEffect(() => {
@@ -64,33 +78,39 @@ function RadioRecordingsSection({ token }) {
     socket.on('reconnect', join);
     socket.on('dispatch:recording', (rec) => {
       if (!rec?.id) return;
+      if (String(rec.userId) !== String(filter.userId)) return;
+      if (String(rec.groupId) !== String(filter.groupId)) return;
+      if (!inRange(rec.createdAt, filter.from, filter.to)) return;
       setRecordings((prev) => {
         if (prev.some((r) => r.id === rec.id)) return prev;
-        return [rec, ...prev].slice(0, 80);
+        return [rec, ...prev].slice(0, 200);
       });
     });
     return () => {
       socket.emit('dispatch:leave');
       socket.disconnect();
     };
-  }, [token]);
+  }, [token, filter.userId, filter.groupId, filter.from, filter.to]);
 
   return (
     <section className="cc-reserved-grab-section" aria-labelledby="reserved-radio-rec-h">
       <header className="cc-panel-head cc-reserved-grab-head">
         <div>
           <h2 id="reserved-radio-rec-h">Radio (PTT)</h2>
-          <p className="cc-hint">Últimas 24 h · app y consola web al soltar el PTT</p>
+          <p className="cc-hint">
+            {filter.userName || 'Operador'} en {filter.groupName || 'el canal'} · {filter.from} a {filter.to}
+          </p>
         </div>
       </header>
       {error && <p className="error">{error}</p>}
       {loading && <p className="muted">Cargando grabaciones de radio…</p>}
       {!loading && (
         <div className="cc-rec-list">
+          {recordings.length >= 500 && (
+            <p className="cc-hint">Hay más PTT en este periodo. Acota las fechas para verlos todos.</p>
+          )}
           {recordings.length === 0 && (
-            <p className="cc-empty">
-              Aún no hay grabaciones de radio. Habla por PTT en la app o en la consola web.
-            </p>
+            <p className="cc-empty">No hay PTT de este operador en ese canal, en el periodo elegido.</p>
           )}
           {recordings.map((r) => (
             <div key={r.id} className="cc-rec-row">
@@ -121,16 +141,24 @@ function RadioRecordingsSection({ token }) {
   );
 }
 
-function ChatAudioRecordingsSection({ token }) {
+function ChatAudioRecordingsSection({ token, filter }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const personal = filter.withKind !== 'grupo';
 
   const load = useCallback(
     async ({ silent = false } = {}) => {
       if (!silent) setLoading(true);
       try {
-        const data = await fetchAuditChatAudio(token, { hours: 24, limit: 80 });
+        const data = await fetchAuditChatAudio(token, {
+          limit: 500,
+          userId: filter.userId,
+          peerId: personal ? filter.peerId : undefined,
+          groupId: personal ? undefined : filter.groupId,
+          from: filter.from,
+          to: filter.to,
+        });
         setItems(data.items || []);
         setError('');
       } catch (e) {
@@ -139,7 +167,7 @@ function ChatAudioRecordingsSection({ token }) {
         if (!silent) setLoading(false);
       }
     },
-    [token]
+    [token, filter.userId, filter.peerId, filter.groupId, filter.from, filter.to, personal]
   );
 
   useEffect(() => {
@@ -161,25 +189,28 @@ function ChatAudioRecordingsSection({ token }) {
     };
   }, [load]);
 
+  const who = personal
+    ? `${filter.userName || 'Operador'} con ${filter.peerName || 'el otro operador'}`
+    : `${filter.userName || 'Operador'} en ${filter.groupName || 'el grupo'}`;
+
   return (
     <section className="cc-reserved-grab-section" aria-labelledby="reserved-chat-audio-h">
       <header className="cc-panel-head cc-reserved-grab-head">
         <div>
           <h2 id="reserved-chat-audio-h">Chat (notas de voz)</h2>
           <p className="cc-hint">
-            Audios enviados en conversaciones directas y de grupo · últimas 24 h (solo lectura)
+            {who} · {filter.from} a {filter.to} (solo lectura)
           </p>
         </div>
       </header>
       {error && <p className="error">{error}</p>}
-      {loading && <p className="muted">Buscando audios en conversaciones…</p>}
+      {loading && <p className="muted">Buscando audios…</p>}
       {!loading && (
         <div className="cc-rec-list cc-reserved-chat-audio-list">
-          {items.length === 0 && (
-            <p className="cc-empty">
-              No hay notas de voz recientes en conversaciones de chat.
-            </p>
+          {items.length >= 500 && (
+            <p className="cc-hint">Hay más notas de voz en este periodo. Acota las fechas para verlas todas.</p>
           )}
+          {items.length === 0 && <p className="cc-empty">No hay notas de voz en este periodo.</p>}
           {items.map((row) => (
             <div key={row.id} className="cc-rec-row cc-reserved-chat-audio-row">
               <div>
@@ -202,13 +233,30 @@ function ChatAudioRecordingsSection({ token }) {
 }
 
 /**
- * Grabaciones del módulo reservado: radio PTT + audios de chat.
+ * Grabaciones RESERVADO: solo el par o el canal elegido.
  */
 export default function ReservedGrabaciones({ session }) {
+  const [filter, setFilter] = useState(defaultWhoFilter);
+  const ready = whoFilterReady(filter);
+
   return (
     <div className="cc-reserved-grabaciones">
-      <RadioRecordingsSection token={session.token} />
-      <ChatAudioRecordingsSection token={session.token} />
+      <ReservedWhoBar token={session.token} value={filter} onChange={setFilter} />
+      {!ready ? (
+        <p className="cc-hint cc-reserved-who-wait">
+          Elige de quién y con quién. Hasta entonces no se lista nada.
+        </p>
+      ) : null}
+      {ready && filter.withKind === 'operador' ? (
+        <p className="cc-hint cc-reserved-who-note">
+          La radio PTT es por canal, no entre dos personas. Aquí se escuchan las notas de voz de
+          este par. Para el PTT, elige un grupo o canal.
+        </p>
+      ) : null}
+      {ready && filter.withKind === 'grupo' ? (
+        <RadioRecordingsSection token={session.token} filter={filter} />
+      ) : null}
+      {ready ? <ChatAudioRecordingsSection token={session.token} filter={filter} /> : null}
     </div>
   );
 }

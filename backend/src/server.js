@@ -51,6 +51,7 @@ import { backupsRouter } from './routes/backups.js';
 import { createPresenceRouter } from './routes/presence.js';
 import { isLiveKitConfigured } from './services/livekit.js';
 import { startBackupScheduler } from './services/backup.js';
+import { startReservedArchiveScheduler } from './services/reservedArchive.js';
 import { startLocationRetention } from './services/locationRetention.js';
 import { bindSessionIo, normalizeDeviceId } from './services/sessionPolicy.js';
 
@@ -145,6 +146,7 @@ app.use(
       // RESERVADO (grabaciones + conversaciones): lecturas admin en 1–3 requests, no ráfagas.
       if (p === '/api/recordings' || p.startsWith('/api/recordings/')) return true;
       if (p === '/api/admin/chat-audio') return true;
+      if (p === '/api/admin/reserved-archives') return true;
       if (p === '/api/admin/users') return true;
       if (/^\/api\/admin\/users\/[^/]+\/(groups|dm\/conversations)$/.test(p)) return true;
       return false;
@@ -312,5 +314,6 @@ async function start() {
 
 initFcm();
 startBackupScheduler();
+startReservedArchiveScheduler();
 startLocationRetention();
 start();

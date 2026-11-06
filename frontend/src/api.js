@@ -714,10 +714,18 @@ export function fetchUserEvents(
 }
 
 /** Notas de voz recientes en chat (auditoría admin · RESERVADO). */
-export function fetchAuditChatAudio(token, { hours = 24, limit = 80 } = {}) {
+export function fetchAuditChatAudio(
+  token,
+  { hours = 24, limit = 80, userId, peerId, groupId, from, to } = {}
+) {
   const params = new URLSearchParams();
   params.set('hours', String(hours));
   params.set('limit', String(limit));
+  if (userId) params.set('userId', userId);
+  if (peerId) params.set('peerId', peerId);
+  if (groupId) params.set('groupId', groupId);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
   return api(`/api/admin/chat-audio?${params}`, { token });
 }
 
@@ -727,10 +735,17 @@ export function fetchAuditDmConversations(token, userId) {
 }
 
 /** Chat DM solo lectura (auditoría Eventos). */
-export function fetchAuditDmMessages(token, userId, peerId, { around = '', limit = 120 } = {}) {
+export function fetchAuditDmMessages(
+  token,
+  userId,
+  peerId,
+  { around = '', limit = 120, from = '', to = '' } = {}
+) {
   const params = new URLSearchParams();
   params.set('limit', String(limit));
   if (around) params.set('around', around);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
   return api(
     `/api/admin/users/${encodeURIComponent(userId)}/dm/${encodeURIComponent(peerId)}/messages?${params}`,
     { token }
@@ -738,14 +753,50 @@ export function fetchAuditDmMessages(token, userId, peerId, { around = '', limit
 }
 
 /** Chat de grupo solo lectura (auditoría Eventos). */
-export function fetchAuditGroupMessages(token, userId, groupId, { around = '', limit = 120 } = {}) {
+export function fetchAuditGroupMessages(
+  token,
+  userId,
+  groupId,
+  { around = '', limit = 120, from = '', to = '' } = {}
+) {
   const params = new URLSearchParams();
   params.set('limit', String(limit));
   if (around) params.set('around', around);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
   return api(
     `/api/admin/users/${encodeURIComponent(userId)}/groups/${encodeURIComponent(groupId)}/messages?${params}`,
     { token }
   );
+}
+
+export function fetchReservedArchives(token) {
+  return api('/api/admin/reserved-archives', { token });
+}
+
+export function saveReservedArchiveConfig(token, body) {
+  return api('/api/admin/reserved-archives/config', { token, method: 'PATCH', body });
+}
+
+export function createReservedArchive(token, body) {
+  return api('/api/admin/reserved-archives', { token, method: 'POST', body });
+}
+
+export async function downloadReservedArchive(token, id, filename) {
+  const res = await fetch(`${API_BASE}/api/admin/reserved-archives/${encodeURIComponent(id)}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'No se pudo descargar');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'respaldo-reservado.zip';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function saveBackupConfig(token, body) {
@@ -1121,9 +1172,12 @@ export function deleteTacticalSiteGroupIcon(token, groupId) {
   return api(`/api/tactical-sites/groups/${groupId}/icon`, { token, method: 'DELETE' });
 }
 
-export function fetchRecordings(token, { hours = 24, groupId } = {}) {
+export function fetchRecordings(token, { hours = 24, groupId, userId, from, to } = {}) {
   const q = new URLSearchParams({ hours: String(hours) });
   if (groupId) q.set('groupId', groupId);
+  if (userId) q.set('userId', userId);
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
   return api(`/api/recordings?${q}`, { token });
 }
 

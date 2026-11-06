@@ -693,7 +693,8 @@
 }
 
 .cc-reserved-body > .cc-reserved-grabaciones,
-.cc-reserved-body > .cc-reserved-conversations {
+.cc-reserved-body > .cc-reserved-conversations,
+.cc-reserved-body > .cc-reserved-archives {
   flex: 1;
   min-height: 0;
 }
@@ -849,6 +850,135 @@
   font-size: 0.78rem;
   opacity: 0.65;
   white-space: nowrap;
+}
+
+.cc-reserved-who {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.cc-reserved-who label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: min(100%, 12rem);
+  font-size: 0.82rem;
+}
+
+.cc-reserved-who select,
+.cc-reserved-who input {
+  min-height: 2.1rem;
+}
+
+.cc-reserved-who-wait,
+.cc-reserved-who-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.cc-reserved-grabaciones > .cc-reserved-grab-section:only-of-type {
+  grid-column: 1 / -1;
+}
+
+.cc-reserved-thread {
+  width: 100%;
+  max-height: none;
+  min-height: 16rem;
+  flex: 1;
+  box-shadow: none;
+}
+
+.cc-reserved-thread .cc-events-peek-list {
+  max-height: min(60vh, 36rem);
+}
+
+.cc-reserved-archives {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cc-reserved-archive-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.cc-reserved-archive-tools h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.cc-reserved-archive-tools > div {
+  flex: 1 1 16rem;
+}
+
+.cc-reserved-archive-tools label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+}
+
+.cc-reserved-archive-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.4rem !important;
+  min-height: 2.1rem;
+}
+
+.cc-reserved-archive-alert {
+  margin: 0;
+}
+
+.cc-reserved-archive-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cc-reserved-archive-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.65rem 1rem;
+  align-items: center;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--cc-border, rgba(255, 255, 255, 0.08));
+}
+
+.cc-reserved-archive-row small {
+  display: block;
+  opacity: 0.75;
+  margin-top: 0.15rem;
+}
+
+.cc-reserved-archive-status {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.cc-reserved-archive-status.is-ok {
+  color: #1f7a45;
+}
+
+.cc-reserved-archive-status.is-bad {
+  color: #b42318;
+}
+
+@media (max-width: 720px) {
+  .cc-reserved-archive-row {
+    grid-template-columns: 1fr auto;
+  }
 }
 
 .radio-chats-gateway {

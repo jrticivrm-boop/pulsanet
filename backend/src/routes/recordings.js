@@ -37,6 +37,9 @@ export function createRecordingsRouter(io) {
   router.get('/', async (req, res) => {
     const hours = Math.min(Math.max(parseInt(req.query.hours || '24', 10) || 24, 1), 168);
     const groupId = req.query.groupId || null;
+    const userId = String(req.query.userId || '').trim();
+    const fromRaw = String(req.query.from || '').trim();
+    const toRaw = String(req.query.to || '').trim();
     const dispatch = isDispatch(req.user.role);
 
     if (groupId) {
@@ -48,8 +51,19 @@ export function createRecordingsRouter(io) {
       return res.status(403).json({ ok: false, error: 'Solo despacho puede listar toda la org' });
     }
 
-    const params = [req.user.orgId, hours];
-    let filter = 'r.organization_id = $1 AND r.created_at > NOW() - make_interval(hours => $2)';
+    const params = [req.user.orgId];
+    let filter = 'r.organization_id = $1';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fromRaw) && /^\d{4}-\d{2}-\d{2}$/.test(toRaw)) {
+      params.push(fromRaw, toRaw);
+      filter += ` AND r.created_at >= $${params.length - 1}::date AND r.created_at < ($${params.length}::date + INTERVAL '1 day')`;
+    } else {
+      params.push(hours);
+      filter += ` AND r.created_at > NOW() - make_interval(hours => $${params.length})`;
+    }
+    if (userId) {
+      params.push(userId);
+      filter += ` AND r.user_id = $${params.length}::uuid`;
+    }
     if (groupId) {
       params.push(groupId);
       filter += ` AND r.group_id = $${params.length}`;
@@ -66,7 +80,7 @@ export function createRecordingsRouter(io) {
        LEFT JOIN groups g ON g.id = r.group_id
        WHERE ${filter}
        ORDER BY r.created_at DESC
-       LIMIT 200`,
+       LIMIT 500`,
       params
     );
 

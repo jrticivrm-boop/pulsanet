@@ -420,23 +420,14 @@ export async function listAuditDmConversations(orgId, subjectUserId) {
 /**
  * Notas de voz recientes en la org (una consulta; auditoría admin).
  */
-export async function listAuditChatAudio(orgId, { hours = 24, limit = 80 } = {}) {
-  const hrs = Math.min(Math.max(Number(hours) || 24, 1), 168);
-  const lim = Math.min(Math.max(Number(limit) || 80, 1), 200);
-
-  const { rows } = await query(
-    `SELECT m.id, m.group_id, m.sender_id, m.recipient_id, m.type, m.media_mime, m.media_name,
-            m.created_at,
-            u.display_name AS sender_name,
-            g.name AS group_name
-     FROM messages m
-     INNER JOIN users u ON u.id = m.sender_id AND u.organization_id = $1
-     LEFT JOIN groups g ON g.id = m.group_id AND g.organization_id = $1
-     WHERE m.type = 'audio'
-       AND m.deleted_at IS NULL
-       AND m.media_url IS NOT NULL
-       AND m.created_at >= NOW() - ($2::double precision * INTERVAL '1 hour')
-       AND (
+export async function listAuditChatAudio(orgId, { hours = 24, limit = 80, userId, peerId, groupId, from, to } = {}) {
+  const lim = Math.min(Math.max(Number(limit) || 80, 1), 500);
+  const params = [orgId];
+  const filters = [
+    `m.type = 'audio'`,
+    `m.deleted_at IS NULL`,
+    `m.media_url IS NOT NULL`,
+    `(
          (m.group_id IS NOT NULL AND g.id IS NOT NULL)
          OR (
            m.group_id IS NULL
@@ -446,10 +437,44 @@ export async function listAuditChatAudio(orgId, { hours = 24, limit = 80 } = {})
              WHERE ur.id = m.recipient_id AND ur.organization_id = $1
            )
          )
-       )
+       )`,
+  ];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(from || '')) && /^\d{4}-\d{2}-\d{2}$/.test(String(to || ''))) {
+    params.push(from, to);
+    filters.push(
+      `m.created_at >= $${params.length - 1}::date AND m.created_at < ($${params.length}::date + INTERVAL '1 day')`
+    );
+  } else {
+    const hrs = Math.min(Math.max(Number(hours) || 24, 1), 24 * 62);
+    params.push(String(hrs));
+    filters.push(`m.created_at >= NOW() - ($${params.length}::double precision * INTERVAL '1 hour')`);
+  }
+  if (userId && peerId) {
+    params.push(userId, peerId);
+    filters.push(
+      `m.group_id IS NULL AND ((m.sender_id = $${params.length - 1} AND m.recipient_id = $${params.length}) OR (m.sender_id = $${params.length} AND m.recipient_id = $${params.length - 1}))`
+    );
+  } else if (userId && groupId) {
+    params.push(userId, groupId);
+    filters.push(`m.sender_id = $${params.length - 1} AND m.group_id = $${params.length}`);
+  } else if (userId) {
+    params.push(userId);
+    filters.push(`m.sender_id = $${params.length}`);
+  }
+  params.push(lim);
+
+  const { rows } = await query(
+    `SELECT m.id, m.group_id, m.sender_id, m.recipient_id, m.type, m.media_mime, m.media_name,
+            m.created_at,
+            u.display_name AS sender_name,
+            g.name AS group_name
+     FROM messages m
+     INNER JOIN users u ON u.id = m.sender_id AND u.organization_id = $1
+     LEFT JOIN groups g ON g.id = m.group_id AND g.organization_id = $1
+     WHERE ${filters.join(' AND ')}
      ORDER BY m.created_at DESC
-     LIMIT $3`,
-    [orgId, String(hrs), lim]
+     LIMIT $${params.length}`,
+    params
   );
 
   return {
@@ -473,7 +498,7 @@ export async function listAuditChatAudio(orgId, { hours = 24, limit = 80 } = {})
 /**
  * Hilo DM entre subject y peer (solo lectura admin).
  */
-export async function listAuditDmMessages(orgId, subjectUserId, peerId, { limit = 120, aroundId = null } = {}) {
+export async function listAuditDmMessages(orgId, subjectUserId, peerId, { limit = 120, aroundId = null, from = null, to = null } = {}) {
   const { rows: check } = await query(
     `SELECT u1.id AS a, u2.id AS b
      FROM users u1, users u2
@@ -498,7 +523,18 @@ export async function listAuditDmMessages(orgId, subjectUserId, peerId, { limit 
       }
     : null;
 
-  const lim = Math.min(Math.max(Number(limit) || 120, 1), 250);
+  const hasRange =
+    /^\d{4}-\d{2}-\d{2}$/.test(String(from || '')) && /^\d{4}-\d{2}-\d{2}$/.test(String(to || ''));
+  const lim = hasRange
+    ? Math.min(Math.max(Number(limit) || 500, 1), 800)
+    : Math.min(Math.max(Number(limit) || 120, 1), 250);
+  const params = [subjectUserId, peerId];
+  let dateSql = '';
+  if (hasRange) {
+    params.push(from, to);
+    dateSql = ` AND created_at >= $3::date AND created_at < ($4::date + INTERVAL '1 day')`;
+  }
+  params.push(lim);
   const { rows } = await query(
     `SELECT m.id, m.sender_id, m.recipient_id, m.type, m.body, m.media_url, m.media_mime,
             m.media_name, m.media_size, m.deleted_at, m.created_at,
@@ -512,12 +548,13 @@ export async function listAuditDmMessages(orgId, subjectUserId, peerId, { limit 
            (sender_id = $1 AND recipient_id = $2)
            OR (sender_id = $2 AND recipient_id = $1)
          )
+         ${dateSql}
        ORDER BY created_at DESC
-       LIMIT $3
+       LIMIT $${params.length}
      ) m
      LEFT JOIN users u ON u.id = m.sender_id
      ORDER BY m.created_at ASC`,
-    [subjectUserId, peerId, lim]
+    params
   );
 
   const messages = rows.map((r) => ({
@@ -526,7 +563,7 @@ export async function listAuditDmMessages(orgId, subjectUserId, peerId, { limit 
     senderName: r.sender_name || 'Usuario',
     type: r.type,
     body: r.deleted_at ? null : openMessageBody(r.type, r.body),
-    mediaUrl: r.deleted_at ? null : r.media_url,
+    mediaUrl: r.deleted_at || !r.media_url ? null : `/api/media/${r.id}`,
     mediaMime: r.deleted_at ? null : r.media_mime,
     mediaName: r.deleted_at ? null : r.media_name,
     isDeleted: Boolean(r.deleted_at),
@@ -535,20 +572,31 @@ export async function listAuditDmMessages(orgId, subjectUserId, peerId, { limit 
     highlight: aroundId && String(r.id) === String(aroundId),
   }));
 
-  return { peer, messages };
+  return { peer, messages, truncated: rows.length === lim };
 }
 
 /**
  * Mensajes de grupo (solo lectura admin, org).
  */
-export async function listAuditGroupMessages(orgId, groupId, { limit = 120, aroundId = null } = {}) {
+export async function listAuditGroupMessages(orgId, groupId, { limit = 120, aroundId = null, from = null, to = null } = {}) {
   const { rows: gRows } = await query(
     `SELECT id, name FROM groups WHERE id = $1 AND organization_id = $2`,
     [groupId, orgId]
   );
   if (!gRows[0]) return { group: null, messages: [] };
 
-  const lim = Math.min(Math.max(Number(limit) || 120, 1), 250);
+  const hasRange =
+    /^\d{4}-\d{2}-\d{2}$/.test(String(from || '')) && /^\d{4}-\d{2}-\d{2}$/.test(String(to || ''));
+  const lim = hasRange
+    ? Math.min(Math.max(Number(limit) || 500, 1), 800)
+    : Math.min(Math.max(Number(limit) || 120, 1), 250);
+  const params = [groupId];
+  let dateSql = '';
+  if (hasRange) {
+    params.push(from, to);
+    dateSql = ` AND created_at >= $2::date AND created_at < ($3::date + INTERVAL '1 day')`;
+  }
+  params.push(lim);
   const { rows } = await query(
     `SELECT m.id, m.sender_id, m.type, m.body, m.media_url, m.media_mime, m.media_name,
             m.deleted_at, m.created_at, u.display_name AS sender_name
@@ -556,12 +604,13 @@ export async function listAuditGroupMessages(orgId, groupId, { limit = 120, arou
        SELECT id, sender_id, type, body, media_url, media_mime, media_name, deleted_at, created_at
        FROM messages
        WHERE group_id = $1
+         ${dateSql}
        ORDER BY created_at DESC
-       LIMIT $2
+       LIMIT $${params.length}
      ) m
      LEFT JOIN users u ON u.id = m.sender_id
      ORDER BY m.created_at ASC`,
-    [groupId, lim]
+    params
   );
 
   return {
@@ -572,12 +621,13 @@ export async function listAuditGroupMessages(orgId, groupId, { limit = 120, arou
       senderName: r.sender_name || 'Usuario',
       type: r.type,
       body: r.deleted_at ? null : openMessageBody(r.type, r.body),
-      mediaUrl: r.deleted_at ? null : r.media_url,
+      mediaUrl: r.deleted_at || !r.media_url ? null : `/api/media/${r.id}`,
       mediaMime: r.deleted_at ? null : r.media_mime,
       mediaName: r.deleted_at ? null : r.media_name,
       isDeleted: Boolean(r.deleted_at),
       createdAt: r.created_at,
       highlight: aroundId && String(r.id) === String(aroundId),
     })),
+    truncated: rows.length === lim,
   };
 }

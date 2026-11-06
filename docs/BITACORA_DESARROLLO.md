@@ -1,3 +1,44 @@
+## 2026-11-06 — RESERVADO: revisión del filtro y del expediente
+
+- **Tipo:** fix
+- **Área:** web | backend
+- **Qué:**
+  - El cierre automático ya no se da por hecho si una copia manual del mes en curso existe. Esa copia se llama «Copia manual» y no tapa el respaldo del mes.
+  - Un mes cerrado a mano (o el del día 1) incluye el último día, también el 29 de febrero. Si el ZIP se corta o el disco falla, queda en falló y el aviso no se borra.
+  - Cada organización solo ve y descarga sus respaldos. El índice guarda el texto del mensaje, no el cifrado. La conversación muestra foto y audio.
+- **Archivos / refs:** `reservedArchive.js` · `ReservedArchives.jsx` · `AuditConversationPeek.jsx` · `userEventsTimeline.js`
+
+## 2026-11-06 — RESERVADO: consulta por par y expediente mensual
+
+- **Tipo:** feature
+- **Área:** web | backend
+- **Qué:**
+  - Grabaciones y Conversaciones piden ¿De quién? y ¿Con quién? (operador o grupo) y un periodo (hoy, mes o rango). No listan nada hasta elegir los dos.
+  - Grabaciones muestra el PTT de ese operador en el canal, o las notas de voz del par. Conversaciones abre solo ese hilo.
+  - Pestaña Respaldos: cierre automático del mes anterior, copia manual y copia cada 6/12/24 h. Lista con descarga y estado completo o falló. Si el cierre falla, hay aviso. No borra los archivos en vivo.
+- **Por qué / notas:** El teléfono sigue abriendo el audio original. El ZIP es una copia de consulta. No cambia la app.
+- **Archivos / refs:** `ReservedWhoBar.jsx` · `ReservedGrabaciones.jsx` · `ReservedChats.jsx` · `ReservedArchives.jsx` · `backend/src/services/reservedArchive.js`
+
+## 2026-11-06 — ExploNova: actualizar en la barra y alpha46
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:** Icono de actualizar a la izquierda de la dirección, antes del `https`. Se esconde en Inicio y al escribir. El menú sigue teniendo Actualizar.
+- **Por qué / notas:** Probado en el emulador con example.com. APK `ExploNova-2.0.0-alpha46.apk`, versionCode 266, 4 386 407 bytes, SHA256 `AEE6E36ADC4EC72349D16DC9452AE64FCC5E67B724FDD25B3236FFE9F0B65EC2`. No se instaló en el teléfono. alpha45 queda intacto.
+- **Archivos / refs:** `AstroScreen.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha46.apk`
+
+## 2026-11-06 — ExploNova: ajustes nuevos y alpha45
+
+- **Tipo:** ux | feature
+- **Área:** mobile
+- **Qué:**
+  - Ajustes con vista del teléfono y seis posiciones: todo abajo, todo arriba, buscador arriba, acciones arriba, compacta abajo y compacta arriba.
+  - La barra queda con casita al centro: atrás, menú, inicio, pestañas y adelante. Ajustes vive en el menú y no se puede quitar. Los grupos se acomodan arrastrando.
+  - Tema, YouTube, buscador, letra e inicio se eligen en un select. Un solo interruptor de anuncios. Sistema guarda respaldo, diagnóstico y el color exacto.
+  - APK `ExploNova-2.0.0-alpha45.apk`, versionCode 265, 4 386 407 bytes, SHA256 `2292FC42EF6F133E2DAAFE68602EE41DA5AADA5D404A0522FC7BB34C76C8B8D5`.
+- **Por qué / notas:** Probado en el emulador: buscador arriba, acciones arriba, todo abajo, menú con Ajustes y Sistema. No se instaló en el teléfono ni se publicó OTA. alpha44 queda intacto.
+- **Archivos / refs:** `SettingsSheet.kt` · `AstroScreen.kt` · `BrowserModels.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha45.apk`
+
 ## 2026-11-06 — Territorio: se quita Limpiar
 
 - **Tipo:** ux

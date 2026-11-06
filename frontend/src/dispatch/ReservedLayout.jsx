@@ -8,7 +8,7 @@ const MODULE_ID = 'video';
 const BASE = '/despacho/video';
 
 /**
- * Módulo RESERVADO: pestañas Video · Grabaciones · Conversaciones.
+ * Módulo RESERVADO: pestañas Video · Grabaciones · Conversaciones · Respaldos.
  */
 export default function ReservedLayout({ session: sessionProp }) {
   const { pathname } = useLocation();
@@ -20,6 +20,7 @@ export default function ReservedLayout({ session: sessionProp }) {
       { to: BASE, label: 'Video', end: true, permKey: 'video' },
       { to: `${BASE}/grabaciones`, label: 'Grabaciones', permKey: 'grabaciones' },
       { to: `${BASE}/chats`, label: 'Conversaciones', permKey: 'chats' },
+      { to: `${BASE}/respaldos`, label: 'Respaldos', permKey: 'respaldos' },
     ],
     []
   );
@@ -62,7 +63,7 @@ export default function ReservedLayout({ session: sessionProp }) {
         <div>
           <h1>RESERVADO</h1>
           <p className="cc-hint cc-reserved-head-hint">
-            Video en vivo, grabaciones y conversaciones de operadores (solo lectura)
+            Video en vivo, grabaciones, conversaciones y expediente mensual (consulta)
           </p>
         </div>
         <ReorderableCatalogTabs
@@ -82,7 +83,7 @@ export default function ReservedLayout({ session: sessionProp }) {
 export const RESERVED_TAB_PATHS = tabPathsFromBase();
 
 function tabPathsFromBase() {
-  return [BASE, `${BASE}/grabaciones`, `${BASE}/chats`];
+  return [BASE, `${BASE}/grabaciones`, `${BASE}/chats`, `${BASE}/respaldos`];
 }
 
 export { MODULE_ID as RESERVED_MODULE_ID, BASE as RESERVED_BASE };

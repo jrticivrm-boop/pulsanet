@@ -600,6 +600,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
         { to: '/despacho/video', permKey: 'video', end: true },
         { to: '/despacho/video/grabaciones', permKey: 'grabaciones' },
         { to: '/despacho/video/chats', permKey: 'chats' },
+        { to: '/despacho/video/respaldos', permKey: 'respaldos' },
       ];
       const allowedReserved = filterTabsByPermission(session.user, 'video', reservedDefs).map(
         (t) => t.to

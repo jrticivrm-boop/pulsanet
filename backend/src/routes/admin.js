@@ -20,6 +20,15 @@ import {
   listAuditDmMessages,
   listAuditGroupMessages,
 } from '../services/userEventsTimeline.js';
+import {
+  createReservedArchive,
+  currentMonthKey,
+  getReservedArchiveInfo,
+  noteOfficialMonth,
+  rangeFromMonth,
+  reservedArchiveFile,
+  updateReservedArchiveConfig,
+} from '../services/reservedArchive.js';
 import { isAdmin, isDispatch, isRoot, isZoneAdmin, isUnitAdmin, isRegionAdmin, canManageUsers, canAssignRole, ORG_ROLES, defaultVisibilityFlags, normalizeRole, defaultLocationShare, isUserProfile } from '../services/roles.js';
 import { canSeePerson } from '../services/visibility.js';
 import { canLeaveGroup, actorAssignRejectReason, memberFitsGroupGeo, groupGeoRejectReason } from '../services/groupPolicy.js';
@@ -2162,9 +2171,17 @@ adminRouter.get('/user-events', requireAdmin, async (req, res) => {
 
 /** Notas de voz recientes en chat (auditoría RESERVADO · Grabaciones). */
 adminRouter.get('/chat-audio', requireAdmin, async (req, res) => {
-  const hours = Math.min(parseInt(req.query.hours || '24', 10) || 24, 168);
-  const limit = Math.min(parseInt(req.query.limit || '80', 10) || 80, 200);
-  const data = await listAuditChatAudio(req.user.orgId, { hours, limit });
+  const hours = Math.min(parseInt(req.query.hours || '24', 10) || 24, 24 * 62);
+  const limit = Math.min(parseInt(req.query.limit || '80', 10) || 80, 500);
+  const data = await listAuditChatAudio(req.user.orgId, {
+    hours,
+    limit,
+    userId: String(req.query.userId || '').trim() || undefined,
+    peerId: String(req.query.peerId || '').trim() || undefined,
+    groupId: String(req.query.groupId || '').trim() || undefined,
+    from: String(req.query.from || '').trim() || undefined,
+    to: String(req.query.to || '').trim() || undefined,
+  });
   res.json({ ok: true, readOnly: true, ...data });
 });
 
@@ -2180,10 +2197,14 @@ adminRouter.get('/users/:userId/dm/:peerId/messages', requireAdmin, async (req, 
   const subjectId = String(req.params.userId || '').trim();
   const peerId = String(req.params.peerId || '').trim();
   const aroundId = String(req.query.around || '').trim() || null;
-  const limit = Math.min(parseInt(req.query.limit || '120', 10) || 120, 250);
+  const from = String(req.query.from || '').trim() || null;
+  const to = String(req.query.to || '').trim() || null;
+  const limit = Math.min(parseInt(req.query.limit || '120', 10) || 120, from && to ? 800 : 250);
   const data = await listAuditDmMessages(req.user.orgId, subjectId, peerId, {
     limit,
     aroundId,
+    from,
+    to,
   });
   if (!data.peer) {
     return res.status(404).json({ ok: false, error: 'Usuarios no encontrados en la org' });
@@ -2195,15 +2216,80 @@ adminRouter.get('/users/:userId/dm/:peerId/messages', requireAdmin, async (req, 
 adminRouter.get('/users/:userId/groups/:groupId/messages', requireAdmin, async (req, res) => {
   const groupId = String(req.params.groupId || '').trim();
   const aroundId = String(req.query.around || '').trim() || null;
-  const limit = Math.min(parseInt(req.query.limit || '120', 10) || 120, 250);
+  const from = String(req.query.from || '').trim() || null;
+  const to = String(req.query.to || '').trim() || null;
+  const limit = Math.min(parseInt(req.query.limit || '120', 10) || 120, from && to ? 800 : 250);
   const data = await listAuditGroupMessages(req.user.orgId, groupId, {
     limit,
     aroundId,
+    from,
+    to,
   });
   if (!data.group) {
     return res.status(404).json({ ok: false, error: 'Grupo no encontrado' });
   }
   res.json({ ok: true, readOnly: true, ...data });
+});
+
+/** Expediente RESERVADO: copias del mes. No borra los audios en vivo. */
+adminRouter.get('/reserved-archives', requireAdmin, (req, res) => {
+  res.json({ ok: true, ...getReservedArchiveInfo(req.user.orgId) });
+});
+
+adminRouter.patch('/reserved-archives/config', requireAdmin, (req, res) => {
+  const cfg = updateReservedArchiveConfig(req.body || {});
+  res.json({
+    ok: true,
+    config: {
+      intervalEnabled: cfg.intervalEnabled !== false,
+      intervalHours: cfg.intervalHours || 24,
+      lastIntervalAt: cfg.lastIntervalAt,
+    },
+  });
+});
+
+adminRouter.post('/reserved-archives', requireAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    let from = String(body.from || '').trim();
+    let to = String(body.to || '').trim();
+    let label = String(body.label || '').trim();
+    let monthKey = null;
+    let kind = 'manual';
+    const month = rangeFromMonth(String(body.month || '').trim());
+    if (month) {
+      if (month.key > currentMonthKey()) {
+        return res.status(400).json({ ok: false, error: 'Ese mes todavía no existe.' });
+      }
+      from = month.from;
+      to = month.to;
+      monthKey = month.key;
+      if (month.key < currentMonthKey()) {
+        kind = 'month';
+        label = label || month.label;
+      } else {
+        label = label || month.manualLabel;
+      }
+    }
+    const archive = await createReservedArchive({
+      orgId: req.user.orgId,
+      from,
+      to,
+      kind,
+      label: label || undefined,
+      monthKey,
+    });
+    noteOfficialMonth(archive);
+    res.json({ ok: true, archive });
+  } catch (err) {
+    res.status(err.status || 500).json({ ok: false, error: err.message || 'No se pudo respaldar' });
+  }
+});
+
+adminRouter.get('/reserved-archives/:id/download', requireAdmin, (req, res) => {
+  const file = reservedArchiveFile(req.params.id, req.user.orgId);
+  if (!file) return res.status(404).json({ ok: false, error: 'Respaldo no encontrado' });
+  res.download(file.full, file.name);
 });
 
 /** Historial / auditoría — solo root o admin de organización. */

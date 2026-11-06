@@ -39,6 +39,7 @@ import DispatchVideo from './dispatch/DispatchVideo.jsx';
 import ReservedLayout from './dispatch/ReservedLayout.jsx';
 import ReservedGrabaciones from './dispatch/ReservedGrabaciones.jsx';
 import ReservedChats from './dispatch/ReservedChats.jsx';
+import ReservedArchives from './dispatch/ReservedArchives.jsx';
 import { DispatchChatsRoute } from './dispatch/DispatchChatsPage.jsx';
 import CatalogsLayout from './dispatch/CatalogsLayout.jsx';
 import CatalogJerarquias from './dispatch/CatalogJerarquias.jsx';
@@ -365,6 +366,16 @@ export default function App() {
             element={
               canViewTab(session?.user, 'video', 'chats') ? (
                 <ReservedChats />
+              ) : (
+                <Navigate to="/despacho/video" replace />
+              )
+            }
+          />
+          <Route
+            path="respaldos"
+            element={
+              canViewTab(session?.user, 'video', 'respaldos') ? (
+                <ReservedArchives />
               ) : (
                 <Navigate to="/despacho/video" replace />
               )
