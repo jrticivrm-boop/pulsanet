@@ -10,6 +10,8 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Mapa — teléfono del globo:** abre la ficha Contactar (mensaje, llamada SICOM, videollamada). La ficha sigue el tema claro, verde u oscuro.
+- **Mapa — globo del operador:** título con Grado + Empleo + Nombre completo (antes solo indicativo corto grado+apellido).
 - **Catálogos → Territorio (paquete UX):** árbol Región→Zona→Unidad plegable con búsqueda y contadores; bolitas de color configurables (persisten y pintan el mapa); pliegues por usuario en BD (`ui_prefs`); resumen al asignar municipios; unidades sin cobertura en gris; clave `zona|unidad` explícita; aviso si la región aún no tiene GeoJSON (hoy solo IV R.M.); pestaña Territorio vs Dependencias en permisos. Migración `053_territory_ui_prefs_colors.sql`.
 - **Catálogos → Territorio (legibilidad):** tipografía más grande, panel derecho acomodado, botón de color visible; orden de regiones por arrastre sutil guardado por usuario (`territorioRegionOrder`).
 - **Territorio — bolitas y hover:** en Región/Zona/Unidad cada unidad muestra el color del mapa; al pasar el mouse se resaltan esos municipios.

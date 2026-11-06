@@ -7107,6 +7107,192 @@ html[data-layout='phone'] .incoming-call-banner-btn {
   background: linear-gradient(90deg, rgba(184, 148, 63, 0.32), rgba(184, 148, 63, 0.1));
 }
 
+/* Tema oscuro (slate / azul): la ficha no se queda en verde táctico. */
+[data-theme='obscuro'] .peer-sheet.peer-card {
+  background:
+    radial-gradient(120% 70% at 50% -10%, rgba(59, 130, 246, 0.16), transparent 60%),
+    linear-gradient(170deg, #1a1d27 0%, #141824 55%, #0f1117 100%);
+  border-color: #2e3348;
+  color: #e2e8f0;
+}
+
+[data-theme='obscuro'] .peer-card-close {
+  background: rgba(226, 232, 240, 0.08);
+  color: rgba(226, 232, 240, 0.85);
+}
+
+[data-theme='obscuro'] .peer-sheet-avatar.peer-card-avatar {
+  border-color: #0f1117;
+  background: linear-gradient(160deg, #243044, #1a1d27);
+}
+
+[data-theme='obscuro'] .peer-card-act-ico {
+  color: #dbe7ff;
+}
+
+[data-theme='obscuro'] .peer-card-act:hover .peer-card-act-ico,
+[data-theme='obscuro'] .peer-card-act:focus-visible .peer-card-act-ico {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+[data-theme='obscuro'] .peer-card-act.is-primary .peer-card-act-ico {
+  background: linear-gradient(160deg, #3b82f6, #1e3a8a);
+  border-color: rgba(147, 197, 253, 0.45);
+  box-shadow: 0 6px 18px rgba(59, 130, 246, 0.35);
+}
+
+[data-theme='obscuro'] .peer-card-act.is-primary:hover .peer-card-act-ico {
+  background: linear-gradient(160deg, #60a5fa, #1d4ed8);
+}
+
+[data-theme='obscuro'] .peer-card-phone-ico {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+[data-theme='obscuro'] .peer-card-phone-num:hover {
+  color: #bfdbfe;
+}
+
+[data-theme='obscuro'] .peer-card-chip.is-call {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+[data-theme='obscuro'] .peer-card-chip.is-call:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+[data-theme='obscuro'] .peer-card-cam {
+  border-color: rgba(96, 165, 250, 0.42);
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.22), rgba(59, 130, 246, 0.06));
+  color: #dbeafe;
+}
+
+[data-theme='obscuro'] .peer-card-cam small {
+  color: rgba(219, 234, 254, 0.65);
+}
+
+[data-theme='obscuro'] .peer-card-cam:hover {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.32), rgba(59, 130, 246, 0.1));
+}
+
+/* Tema claro. */
+[data-theme='light'] .peer-sheet.peer-card {
+  background:
+    radial-gradient(120% 70% at 50% -10%, rgba(42, 61, 34, 0.08), transparent 60%),
+    linear-gradient(170deg, #f8f9f5 0%, #eef1ea 55%, #e6eae1 100%);
+  border-color: #c2cbb8;
+  box-shadow: 0 24px 60px rgba(23, 32, 21, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  color: #172015;
+}
+
+[data-theme='light'] .peer-card-close {
+  background: rgba(23, 32, 21, 0.06);
+  color: #172015;
+}
+
+[data-theme='light'] .peer-card-close:hover {
+  background: rgba(23, 32, 21, 0.12);
+  color: #172015;
+}
+
+[data-theme='light'] .peer-sheet-avatar.peer-card-avatar {
+  border-color: #f8f9f5;
+  background: linear-gradient(160deg, #3d5a32, #2a3d22);
+  color: #fff;
+}
+
+[data-theme='light'] .peer-card-name {
+  color: #172015;
+}
+
+[data-theme='light'] .peer-card-sub {
+  color: #5c6756;
+}
+
+[data-theme='light'] .peer-card-status {
+  background: rgba(23, 32, 21, 0.06);
+  color: #172015;
+}
+
+[data-theme='light'] .peer-card-status em {
+  color: #5c6756;
+}
+
+[data-theme='light'] .peer-card-act {
+  color: #172015;
+}
+
+[data-theme='light'] .peer-card-act-ico {
+  background: rgba(42, 61, 34, 0.08);
+  border-color: rgba(42, 61, 34, 0.16);
+  color: #2a3d22;
+}
+
+[data-theme='light'] .peer-card-act:hover .peer-card-act-ico,
+[data-theme='light'] .peer-card-act:focus-visible .peer-card-act-ico {
+  background: rgba(42, 61, 34, 0.14);
+}
+
+[data-theme='light'] .peer-card-phone {
+  background: rgba(23, 32, 21, 0.04);
+  border-color: #c2cbb8;
+}
+
+[data-theme='light'] .peer-card-phone-ico {
+  background: rgba(42, 61, 34, 0.1);
+  color: #2a3d22;
+}
+
+[data-theme='light'] .peer-card-phone-meta small {
+  color: #5c6756;
+}
+
+[data-theme='light'] .peer-card-phone-num {
+  color: #172015;
+}
+
+[data-theme='light'] .peer-card-phone-num:hover {
+  color: #2a3d22;
+}
+
+[data-theme='light'] .peer-card-phone-muted {
+  color: #5c6756;
+}
+
+[data-theme='light'] .peer-card-chip {
+  border-color: #c2cbb8;
+  background: #fff;
+  color: #172015;
+}
+
+[data-theme='light'] .peer-card-chip:hover {
+  background: #eef1ea;
+}
+
+[data-theme='light'] .peer-card-chip.is-call {
+  background: rgba(61, 107, 40, 0.12);
+  border-color: rgba(61, 107, 40, 0.35);
+  color: #1a2816;
+}
+
+[data-theme='light'] .peer-card-chip.is-call:hover {
+  background: rgba(61, 107, 40, 0.2);
+}
+
+[data-theme='light'] .peer-card-chip.is-wa {
+  color: #14532d;
+}
+
+[data-theme='light'] .peer-card-cam {
+  color: #5c4a1f;
+}
+
+[data-theme='light'] .peer-card-cam small {
+  color: rgba(92, 74, 31, 0.7);
+}
+
 @media (max-width: 720px) {
   .peer-sheet-root:has(.peer-card) {
     place-items: end stretch;

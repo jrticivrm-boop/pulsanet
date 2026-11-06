@@ -12,6 +12,7 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
 import { useMap } from 'react-leaflet';
 import { ensureFreshSession, geoAdminAt } from '../api';
+import { openPeerSheet } from '../peerActions.js';
 import { MapCoordsLink } from './MapCoordsLink.jsx';
 import {
   featureContainsLatLng,
@@ -270,6 +271,19 @@ export function mapPopupPhoneLine(loc) {
   return String(loc?.phone || '').trim();
 }
 
+/** Mismo flujo que «Contactar»: ficha de mensaje, llamada SICOM, video, etc. */
+function openOperatorContact(loc, event) {
+  event.preventDefault();
+  event.stopPropagation();
+  const id = loc?.userId;
+  if (!id) return;
+  openPeerSheet({
+    id,
+    displayName: loc.displayName || loc.fullName || '',
+    avatarUrl: loc.avatarUrl || null,
+  });
+}
+
 /** Texto indexable para búsqueda de operadores en mapa. */
 export function mapOperatorSearchBlob(loc) {
   return [
@@ -352,9 +366,14 @@ export function OperatorMapPopupBody({ loc, recordedLabel, children }) {
       ? {
           icon: 'phone',
           body: (
-            <a href={`tel:${phone.replace(/[^\d+]/g, '')}`} className="cc-op-pop-tel">
+            <button
+              type="button"
+              className="cc-op-pop-tel"
+              onClick={(e) => openOperatorContact(loc, e)}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
               {phone}
-            </a>
+            </button>
           ),
         }
       : null,

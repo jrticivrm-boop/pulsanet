@@ -1,3 +1,33 @@
+## 2026-11-06 — Mapa: teléfono abre Contactar; ficha según tema
+
+- **Tipo:** ux | fix
+- **Área:** web
+- **Qué:**
+  - El teléfono del globo del operador abre la misma ficha que «Contactar» (mensaje, llamada SICOM, videollamada).
+  - La ficha de contacto sigue el tema: oscuro (slate/azul), claro y verde.
+- **Archivos / refs:** `mapOperatorPopup.jsx` · `styles.css` · `command-center.css`
+
+## 2026-11-06 — ExploNova: fugas, bloqueador y cierre del reproductor
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:**
+  - Al cerrar una pestaña se sueltan el WebView, el codec y la pantalla completa de esa pestaña. En segundo plano se pausan las pestañas que no están sonando.
+  - El bloqueador decide en el hilo de red de Chromium, con las listas ya en memoria y el interruptor en caché. Los mapas de página ya no se comparten sin sincronizar.
+  - Un video que no se puede abrir, o un ExoPlayer ya liberado, se cierra sin tumbar la actividad.
+- **Por qué / notas:** La rotación no destruye la actividad (sigue el vídeo). No se generó APK.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `AstroActivity.kt`, `YoutubeMovie.kt`, `NativeVideoOverlay.kt`, `AdBlockStore.kt`, `Engine.kt`
+
+## 2026-11-05 — ExploNova 2.0.0-alpha44
+
+- **Tipo:** fix | ux
+- **Área:** mobile
+- **Qué:**
+  - APK `ExploNova-2.0.0-alpha44.apk` (versionCode 264). En la pantalla completa de YouTube se ven y se pueden tocar los controles del sitio (pausa, barra, tiempo y el botón de pantalla completa, que sale del reproductor). No aparecen los botones de Astro.
+  - El icono queda dentro de la zona segura. YouTube usa el sitio móvil, oculta anuncios del inicio y respeta el modo de feed. Al salir de la ventana flotante la página no se queda con zoom. En otros sitios hay barra arrastrable y descarga por partes; YouTube no se descarga. En Facebook e Instagram se ocultan patrocinados y el aviso de abrir la app.
+- **Por qué / notas:** La capa de controles de YouTube quedaba detrás del video, con alto 0 y `visibility: hidden`. No se instaló en el teléfono ni se publicó OTA. alpha26–alpha43 no se reemplazaron.
+- **Archivos / refs:** `ExploNova` `BrowserEngine.kt`, `FullscreenGestures.kt`, `youtube-home.js`, `social-feed.js`, `VideoSaver.kt`, `AstroScreen.kt`, `app/build.gradle.kts`
+
 ## 2026-11-05 — Mapa: globo alineado a la izquierda
 
 - **Tipo:** ux

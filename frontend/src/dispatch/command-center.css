@@ -8423,6 +8423,14 @@ html.map-viewport-max .lt-page--maximized,
 
 .leaflet-popup-content .cc-op-pop .cc-op-pop-tel {
   color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
 }
 
 .leaflet-popup-content .cc-op-pop .cc-op-pop-rows a:hover {
