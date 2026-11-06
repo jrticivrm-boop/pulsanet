@@ -31,6 +31,7 @@ export default function ReservedChats() {
       ) : (
         <AuditConversationPeek
           embedded
+          tools
           session={session}
           subjectUserId={filter.userId}
           subjectName={filter.userName}

@@ -147,6 +147,7 @@ app.use(
       if (p === '/api/recordings' || p.startsWith('/api/recordings/')) return true;
       if (p === '/api/admin/chat-audio') return true;
       if (p === '/api/admin/reserved-archives') return true;
+      if (p === '/api/admin/reserved-thread/search' || p === '/api/admin/reserved-thread/export') return true;
       if (p === '/api/admin/users') return true;
       if (/^\/api\/admin\/users\/[^/]+\/(groups|dm\/conversations)$/.test(p)) return true;
       return false;

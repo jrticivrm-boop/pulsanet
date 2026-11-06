@@ -189,6 +189,7 @@ export default function DirectChat({
   const [actionHint, setActionHint] = useState('');
   const [nudgeBusy, setNudgeBusy] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [textOnce, setTextOnce] = useState(false);
   const actionHintTimer = useRef(null);
   const menuOpenRef = useRef(false);
   const mediaRec = useRef(null);
@@ -671,6 +672,7 @@ export default function DirectChat({
           peerCount: 1,
           readFully: false,
           isDeleted: false,
+          viewOnce: textOnce,
           createdAt: new Date().toISOString(),
           reply: replySnapshot
             ? {
@@ -700,9 +702,12 @@ export default function DirectChat({
           body,
           clientMsgId,
           replyToId: replyId,
+          viewOnce: textOnce,
         });
+        setTextOnce(false);
       } else {
-        const data = await sendDmMessage(token, peer.id, body, { replyToId: replyId });
+        const data = await sendDmMessage(token, peer.id, body, { replyToId: replyId, viewOnce: textOnce });
+        setTextOnce(false);
         setMessages((prev) => [...prev, data.message]);
         if (data?.message) {
           bumpPeerThread(peer.id, {
@@ -897,7 +902,7 @@ export default function DirectChat({
     );
   }
 
-  async function onSendMedia(file, type, { replyToId } = {}) {
+  async function onSendMedia(file, type, { replyToId, viewOnce } = {}) {
     if (!peer || !file || uploading) return;
     setShowAttach(false);
     setShowPicker(false);
@@ -917,6 +922,7 @@ export default function DirectChat({
         type,
         body: caption,
         replyToId: replyToId || replyTo?.id,
+        viewOnce: Boolean(viewOnce),
       });
       if (data?.message) {
         setMessages((prev) => {
@@ -1073,14 +1079,15 @@ export default function DirectChat({
       setMessages((prev) =>
         prev.map((x) => (x.id === opened.id ? { ...x, ...opened, viewOncePending: false } : x))
       );
-      viewOnceConsumeRef.current = opened.id;
+      const videoOnce =
+        opened.type === 'video' || String(opened.mediaMime || '').startsWith('video/');
       if (opened.mediaUrl && isImageMessage(opened)) {
+        viewOnceConsumeRef.current = opened.id;
         setImageGallery({ items: [opened], index: 0 });
-      } else if (opened.mediaUrl) {
+      } else if (opened.mediaUrl && videoOnce) {
+        viewOnceConsumeRef.current = opened.id;
         const blobUrl = await fetchMediaBlobUrl(token, opened.mediaUrl);
         window.open(blobUrl, '_blank', 'noopener,noreferrer');
-        await finishViewOnceConsume(opened.id);
-      } else {
         await finishViewOnceConsume(opened.id);
       }
     } catch (err) {
@@ -1443,19 +1450,39 @@ export default function DirectChat({
                               )}
                             </div>
                           ) : null}
-                          {m.viewOnce &&
-                          !deleted &&
-                          (m.viewOncePending || !m.mediaUrl) ? (
+                          {m.viewOnce && !deleted && m.viewOncePending ? (
                             <button
                               type="button"
                               className="dm-view-once-btn"
                               disabled={Boolean(mine)}
+                              title={
+                                mine
+                                  ? 'El destinatario todavía no lo abre. Tú sigues viendo lo que enviaste.'
+                                  : 'Se abre una sola vez. Al cerrarlo desaparece de este chat.'
+                              }
                               onClick={() => {
                                 if (!mine) void openViewOnceMessage(m);
                               }}
                             >
-                              {m.type === 'video' ? '🎬' : '📷'}{' '}
-                              {mine ? 'Ver una vez · pendiente' : 'Ver una vez'}
+                              {m.type === 'video' || String(m.mediaMime || '').startsWith('video/')
+                                ? 'Video de una sola vez'
+                                : m.type === 'image'
+                                  ? 'Foto de una sola vez'
+                                  : 'Mensaje de una sola vez'}
+                              {mine ? ' · pendiente' : ''}
+                            </button>
+                          ) : null}
+                          {m.viewOnce && !deleted && !mine && !m.viewOncePending && m.type === 'text' && m.body ? (
+                            <button
+                              type="button"
+                              className="dm-view-once-btn"
+                              title="Al ocultarlo, el mensaje desaparece de este chat."
+                              onClick={() => {
+                                viewOnceConsumeRef.current = m.id;
+                                void finishViewOnceConsume(m.id);
+                              }}
+                            >
+                              Ocultar
                             </button>
                           ) : null}
                           {m.mediaUrl ? (
@@ -1622,6 +1649,18 @@ export default function DirectChat({
                 onPickEmoji={(e) => setDraft((d) => d + e)}
                 onPickSticker={onSendSticker}
               />
+              <label
+                className="dm-once-toggle"
+                title="El destinatario lo abre una vez y luego desaparece de su chat. RESERVADO lo conserva."
+              >
+                <input
+                  type="checkbox"
+                  checked={textOnce}
+                  disabled={Boolean(editing)}
+                  onChange={(e) => setTextOnce(e.target.checked)}
+                />
+                Una sola vez
+              </label>
               <form className="dm-compose dm-compose--wa" onSubmit={onSend}>
                 <input
                   ref={imageRef}
@@ -1652,7 +1691,9 @@ export default function DirectChat({
                   accept={VIDEO_ACCEPT}
                   onChange={(e) => {
                     const [f] = takeFilesFromInput(e.target);
-                    onSendMedia(f, 'video');
+                    if (!f) return;
+                    onSendMedia(f, 'video', { viewOnce: textOnce });
+                    setTextOnce(false);
                   }}
                 />
                 <input

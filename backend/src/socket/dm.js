@@ -5,6 +5,7 @@ import {
   listDmMessages,
   markDmMessagesDelivered,
 } from '../services/dm.js';
+import { redactViewOnceForViewer } from './chat.js';
 import { query } from '../db.js';
 import { notifyUserDevices } from '../services/fcm.js';
 import { friendlyMessageDbError } from '../services/messageErrors.js';
@@ -76,7 +77,7 @@ export function registerDmHandlers(io) {
       }
     });
 
-    socket.on('dm:send', async ({ peerId, body, replyToId, clientMsgId } = {}) => {
+    socket.on('dm:send', async ({ peerId, body, replyToId, clientMsgId, viewOnce } = {}) => {
       try {
         let orgId = user.orgId;
         if (!orgId) {
@@ -96,6 +97,7 @@ export function registerDmHandlers(io) {
           socket.emit('dm:error', { error: 'Mensaje vacío', clientMsgId });
           return;
         }
+        const once = viewOnce === true || viewOnce === 'true' || viewOnce === 1 || viewOnce === '1';
         const msg = await insertDmMessage({
           senderId: user.sub,
           recipientId: peer.id,
@@ -103,28 +105,35 @@ export function registerDmHandlers(io) {
           type: 'text',
           replyToId: replyToId || null,
           displayName: user.displayName,
+          viewOnce: once,
         });
         if (clientMsgId) msg.clientMsgId = String(clientMsgId);
         msg.delivered = false;
         msg.deliveredCount = 0;
         const room = dmSocketRoom(user.sub, peer.id);
-        io.to(room).emit('dm:message', msg);
-        socket.emit('dm:message', msg);
+        const preview = once ? 'Mensaje de una sola vez' : text.length > 100 ? `${text.slice(0, 100)}…` : text;
+        if (once) {
+          io.to(`user:${peer.id}`).emit('dm:message', redactViewOnceForViewer(msg, peer.id));
+          socket.emit('dm:message', msg);
+        } else {
+          io.to(room).emit('dm:message', msg);
+          socket.emit('dm:message', msg);
+        }
         io.to(`user:${peer.id}`).emit('dm:notify', {
           peerId: user.sub,
           peerName: user.displayName,
-          message: msg,
+          message: redactViewOnceForViewer(msg, peer.id),
         });
         notifyUserDevices({
           userId: peer.id,
           title: user.displayName || 'SICOM',
-          body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
+          body: preview,
           data: {
             type: 'dm',
             peerId: user.sub,
             messageId: msg.id,
             title: user.displayName || 'SICOM',
-            body: text.length > 100 ? `${text.slice(0, 100)}…` : text,
+            body: preview,
           },
         }).catch(() => {});
       } catch (e) {

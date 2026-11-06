@@ -139,6 +139,8 @@ export function createDmRouter(io) {
     if (text.length > MAX_BODY) {
       return res.status(400).json({ ok: false, error: `Máximo ${MAX_BODY} caracteres` });
     }
+    const onceRaw = String(req.body?.viewOnce || req.body?.view_once || '').trim().toLowerCase();
+    const once = onceRaw === '1' || onceRaw === 'true' || onceRaw === 'yes';
     const msg = await insertDmMessage({
       senderId: req.user.sub,
       recipientId: peer.id,
@@ -146,19 +148,25 @@ export function createDmRouter(io) {
       type: 'text',
       replyToId: req.body?.replyToId || null,
       displayName: req.user.displayName,
+      viewOnce: once,
     });
     const room = dmSocketRoom(req.user.sub, peer.id);
-    io.to(room).emit('dm:message', msg);
+    if (once) {
+      io.to(`user:${peer.id}`).emit('dm:message', redactViewOnceForViewer(msg, peer.id));
+    } else {
+      io.to(room).emit('dm:message', msg);
+    }
     if (String(peer.id) !== String(req.user.sub)) {
+      const preview = once ? 'Mensaje de una sola vez' : text.slice(0, 120);
       io.to(`user:${peer.id}`).emit('dm:notify', {
         peerId: req.user.sub,
         peerName: req.user.displayName,
-        message: msg,
+        message: redactViewOnceForViewer(msg, peer.id),
       });
       notifyUserDevices({
         userId: peer.id,
         title: req.user.displayName || 'SICOM',
-        body: text.slice(0, 120),
+        body: preview,
         data: { type: 'dm', peerId: req.user.sub, messageId: msg.id },
       }).catch(() => {});
     }
@@ -312,8 +320,11 @@ export function createDmRouter(io) {
           viewOnce,
         });
         const room = dmSocketRoom(req.user.sub, peer.id);
-        // Sala: destinatario sin URL hasta abrir; el emisor ya tiene la respuesta HTTP.
-        io.to(room).emit('dm:message', redactViewOnceForViewer(msg, peer.id));
+        if (msg.viewOnce) {
+          io.to(`user:${peer.id}`).emit('dm:message', redactViewOnceForViewer(msg, peer.id));
+        } else {
+          io.to(room).emit('dm:message', msg);
+        }
         io.to(`user:${peer.id}`).emit('dm:notify', {
           peerId: req.user.sub,
           peerName: req.user.displayName,

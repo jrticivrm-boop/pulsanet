@@ -229,11 +229,11 @@ export function fetchDmMessages(token, userId) {
   return api(`/api/dm/${userId}/messages`, { token });
 }
 
-export function sendDmMessage(token, userId, body, { replyToId } = {}) {
+export function sendDmMessage(token, userId, body, { replyToId, viewOnce } = {}) {
   return api(`/api/dm/${userId}/messages`, {
     token,
     method: 'POST',
-    body: { body, replyToId },
+    body: { body, replyToId, viewOnce: viewOnce ? '1' : undefined },
   });
 }
 
@@ -768,6 +768,42 @@ export function fetchAuditGroupMessages(
     `/api/admin/users/${encodeURIComponent(userId)}/groups/${encodeURIComponent(groupId)}/messages?${params}`,
     { token }
   );
+}
+
+export function searchReservedThread(token, { userId, peerId, groupId, from, to, q, onlyDeleted, offset }) {
+  const params = new URLSearchParams();
+  params.set('userId', userId || '');
+  if (peerId) params.set('peerId', peerId);
+  if (groupId) params.set('groupId', groupId);
+  params.set('from', from || '');
+  params.set('to', to || '');
+  if (q) params.set('q', q);
+  if (onlyDeleted) params.set('onlyDeleted', '1');
+  if (offset) params.set('offset', String(offset));
+  return api(`/api/admin/reserved-thread/search?${params}`, { token });
+}
+
+export async function downloadReservedThread(token, { userId, peerId, groupId, from, to }) {
+  const params = new URLSearchParams();
+  params.set('userId', userId || '');
+  if (peerId) params.set('peerId', peerId);
+  if (groupId) params.set('groupId', groupId);
+  params.set('from', from || '');
+  params.set('to', to || '');
+  const res = await fetch(`${API_BASE}/api/admin/reserved-thread/export?${params}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'No se pudo exportar');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `conversacion_${from || 'hilo'}_${to || ''}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function fetchReservedArchives(token) {

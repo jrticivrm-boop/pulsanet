@@ -566,13 +566,16 @@ export default function MediaComposerModal({
 
       <div className="media-composer-bottom">
         {allowViewOnce ? (
-          <label className="media-composer-view-once">
+          <label
+            className="media-composer-view-once"
+            title="El destinatario la abre una vez y luego desaparece de su chat. RESERVADO la conserva."
+          >
             <input
               type="checkbox"
               checked={viewOnce}
               onChange={(e) => setViewOnce(e.target.checked)}
             />
-            Ver una vez (se elimina al abrir)
+            Una sola vez
           </label>
         ) : null}
         <div className="media-composer-caption-row">

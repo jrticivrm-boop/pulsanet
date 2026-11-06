@@ -141,7 +141,11 @@ export default function ReservedWhoBar({ token, value, onChange }) {
     <section className="cc-card cc-reserved-who" aria-label="Filtro de consulta">
       <label>
         ¿De quién?
-        <select value={value.userId} onChange={(e) => pickUser(e.target.value)} title={value.userName || undefined}>
+        <select
+          value={value.userId}
+          onChange={(e) => pickUser(e.target.value)}
+          title={value.userName || 'Operador que envió el mensaje, la nota o el PTT'}
+        >
           <option value="">Operador…</option>
           {userOptions.map((u) => (
             <option key={u.id} value={u.id}>
@@ -154,7 +158,11 @@ export default function ReservedWhoBar({ token, value, onChange }) {
       {hasSpeaker ? (
         <label>
           ¿Con quién?
-          <select value={value.withKind} onChange={(e) => pickKind(e.target.value)}>
+          <select
+            value={value.withKind}
+            onChange={(e) => pickKind(e.target.value)}
+            title="Otro operador, o un grupo o canal"
+          >
             <option value="">Elige…</option>
             <option value="operador">Otro operador</option>
             <option value="grupo">Grupo o canal</option>
@@ -164,7 +172,11 @@ export default function ReservedWhoBar({ token, value, onChange }) {
       {hasSpeaker && hasKind && value.withKind === 'grupo' ? (
         <label>
           Grupo
-          <select value={value.groupId} onChange={(e) => pickGroup(e.target.value)} title={value.groupName || undefined}>
+          <select
+            value={value.groupId}
+            onChange={(e) => pickGroup(e.target.value)}
+            title={value.groupName || 'Grupo o canal de esa persona'}
+          >
             <option value="">Grupo…</option>
             {groups.map((g) => (
               <option key={g.id} value={g.id}>
@@ -177,7 +189,11 @@ export default function ReservedWhoBar({ token, value, onChange }) {
       {hasSpeaker && hasKind && value.withKind === 'operador' ? (
         <label>
           Operador
-          <select value={value.peerId} onChange={(e) => pickPeer(e.target.value)} title={value.peerName || undefined}>
+          <select
+            value={value.peerId}
+            onChange={(e) => pickPeer(e.target.value)}
+            title={value.peerName || 'La otra persona del chat'}
+          >
             <option value="">Operador…</option>
             {peers.map((u) => (
               <option key={u.id} value={u.id}>
@@ -190,7 +206,11 @@ export default function ReservedWhoBar({ token, value, onChange }) {
       {hasSpeaker && hasKind && hasTarget ? (
         <label>
           Periodo
-          <select value={value.period} onChange={(e) => pickPeriod(e.target.value)}>
+          <select
+            value={value.period}
+            onChange={(e) => pickPeriod(e.target.value)}
+            title="Hoy, el mes en curso, o un rango de fechas"
+          >
             <option value="hoy">Hoy</option>
             <option value="mes">Mes en curso</option>
             <option value="rango">Rango</option>
@@ -204,12 +224,18 @@ export default function ReservedWhoBar({ token, value, onChange }) {
             <input
               type="date"
               value={value.from}
+              title="Primer día del periodo"
               onChange={(e) => patch({ from: e.target.value })}
             />
           </label>
           <label>
             Hasta
-            <input type="date" value={value.to} onChange={(e) => patch({ to: e.target.value })} />
+            <input
+              type="date"
+              value={value.to}
+              title="Último día del periodo"
+              onChange={(e) => patch({ to: e.target.value })}
+            />
           </label>
         </>
       ) : null}

@@ -363,12 +363,7 @@ export async function softDeleteGroupMessage({ groupId, messageId, userId, userR
 
   const { rows: updated } = await query(
     `UPDATE messages
-     SET deleted_at = NOW(),
-         body = NULL,
-         media_url = NULL,
-         media_mime = NULL,
-         media_name = NULL,
-         media_size = NULL
+     SET deleted_at = NOW()
      WHERE id = $1
      RETURNING id, group_id, sender_id, type, body, media_url, media_mime, media_name, media_size,
                reply_to_id, edited_at, deleted_at, created_at`,
@@ -768,7 +763,9 @@ export function redactViewOnceForViewer(msg, viewerUserId) {
   }
   return {
     ...msg,
+    body: null,
     mediaUrl: null,
+    mediaName: null,
     viewOncePending: true,
   };
 }

@@ -537,11 +537,11 @@ export async function listAuditDmMessages(orgId, subjectUserId, peerId, { limit 
   params.push(lim);
   const { rows } = await query(
     `SELECT m.id, m.sender_id, m.recipient_id, m.type, m.body, m.media_url, m.media_mime,
-            m.media_name, m.media_size, m.deleted_at, m.created_at,
+            m.media_name, m.media_size, m.deleted_at, m.view_once, m.view_once_opened_at, m.created_at,
             u.display_name AS sender_name
      FROM (
        SELECT id, sender_id, recipient_id, type, body, media_url, media_mime, media_name,
-              media_size, deleted_at, created_at
+              media_size, deleted_at, view_once, view_once_opened_at, created_at
        FROM messages
        WHERE group_id IS NULL AND recipient_id IS NOT NULL
          AND (
@@ -562,11 +562,14 @@ export async function listAuditDmMessages(orgId, subjectUserId, peerId, { limit 
     senderId: r.sender_id,
     senderName: r.sender_name || 'Usuario',
     type: r.type,
-    body: r.deleted_at ? null : openMessageBody(r.type, r.body),
-    mediaUrl: r.deleted_at || !r.media_url ? null : `/api/media/${r.id}`,
-    mediaMime: r.deleted_at ? null : r.media_mime,
-    mediaName: r.deleted_at ? null : r.media_name,
+    body: r.deleted_at && !r.body && !r.media_url ? null : openMessageBody(r.type, r.body),
+    mediaUrl: r.media_url ? `/api/media/${r.id}` : null,
+    mediaMime: r.media_mime || null,
+    mediaName: r.media_name || null,
     isDeleted: Boolean(r.deleted_at),
+    contentWiped: Boolean(r.deleted_at) && !r.body && !r.media_url,
+    viewOnce: Boolean(r.view_once),
+    viewOnceOpenedAt: r.view_once_opened_at || null,
     createdAt: r.created_at,
     mine: String(r.sender_id) === String(subjectUserId),
     highlight: aroundId && String(r.id) === String(aroundId),
@@ -599,9 +602,10 @@ export async function listAuditGroupMessages(orgId, groupId, { limit = 120, arou
   params.push(lim);
   const { rows } = await query(
     `SELECT m.id, m.sender_id, m.type, m.body, m.media_url, m.media_mime, m.media_name,
-            m.deleted_at, m.created_at, u.display_name AS sender_name
+            m.deleted_at, m.view_once, m.view_once_opened_at, m.created_at, u.display_name AS sender_name
      FROM (
-       SELECT id, sender_id, type, body, media_url, media_mime, media_name, deleted_at, created_at
+       SELECT id, sender_id, type, body, media_url, media_mime, media_name,
+              deleted_at, view_once, view_once_opened_at, created_at
        FROM messages
        WHERE group_id = $1
          ${dateSql}
@@ -620,11 +624,14 @@ export async function listAuditGroupMessages(orgId, groupId, { limit = 120, arou
       senderId: r.sender_id,
       senderName: r.sender_name || 'Usuario',
       type: r.type,
-      body: r.deleted_at ? null : openMessageBody(r.type, r.body),
-      mediaUrl: r.deleted_at || !r.media_url ? null : `/api/media/${r.id}`,
-      mediaMime: r.deleted_at ? null : r.media_mime,
-      mediaName: r.deleted_at ? null : r.media_name,
+      body: r.deleted_at && !r.body && !r.media_url ? null : openMessageBody(r.type, r.body),
+      mediaUrl: r.media_url ? `/api/media/${r.id}` : null,
+      mediaMime: r.media_mime || null,
+      mediaName: r.media_name || null,
       isDeleted: Boolean(r.deleted_at),
+      contentWiped: Boolean(r.deleted_at) && !r.body && !r.media_url,
+      viewOnce: Boolean(r.view_once),
+      viewOnceOpenedAt: r.view_once_opened_at || null,
       createdAt: r.created_at,
       highlight: aroundId && String(r.id) === String(aroundId),
     })),

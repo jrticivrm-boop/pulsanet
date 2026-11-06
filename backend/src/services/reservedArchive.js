@@ -161,7 +161,7 @@ async function collectPaged(sql, params) {
 async function collectRows(orgId, from, to) {
   const messages = await collectPaged(
     `SELECT m.id, m.sender_id, m.recipient_id, m.group_id, m.type, m.body, m.media_url,
-            m.media_name, m.media_mime, m.created_at, m.deleted_at,
+            m.media_name, m.media_mime, m.created_at, m.deleted_at, m.view_once,
             su.display_name AS sender_name,
             ru.display_name AS recipient_name,
             g.name AS group_name
@@ -226,7 +226,7 @@ export async function createReservedArchive({ orgId, from, to, kind, label, mont
     let missing = 0;
     for (const m of messages) {
       let file = null;
-      if (m.media_url && !m.deleted_at) {
+      if (m.media_url) {
         const copied = copyIfExists(m.media_url, mediaDir, `chat-${m.id}`);
         file = copied.name;
         if (!copied.copied) missing += 1;
@@ -239,10 +239,10 @@ export async function createReservedArchive({ orgId, from, to, kind, label, mont
         at: m.created_at,
         from: m.sender_name || m.sender_id,
         with: withWhom,
-        type: m.deleted_at ? 'eliminado' : m.type,
-        text: m.deleted_at
-          ? null
-          : String(openMessageBody(m.type, m.body) || '').slice(0, 4000) || null,
+        type: m.type,
+        deleted: Boolean(m.deleted_at),
+        viewOnce: Boolean(m.view_once),
+        text: String(openMessageBody(m.type, m.body) || '').slice(0, 4000) || null,
         file,
       });
     }

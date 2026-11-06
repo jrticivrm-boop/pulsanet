@@ -5872,6 +5872,16 @@ select:focus {
   opacity: 0.85;
 }
 
+.dm-once-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.35rem 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .media-composer-caption-row {
   width: min(100%, 560px);
 }

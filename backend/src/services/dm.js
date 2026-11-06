@@ -226,8 +226,13 @@ export async function insertDmMessage({
   if (!senderId) throw new Error('Sesión inválida — vuelve a iniciar sesión');
   if (!recipientId) throw new Error('Destinatario no válido');
 
+  const mime = String(mediaMime || '');
   const wantViewOnce =
-    Boolean(viewOnce) && (type === 'image' || type === 'video');
+    Boolean(viewOnce) &&
+    (type === 'text' ||
+      type === 'image' ||
+      type === 'video' ||
+      (type === 'file' && mime.startsWith('video/')));
 
   let safeReply = null;
   let reply = null;
@@ -328,12 +333,7 @@ export async function softDeleteDmMessage({
   await query(`DELETE FROM message_reactions WHERE message_id = $1`, [messageId]);
   const { rows: updated } = await query(
     `UPDATE messages
-     SET deleted_at = NOW(),
-         body = NULL,
-         media_url = NULL,
-         media_mime = NULL,
-         media_name = NULL,
-         media_size = NULL
+     SET deleted_at = NOW()
      WHERE id = $1
      RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
                reply_to_id, edited_at, deleted_at, view_once, view_once_opened_at, created_at`,
@@ -534,10 +534,14 @@ export async function openViewOnceDmMessage({ peerId, messageId, userId }) {
   if (String(row.recipient_id) !== String(userId)) {
     throw new Error('Solo el destinatario puede abrir ver una vez');
   }
-  if (!row.media_url) throw new Error('Media no disponible');
-  if (!['image', 'video'].includes(row.type)) {
-    throw new Error('Solo imagen o video');
+  const video =
+    row.type === 'video' ||
+    (row.type === 'file' && String(row.media_mime || '').startsWith('video/'));
+  const textOnce = row.type === 'text';
+  if (!textOnce && row.type !== 'image' && !video) {
+    throw new Error('Este mensaje no se puede abrir una sola vez');
   }
+  if (!textOnce && !row.media_url) throw new Error('Media no disponible');
 
   if (!row.view_once_opened_at) {
     const { rows: updated } = await query(
@@ -552,8 +556,7 @@ export async function openViewOnceDmMessage({ peerId, messageId, userId }) {
   }
 
   const msg = await hydrateDmMessage(row, row.sender_id);
-  // hydrate con viewer=sender conserva mediaUrl; forzar para el abridor
-  msg.mediaUrl = `/api/media/${row.id}`;
+  if (row.media_url) msg.mediaUrl = `/api/media/${row.id}`;
   msg.viewOncePending = false;
   msg.viewOnceOpenedAt = row.view_once_opened_at || new Date().toISOString();
   return msg;
@@ -598,12 +601,7 @@ export async function consumeViewOnceDmMessage({ peerId, messageId, userId }) {
   await query(`DELETE FROM message_reactions WHERE message_id = $1`, [messageId]);
   const { rows: updated } = await query(
     `UPDATE messages
-     SET deleted_at = NOW(),
-         body = NULL,
-         media_url = NULL,
-         media_mime = NULL,
-         media_name = NULL,
-         media_size = NULL
+     SET deleted_at = NOW()
      WHERE id = $1
      RETURNING id, group_id, sender_id, recipient_id, type, body, media_url, media_mime, media_name, media_size,
                reply_to_id, edited_at, deleted_at, view_once, view_once_opened_at, created_at`,

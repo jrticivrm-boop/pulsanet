@@ -361,35 +361,30 @@ export function createMediaRouter() {
     );
     const row = rows[0];
     if (!row) return res.status(404).json({ ok: false, error: 'Media no encontrada' });
-    if (row.deleted_at) {
+    const adminAudit =
+      isAdmin(req.user.role) &&
+      row.sender_org_id &&
+      String(row.sender_org_id) === String(req.user.orgId);
+    if (row.deleted_at && !adminAudit) {
       return res.status(410).json({ ok: false, error: 'Mensaje eliminado' });
     }
 
     let allowed = false;
+    if (adminAudit) allowed = true;
     if (row.group_id) {
-      allowed = await assertGroupMember(row.group_id, req.user.sub);
+      allowed = allowed || (await assertGroupMember(row.group_id, req.user.sub));
     } else if (row.recipient_id) {
-      allowed = row.sender_id === req.user.sub || row.recipient_id === req.user.sub;
-      // Ver una vez: destinatario solo tras POST view-once (opened_at).
+      const party = row.sender_id === req.user.sub || row.recipient_id === req.user.sub;
+      allowed = allowed || party;
       if (
-        allowed &&
+        party &&
+        !adminAudit &&
         row.view_once &&
         String(row.recipient_id) === String(req.user.sub) &&
         !row.view_once_opened_at
       ) {
         return res.status(403).json({ ok: false, error: 'Abre ver una vez primero' });
       }
-    }
-    // RESERVADO / Eventos: admin de la misma org puede oír/ver media ajena (solo lectura).
-    // Ver-una-vez: no exponer a admin hasta que el destinatario haya abierto (auditoría post-facto vía soft-delete).
-    if (
-      !allowed &&
-      isAdmin(req.user.role) &&
-      row.sender_org_id &&
-      String(row.sender_org_id) === String(req.user.orgId) &&
-      !row.view_once
-    ) {
-      allowed = true;
     }
     if (!allowed) return res.status(403).json({ ok: false, error: 'Sin acceso' });
 

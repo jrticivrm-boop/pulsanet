@@ -1,3 +1,43 @@
+## 2026-11-06 — RESERVADO: hilo legible, búsqueda y ZIP
+
+- **Tipo:** feature
+- **Área:** web
+- **Qué:** La barra de consulta queda arriba, a la altura de sus campos. En Conversaciones la foto va en su recuadro, con Ampliar aparte. Un mensaje eliminado o de una sola vez sigue completo en RESERVADO, con su etiqueta; en el chat normal se ve eliminado. Entre operadores se puede enviar texto, foto o video de una sola vez. El hilo se busca por palabra (también solo eliminados) y se exporta en un ZIP con HTML, fotos y audios.
+- **Por qué / notas:** Lo ya borrado antes de este cambio no se puede reconstruir. Vaciar chat no cambia. La app del teléfono queda para el siguiente análisis.
+- **Archivos / refs:** `ReservedWhoBar.jsx` · `AuditConversationPeek.jsx` · `DirectChat.jsx` · `backend/src/services/reservedThread.js` · `backend/src/services/dm.js`
+
+## 2026-11-06 — ExploNova: acomodo de ajustes y flotante completa, alpha50
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** La cuadrícula de ajustes queda en dos filas: buscador, todo y compacta, arriba y abajo. Sale Acciones arriba y entra Buscador abajo. Casita al centro muestra un solo botón. Compartir sale del menú de tres puntos. En la flotante el video ocupa el cuadro entero y, al salir, vuelve a su lugar.
+- **Por qué / notas:** En el teléfono el video seguía 48 px abajo, dentro de la caja de YouTube, y se cortaba. En el emulador la flotante quedó llena y la página volvió a 412×232 en y=48. APK `ExploNova-2.0.0-alpha50.apk`, versionCode 270, 4 376 423 bytes, SHA256 `C8919147BB998C610A55546BA62D5A28B44977A909FAAD574465605134761171`. No se instaló en el teléfono. alpha49 queda intacto.
+- **Archivos / refs:** `SettingsSheet.kt` · `AstroScreen.kt` · `BrowserModels.kt` · `BrowserEngine.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha50.apk`
+
+## 2026-11-06 — ExploNova: la flotante muestra el video completo y alpha49
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** La ventanita de YouTube ya no sale cortada ni en blanco. Desde el video normal y desde pantalla completa, Inicio muestra el cuadro entero. Al volver, la página queda en 412×232.
+- **Por qué / notas:** En el emulador el video llena la flotante y sigue reproduciéndose. Al salir, el reproductor vuelve a y=48, sin el hueco blanco. APK `ExploNova-2.0.0-alpha49.apk`, versionCode 269, 4 376 419 bytes, SHA256 `E8A65E4F82AE9D8EF84E8144841A936CEA6045A0362640ADD972E0597AA8B2ED`. No se instaló en el teléfono. alpha48 queda intacto.
+- **Archivos / refs:** `BrowserEngine.kt` · `AstroActivity.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha49.apk`
+
+## 2026-11-06 — ExploNova: el video sigue dentro de la flotante y alpha48
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En la ventanita de YouTube el video ya no se detiene solo. Si lo pausas tú, o si otra app toma el audio, sí se pausa. Al salir, la página queda en el mismo cuadro.
+- **Por qué / notas:** En el emulador el tiempo del video avanzó dentro de la flotante (20.8 s a 23.9 s) y al volver quedó 412×232 en y=48, sin zoom ni barras. APK `ExploNova-2.0.0-alpha48.apk`, versionCode 268, 4 376 419 bytes, SHA256 `E992A4AACD07647093725B2B38AFAA1B5D7B86ABB09FFC8E5D4C02EBFA8F1AC1`. No se instaló en el teléfono. alpha47 queda intacto.
+- **Archivos / refs:** `BrowserEngine.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha48.apk`
+
+## 2026-11-06 — ExploNova: YouTube sin segundo reproductor y alpha47
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En YouTube ya no se mueve el video ni se fuerzan sus controles. La pantalla completa es la del sitio, con los gestos encima. Inicio abre la flotante de Android y, al salir, la página queda en el mismo cuadro. Si otra aplicación reproduce audio, el video se pausa y sigue cuando esa suelta el audio, salvo que lo hayas pausado tú.
+- **Por qué / notas:** En el emulador el video quedó 412×232 en y=48 antes y después de la flotante, sin zoom. APK `ExploNova-2.0.0-alpha47.apk`, versionCode 267, 4 376 419 bytes, SHA256 `E597FC2AE2F06AF2AA22C93012759A494DAF07C352FD86C2F6C3D838352264AB`. No se instaló en el teléfono. alpha46 queda intacto.
+- **Archivos / refs:** `BrowserEngine.kt` · `AstroActivity.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha47.apk`
+
 ## 2026-11-06 — RESERVADO: filtros en secuencia y más bajos
 
 - **Tipo:** ux

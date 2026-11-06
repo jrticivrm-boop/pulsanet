@@ -29,6 +29,7 @@ import {
   reservedArchiveFile,
   updateReservedArchiveConfig,
 } from '../services/reservedArchive.js';
+import { exportReservedThread, searchReservedThread } from '../services/reservedThread.js';
 import { isAdmin, isDispatch, isRoot, isZoneAdmin, isUnitAdmin, isRegionAdmin, canManageUsers, canAssignRole, ORG_ROLES, defaultVisibilityFlags, normalizeRole, defaultLocationShare, isUserProfile } from '../services/roles.js';
 import { canSeePerson } from '../services/visibility.js';
 import { canLeaveGroup, actorAssignRejectReason, memberFitsGroupGeo, groupGeoRejectReason } from '../services/groupPolicy.js';
@@ -2229,6 +2230,42 @@ adminRouter.get('/users/:userId/groups/:groupId/messages', requireAdmin, async (
     return res.status(404).json({ ok: false, error: 'Grupo no encontrado' });
   }
   res.json({ ok: true, readOnly: true, ...data });
+});
+
+function reservedThreadQuery(req) {
+  return {
+    orgId: req.user.orgId,
+    userId: req.query.userId,
+    peerId: req.query.peerId,
+    groupId: req.query.groupId,
+    from: req.query.from,
+    to: req.query.to,
+    q: req.query.q,
+    onlyDeleted: req.query.onlyDeleted,
+    offset: req.query.offset,
+  };
+}
+
+adminRouter.get('/reserved-thread/search', requireAdmin, async (req, res) => {
+  try {
+    const data = await searchReservedThread(reservedThreadQuery(req));
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    res.status(err.status || 500).json({ ok: false, error: err.message || 'No se pudo buscar' });
+  }
+});
+
+adminRouter.get('/reserved-thread/export', requireAdmin, async (req, res) => {
+  let packed = null;
+  try {
+    packed = await exportReservedThread(reservedThreadQuery(req));
+    res.download(packed.zipPath, packed.filename, () => packed.cleanup());
+  } catch (err) {
+    if (packed) packed.cleanup();
+    if (!res.headersSent) {
+      res.status(err.status || 500).json({ ok: false, error: err.message || 'No se pudo exportar' });
+    }
+  }
 });
 
 /** Expediente RESERVADO: copias del mes. No borra los audios en vivo. */
