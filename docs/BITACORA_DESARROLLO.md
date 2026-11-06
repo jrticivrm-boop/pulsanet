@@ -1,3 +1,11 @@
+## 2026-11-06 — RESERVADO: hilo ancho, foto y listas con búsqueda
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Conversaciones ocupa todo el ancho, como Grabaciones. La foto llena su recuadro. ¿De quién?, Operador y Grupo abren una lista con orden, conteo y «Buscar en lista…»; se elige uno y se cierra.
+- **Por qué / notas:** El visor de auditoría limitaba el hilo a 42 rem. En pruebas las fotos reales no están en disco hasta copiar multimedia.
+- **Archivos / refs:** `ReservedPick.jsx` · `ReservedWhoBar.jsx` · `AuditConversationPeek.jsx` · `command-center.css`
+
 ## 2026-11-06 — RESERVADO: hilo legible, búsqueda y ZIP
 
 - **Tipo:** feature

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchAdminGroups, fetchAdminUsers } from '../api';
+import ReservedPick from './ReservedPick.jsx';
 
 function iso(d) {
   const p = (n) => String(n).padStart(2, '0');
@@ -139,22 +140,17 @@ export default function ReservedWhoBar({ token, value, onChange }) {
 
   return (
     <section className="cc-card cc-reserved-who" aria-label="Filtro de consulta">
-      <label>
-        ¿De quién?
-        <select
-          value={value.userId}
-          onChange={(e) => pickUser(e.target.value)}
-          title={value.userName || 'Operador que envió el mensaje, la nota o el PTT'}
-        >
-          <option value="">Operador…</option>
-          {userOptions.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.displayName || u.username}
-              {u.username ? ` (@${u.username})` : ''}
-            </option>
-          ))}
-        </select>
-      </label>
+      <ReservedPick
+        label="¿De quién?"
+        title="Operador que envió el mensaje, la nota o el PTT"
+        placeholder="Operador…"
+        value={value.userId}
+        options={userOptions.map((u) => ({
+          id: u.id,
+          label: `${u.displayName || u.username}${u.username ? ` (@${u.username})` : ''}`,
+        }))}
+        onChange={pickUser}
+      />
       {hasSpeaker ? (
         <label>
           ¿Con quién?
@@ -170,38 +166,27 @@ export default function ReservedWhoBar({ token, value, onChange }) {
         </label>
       ) : null}
       {hasSpeaker && hasKind && value.withKind === 'grupo' ? (
-        <label>
-          Grupo
-          <select
-            value={value.groupId}
-            onChange={(e) => pickGroup(e.target.value)}
-            title={value.groupName || 'Grupo o canal de esa persona'}
-          >
-            <option value="">Grupo…</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name || 'Grupo'}
-              </option>
-            ))}
-          </select>
-        </label>
+        <ReservedPick
+          label="Grupo"
+          title="Grupo o canal de esa persona"
+          placeholder="Grupo…"
+          value={value.groupId}
+          options={groups.map((g) => ({ id: g.id, label: g.name || 'Grupo' }))}
+          onChange={pickGroup}
+        />
       ) : null}
       {hasSpeaker && hasKind && value.withKind === 'operador' ? (
-        <label>
-          Operador
-          <select
-            value={value.peerId}
-            onChange={(e) => pickPeer(e.target.value)}
-            title={value.peerName || 'La otra persona del chat'}
-          >
-            <option value="">Operador…</option>
-            {peers.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.displayName || u.username}
-              </option>
-            ))}
-          </select>
-        </label>
+        <ReservedPick
+          label="Operador"
+          title="La otra persona del chat"
+          placeholder="Operador…"
+          value={value.peerId}
+          options={peers.map((u) => ({
+            id: u.id,
+            label: u.displayName || u.username || 'Operador',
+          }))}
+          onChange={pickPeer}
+        />
       ) : null}
       {hasSpeaker && hasKind && hasTarget ? (
         <label>

@@ -66,9 +66,19 @@ function ReservedPhoto({ token, message }) {
 
   return (
     <div className="cc-rsv-photo">
-      {err ? <p className="cc-error">{err}</p> : null}
       <div className="cc-rsv-photo-frame">
-        {src ? <img src={src} alt="" /> : <span>Cargando foto…</span>}
+        {src ? (
+          <img
+            src={src}
+            alt=""
+            onError={() => {
+              setSrc('');
+              setErr('No se pudo mostrar la foto');
+            }}
+          />
+        ) : (
+          <span>{err || 'Cargando foto…'}</span>
+        )}
       </div>
       <button
         type="button"

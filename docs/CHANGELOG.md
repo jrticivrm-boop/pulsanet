@@ -10,6 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RESERVADO — listas y acomodo:** Conversaciones usa todo el ancho. La foto llena el recuadro. ¿De quién?, Operador y Grupo buscan y ordenan en la lista; se elige uno.
 - **RESERVADO — hilo, búsqueda y ZIP:** la barra de consulta queda arriba. La foto del hilo va en su recuadro, con Ampliar aparte. Lo eliminado y lo de una sola vez se conserva en RESERVADO (con etiqueta) y sigue oculto en el chat. Entre operadores: texto, foto o video de una sola vez. Buscar en este hilo, filtro Solo eliminados, y Exportar ZIP (HTML más fotos y audios).
 - **RESERVADO — barra de consulta:** los campos aparecen en orden (de quién, con quién, periodo) y quedan del mismo tamaño, más bajos.
 - **RESERVADO — revisión:** la copia del mes abierto no sustituye el cierre oficial; el expediente de cada organización queda separado; si el ZIP falla sigue el aviso; la conversación de auditoría muestra foto y audio.
