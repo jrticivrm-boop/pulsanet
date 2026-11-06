@@ -1,3 +1,11 @@
+## 2026-11-06 — ExploNova: ajustes, pastilla y descarga, alpha54
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:** Ajustes queda en tarjetas Oscuro, Claro y Color, con la barra y la navegación en apartados. Se quitaron letra, la fila de YouTube, el color de las barras, marcar un problema y restablecer apariencia. En YouTube se ocultan Shorts, títulos sueltos, publicaciones de imagen y promociones, sin tapar la barra de abajo. En los demás videos vuelve la pastilla: esconder, flotante, audio, reproductor y descargar. Descargar guarda la mejor calidad en un solo archivo. Siguen bloqueados anuncios, cuadros vacíos y pestañas de los sitios que ya cubría ExploNova.
+- **Por qué / notas:** La flotante, la completa y los gestos de YouTube no se tocaron. En el emulador el video de prueba salió 412×232, reproduciendo y sin pastilla; Ajustes mostró las tres tarjetas, Barra y los botones con su nombre. APK `ExploNova-2.0.0-alpha54.apk`, versionCode 274, 4 342 261 bytes, SHA256 `4D47F106B248435B3E8AB2F6ABBC80FCB21DD6C52100AA431AD1FDCB10A52065`. No se instaló en el teléfono. alpha53 queda intacto.
+- **Archivos / refs:** `SettingsSheet.kt` · `AstroScreen.kt` · `youtube-home.js` · `page-clean.js` · `VideoSaver.kt` · `AstroActivity.kt` · `BrowserEngine.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha54.apk`
+
 ## 2026-11-06 — ExploNova: arranque, silencio y gestos de YouTube, alpha53
 
 - **Tipo:** fix
@@ -21,6 +29,13 @@
 - **Qué:** La flotante de YouTube desborda el video un par de píxeles y pinta de negro el fondo de esa ventanita, para tapar las líneas blancas de abajo y de la derecha. El jalón a pantalla completa termina en YouTube; brillo, volumen y avance entran en el siguiente toque. El menú de tres puntos solo tiene Ajustes, y Favorito quedó a la izquierda de Actualizar.
 - **Por qué / notas:** En el emulador la flotante midió 231×131 sobre una ventana de 229×129, sin línea blanca en el borde. Al volver, el video quedó 412×232 en y=48 y siguió reproduciéndose. El menú mostró solo Ajustes y el favorito guardó example.com. APK `ExploNova-2.0.0-alpha51.apk`, versionCode 271, 4 376 419 bytes, SHA256 `3C61D3DACA75818DE9019782160CBE741FD635DA19283429CE9F7256B7AD8E2B`. No se instaló en el teléfono. alpha50 queda intacto.
 - **Archivos / refs:** `BrowserEngine.kt` · `AstroActivity.kt` · `AstroScreen.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha51.apk`
+
+## 2026-11-06 — RESERVADO: nombre y grado en enlaces aparte
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En ¿De quién? y Operador el encabezado queda «Ascendente · Grado ascendente». Cada enlace ordena por su lado. El que está activo se marca. Grupo solo tiene el del nombre.
+- **Archivos / refs:** `ReservedPick.jsx`
 
 ## 2026-11-06 — RESERVADO: orden por grado en las listas
 

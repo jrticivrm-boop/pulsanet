@@ -34,7 +34,8 @@ export default function ReservedPick({
   const shown = chosen?.label || '';
 
   const canGrade = options.some((o) => Number.isFinite(o.gradeSortOrder));
-  const modes = canGrade ? ['asc', 'desc', 'gradeAsc', 'gradeDesc'] : ['asc', 'desc'];
+  const nameOn = sortDir === 'asc' || sortDir === 'desc';
+  const gradeOn = sortDir === 'gradeAsc' || sortDir === 'gradeDesc';
 
   useEffect(() => {
     if (!canGrade) {
@@ -182,33 +183,39 @@ export default function ReservedPick({
               <div className="cc-ms-actions">
                 <button
                   type="button"
-                  className="cc-ms-link"
+                  className={`cc-ms-link${nameOn ? ' is-on' : ''}`}
                   title={
                     sortDir === 'desc'
-                      ? 'De la Z a la A. Otro clic ordena por grado, del soldado al más alto.'
-                      : sortDir === 'gradeAsc'
-                        ? 'Del soldado al grado más alto. Mismo grado, por nombre. Otro clic invierte la jerarquía.'
-                        : sortDir === 'gradeDesc'
-                          ? 'Del grado más alto al soldado. Mismo grado, por nombre. Otro clic vuelve al alfabeto.'
-                          : canGrade
-                            ? 'De la A a la Z. Otro clic invierte el alfabeto y luego ordena por grado.'
-                            : 'De la A a la Z. Otro clic invierte el alfabeto.'
+                      ? 'De la Z a la A. Otro clic vuelve de la A a la Z.'
+                      : 'De la A a la Z. Otro clic invierte el nombre.'
                   }
-                  onClick={() =>
-                    setSortDir((d) => {
-                      const i = modes.indexOf(d);
-                      return modes[(i + 1) % modes.length];
-                    })
-                  }
+                  onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : d === 'desc' ? 'asc' : 'asc'))}
                 >
-                  {sortDir === 'desc'
-                    ? 'Descendente'
-                    : sortDir === 'gradeAsc'
-                      ? 'Grado ascendente'
-                      : sortDir === 'gradeDesc'
-                        ? 'Grado descendente'
-                        : 'Ascendente'}
+                  {sortDir === 'desc' ? 'Descendente' : 'Ascendente'}
                 </button>
+                {canGrade ? (
+                  <>
+                    <span className="cc-ms-sep" aria-hidden>
+                      ·
+                    </span>
+                    <button
+                      type="button"
+                      className={`cc-ms-link${gradeOn ? ' is-on' : ''}`}
+                      title={
+                        sortDir === 'gradeDesc'
+                          ? 'Del grado más alto al soldado. Otro clic va del soldado al más alto.'
+                          : 'Del soldado al grado más alto. Mismo grado, por nombre. Otro clic invierte la jerarquía.'
+                      }
+                      onClick={() =>
+                        setSortDir((d) =>
+                          d === 'gradeAsc' ? 'gradeDesc' : d === 'gradeDesc' ? 'gradeAsc' : 'gradeAsc'
+                        )
+                      }
+                    >
+                      {sortDir === 'gradeDesc' ? 'Grado descendente' : 'Grado ascendente'}
+                    </button>
+                  </>
+                ) : null}
               </div>
               <div className="cc-ms-meta">
                 <span className="cc-ms-count">

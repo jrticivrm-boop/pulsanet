@@ -951,6 +951,11 @@
   background: color-mix(in srgb, var(--cc-accent) 9%, var(--cc-panel));
 }
 
+.cc-tactical-ms-panel.cc-rsv-ms .cc-ms-link.is-on {
+  color: var(--cc-accent);
+  font-weight: 700;
+}
+
 .cc-reserved-who select {
   text-overflow: ellipsis;
 }
