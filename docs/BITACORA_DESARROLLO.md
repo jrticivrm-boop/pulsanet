@@ -1,3 +1,11 @@
+## 2026-11-06 — RESERVADO: la barra de consulta cruza el ancho
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En Conversaciones la tarjeta ¿De quién? ocupa todo el ancho, igual que en Grabaciones. Los campos siguen a la izquierda.
+- **Por qué / notas:** Esa tarjeta estaba encogida al ancho del primer campo.
+- **Archivos / refs:** `command-center.css`
+
 ## 2026-11-06 — RESERVADO: hilo ancho, foto y listas con búsqueda
 
 - **Tipo:** ux

@@ -859,13 +859,22 @@
 
 .cc-card.cc-reserved-who {
   grid-column: 1 / -1;
-  align-self: start;
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
   height: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.4rem 0.65rem;
   padding: 0.5rem 0.7rem;
+}
+
+.cc-reserved-grabaciones > .cc-card.cc-reserved-who {
+  align-self: start;
+  justify-self: stretch;
 }
 
 .cc-reserved-who label {
