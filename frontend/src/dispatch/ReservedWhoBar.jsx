@@ -148,6 +148,7 @@ export default function ReservedWhoBar({ token, value, onChange }) {
         options={userOptions.map((u) => ({
           id: u.id,
           label: `${u.displayName || u.username}${u.username ? ` (@${u.username})` : ''}`,
+          gradeSortOrder: Number.isFinite(u.gradeSortOrder) ? u.gradeSortOrder : null,
         }))}
         onChange={pickUser}
       />
@@ -184,6 +185,7 @@ export default function ReservedWhoBar({ token, value, onChange }) {
           options={peers.map((u) => ({
             id: u.id,
             label: u.displayName || u.username || 'Operador',
+            gradeSortOrder: Number.isFinite(u.gradeSortOrder) ? u.gradeSortOrder : null,
           }))}
           onChange={pickPeer}
         />

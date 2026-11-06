@@ -33,11 +33,34 @@ export default function ReservedPick({
   const chosen = options.find((o) => String(o.id) === String(value));
   const shown = chosen?.label || '';
 
+  const canGrade = options.some((o) => Number.isFinite(o.gradeSortOrder));
+  const modes = canGrade ? ['asc', 'desc', 'gradeAsc', 'gradeDesc'] : ['asc', 'desc'];
+
+  useEffect(() => {
+    if (!canGrade) {
+      setSortDir((d) => (d === 'gradeAsc' || d === 'gradeDesc' ? 'asc' : d));
+    }
+  }, [canGrade]);
+
   const visible = useMemo(() => {
     const needle = fold(q.trim());
     const rows = options.filter((o) => !needle || fold(o.label).includes(needle));
-    rows.sort((a, b) => fold(a.label).localeCompare(fold(b.label), 'es'));
-    if (sortDir === 'desc') rows.reverse();
+    const byName = (a, b) => fold(a.label).localeCompare(fold(b.label), 'es');
+    rows.sort((a, b) => {
+      if (sortDir === 'gradeAsc' || sortDir === 'gradeDesc') {
+        const aHas = Number.isFinite(a.gradeSortOrder);
+        const bHas = Number.isFinite(b.gradeSortOrder);
+        if (aHas !== bHas) return aHas ? -1 : 1;
+        if (aHas && a.gradeSortOrder !== b.gradeSortOrder) {
+          return sortDir === 'gradeAsc'
+            ? b.gradeSortOrder - a.gradeSortOrder
+            : a.gradeSortOrder - b.gradeSortOrder;
+        }
+        return byName(a, b);
+      }
+      const name = byName(a, b);
+      return sortDir === 'desc' ? -name : name;
+    });
     return rows;
   }, [options, q, sortDir]);
 
@@ -162,12 +185,29 @@ export default function ReservedPick({
                   className="cc-ms-link"
                   title={
                     sortDir === 'desc'
-                      ? 'Orden de la Z a la A. Otro clic lo invierte.'
-                      : 'Orden de la A a la Z. Otro clic lo invierte.'
+                      ? 'De la Z a la A. Otro clic ordena por grado, del soldado al más alto.'
+                      : sortDir === 'gradeAsc'
+                        ? 'Del soldado al grado más alto. Mismo grado, por nombre. Otro clic invierte la jerarquía.'
+                        : sortDir === 'gradeDesc'
+                          ? 'Del grado más alto al soldado. Mismo grado, por nombre. Otro clic vuelve al alfabeto.'
+                          : canGrade
+                            ? 'De la A a la Z. Otro clic invierte el alfabeto y luego ordena por grado.'
+                            : 'De la A a la Z. Otro clic invierte el alfabeto.'
                   }
-                  onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                  onClick={() =>
+                    setSortDir((d) => {
+                      const i = modes.indexOf(d);
+                      return modes[(i + 1) % modes.length];
+                    })
+                  }
                 >
-                  {sortDir === 'desc' ? 'Descendente' : 'Ascendente'}
+                  {sortDir === 'desc'
+                    ? 'Descendente'
+                    : sortDir === 'gradeAsc'
+                      ? 'Grado ascendente'
+                      : sortDir === 'gradeDesc'
+                        ? 'Grado descendente'
+                        : 'Ascendente'}
                 </button>
               </div>
               <div className="cc-ms-meta">
@@ -177,7 +217,11 @@ export default function ReservedPick({
                 </span>
                 <span
                   className="cc-ms-hint"
-                  title="Ascendente o Descendente ordena la lista. Buscar filtra por nombre. Un clic elige."
+                  title={
+                    canGrade
+                      ? 'Ascendente y Descendente ordenan el nombre. Grado ascendente va del soldado al más alto; Grado descendente, al revés. Quien no tiene grado queda al final. Un clic elige.'
+                      : 'Ascendente o Descendente ordena la lista. Buscar filtra por nombre. Un clic elige.'
+                  }
                 >
                   ?
                 </span>

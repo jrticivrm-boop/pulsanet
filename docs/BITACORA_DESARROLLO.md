@@ -1,3 +1,19 @@
+## 2026-11-06 — ExploNova: arranque, silencio y gestos de YouTube, alpha53
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Un video de YouTube arranca solo en lugar de quedarse en el póster gris. Quitar el silencio ya no pausa; el botón de pausa sí. Brillo y volumen llegan hasta el tope sin cortarse ni sacar de la completa. Se quitó el reproductor paralelo que silenciaba el video de la página.
+- **Por qué / notas:** La flotante no se tocó. En el emulador el video salió en 412×232, y=48, reproduciendo; al quitar el silencio siguió y el tiempo avanzó, y una pausa real sí lo detuvo. APK `ExploNova-2.0.0-alpha53.apk`, versionCode 273, 4 340 415 bytes, SHA256 `B6E2033DBDCBCE96242D57F2A20079CA9567F14D5813BAD20525D72CEDAF1210`. No se instaló en el teléfono. alpha52 queda intacto.
+- **Archivos / refs:** `BrowserEngine.kt` · `FullscreenGestures.kt` · `YoutubeStreams.kt` · `AstroActivity.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha53.apk`
+
+## 2026-11-06 — ExploNova: gestos en la completa, búsqueda segura y diagnóstico, alpha52
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Los gestos de brillo, volumen y avance se enganchan a la pantalla completa de YouTube, que es la que recibe el dedo. Búsqueda segura queda encendida por defecto, sin listar sitios, y el buscador se elige entre Google, Bing, DuckDuckGo y Yahoo. Compartir diagnóstico entrega un solo texto; se quitaron Guardar y el modo profundo.
+- **Por qué / notas:** En el registro de alpha51 la completa era la de YouTube y el video de la página seguía chico, por eso el desliz no hacía nada. En el emulador el interruptor nació encendido; al apagarlo, Google salió con `safe=off` y Bing con `adlt=off`. El menú de sistema ya no muestra Guardar ni el interruptor profundo. APK `ExploNova-2.0.0-alpha52.apk`, versionCode 272, 4 376 419 bytes, SHA256 `362FA02F2359C930462905FFEB6B2A866B7C79D03B6130885C49240F7AEA8E38`. No se instaló en el teléfono. alpha51 queda intacto.
+- **Archivos / refs:** `AstroActivity.kt` · `BrowserModels.kt` · `SettingsSheet.kt` · `DiagnosticLog.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha52.apk`
+
 ## 2026-11-06 — ExploNova: borde de la flotante, jalón limpio y favorito, alpha51
 
 - **Tipo:** fix
@@ -5,6 +21,14 @@
 - **Qué:** La flotante de YouTube desborda el video un par de píxeles y pinta de negro el fondo de esa ventanita, para tapar las líneas blancas de abajo y de la derecha. El jalón a pantalla completa termina en YouTube; brillo, volumen y avance entran en el siguiente toque. El menú de tres puntos solo tiene Ajustes, y Favorito quedó a la izquierda de Actualizar.
 - **Por qué / notas:** En el emulador la flotante midió 231×131 sobre una ventana de 229×129, sin línea blanca en el borde. Al volver, el video quedó 412×232 en y=48 y siguió reproduciéndose. El menú mostró solo Ajustes y el favorito guardó example.com. APK `ExploNova-2.0.0-alpha51.apk`, versionCode 271, 4 376 419 bytes, SHA256 `3C61D3DACA75818DE9019782160CBE741FD635DA19283429CE9F7256B7AD8E2B`. No se instaló en el teléfono. alpha50 queda intacto.
 - **Archivos / refs:** `BrowserEngine.kt` · `AstroActivity.kt` · `AstroScreen.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha51.apk`
+
+## 2026-11-06 — RESERVADO: orden por grado en las listas
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En ¿De quién? y Operador el orden rota: Ascendente, Descendente, Grado ascendente (soldado al más alto) y Grado descendente. Mismo grado, por nombre. Sin grado, al final. Grupo sigue solo por nombre.
+- **Por qué / notas:** El lugar de cada grado sale del catálogo, no del alfabeto.
+- **Archivos / refs:** `ReservedPick.jsx` · `ReservedWhoBar.jsx` · `backend/src/routes/admin.js`
 
 ## 2026-11-06 — RESERVADO: la lista usa el panel de Persona
 

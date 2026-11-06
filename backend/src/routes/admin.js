@@ -339,6 +339,7 @@ function mapUser(u) {
     email: u.email,
     displayName: u.display_name,
     grade: u.grade || null,
+    gradeSortOrder: u.grade_sort_order != null ? Number(u.grade_sort_order) : null,
     specialty: u.specialty || null,
     cargo: u.cargo || null,
     serviceNombre: u.service_nombre || null,
@@ -868,8 +869,21 @@ adminRouter.get('/users', async (req, res) => {
               CASE WHEN ou.kind = 'zone' THEN ou.name END,
               CASE WHEN asu.kind = 'zone' THEN asu.name END
             ) AS zone_name,
-            l.latitude, l.longitude, l.recorded_at AS location_at
+            l.latitude, l.longitude, l.recorded_at AS location_at,
+            cg.sort_order AS grade_sort_order
      FROM users u
+     LEFT JOIN LATERAL (
+       SELECT g.sort_order
+       FROM cat_grades g
+       WHERE g.organization_id = u.organization_id
+         AND g.is_active
+         AND (
+           LOWER(g.abbreviation) = LOWER(TRIM(u.grade))
+           OR LOWER(g.name) = LOWER(TRIM(u.grade))
+         )
+       ORDER BY CASE WHEN LOWER(g.abbreviation) = LOWER(TRIM(u.grade)) THEN 0 ELSE 1 END
+       LIMIT 1
+     ) cg ON TRUE
      LEFT JOIN user_last_location l ON l.user_id = u.id
      LEFT JOIN org_units ou ON ou.id = u.unit_id
      LEFT JOIN org_units z ON z.id = ou.parent_id AND z.kind = 'zone'

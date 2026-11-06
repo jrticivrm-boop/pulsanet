@@ -10,6 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **RESERVADO — orden por grado:** en ¿De quién? y Operador, Ascendente, Descendente, Grado ascendente (soldado al más alto) y Grado descendente. El orden sale del catálogo de grados.
 - **RESERVADO — lista de Persona:** ¿De quién?, Operador y Grupo abren el panel de Operaciones (Ascendente, conteo, buscar). Sin Marcar ni checks. Sigue el tema activo.
 - **RESERVADO — barra a todo el ancho:** en Conversaciones la tarjeta de consulta cruza la página, como en Grabaciones.
 - **RESERVADO — listas y acomodo:** Conversaciones usa todo el ancho. La foto llena el recuadro. ¿De quién?, Operador y Grupo buscan y ordenan en la lista; se elige uno.
