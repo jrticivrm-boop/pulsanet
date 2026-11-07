@@ -798,12 +798,15 @@ export async function downloadReservedThread(token, { userId, peerId, groupId, f
     throw new Error(data.error || 'No se pudo exportar');
   }
   const blob = await res.blob();
+  if (!blob || blob.size < 32) throw new Error('El ZIP llegó vacío');
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = `conversacion_${from || 'hilo'}_${to || ''}.zip`;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 export function fetchReservedArchives(token) {

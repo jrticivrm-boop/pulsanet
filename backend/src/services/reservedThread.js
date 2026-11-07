@@ -251,7 +251,11 @@ function messageHtml(row, rel) {
 
 function zipDir(sourceDir, destZip) {
   return new Promise((resolve, reject) => {
-    const proc = spawn('tar', ['-a', '-c', '-f', destZip, '-C', sourceDir, '.'], { windowsHide: true });
+    const proc = spawn(
+      'tar',
+      ['-a', '-c', '-f', destZip, '-C', sourceDir, 'conversacion.html', 'media'],
+      { windowsHide: true }
+    );
     let stderr = '';
     proc.stderr.on('data', (b) => {
       stderr += b.toString();

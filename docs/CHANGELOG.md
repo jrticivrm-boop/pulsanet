@@ -9,6 +9,8 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **RESERVADO — ZIP del hilo:** el archivo trae `conversacion.html` y la carpeta `media` en la raíz. La descarga ya no se corta antes de guardarse.
 ### Added
 - **RESERVADO — orden separado:** en ¿De quién? y Operador, «Ascendente · Grado ascendente». Cada enlace ordena por su lado.
 - **RESERVADO — orden por grado:** en ¿De quién? y Operador, Ascendente, Descendente, Grado ascendente (soldado al más alto) y Grado descendente. El orden sale del catálogo de grados.

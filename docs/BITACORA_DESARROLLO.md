@@ -1,3 +1,226 @@
+## 2026-11-06 — RESERVADO: el ZIP del hilo ya no sale vacío
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** Exportar ZIP guarda `conversacion.html` y la carpeta `media` en la raíz. El navegador ya no borra el archivo antes de descargarlo.
+- **Archivos / refs:** `reservedThread.js` · `api.js`
+
+## 2026-11-06 — ExploNova: silencio, pantalla negra y marcos
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En YouTube, quitar el silencio ya no deja el video en pausa y el giro ya no aplasta el reproductor a alto cero. En hqporner y HentaiLA, pantalla completa y flotante agrandan el marco del reproductor.
+- **Por qué / notas:** El diagnóstico `2.0.0-alpha68` (sesión 1a1b3eba1bb) marcó la pausa del silencio como `user=true` a las 20:54:23, el video a `0×0` al entrar en flotante a las 20:54:52, y en HentaiLA/hqporner el marco se quedó en su tamaño de página (`pip_fit_skipped`). Solo código, versionCode 290 / `2.0.0-alpha70`. No se generó APK. El teléfono sigue en alpha68.
+- **Archivos / refs:** `BrowserEngine.kt` · `AstroActivity.kt` · `app/build.gradle.kts`
+
+## 2026-11-06 — ExploNova: APK alpha69, silencio de YouTube
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al quitar el silencio en YouTube el video sigue. El toque en un control del reproductor ya no se guarda como pausa. El botón de pausa y el toque sobre la imagen sí pausan.
+- **Por qué / notas:** alpha68 llegaba tarde: YouTube pausaba en el mismo toque. `ExploNova-2.0.0-alpha69.apk`, versionCode 289, 4 395 117 bytes, SHA256 `5D7B0F8E5049F4EABAE747C0C52BB2F923988BF33DC2E2C253BC66DE21C65A15`. No se instaló. alpha68 queda intacto.
+- **Archivos / refs:** `BrowserEngine.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha69.apk`
+
+## 2026-11-06 — ExploNova: APK alpha68
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK con todas las correcciones del reproductor, incluida la del silencio de YouTube: activar el sonido ya no pausa el video.
+- **Por qué / notas:** `ExploNova-2.0.0-alpha68.apk`, versionCode 288, 4 395 117 bytes, SHA256 `DC2199327BB2F083F1AE3A6F8B621545E3532FEF33C8F719EB6F7D67AF070976`. No se instaló en el teléfono. alpha67 queda intacto.
+- **Archivos / refs:** `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha68.apk`
+
+## 2026-11-06 — ExploNova: quitar el silencio ya no pausa
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En YouTube, activar el sonido ya no deja el video en pausa. Si el reproductor manda una pausa al subir el volumen, se descarta y el video sigue.
+- **Por qué / notas:** alpha67 seguía tomando ese gesto como pausa del usuario. Código en versionCode 288 / `2.0.0-alpha68`. No se generó APK. El teléfono sigue en alpha67.
+- **Archivos / refs:** `BrowserEngine.kt` · `app/build.gradle.kts`
+
+## 2026-11-06 — ExploNova: APK alpha67
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK con las correcciones del reproductor: pausas de YouTube y de la flotante, silencio, diagnóstico al compartir, cuadro blanco, datos al terminar la descarga, giro sin recorte y respaldo sin aviso de flotante.
+- **Por qué / notas:** `ExploNova-2.0.0-alpha67.apk`, versionCode 287, 4 395 117 bytes, SHA256 `B9D3A42ACAF196F50D26921A87AAE35C49480F3E8D6130019F04B51368D75E6D`. No se instaló en el teléfono. alpha66 queda intacto.
+- **Archivos / refs:** `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha67.apk`
+
+## 2026-11-06 — ExploNova: giro sin recorte y respaldo sin flotante
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al girar el teléfono, si el video se sale de la ventana se encoge un instante para verse entero y luego recupera el tamaño de la página. Exportar o importar el respaldo ya no abre la ventana flotante ni muestra el aviso.
+- **Por qué / notas:** El recorte duraba unos 300 ms porque el video conservaba el tamaño anterior. El selector de archivos se tomaba como salida de la app. Código en versionCode 287 / `2.0.0-alpha67`. No se generó APK.
+- **Archivos / refs:** `AstroActivity.kt` · `BrowserEngine.kt`
+
+## 2026-11-06 — ExploNova: el video que se ve no se pausa solo
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** La flotante, los audífonos y el reanudado usan el video que se está viendo, no el primer elemento oculto. Si ese video se pausa solo mientras debe seguir, se vuelve a poner. Una pausa de un instante ya no apaga el audio. La descarga ignora el MP4 del anuncio aunque esté en el reproductor. El avance de una lista HLS cuenta también el inicio del archivo.
+- **Por qué / notas:** En el diagnóstico la flotante medía el video en 0×0 y se quedaba en pausa. La geometría de la ventanita de YouTube no se tocó. Código en versionCode 287 / `2.0.0-alpha67`. No se generó APK. El teléfono sigue en alpha66.
+- **Archivos / refs:** `BrowserEngine.kt` · `AstroActivity.kt` · `VideoSaver.kt`
+
+## 2026-11-06 — ExploNova: YouTube, compartir, cuadro blanco y datos de descarga
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** YouTube ya no se pausa solo porque su propio audio parece otra aplicación. Quitar el silencio no cuenta como pausa. Compartir el diagnóstico no intenta la ventana flotante. El cuadro blanco del anuncio se oculta antes de pintarse. Al terminar una descarga se muestran calidad, formato y peso reales.
+- **Por qué / notas:** El diagnóstico del 6 nov mostraba `audio_focus paused` justo después de que el video arrancara, y al compartir salía «Android no aceptó la ventana flotante». Código en versionCode 287 / `2.0.0-alpha67`. No se generó APK.
+- **Archivos / refs:** `AstroActivity.kt` · `BrowserEngine.kt` · `page-clean.js` · `VideoSaver.kt` · `DownloadBoard.kt` · `DiagnosticLog.kt`
+
+## 2026-11-06 — ExploNova: descarga de HentaiLA, alpha66
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En HentaiLA la descarga toma el episodio (`/play/{id}` → `/m3u8/{id}`), no el MP4 del anuncio que el reproductor pide antes.
+- **Por qué / notas:** APK `ExploNova-2.0.0-alpha66.apk`, versionCode 286, 4 395 013 bytes, SHA256 `1CC90DB40455A99F468211D90C4025C1F0BBB1FB6648131DC68FBEBB865FDFBD`. No se instaló en el teléfono. alpha65 queda intacto.
+- **Archivos / refs:** `SiteMedia.kt` · `AstroActivity.kt` · `BrowserEngine.kt` · `VideoSaver.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha66.apk`
+
+## 2026-11-06 — ExploNova: el logo del sitio se queda, alpha65
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** La cabecera y el logo del sitio ya no se tratan como hueco vacío. La etiqueta «AI Cum Sluts» que va encima de la imagen sí se oculta.
+- **Por qué / notas:** APK `ExploNova-2.0.0-alpha65.apk`, versionCode 285, 4 395 013 bytes, SHA256 `EF12ACEA08A07EDEEF3356C5350DDA5742B16F4C06D9907104E9058CB7A614DD`. No se instaló en el teléfono. alpha64 queda intacto.
+- **Archivos / refs:** `page-clean.js` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha65.apk`
+
+## 2026-11-06 — ExploNova: etiquetas encima del video, alpha64
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En cualquier sitio se oculta la etiqueta corta que se pone encima del video y no es un control. Incluye «AI Cum Sluts» aunque el texto venga separado.
+- **Por qué / notas:** APK `ExploNova-2.0.0-alpha64.apk`, versionCode 284, 4 394 861 bytes, SHA256 `CC86551EC7A1B281748E859429A3252318DD6332C1185748FD172A120FE75852`. No se instaló en el teléfono. alpha63 queda intacto.
+- **Archivos / refs:** `page-clean.js` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha64.apk`
+
+## 2026-11-06 — ExploNova: alpha63
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** APK con HentaiLA (cuadro blanco, descarga, flotante y pantalla completa), hdporner (descarga, etiqueta y audífonos), hqporner, xnxx y el reproductor común del directorio.
+- **Por qué / notas:** APK `ExploNova-2.0.0-alpha63.apk`, versionCode 283, 4 394 337 bytes, SHA256 `A500A233C0A39D227DF40309DD443DC9FE1AB3010D6F1E12BC428CB13B40AFC7`. No se instaló en el teléfono. alpha62 queda intacto.
+- **Archivos / refs:** `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha63.apk`
+
+## 2026-11-06 — ExploNova: reproductor común para los sitios del directorio
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:** En cualquier ficha con reproductor, la barra, los audífonos, la flotante y la pantalla completa siguen ese cuadro. Los anuncios en marco y el hueco vacío de arriba se ocultan. La descarga lee el archivo de la página y, si hace falta, el del reproductor incrustado.
+- **Por qué / notas:** ThePornDude lista cientos de sitios con reproductores distintos. No hay un extractor por cada uno: vale el video o el marco que está en la página. El teléfono sigue en alpha62. No se generó APK.
+- **Archivos / refs:** `page-clean.js` · `BrowserEngine.kt` · `SiteMedia.kt`
+
+## 2026-11-06 — ExploNova: descarga en xnxx
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En una ficha de xnxx (`/video-id/…`) sale la barra y la descarga toma el MP4 que publica la página. Si no hay archivo, usa la lista.
+- **Por qué / notas:** El teléfono sigue en alpha62. No se generó APK.
+- **Archivos / refs:** `AstroActivity.kt` · `BrowserEngine.kt` · `SiteMedia.kt`
+
+## 2026-11-06 — ExploNova: barra y descarga en hqporner
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En una ficha de hqporner (`/hdporn/número-….html`) sale la barra. Flotante y pantalla completa se encienden cuando el reproductor está en pantalla. La descarga toma el MP4 más alto que publica ese reproductor.
+- **Por qué / notas:** El teléfono sigue en alpha62. No se generó APK.
+- **Archivos / refs:** `AstroActivity.kt` · `BrowserEngine.kt` · `SiteMedia.kt`
+
+## 2026-11-06 — ExploNova: etiqueta de hdporner y audífonos
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En hdporner se oculta la etiqueta «aicum sluts». El botón de audífonos pulsa play, sube el volumen y deja el audio al pasar a segundo plano.
+- **Por qué / notas:** Antes se iba al fondo antes de que el video arrancara, y por eso no sonaba. El teléfono sigue en alpha62. No se generó APK.
+- **Archivos / refs:** `page-clean.js` · `BrowserEngine.kt` · `AstroActivity.kt`
+
+## 2026-11-06 — ExploNova: HentaiLA flotante y hdporner
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En HentaiLA el reproductor del episodio ya cuenta como video, así que flotante y pantalla completa dejan de quedar apagados. En hdporner la descarga toma el MP4 de la página (la ruta termina en `.mp4/`) y elige la mayor calidad.
+- **Por qué / notas:** El teléfono sigue en alpha62. No se generó APK; se arma cuando se pida.
+- **Archivos / refs:** `BrowserEngine.kt` · `SiteMedia.kt` · `VideoSaver.kt`
+
+## 2026-11-06 — ExploNova: cuadro blanco y descarga en HentaiLA
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En el episodio de HentaiLA se oculta el recuadro blanco vacío que queda arriba del reproductor. La descarga de ese servidor (`/play/…` → `/m3u8/…`, sin extensión) se guarda como lista de partes, no como página.
+- **Por qué / notas:** El teléfono sigue en alpha62. No se generó APK; se arma cuando se pida.
+- **Archivos / refs:** `page-clean.js` · `BrowserEngine.kt` · `VideoSaver.kt` · `SiteMedia.kt`
+
+## 2026-11-06 — ExploNova: HentaiLA, Enter en el buscador y eporner, alpha62
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En HentaiLA el reproductor ya no se esconde como hueco vacío, y lo que carga el propio sitio no se trata como anuncio. En el episodio vuelve la barra. Enter en la barra y en el inicio abre la búsqueda o el sitio. eporner baja el MP4 de la página, no la dirección que respondía 403.
+- **Por qué / notas:** APK `ExploNova-2.0.0-alpha62.apk`, versionCode 282, 4 393 729 bytes, SHA256 `B43A70AF59D60DF8A08EA3BEF6DAA594618097889B5902ECEAAAD4D2AC25B6B5`. No se instaló en el teléfono. alpha61 queda intacto.
+- **Archivos / refs:** `page-clean.js` · `AdBlock.kt` · `AstroActivity.kt` · `AstroScreen.kt` · `SiteMedia.kt` · `VideoSaver.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha62.apk`
+
+## 2026-11-06 — ExploNova: eporner ya no responde 403 al descargar
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** La descarga de eporner pide el MP4 que publica la página, no la dirección del reproductor que el sitio rechaza. El archivo se pide con el referer de eporner y sin Origin. Si el sitio niega un pedido por trozos, se baja el archivo de una sola vez.
+- **Por qué / notas:** El error en pantalla era `http 403` y el renglón decía «Este video». El código ya compila. No se generó APK.
+- **Archivos / refs:** `SiteMedia.kt` · `VideoSaver.kt`
+
+## 2026-11-06 — ExploNova: saltar intersticial y pantalla completa de Facebook, alpha61
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Pornhub ya no se queda en «Continuar al vídeo»: si la dirección es `/interstitial` con la clave del video, abre directo `view_video.php`. En Facebook, con pantalla completa, se ocultan Me gusta, Compartir y lo que asoma debajo del video. El video no se mueve de su tarjeta. Al salir, esos botones vuelven.
+- **Por qué / notas:** APK `ExploNova-2.0.0-alpha61.apk`, versionCode 281, 4 377 229 bytes, SHA256 `2500FCD4D68D86F5791C543F2F3212E7563459A9B783590EAA22F08B2A21A43F`. No se instaló en el teléfono. alpha60 queda intacto.
+- **Archivos / refs:** `BrowserEngine.kt` · `page-clean.js` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha61.apk`
+
+## 2026-11-06 — ExploNova: el video de la página arranca y se quitan huecos vacíos, alpha60
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En la ficha de un video, un toque sobre el reproductor lo pone en marcha y le quita el mute si se había quedado en la portada. Un toque ya no se confunde con pausa mientras el video sigue en cero. Los cuadros grandes sin texto, sin imagen y sin enlaces se ocultan en cualquier sitio, y si un bloque alto solo trae un poco de contenido se le quita el espacio vacío de arriba.
+- **Por qué / notas:** En Pornhub el video se quedaba en 00:00 y arriba quedaba un cuadro negro, resto de un anuncio bloqueado. APK `ExploNova-2.0.0-alpha60.apk`, versionCode 280, 4 377 101 bytes, SHA256 `C61C6A96631E656B34D0E38AED97F21B204303D0F61016FECF83F4EE9E271FBF`. No se instaló en el teléfono. alpha59 queda intacto.
+- **Archivos / refs:** `page-clean.js` · `BrowserEngine.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha60.apk`
+
+## 2026-11-06 — ExploNova: descarga completa y pantalla, alpha59
+
+- **Tipo:** feature
+- **Área:** mobile
+- **Qué:** La barra queda en audífonos, flotante, pantalla completa y descargar. Audífonos siempre activo: un toque reproduce, quita el mute y manda el audio al fondo. Descargar aparece en la ficha del video sin tener que darle play; flotante y completa siguen apagados hasta que hay reproductor. Un video horizontal gira a paisaje y se ve entero; uno vertical se queda en retrato. Se oculta la barra propia del sitio. Hay una sola lista de descargas para videos y archivos, con porcentaje, tamaño, velocidad, cancelar, reintentar y abrir. El archivo solo pasa a Descargas del teléfono al 100 % y, si es video, solo si tiene pista de video y de audio. Pornhub prefiere el MP4 completo y, si solo hay segmentos, los baja varios a la vez. La descarga sigue con la pantalla apagada.
+- **Por qué / notas:** Antes un archivo a medias llegaba a Descargas y no se podía reproducir. Del repositorio pornhub-video-downloader se tomó la idea de pedir el archivo con el Referer de la página y Accept de video, y de no guardar nada hasta que la descarga termine; no se copió el código. APK `ExploNova-2.0.0-alpha59.apk`, versionCode 279, 4 375 705 bytes, SHA256 `11E375BE26C544D9ECEBCCCAA4F29C40C565F6AAD8689325F8D3C2DBD37B5C2C`. No se instaló en el teléfono. alpha58 queda intacto.
+- **Archivos / refs:** `VideoSaver.kt` · `DownloadBoard.kt` · `DownloadsSheet.kt` · `SiteMedia.kt` · `AstroScreen.kt` · `AstroActivity.kt` · `BrowserEngine.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha59.apk`
+
+## 2026-11-06 — ExploNova: Pornhub con la dirección real, alpha58
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Pornhub ya no intenta guardar la lista que se ve en la página. Lee el flashvars, pide el listado get_media y baja el MP4 más alto, que ya trae audio. Si solo hay lista, une video y audio y no deja un archivo mudo. La petición lleva el origen y las cookies de edad, que es lo que el sitio exige. YouPorn, RedTube, Tube8 y páginas con og:video usan la misma idea.
+- **Por qué / notas:** alpha57 encontraba una dirección, pero el CDN la rechazaba. APK `ExploNova-2.0.0-alpha58.apk`, versionCode 278, 4 359 269 bytes, SHA256 `F864ACF5FB10AC18504E1E995D6CEAA263E03B0F1F9B6C2D33B9FCE111FBE8D9`. No se instaló en el teléfono. alpha57 queda intacto.
+- **Archivos / refs:** `SiteMedia.kt` · `QualityDownload.kt` · `VideoSaver.kt` · `BrowserEngine.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha58.apk`
+
+## 2026-11-06 — ExploNova: barra, Facebook y Pornhub, alpha57
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En YouTube a pantalla completa ya no se ven Me gusta ni Compartir. Ajustar alterna entre recortar y rellenar el video. El muro de Facebook deja de usar el CSS genérico de anuncios que lo dejaba en blanco y el video en gris; sigue ocultando Reels y Publicidad sin tragarse la página. La barra recuerda favoritos e historial y los sugiere desde la primera letra. Pornhub usa la dirección real que pidió el reproductor y las cookies del sitio del video.
+- **Por qué / notas:** APK `ExploNova-2.0.0-alpha57.apk`, versionCode 277, 4 359 269 bytes, SHA256 `0BDCAA39D252562063E49ABE2440E6DB96CE352A3D431299979BCAAF2657DB09`. No se instaló en el teléfono. alpha56 queda intacto.
+- **Archivos / refs:** `AstroScreen.kt` · `AstroStore.kt` · `BrowserEngine.kt` · `AstroActivity.kt` · `VideoSaver.kt` · `social-feed.js` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha57.apk`
+
+## 2026-11-06 — ExploNova: descarga de Pornhub, alpha56
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Pornhub vuelve a encontrar el video, aunque la dirección sea una lista. La descarga guarda el MP4 si ya trae audio; si el audio va aparte, lo baja, lo descifra si hace falta y lo une en un solo archivo, como el ExploNova anterior. Si no se puede unir, no deja un video mudo.
+- **Por qué / notas:** alpha55 tiraba la lista y avisaba que no había video. APK `ExploNova-2.0.0-alpha56.apk`, versionCode 276, 4 358 965 bytes, SHA256 `440630F53FFB01DE062B9EC07694659CA2CEA64877E5F9C26C10A16817A62CBD`. No se instaló en el teléfono. alpha55 queda intacto.
+- **Archivos / refs:** `BrowserEngine.kt` · `VideoSaver.kt` · `QualityDownload.kt` · `download/HlsParser.kt` · `download/Mux.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha56.apk`
+
+## 2026-11-06 — ExploNova: Facebook, audio y descarga, alpha55
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En Facebook la completa deja de pelear pausa y play, un video vertical llena la pantalla y el teléfono no gira a horizontal. En el muro principal se ocultan la fila de Reels y las tarjetas marcadas Publicidad. El audio de la pastilla vuelve a ser audífonos: el video de la página sigue sonando al salir, y si el sitio no lo permite se avisa. La descarga prefiere el archivo que ya trae audio; si no se puede unir y quedaría mudo, no se guarda. Se quitó Importar respaldo.
+- **Por qué / notas:** YouTube, la flotante y los gestos no se tocaron. En el emulador un video de YouTube salió reproduciendo, 309×232, y=48, sin pastilla. En Sistema quedan Exportar, Compartir diagnóstico y Buscar actualización firmada. Facebook, el pliegue y Pornhub se confirman en el teléfono. APK `ExploNova-2.0.0-alpha55.apk`, versionCode 275, 4 342 585 bytes, SHA256 `123BA251BE6C53A9F6E68A2CF44EBB87F491D8791BE4D8E248F5CEA984573367`. No se instaló en el teléfono. alpha54 queda intacto.
+- **Archivos / refs:** `BrowserEngine.kt` · `AstroActivity.kt` · `AstroScreen.kt` · `social-feed.js` · `VideoSaver.kt` · `SettingsSheet.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha55.apk`
+
 ## 2026-11-06 — ExploNova: ajustes, pastilla y descarga, alpha54
 
 - **Tipo:** mejora
