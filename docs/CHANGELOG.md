@@ -9,6 +9,8 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- **Mapa — zoom:** los botones + y − saltan un nivel. La rueda del mouse avanza un cuarto de nivel por muesca.
 ### Fixed
 - **RESERVADO — ZIP del hilo:** el archivo trae `conversacion.html` y la carpeta `media` en la raíz. La descarga ya no se corta antes de guardarse.
 ### Added

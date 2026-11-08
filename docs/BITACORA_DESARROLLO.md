@@ -1,3 +1,66 @@
+## 2026-11-08 — Mapa: la rueda acerca menos que los botones
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** Los botones + y − siguen saltando un nivel entero. La rueda del mouse avanza un cuarto de nivel por muesca.
+- **Archivos / refs:** `frontend/src/dispatch/mapLeafletUtils.jsx`
+
+## 2026-11-06 — ExploNova: Pornhub deja de ocultar la página
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En Pornhub el bloqueador ya no esconde la columna, la lista ni las fotos. El limpiador de la página tampoco recorre el sitio. Solo se aplasta el anuncio mismo cuando esa caja no trae video ni foto.
+- **Por qué / notas:** La completa y la flotante no se tocaron. En el emulador el inicio muestra las miniaturas, el reproductor mide 16:9 y la lista no queda en solo texto. El teléfono no se actualizó. `ExploNova-2.0.0-alpha80.apk`, versionCode 300, 4412869 bytes, SHA256 `56C0A4FCAE5FFADC37B81841B9EBA0D995446C93A40692E0F4808BBD023441CA`.
+- **Archivos / refs:** `adblock/Engine.kt` · `page-clean.js` · `BrowserEngine.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha80.apk`
+
+## 2026-11-06 — ExploNova: Pornhub vuelve a mostrar las fotos
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En Pornhub ya no se ocultan las imágenes con `srcset` ni las de ancho 300. Esas reglas tapaban las miniaturas y el póster del reproductor. El limpiador tampoco esconde ni aplasta una caja que ya trae foto.
+- **Por qué / notas:** Por eso unos videos salían solo con texto y otros se veían a la mitad. El teléfono no se actualizó. `ExploNova-2.0.0-alpha77.apk`, versionCode 297, 4412641 bytes, SHA256 `A5D3BCE3862525E45735FA5E83569D7DF7478D113D268A227D02A675EF616434`.
+- **Archivos / refs:** `adblock/Engine.kt` · `page-clean.js` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha77.apk`
+
+## 2026-11-06 — ExploNova: la página de Pornhub ya no se aplasta
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En la página de Pornhub el video y sus controles quedan como los pinta el sitio. Se dejó de forzar `object-fit` y el recuadro 9:16 sobre el reproductor de la página. El limpiador ya no esconde ni aplasta la caja del reproductor (alto por relleno y controles `mgp_`).
+- **Por qué / notas:** Ese arreglo de la página recortaba el video y tapaba la barra del sitio. La 9:16 sigue solo en la ventana flotante de un corto. No se usó el emulador. El teléfono no se actualizó. `ExploNova-2.0.0-alpha76.apk`, versionCode 296, 4412361 bytes, SHA256 `F59B784BD0231AD1DD57772D7A1EDD33D12EBBD71EE0008E38440A5940229B94`.
+- **Archivos / refs:** `page-clean.js` · `BrowserEngine.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha76.apk`
+
+## 2026-11-06 — ExploNova alpha75, sin comprobar en emulador
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En lo que no es YouTube, la completa lleva nuestros controles (play/pausa, brillo y volumen; el gesto no sale). La flotante, en código, engancha toque y mitades de brillo/volumen. El iframe se escala en su sitio, sin moverlo, y se recorta abajo la franja de la barra nativa. Mientras se prepara o está la flotante, esa pestaña no recibe `WebView.onPause`. En Pornhub la página intenta dejar el video entero y sus controles; los cortos se fuerzan a 9:16 en la flotante. YouTube no se reescribió.
+- **Por qué / notas:** El usuario lo prueba después. No queda comprobado aquí HentaiLA en flotante, hqporner ni Pornhub. tiohentai queda pendiente: se quitó el seguimiento de reproductores citados, que no estaba terminado. El teléfono no se actualizó. `ExploNova-2.0.0-alpha75.apk`, versionCode 295, 4412341 bytes, SHA256 `1C4F5E12775BB1BE87DF4BA65B6197DB36E15B717439FA8E93AA71F81CA7CEC7`.
+- **Archivos / refs:** `BrowserEngine.kt` · `AstroActivity.kt` · `FullscreenGestures.kt` · `FullscreenControlBar.kt` · `page-clean.js` · `SiteMedia.kt` · `VideoSaver.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha75.apk`
+
+## 2026-11-06 — ExploNova: completa y flotante ya no pausan
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** El reproductor de otro sitio se escala en su lugar. Entrar a pantalla completa o flotante ya no lo reinicia. Al salir se vuelve al mismo punto de la página.
+- **Por qué / notas:** Mover el marco lo recargaba: salía el botón de play y, al volver, la página quedaba en los comentarios. En el emulador el video siguió en completa y en flotante, y al salir seguía el episodio 1. La tecla atrás de completa ya no retrocede el historial. `ExploNova-2.0.0-alpha73.apk`, versionCode 293, 4 411 501 bytes, SHA256 `F0C6D8D4DAD2FB05680393402435B42E05A36950601CCE08EAD069C961F376F6`. Instalado en el emulador. El teléfono no se actualizó.
+- **Archivos / refs:** `BrowserEngine.kt` · `AstroActivity.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha73.apk`
+
+## 2026-11-06 — ExploNova: flotante de HentaiLA ya no recorta
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** La ventana flotante de HentaiLA encaja el reproductor dentro del recuadro. El alto mínimo de la página (256 px) ya no lo deja más alto que la ventanita.
+- **Por qué / notas:** En el emulador el marco medía 222×256 dentro de una ventana de 222×138: negro y solo la punta del play. Con alpha72 quedó 209×118 dentro de 209×148, el botón de play completo y centrado. `ExploNova-2.0.0-alpha72.apk`, versionCode 292, 4 411 497 bytes, SHA256 `140F6E9E0B16FA1DC441AB74F42C9D9D44212BBD70DDBBA98622C12FE1164DAF`. Instalado en el emulador. El teléfono no se actualizó.
+- **Archivos / refs:** `BrowserEngine.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha72.apk`
+
+## 2026-11-06 — ExploNova: APK alpha71, marcos y silencio comprobados
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** El reproductor de otro sitio (hqporner, HentaiLA) se mueve a la pantalla y se encaja completo, centrado. En horizontal llena el alto. La ventana flotante usa ese mismo marco.
+- **Por qué / notas:** En el emulador, hqporner en horizontal quedó en 647×364 centrado dentro de 866×364. HentaiLA igual. La flotante llenó 230×129 y ya no sale `pip_fit_skipped`. En YouTube, tocar el silencio no generó pausa y el video siguió. `ExploNova-2.0.0-alpha71.apk`, versionCode 291, 4 411 501 bytes, SHA256 `90CC3F72562413744DCBDEC7FEBF90AE7E527846E4A70160E95B0CF1B9C65FC7`. Instalado solo en el emulador. El teléfono no se actualizó.
+- **Archivos / refs:** `BrowserEngine.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha71.apk`
+
 ## 2026-11-06 — RESERVADO: el ZIP del hilo ya no sale vacío
 
 - **Tipo:** fix

@@ -348,15 +348,17 @@ export function MapCursorFix() {
 /**
  * Zoom con la rueda estilo Google Maps: la rueda acumula un zoom objetivo (nada
  * se descarta) y el mapa se desliza hacia él frame a frame, fijo bajo el cursor.
- * Tiles se recargan al terminar. Botones +/- siguen en zoomDelta=1.
+ * Tiles se recargan al terminar.
+ * Los botones +/- saltan un nivel entero (zoomDelta=1). La rueda es más fina:
+ * una muesca ≈ un cuarto de nivel, para acercar sin pegar el mismo brinco.
  * Usa `_move/_moveStart/_moveEnd` de Leaflet 1.9 (igual que Leaflet.SmoothWheelZoom).
  */
 export function CursorZoom() {
   const map = useMap();
   useEffect(() => {
     const el = map.getContainer();
-    const PX_PER_LEVEL = 120; // ~1 muesca de rueda = 1 nivel
-    const MAX_PER_EVENT = 1.5; // tope por evento (ruedas libres / trackpad rápido)
+    const PX_PER_LEVEL = 480; // ~1 muesca (deltaY 120) = 0.25 niveles
+    const MAX_PER_EVENT = 0.5; // un giro rápido no iguala el salto del botón
     const EASE = 0.3; // fracción del recorrido restante por frame
 
     map.options.zoomSnap = 0.25;
