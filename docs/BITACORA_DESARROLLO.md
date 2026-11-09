@@ -1,3 +1,138 @@
+## 2026-11-09 — Territorio: Marcar y el orden como Parque Vehicular
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** En Estado / Municipio, Marcar y Desmarcar miran los 152 aunque el estado esté plegado. Descendente también mueve los estados, no solo los municipios.
+- **Archivos / refs:** `MapCheckSelect.jsx` · `TerritoryOpsPanel.jsx`
+
+## 2026-11-09 — ExploNova: el encabezado ya no tapa el video
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al bajar en un video, las etiquetas fijas del encabezado de la página siguen el documento y no se quedan encima del video. En pantalla completa el video ocupa toda la pantalla, de borde a borde, sin estirarse.
+- **Por qué / notas:** Esa barra era `position: sticky` y al deslizar cubría la parte alta del video. La completa centraba el video y dejaba un margen. En el emulador, tras deslizar no queda nada encima del video, y en horizontal el cuadro cubre el 100% del ancho y del alto. versionCode 316, `2.0.0-alpha96`. Aún no hay APK.
+- **Archivos / refs:** `assets/page-clean.js` · `browser/BrowserEngine.kt` · `browser/AstroActivity.kt` · `ui/AstroScreen.kt` · `app/build.gradle.kts`
+
+## 2026-11-09 — ExploNova: la completa se cierra al salir del video
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Si la página deja el video, se cierra la pantalla completa y se oculta su barra. Un recorte de un instante no la cierra. En otra ficha de video, sin completa, la barra de Audio, Flotante y Reproductor sigue.
+- **Por qué / notas:** Al cambiar de página dentro del video ampliado, la barra se quedaba encima aunque ya no hubiera video. YouTube con la pantalla apagada, la flotante y Shorties no cambian. APK `ExploNova-2.0.0-alpha95.apk`, versionCode 315, 5.119.659 bytes, SHA256 `99122F87D94A634FB4FAE58B79E5EA3C0D4C8E3989C9E916635F293CCEA3DA5E`.
+- **Archivos / refs:** `browser/AstroActivity.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha95.apk`
+
+## 2026-11-08 — ExploNova: la banda negra de Pornhub no se pinta
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** El estilo de inicio de documento oculta el hueco superior de Pornhub antes del primer pintado y deja en cero el padding de `#mobileContainer` cuando ese anuncio es hijo directo. En Eporner `#channelpromote`, `.channelscategoriesbox` y `#cppbar` también se ocultan al arrancar el documento. El script tardío sigue cerrando los que aparecen después, y vuelve a instalarse en cada carga.
+- **Por qué / notas:** El anuncio ya medía 0 px, pero el contenedor reservaba 154 px y el fondo negro se veía entre el encabezado y el título. Al recargar, el script tardío no se volvía a inyectar. En el emulador el título queda a 13 px bajo el encabezado y la miniatura conserva tamaño natural. APK `ExploNova-2.0.0-alpha94.apk`, versionCode 314, 5.119.659 bytes, SHA256 `E844EF0B5B411E62FD190F99849941E8F60C0A0C6E02CF55D88A2EA7864CD2C1`.
+- **Archivos / refs:** `browser/BrowserEngine.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha94.apk`
+
+## 2026-11-08 — ExploNova: shorties, hueco y ficha
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En shorties de Pornhub la pantalla completa no mueve el video, así que sigue sonando, y esconde el riel del avatar. Solo se desmutea el corto que se está viendo. En el inicio se quita el hueco de 154 px del anuncio sin tapar las miniaturas. En la ficha de Eporner la foto, las cifras y la biografía ya no se pisan. En la barra de dirección queda solo copiar.
+- **Por qué / notas:** APK `ExploNova-2.0.0-alpha93.apk`, versionCode 313, 5.119.659 bytes, SHA256 `87CD61BDA96E450B9607174388FE9CDC937BC3D4702EE7B15D77D86DAFA9B3AB`.
+- **Archivos / refs:** `assets/page-clean.js` · `browser/BrowserEngine.kt` · `ui/AstroScreen.kt` · `app/build.gradle.kts`
+
+## 2026-11-08 — ExploNova: YouTube en completa sigue al bloquear
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Si YouTube está en pantalla completa y se bloquea el teléfono, el audio sigue. La página normal y la flotante ya lo hacían.
+- **Por qué / notas:** Al apagarse la pantalla, Android cierra la completa y el video se quedaba en pausa. No se generó APK. versionCode 312, `2.0.0-alpha92`.
+- **Archivos / refs:** `browser/AstroActivity.kt` · `app/build.gradle.kts`
+
+## 2026-11-08 — ExploNova: hueco del anuncio y audio al ampliar
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** El recuadro vacío de un anuncio se cierra en cualquier página si no quedó miniatura, foto ni título. En Pornhub solo un nivel y sin esconder al padre. Al entrar en pantalla completa o flotante, suena el video que se está viendo.
+- **Por qué / notas:** En Eporner quedaba un cuadro gris y en Pornhub un hueco. Shorties no tenía dónde subir el volumen. YouTube no se desmutea. APK `ExploNova-2.0.0-alpha91.apk`, versionCode 311, 5.118.991 bytes, SHA256 `3A19D086FF7D6DE1FE40359C39B3A9053169B088074525E1EB2B5474D56ADE69`.
+- **Archivos / refs:** `assets/page-clean.js` · `browser/BrowserEngine.kt` · `browser/AstroActivity.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha91.apk`
+
+## 2026-11-08 — ExploNova: la pausa al bloquear ya no se queda pegada
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Bloquear el teléfono en un sitio que no es YouTube pausa solo ese video. Al cambiar de página o tocar play, los demás pueden sonar. En YouTube, un toque reciente ya no reanuda un video que ya estaba pausado.
+- **Por qué / notas:** Antes la pausa del bloqueo valía para toda la sesión. APK `ExploNova-2.0.0-alpha90.apk`, versionCode 310, 5.117.971 bytes, SHA256 `082955A8E00E9FF2AD2176598877331D32BA19C7AB271EE767FCAD9D22A9502D`.
+- **Archivos / refs:** `browser/AstroActivity.kt` · `browser/BrowserEngine.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha90.apk`
+
+## 2026-11-08 — ExploNova: al bloquear, solo YouTube sigue
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Si el sitio no es YouTube, bloquear el teléfono pausa el video aunque esté en pantalla completa o en la flotante. Al desbloquear se queda en pausa. YouTube sigue sonando. Al salir de la flotante de YouTube el video vuelve a su lugar enseguida.
+- **Por qué / notas:** La pantalla completa y la flotante siguen disponibles con la pantalla encendida. APK `ExploNova-2.0.0-alpha89.apk`, versionCode 309, 5.117.971 bytes, SHA256 `650793D4EEA824FA80D32963FCECB5C16C98981D690A0D8573D5F9E7B5A8D187`. Incluye también el cierre del hueco del anuncio, el enlace de Google y la pausa de la flotante de YouTube.
+- **Archivos / refs:** `browser/AstroActivity.kt` · `app/build.gradle.kts` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha89.apk`
+
+## 2026-11-08 — ExploNova: la flotante de YouTube ya no se queda en pausa
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** El toque para abrir la ventana flotante ya no se cuenta como pausa del usuario. Si YouTube para el video en ese momento, sigue. El botón de pausa sigue pausando.
+- **Por qué / notas:** En el diagnóstico de alpha85 pasaba solo a veces: la pausa llegaba justo después del toque y se quedaba. No se generó APK. versionCode 308, `2.0.0-alpha88`.
+- **Archivos / refs:** `browser/BrowserEngine.kt` · `app/build.gradle.kts`
+
+## 2026-11-08 — ExploNova: el enlace de YouTube desde Google
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al tocar un resultado de Google se abre la dirección real, no el salto `/url` que le pegaba `&ved` a YouTube. Si esa ruta rota igual llega, se corrige. Quitar `app=desktop` ya no deja `watch&v=`.
+- **Por qué / notas:** Buscar «youtube» y abrir el primer enlace mostraba «Esta página no se encuentra disponible». No se generó APK. versionCode 307, `2.0.0-alpha87`.
+- **Archivos / refs:** `browser/BrowserEngine.kt` · `app/build.gradle.kts`
+
+## 2026-11-08 — ExploNova: el hueco del anuncio se cierra
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:** Al bloquear un anuncio se aplasta también el recuadro vacío de afuera, si ahí no quedó texto, foto ni video. En Pornhub solo un nivel y sin esconder al padre. En el muro, el contenedor del patrocinado también baja a altura 0.
+- **Por qué / notas:** El archivo ya se bloqueaba y el sitio dejaba el espacio reservado. No se generó APK. versionCode 306, `2.0.0-alpha86`.
+- **Archivos / refs:** `assets/page-clean.js` · `browser/BrowserEngine.kt` · `assets/scriptlet-run.js` · `app/build.gradle.kts`
+
+## 2026-11-08 — ExploNova: buscador con recientes y copiar
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:** Al vaciar el buscador salen favoritos y sitios visitados. La X no quita el foco. Si se toca fuera, vuelve la dirección de la página. Icono para copiar esa dirección, y otro para pegar si el portapapeles ya tiene un enlace.
+- **Por qué / notas:** Antes, sin texto, la lista se apagaba. No copia en inicio, pestaña privada ni páginas que no sean http. APK `ExploNova-2.0.0-alpha85.apk`, versionCode 305, 5.117.647 bytes, SHA256 `A6B2EB0C9C55265BF8690DC056D2D23DBE94391219343B42F05AF208C928EFA1`.
+- **Archivos / refs:** `ui/AstroScreen.kt` · `data/AstroStore.kt` · `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha85.apk`
+
+## 2026-11-08 — ExploNova: solo claro y oscuro
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:** En Ajustes quedan Claro y Oscuro. El tema Color ya no se ofrece. Si estaba guardado, pasa a Oscuro. En Claro el texto es tinta oscura sobre fondo claro, y los botones usan violeta más oscuro con letra blanca.
+- **Por qué / notas:** Con Claro, Ajustes seguía en fondo negro y las letras se perdían. Va en el mismo APK alpha85.
+- **Archivos / refs:** `ui/AstroScreen.kt` · `ui/SettingsSheet.kt` · `data/AstroStore.kt`
+
+## 2026-11-08 — ExploNova: menos trabajo al navegar
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:** Las recetas de anuncio no se instalan en YouTube ni en TikTok. El limpiador de página corre una vez por página. Las peticiones que no son video ni red social ya no se analizan a fondo. La actualización de listas espera 12 segundos para no competir con la primera carga.
+- **Por qué / notas:** El bloqueo, las descargas y el reproductor siguen igual. No se generó APK. versionCode 303, `2.0.0-alpha83`.
+- **Archivos / refs:** `browser/BrowserEngine.kt` · `adblock/FilterUpdater.kt` · `app/build.gradle.kts`
+
+## 2026-11-08 — ExploNova: patrocinados más ligeros y recetas de anuncio
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:** En Facebook e Instagram ya no se inyecta el CSS de todas las listas ni el limpiador de página. El script de patrocinados solo mira la publicación nueva. Las recetas de las listas se ejecutan al arrancar la página, sin el reproductor, la calidad ni la grabación.
+- **Por qué / notas:** Así el muro baja más ligero y un anuncio armado por el sitio se puede apagar. YouTube y TikTok no reciben esas recetas. No se generó APK. El código queda en versionCode 302, `2.0.0-alpha82`.
+- **Archivos / refs:** `assets/scriptlet-run.js` · `adblock/ScriptletBridge.kt` · `adblock/Scriptlets.kt` · `browser/BrowserEngine.kt`
+
+## 2026-11-08 — ExploNova: bloqueo, ventanas y descargas del navegador anterior
+
+- **Tipo:** feature
+- **Área:** mobile
+- **Qué:** Con el switch encendido cargan todas las listas del navegador anterior, sin mostrarlas. También las reglas fijas, el aviso de Facebook e Instagram que aplasta patrocinados, la respuesta a los detectores de bloqueo y el VAST vacío. Las listas que faltan se bajan solas. Una ventana emergente se detiene y se puede abrir. Compartir sigue igual. Facebook, Instagram, YouTube y TikTok no saltan a su app. Instagram, Facebook y TikTok se pueden descargar. En YouTube el botón Descargar queda solo en la barra, y solo cuando hay un video: al tocarlo se elige la calidad.
+- **Por qué / notas:** La completa, la flotante y la barra de los demás sitios no se tocaron. tiohentai sigue pendiente. No se generó APK. El código queda en versionCode 301, `2.0.0-alpha81`, para no pisar el alpha80.
+- **Archivos / refs:** `adblock/AdBlock.kt` · `adblock/AntiAdblock.kt` · `adblock/FilterUpdater.kt` · `assets/meta-ads.js` · `browser/BrowserEngine.kt` · `browser/YoutubeQualities.kt` · `ui/AstroScreen.kt`
+
 ## 2026-11-08 — Mapa: la rueda acerca menos que los botones
 
 - **Tipo:** ux

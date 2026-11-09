@@ -250,7 +250,7 @@ export default function TerritoryOpsPanel({
             ? 'Sin municipios en la selección'
             : 'Marque región, zona o unidad'
         }
-        hintTitle="Estado se pliega con sus municipios. El check del estado marca el grupo. Ascendente/Descendente ordena municipios; estados A–Z."
+        hintTitle="Estado se pliega con sus municipios. El check del estado marca el grupo. Ascendente/Descendente ordena estados y municipios. Marcar/Desmarcar vale aunque el estado esté plegado."
         searchPlaceholder="Buscar municipio o estado…"
       />
 

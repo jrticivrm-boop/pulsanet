@@ -50,16 +50,17 @@ export default function MapCheckSelect({
     const list = [...(items || [])];
     const hasGroups = list.some((it) => it?.group);
     list.sort((a, b) => {
+      const dir = sortDir === 'desc' ? -1 : 1;
       if (hasGroups) {
         const gcmp = String(a?.group || '').localeCompare(String(b?.group || ''), 'es', {
           sensitivity: 'base',
         });
-        if (gcmp !== 0) return gcmp;
+        if (gcmp !== 0) return gcmp * dir;
       }
       const cmp = String(a?.label || '').localeCompare(String(b?.label || ''), 'es', {
         sensitivity: 'base',
       });
-      return sortDir === 'desc' ? -cmp : cmp;
+      return cmp * dir;
     });
     return list;
   }, [items, sortDir]);
@@ -207,12 +208,11 @@ export default function MapCheckSelect({
     onChange([...next]);
   }
 
-  const shownItems = grouped.flatMap((g) => (isGroupCollapsed(g.name) ? [] : g.items));
-  const visibleIds = shownItems.map((it) => String(it.id));
-  const allVisibleOn = visibleIds.length > 0 && visibleIds.every((id) => selectedSet.has(id));
+  const allIds = items.map((it) => String(it.id));
+  const allOn = allIds.length > 0 && allIds.every((id) => selectedSet.has(id));
 
-  function toggleMarkVisible() {
-    toggleIds(visibleIds, allVisibleOn);
+  function toggleMarkAll() {
+    onChange(allOn ? [] : allIds);
   }
 
   function toggleGroupItems(groupItems) {
@@ -252,10 +252,10 @@ export default function MapCheckSelect({
                 <button
                   type="button"
                   className="cc-ms-link"
-                  onClick={toggleMarkVisible}
-                  disabled={!visibleIds.length}
+                  onClick={toggleMarkAll}
+                  disabled={!allIds.length}
                 >
-                  {allVisibleOn ? 'Desmarcar' : 'Marcar'}
+                  {allOn ? 'Desmarcar' : 'Marcar'}
                 </button>
               </div>
               <div className="cc-ms-meta">
