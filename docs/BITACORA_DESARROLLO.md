@@ -1,3 +1,11 @@
+## 2026-11-09 — Territorio: el árbol sigue a Dependencias
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** «48/a.» ya no se lee como «8/a.». El 15/o. B.I. queda solo en la 48/a. Z.M. 8/a. Z.M. y 8/a. Z.A.M. van en carpetas distintas. La zona guardada en la cobertura se corrige con la zona real de la unidad.
+- **Por qué / notas:** El catálogo no tiene 15/o. B.I. en la 8/a. Esa fila salía vacía y los municipios no se veían marcados.
+- **Archivos / refs:** `CatalogTerritorio.jsx` · `ivRmTerritoryConfig.js` · `territoryCoverage.js`
+
 ## 2026-11-09 — Mapa: los municipios asignados sí se pintan
 
 - **Tipo:** fix

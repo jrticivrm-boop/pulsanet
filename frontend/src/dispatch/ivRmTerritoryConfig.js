@@ -12,6 +12,39 @@ export const IV_RM_COVERAGE_EVENT = 'tacticalptx-iv-rm-coverage-changed';
 export const IV_RM_ZONAS = catalog.zonas;
 export const IV_RM_ZONA_BY_ID = new Map(IV_RM_ZONAS.map((z) => [z.id, z]));
 export const IV_RM_ZONA_ID_BY_SHORT = catalog.zonaIdByShort || {};
+
+/**
+ * «48/a.» contiene el texto «8/a.». Solo cuenta si el carácter anterior no es un dígito,
+ * y gana el nombre más largo (48/a. antes que 8/a.).
+ */
+function labelHasZoneToken(name, token) {
+  const source = String(name || '');
+  const needle = String(token || '');
+  if (!source || !needle) return false;
+  let from = 0;
+  while (from < source.length) {
+    const i = source.indexOf(needle, from);
+    if (i < 0) return false;
+    const prev = i > 0 ? source[i - 1] : '';
+    if (!/[0-9]/.test(prev)) return true;
+    from = i + 1;
+  }
+  return false;
+}
+
+export function zonaKeyFromLabel(zoneName) {
+  const name = String(zoneName || '');
+  const shorts = Object.keys(IV_RM_ZONA_ID_BY_SHORT).sort((a, b) => b.length - a.length);
+  for (const short of shorts) {
+    if (labelHasZoneToken(name, short)) return IV_RM_ZONA_ID_BY_SHORT[short];
+  }
+  const lower = name.toLowerCase();
+  const ids = IV_RM_ZONAS.map((z) => String(z.id || '')).sort((a, b) => b.length - a.length);
+  for (const id of ids) {
+    if (labelHasZoneToken(lower, id.toLowerCase())) return id;
+  }
+  return '';
+}
 export const IV_RM_TERRITORY_ASSIGNMENTS = catalog.assignments || [];
 
 export const IV_RM_TERRITORY_SURFACES = [

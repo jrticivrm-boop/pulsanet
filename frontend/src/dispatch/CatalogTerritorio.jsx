@@ -15,6 +15,7 @@ import {
   IV_RM_ZONAS,
   setOrgUnitColorOverrides,
   unidadColor,
+  zonaKeyFromLabel,
 } from './ivRmTerritoryConfig.js';
 import AppDialog from '../AppDialog.jsx';
 
@@ -64,10 +65,8 @@ function zonaMeta(zonaKey, zonaShort, zoneName) {
 
 function resolveZonaKey(zoneName, fallbackKey = '') {
   const name = String(zoneName || '');
-  const z = IV_RM_ZONAS.find(
-    (row) => name.includes(row.short) || name.toLowerCase().includes(row.id)
-  );
-  if (z) return z.id;
+  const hit = zonaKeyFromLabel(name);
+  if (hit) return hit;
   const raw = String(fallbackKey || name)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -254,12 +253,13 @@ export default function CatalogTerritorio({ session }) {
 
     const ensureZone = (reg, zonaKey, zonaShort, zoneId, zoneName) => {
       const meta = zonaMeta(zonaKey, zonaShort, zoneName);
-      const key = meta.key || String(zoneId || meta.short);
+      const key = String(zoneId || meta.key || meta.short);
       if (!reg.zones.has(key)) {
         reg.zones.set(key, {
           id: key,
           zoneId,
           ...meta,
+          label: zoneName || meta.label,
           units: [],
         });
       }
@@ -628,7 +628,7 @@ export default function CatalogTerritorio({ session }) {
     try {
       const zonaKey =
         selected.zonaKey ||
-        IV_RM_ZONAS.find((z) => String(selected.zonaShort || '').includes(z.short))?.id ||
+        zonaKeyFromLabel(selected.zonaShort) ||
         selected.zonaShort;
       const data = await putCatalogTerritorio(session.token, {
         unidadName: selected.unidadName,

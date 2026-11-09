@@ -72,6 +72,41 @@ function matchOrg(rows, kind, needle) {
   );
 }
 
+/** «8/a» no debe coincidir dentro de «48/a». */
+function labelHasZoneToken(name, token) {
+  const source = String(name || '');
+  const needle = String(token || '');
+  if (!source || !needle) return false;
+  let from = 0;
+  while (from < source.length) {
+    const i = source.indexOf(needle, from);
+    if (i < 0) return false;
+    const prev = i > 0 ? source[i - 1] : '';
+    if (!/[0-9]/.test(prev)) return true;
+    from = i + 1;
+  }
+  return false;
+}
+
+function matchZone(orgs, zonaShort) {
+  const n = norm(zonaShort);
+  if (!n) return null;
+  const hits = orgs
+    .filter((r) => r.kind === 'zone' && labelHasZoneToken(norm(r.name), n))
+    .sort((a, b) => {
+      const aZm = norm(a.name).includes(' zm');
+      const bZm = norm(b.name).includes(' zm');
+      if (aZm !== bZm) return aZm ? -1 : 1;
+      return norm(a.name).length - norm(b.name).length;
+    });
+  return hits[0] || null;
+}
+
+function parentZone(orgs, unit) {
+  if (!unit?.parent_id) return null;
+  return orgs.find((r) => r.kind === 'zone' && String(r.id) === String(unit.parent_id)) || null;
+}
+
 async function seedFromCatalog(orgId) {
   const catalog = loadSeedCatalog();
   if (!catalog) return { seeded: false, inserted: 0 };
@@ -86,8 +121,8 @@ async function seedFromCatalog(orgId) {
     const estado = String(a.estado || '').trim();
     const municipio = String(a.municipio || '').trim();
     if (!unidadName || !estado || !municipio || !zonaKey) continue;
-    const zone = matchOrg(orgs, 'zone', zonaShort);
     const unit = matchOrg(orgs, 'unit', unidadName);
+    const zone = parentZone(orgs, unit) || matchZone(orgs, zonaShort);
     try {
       const { rowCount } = await query(
         `INSERT INTO cat_territory_coverage (
@@ -247,9 +282,26 @@ async function canonicalizeCoverageNames(orgId) {
   }
 }
 
+/** La zona guardada sigue a la zona real de la unidad en Dependencias. */
+async function alignCoverageZoneToUnit(orgId) {
+  await query(
+    `UPDATE cat_territory_coverage c
+     SET zone_id = u.parent_id
+     FROM org_units u
+     JOIN org_units z ON z.id = u.parent_id AND z.kind = 'zone' AND z.is_active
+     WHERE c.organization_id = $1
+       AND c.unit_id = u.id
+       AND u.kind = 'unit'
+       AND u.is_active
+       AND c.zone_id IS DISTINCT FROM u.parent_id`,
+    [orgId]
+  );
+}
+
 export async function listTerritoryCoverage(orgId) {
   await ensureTerritoryCoverage(orgId);
   await canonicalizeCoverageNames(orgId);
+  await alignCoverageZoneToUnit(orgId);
   const { rows } = await query(
     `SELECT id, region_id, zone_id, unit_id, region_label, zona_key, zona_short,
             unidad_name, estado, municipio, shape_id

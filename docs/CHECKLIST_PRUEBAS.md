@@ -64,6 +64,7 @@ Esta lista es la parte **manual**. Revisa siempre la sección *Base* y, además,
 - [ ] Mapa: Tampico, Ciudad Madero y el resto de Tamaulipas y San Luis del 15/o. B.I. (y las demás unidades) se pintan si el estado y la unidad están elegidos. Aldama y Tampico, mismo color.
 - [ ] Estado/Municipio: estados plegables con municipios; Abasolo Tamps. vs Abasolo N.L. en grupos distintos; el check del estado marca el grupo.
 - [ ] Configuración → Territorio: árbol Región→Zona→Unidad plegable (PRUEBA_ZONA bajo su región de Dependencias); búsqueda en el árbol; contadores; unidades (0) en gris «sin municipios». Ya no está en Catálogos.
+- [ ] El 15/o. B.I. solo aparece en 48/a. Z.M., igual que en Catálogos → Dependencias. En 8/a. Z.M. no está. Al abrirlo, Tamaulipas muestra sus municipios marcados (Tampico, Ciudad Madero, Aldama).
 - [ ] Al marcar/desmarcar municipios aparece el resumen arriba del panel. Ya no está «Marcar visibles».
 - [ ] Estado con municipios de esa unidad muestra el número (`Tamaulipas · 1`). Un estado en cero muestra solo el nombre.
 - [ ] Municipio de otra unidad: el nombre va en gris y el clic en el nombre no hace nada. El check pregunta «¿Sustituirlo?». Aceptar lo mueve y la otra unidad lo pierde. Cancelar lo deja. Quitar un check no lo devuelve.
