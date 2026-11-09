@@ -223,6 +223,7 @@ catalogsRouter.put('/territorio', requireTerritorioView, requireTerritorioEdit, 
         unidadName: req.body?.unidadName,
         estado: req.body?.estado,
         municipios: Array.isArray(req.body?.municipios) ? req.body.municipios.length : 0,
+        reassigned: data.saved?.reassigned || 0,
       },
     });
     res.json({ ok: true, ...data });

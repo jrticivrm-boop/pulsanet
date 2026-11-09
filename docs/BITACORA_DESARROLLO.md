@@ -1,3 +1,10 @@
+## 2026-11-09 — Territorio: sustituir municipio y conteo por estado
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En Configuración → Territorio se quitó «Marcar visibles». El select de Estado muestra el número de municipios de esa unidad. Si el municipio ya es de otra, el nombre va en gris y el check pregunta si se sustituye; al aceptar, la otra unidad lo pierde en el mismo guardado.
+- **Archivos / refs:** `CatalogTerritorio.jsx` · `command-center.css` · `territoryCoverage.js`
+
 ## 2026-11-09 — Territorio pasa a Configuración
 
 - **Tipo:** ux

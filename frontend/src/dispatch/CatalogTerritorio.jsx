@@ -96,6 +96,30 @@ function countAssigned(rows, u) {
   ).length;
 }
 
+function sameCoverageUnit(row, unit) {
+  return (
+    row?.unidadName === unit?.unidadName &&
+    String(row?.zonaKey || '') === String(unit?.zonaKey || '')
+  );
+}
+
+function holderPhrase(list) {
+  const names = [];
+  const seen = new Set();
+  for (const row of list || []) {
+    const unit = row.unidadName || 'otra unidad';
+    const repeated = list.filter((item) => item.unidadName === row.unidadName).length > 1;
+    const zone = row.zonaShort || row.zonaKey;
+    const label = repeated && zone ? `${unit} · ${zone}` : unit;
+    if (seen.has(label)) continue;
+    seen.add(label);
+    names.push(label);
+  }
+  if (names.length <= 1) return names[0] || 'otra unidad';
+  if (names.length === 2) return `${names[0]} y ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
+}
+
 export default function CatalogTerritorio({ session }) {
   const canSee = canViewTab(session.user, 'configuracion', 'territorio');
   const canEdit = canSee && canModuleAction(session.user, 'configuracion', 'editar');
@@ -513,16 +537,42 @@ export default function CatalogTerritorio({ session }) {
 
   const assignedNames = useMemo(() => {
     if (!selected || !estado) return [];
-    const est = String(estado).toLowerCase();
+    const est = String(estado).trim().toLowerCase();
     return rows
       .filter(
         (r) =>
-          r.unidadName === selected.unidadName &&
-          String(r.zonaKey || '') === String(selected.zonaKey || '') &&
-          String(r.estado || '').toLowerCase() === est
+          sameCoverageUnit(r, selected) && String(r.estado || '').trim().toLowerCase() === est
       )
       .map((r) => r.municipio);
   }, [rows, selected, estado]);
+
+  const takenByName = useMemo(() => {
+    const map = new Map();
+    if (!selected || !estado) return map;
+    const est = String(estado).trim().toLowerCase();
+    for (const row of rows) {
+      if (String(row.estado || '').trim().toLowerCase() !== est) continue;
+      if (sameCoverageUnit(row, selected)) continue;
+      const key = String(row.municipio || '').trim().toLowerCase();
+      if (!key) continue;
+      const list = map.get(key) || [];
+      list.push(row);
+      map.set(key, list);
+    }
+    return map;
+  }, [rows, selected, estado]);
+
+  const estadoAssignedCount = useMemo(() => {
+    const map = new Map();
+    if (!selected) return map;
+    for (const row of rows) {
+      if (!sameCoverageUnit(row, selected)) continue;
+      const key = String(row.estado || '').trim().toLowerCase();
+      if (!key) continue;
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [rows, selected]);
 
   useEffect(() => {
     if (!selectedKey) return;
@@ -572,7 +622,7 @@ export default function CatalogTerritorio({ session }) {
     flashTimerRef.current = window.setTimeout(() => setSaveFlash(''), 4500);
   }
 
-  async function saveMunicipios(nextNames) {
+  async function saveMunicipios(nextNames, transfer) {
     if (!selected || !estado || !canEdit) return;
     setBusy(true);
     try {
@@ -602,7 +652,9 @@ export default function CatalogTerritorio({ session }) {
       const n = data.saved?.municipios ?? nextNames.length;
       const zona = selected.zonaShort || zonaKey;
       showSaveFlash(
-        `Se asignaron ${n} municipio${n === 1 ? '' : 's'} a ${selected.unidadName} · ${zona} (${estado}).`
+        transfer?.name
+          ? `${transfer.name} quedó en ${selected.unidadName}. ${transfer.who} ya no lo tiene.`
+          : `Se asignaron ${n} municipio${n === 1 ? '' : 's'} a ${selected.unidadName} · ${zona} (${estado}).`
       );
     } catch (e) {
       setDialog({ title: 'Error', message: e.message || 'No se pudo guardar', alertOnly: true });
@@ -613,22 +665,22 @@ export default function CatalogTerritorio({ session }) {
 
   function toggleMuni(name) {
     const has = assignedNames.includes(name);
-    const next = has ? assignedNames.filter((n) => n !== name) : [...assignedNames, name];
-    saveMunicipios(next);
-  }
-
-  function markVisible(on) {
-    const visibleNames = visibleMunis.map((m) => m.name);
-    if (on) {
-      const next = [...assignedNames];
-      for (const n of visibleNames) {
-        if (!next.includes(n)) next.push(n);
-      }
-      saveMunicipios(next);
+    if (has) {
+      saveMunicipios(assignedNames.filter((n) => n !== name));
       return;
     }
-    const drop = new Set(visibleNames);
-    saveMunicipios(assignedNames.filter((n) => !drop.has(n)));
+    const holders = takenByName.get(String(name || '').trim().toLowerCase()) || [];
+    if (holders.length) {
+      const who = holderPhrase(holders);
+      setDialog({
+        title: 'Sustituir municipio',
+        message: `${name} está en ${who}. ¿Sustituirlo? ${who} se queda sin este municipio.`,
+        confirmLabel: 'Sustituir',
+        onConfirm: () => saveMunicipios([...assignedNames, name], { name, who }),
+      });
+      return;
+    }
+    saveMunicipios([...assignedNames, name]);
   }
 
   function toggleRegion(id) {
@@ -711,8 +763,6 @@ export default function CatalogTerritorio({ session }) {
     }
   }
 
-  const visibleAssigned = visibleMunis.filter((m) => assignedNames.includes(m.name)).length;
-  const allVisibleOn = visibleMunis.length > 0 && visibleAssigned === visibleMunis.length;
   const mapHasPolygons = selected ? isIvRmRegion(selected.regionLabel) : true;
 
   if (!canSee) {
@@ -933,11 +983,14 @@ export default function CatalogTerritorio({ session }) {
                   aria-label="Estado"
                 >
                   <option value="">Seleccione…</option>
-                  {estados.map((e) => (
-                    <option key={e.code || e.name} value={e.name}>
-                      {e.name}
-                    </option>
-                  ))}
+                  {estados.map((e) => {
+                    const n = estadoAssignedCount.get(String(e.name || '').trim().toLowerCase()) || 0;
+                    return (
+                      <option key={e.code || e.name} value={e.name}>
+                        {n > 0 ? `${e.name} · ${n}` : e.name}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
               {!estado ? (
@@ -956,16 +1009,6 @@ export default function CatalogTerritorio({ session }) {
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                     />
-                    {canEdit ? (
-                      <button
-                        type="button"
-                        className="cc-ms-link"
-                        disabled={busy || !visibleMunis.length}
-                        onClick={() => markVisible(!allVisibleOn)}
-                      >
-                        {allVisibleOn ? 'Desmarcar visibles' : 'Marcar visibles'}
-                      </button>
-                    ) : null}
                     <span className="cc-hint">
                       {assignedNames.length} asignados
                       {q ? ` · ${visibleMunis.length} visibles` : ''}
@@ -977,16 +1020,21 @@ export default function CatalogTerritorio({ session }) {
                     <div className="cc-territorio-munis">
                       {visibleMunis.map((m) => {
                         const on = assignedNames.includes(m.name);
+                        const taken = !on && takenByName.has(String(m.name || '').trim().toLowerCase());
                         return (
-                          <label key={m.code || m.name} className={on ? 'is-on' : ''}>
+                          <div
+                            key={m.code || m.name}
+                            className={`cc-territorio-muni${on ? ' is-on' : ''}${taken ? ' is-taken' : ''}`}
+                          >
                             <input
                               type="checkbox"
                               checked={on}
                               disabled={!canEdit || busy}
+                              aria-label={m.name}
                               onChange={() => toggleMuni(m.name)}
                             />
-                            <span>{m.name}</span>
-                          </label>
+                            <span className="cc-territorio-muni-name">{m.name}</span>
+                          </div>
                         );
                       })}
                     </div>
@@ -1002,9 +1050,13 @@ export default function CatalogTerritorio({ session }) {
         title={dialog?.title}
         message={dialog?.message}
         alertOnly={dialog?.alertOnly}
-        confirmLabel="Aceptar"
+        confirmLabel={dialog?.confirmLabel || 'Aceptar'}
         onCancel={() => setDialog(null)}
-        onConfirm={() => setDialog(null)}
+        onConfirm={() => {
+          const run = dialog?.onConfirm;
+          setDialog(null);
+          if (typeof run === 'function') run();
+        }}
       />
     </div>
   );

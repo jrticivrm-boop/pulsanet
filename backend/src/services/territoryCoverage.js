@@ -323,6 +323,7 @@ export async function replaceCoverageForEstado(orgId, body = {}) {
   const zoneId = body.zoneId || null;
   const unitId = body.unitId || null;
   const client = await pool.connect();
+  let reassigned = 0;
   try {
     await client.query('BEGIN');
     await client.query(
@@ -333,6 +334,18 @@ export async function replaceCoverageForEstado(orgId, body = {}) {
          AND LOWER(TRIM(estado)) = LOWER(TRIM($4))`,
       [orgId, zonaKey, unidadName, estado]
     );
+    const munKeys = municipios.map((m) => m.toLowerCase());
+    if (munKeys.length) {
+      const dropped = await client.query(
+        `DELETE FROM cat_territory_coverage
+         WHERE organization_id = $1
+           AND LOWER(TRIM(estado)) = LOWER(TRIM($2))
+           AND LOWER(TRIM(municipio)) = ANY($3::text[])
+           AND NOT (zona_key = $4 AND unidad_name = $5)`,
+        [orgId, estado, munKeys, zonaKey, unidadName]
+      );
+      reassigned = dropped.rowCount || 0;
+    }
     for (const municipio of municipios) {
       await client.query(
         `INSERT INTO cat_territory_coverage (
@@ -374,6 +387,7 @@ export async function replaceCoverageForEstado(orgId, body = {}) {
       regionLabel,
       estado,
       municipios: municipios.length,
+      reassigned,
     },
   };
 }

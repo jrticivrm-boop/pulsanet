@@ -63,7 +63,9 @@ Esta lista es la parte **manual**. Revisa siempre la sección *Base* y, además,
 - [ ] Región/Zona/Unidad: aparece IV R.M. (u otras) solo si tienen municipios en Configuración → Territorio; check de región/zona marca hijos; el mapa filtra al marcar.
 - [ ] Estado/Municipio: estados plegables con municipios; Abasolo Tamps. vs Abasolo N.L. en grupos distintos; el check del estado marca el grupo.
 - [ ] Configuración → Territorio: árbol Región→Zona→Unidad plegable (PRUEBA_ZONA bajo su región de Dependencias); búsqueda en el árbol; contadores; unidades (0) en gris «sin municipios». Ya no está en Catálogos.
-- [ ] Al marcar/desmarcar municipios aparece el resumen «Se asignaron N municipios a X · zona (estado)» arriba del panel (no en silencio).
+- [ ] Al marcar/desmarcar municipios aparece el resumen arriba del panel. Ya no está «Marcar visibles».
+- [ ] Estado con municipios de esa unidad muestra el número (`Tamaulipas · 1`). Un estado en cero muestra solo el nombre.
+- [ ] Municipio de otra unidad: el nombre va en gris y el clic en el nombre no hace nada. El check pregunta «¿Sustituirlo?». Aceptar lo mueve y la otra unidad lo pierde. Cancelar lo deja. Quitar un check no lo devuelve.
 - [ ] Bolita / «Color en mapa»: cambia el relleno en Consola → Territorio (mapa). Misma unidad en dos zonas: se ve `zona|unidad` y colores independientes.
 - [ ] Pliegues del árbol se recuerdan al recargar (por usuario, no solo este navegador).
 - [ ] Región distinta de IV: banner de que aún no hay polígonos GeoJSON; la asignación igual se guarda.

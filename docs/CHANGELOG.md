@@ -11,6 +11,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 - **Territorio:** la pestaña de asignación de municipios pasó de Catálogos a Configuración. La dirección anterior redirige. El permiso queda en Perfiles → Configuración → Territorio.
+- **Configuración → Territorio:** se quitó «Marcar visibles». El estado muestra cuántos municipios tiene esa unidad. Un municipio de otra unidad se ve en gris; el check pregunta si se sustituye y, al aceptar, la otra unidad lo pierde.
 ### Fixed
 - **Territorio — Estado / Municipio:** Marcar y Desmarcar valen con el estado plegado. Con todo plegado, Ascendente/Descendente ordena los estados; con uno desplegado, ordena los municipios.
 ### Changed
