@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, query } from '../db.js';
+import { regionHasEstado } from './regionStates.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const catalogPath = path.resolve(
@@ -424,6 +425,16 @@ export async function replaceCoverageForEstado(orgId, body = {}) {
     throw e;
   }
   const regionId = body.regionId || null;
+  if (regionId) {
+    const allowed = await regionHasEstado(orgId, regionId, estado);
+    if (!allowed) {
+      const e = new Error(
+        'Esa región no tiene asignado este estado. Asígnelo en Configuración → Estados.'
+      );
+      e.status = 400;
+      throw e;
+    }
+  }
   const zoneId = body.zoneId || null;
   const unitId = body.unitId || null;
   const client = await pool.connect();

@@ -6,6 +6,7 @@ import { isAdmin, isDispatch } from '../services/roles.js';
 import { geoSearch, geoReverse, geoAdminAt, geoPlaceOutline, geoOsmOutline, ownGeocoderStatus } from '../services/geoSearch.js';
 import { ETA_MAX_ORIGINS, PLAN_MAX_STOPS, ownRoutingStatus, routeEta, routeOptions } from '../services/routeHint.js';
 import { listTerritoryCoverage } from '../services/territoryCoverage.js';
+import { listRegionStates } from '../services/regionStates.js';
 
 export const geoRouter = Router();
 const router = geoRouter;
@@ -98,6 +99,17 @@ router.get('/municipios', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message || 'No se pudieron listar municipios' });
+  }
+});
+
+/** Estados asignados a regiones. El mapa solo pinta estos. */
+router.get('/region-states', async (req, res) => {
+  try {
+    const states = await listRegionStates(req.user.orgId);
+    res.json({ ok: true, states });
+  } catch (err) {
+    if (err?.code === '42P01') return res.json({ ok: true, states: [], pendingMigration: true });
+    res.status(err.status || 500).json({ ok: false, error: err.message || 'No se pudieron listar estados' });
   }
 });
 

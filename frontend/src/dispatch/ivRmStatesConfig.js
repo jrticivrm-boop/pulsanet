@@ -115,6 +115,52 @@ export function stateColor(config, id) {
   return normalizeHex(config?.[id]?.color) || def?.defaultColor || '#355c2e';
 }
 
+/** Vista vigente: estados asignados a alguna región + colores y mapas de este usuario. */
+let estadoMapaView = defaultIvRmStatesConfig();
+let estadoMapaAssigned = null;
+
+export function getEstadoMapaView() {
+  return estadoMapaView;
+}
+
+function paintEstadoMapa() {
+  const next = defaultIvRmStatesConfig();
+  next.surfaces = normalizeSurfaces(estadoMapaView.surfaces);
+  const assigned = estadoMapaAssigned;
+  for (const d of IV_RM_STATE_DEFS) {
+    const prev = estadoMapaView[d.id];
+    next[d.id] = {
+      enabled: assigned ? assigned.has(d.id) : defaultStateEnabled(d.id),
+      color: normalizeHex(prev?.color) || d.defaultColor,
+    };
+  }
+  estadoMapaView = next;
+  try {
+    window.dispatchEvent(new CustomEvent(IV_RM_STATES_EVENT, { detail: next }));
+  } catch {
+    /* ignore */
+  }
+  return next;
+}
+
+/** assignedIds: ids de estados que alguna región tiene. colors/surfaces son de la cuenta. */
+export function applyEstadoMapa({ assignedIds, colors, surfaces } = {}) {
+  if (Array.isArray(assignedIds)) estadoMapaAssigned = new Set(assignedIds);
+  if (surfaces && typeof surfaces === 'object') {
+    estadoMapaView = { ...estadoMapaView, surfaces: normalizeSurfaces(surfaces) };
+  }
+  if (colors && typeof colors === 'object') {
+    const draft = { ...estadoMapaView };
+    for (const d of IV_RM_STATE_DEFS) {
+      const hex = normalizeHex(colors[d.id]);
+      if (!hex) continue;
+      draft[d.id] = { ...(draft[d.id] || {}), color: hex };
+    }
+    estadoMapaView = draft;
+  }
+  return paintEstadoMapa();
+}
+
 export function loadIvRmStatesConfig() {
   const base = defaultIvRmStatesConfig();
   try {
@@ -172,25 +218,19 @@ export function enabledIvRmStates(config) {
 }
 
 export function useIvRmStatesConfig() {
-  const [config, setConfig] = useState(loadIvRmStatesConfig);
+  const [config, setConfig] = useState(getEstadoMapaView);
 
   useEffect(() => {
-    const sync = () => setConfig(loadIvRmStatesConfig());
-    const onStorage = (e) => {
-      if (e.key === IV_RM_STATES_STORAGE_KEY || e.key === null) sync();
-    };
-    window.addEventListener('storage', onStorage);
+    const sync = () => setConfig(getEstadoMapaView());
     window.addEventListener(IV_RM_STATES_EVENT, sync);
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener(IV_RM_STATES_EVENT, sync);
-    };
+    return () => window.removeEventListener(IV_RM_STATES_EVENT, sync);
   }, []);
 
   function update(nextOrFn) {
     setConfig((prev) => {
       const draft = typeof nextOrFn === 'function' ? nextOrFn(prev) : nextOrFn;
-      return saveIvRmStatesConfig(draft);
+      estadoMapaView = draft;
+      return paintEstadoMapa();
     });
   }
 

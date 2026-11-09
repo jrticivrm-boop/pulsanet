@@ -63,7 +63,9 @@ Esta lista es la parte **manual**. Revisa siempre la sección *Base* y, además,
 - [ ] Región/Zona/Unidad: aparece IV R.M. (u otras) solo si tienen municipios en Configuración → Territorio; check de región/zona marca hijos; el mapa filtra al marcar.
 - [ ] Mapa: Tampico, Ciudad Madero y el resto de Tamaulipas y San Luis del 15/o. B.I. (y las demás unidades) se pintan si el estado y la unidad están elegidos. Aldama y Tampico, mismo color.
 - [ ] Estado/Municipio: estados plegables con municipios; Abasolo Tamps. vs Abasolo N.L. en grupos distintos; el check del estado marca el grupo.
-- [ ] Configuración → Territorio: árbol Región→Zona→Unidad plegable (PRUEBA_ZONA bajo su región de Dependencias); búsqueda en el árbol; contadores; unidades (0) en gris «sin municipios». Ya no está en Catálogos.
+- [ ] Configuración → Estados: IV R.M. trae Nuevo León, Tamaulipas y San Luis Potosí. Un estado de otra región se ve en gris y el check pregunta si se sustituye. El color y «mostrar en mapas» son de la cuenta.
+- [ ] Configuración → Territorio: solo aparecen regiones con estados. El select de estado solo lista los de esa región. Una región sin estados no sale.
+- [ ] Configuración → Territorio: árbol Región→Zona→Unidad plegable (PRUEBA_ZONA bajo su región de Dependencias, si esa región tiene estados); búsqueda en el árbol; contadores; unidades (0) en gris «sin municipios». Ya no está en Catálogos.
 - [ ] El 15/o. B.I. solo aparece en 48/a. Z.M., igual que en Catálogos → Dependencias. En 8/a. Z.M. no está. Al abrirlo, Tamaulipas muestra sus municipios marcados (Tampico, Ciudad Madero, Aldama).
 - [ ] Al marcar/desmarcar municipios aparece el resumen arriba del panel. Ya no está «Marcar visibles».
 - [ ] Estado con municipios de esa unidad muestra el número (`Tamaulipas · 1`). Un estado en cero muestra solo el nombre.

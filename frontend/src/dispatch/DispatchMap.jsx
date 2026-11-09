@@ -119,6 +119,7 @@ import {
   isSurfaceEnabled,
   useIvRmStatesConfig,
 } from './ivRmStatesConfig.js';
+import { syncEstadoMapa } from './estadoMapaSync.js';
 import {
   IV_RM_COVERAGE_EVENT,
   IV_RM_ZONAS,
@@ -2067,6 +2068,7 @@ export default function DispatchMap({ session }) {
         rows = cov?.rows || [];
         regions = regionsFromCoverage(cov);
         if (cov?.unitColors) setOrgUnitColorOverrides(cov.unitColors);
+        await syncEstadoMapa(session.token);
       } catch {
         rows = [];
         regions = [];

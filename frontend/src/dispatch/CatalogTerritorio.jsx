@@ -4,10 +4,10 @@ import {
   fetchDependencias,
   fetchGeoEstados,
   fetchGeoMunicipios,
+  fetchRegionStates,
   fetchUiPrefs,
   patchUiPrefs,
   putCatalogTerritorio,
-  putCatalogTerritorioUnitColor,
 } from '../api';
 import { canModuleAction, canViewTab } from './modulePermissions.js';
 import {
@@ -129,6 +129,7 @@ export default function CatalogTerritorio({ session }) {
   const [unitColors, setUnitColors] = useState({});
   const [depTree, setDepTree] = useState([]);
   const [estados, setEstados] = useState([]);
+  const [regionStates, setRegionStates] = useState(null);
   const [selectedKey, setSelectedKey] = useState('');
   const [estado, setEstado] = useState('');
   const [municipios, setMunicipios] = useState([]);
@@ -155,15 +156,18 @@ export default function CatalogTerritorio({ session }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [cov, deps, geo, prefsRes] = await Promise.all([
+      const [cov, deps, geo, prefsRes, regionStateRes] = await Promise.all([
         fetchCatalogTerritorio(session.token),
         fetchDependencias(session.token).catch(() => ({ tree: [] })),
         fetchGeoEstados(session.token).catch(() => ({ estados: [] })),
         fetchUiPrefs(session.token).catch(() => ({ prefs: {} })),
+        fetchRegionStates(session.token).catch(() => ({ states: [] })),
       ]);
       setUnits(cov.units || []);
       setRows(cov.rows || []);
-      const colors = cov.unitColors || {};
+      setRegionStates(regionStateRes?.states || []);
+      const personal = prefsRes?.prefs?.territorioUnitColors || {};
+      const colors = { ...(cov.unitColors || {}), ...personal };
       setUnitColors(colors);
       setOrgUnitColorOverrides(colors);
       setDepTree(deps.tree || []);
@@ -336,6 +340,13 @@ export default function CatalogTerritorio({ session }) {
     [regionTree, regionOrder]
   );
 
+  /** Solo regiones que ya tienen al menos un estado asignado. */
+  const scopedTree = useMemo(() => {
+    if (!regionStates) return orderedTree;
+    const ids = new Set(regionStates.map((s) => String(s.regionId)));
+    return orderedTree.filter((r) => ids.has(String(r.id)));
+  }, [orderedTree, regionStates]);
+
   /** Incorporar regiones nuevas al orden guardado (sin reordenar las ya colocadas). */
   useEffect(() => {
     if (!prefsReady || !regionTree.length) return;
@@ -350,15 +361,15 @@ export default function CatalogTerritorio({ session }) {
   const defaultsAppliedRef = useRef(false);
   /** Primera expansión por defecto: región IV (o la de más municipios). */
   useEffect(() => {
-    if (!prefsReady || !orderedTree.length || defaultsAppliedRef.current) return;
+    if (!prefsReady || !scopedTree.length || defaultsAppliedRef.current) return;
     if (Object.keys(openRegions).length || Object.keys(openZones).length) {
       defaultsAppliedRef.current = true;
       return;
     }
     defaultsAppliedRef.current = true;
     const preferred =
-      orderedTree.find((r) => isIvRmRegion(r.label)) ||
-      [...orderedTree].sort((a, b) => b.municipioCount - a.municipioCount)[0];
+      scopedTree.find((r) => isIvRmRegion(r.label)) ||
+      [...scopedTree].sort((a, b) => b.municipioCount - a.municipioCount)[0];
     if (!preferred) return;
     const nextRegions = { [preferred.id]: true };
     const nextZones = {};
@@ -366,11 +377,11 @@ export default function CatalogTerritorio({ session }) {
     setOpenRegions(nextRegions);
     setOpenZones(nextZones);
     persistFolds(nextRegions, nextZones);
-  }, [prefsReady, orderedTree, openRegions, openZones, persistFolds]);
+  }, [prefsReady, scopedTree, openRegions, openZones, persistFolds]);
 
   const nameCollision = useMemo(() => {
     const map = new Map();
-    for (const r of orderedTree) {
+    for (const r of scopedTree) {
       for (const z of r.zones) {
         for (const u of z.units) {
           const name = u.unidadName;
@@ -380,13 +391,13 @@ export default function CatalogTerritorio({ session }) {
       }
     }
     return map;
-  }, [orderedTree]);
+  }, [scopedTree]);
 
   const tq = treeQuery.trim().toLowerCase();
   const filtering = Boolean(tq);
   const filteredTree = useMemo(() => {
-    if (!tq) return orderedTree;
-    return orderedTree
+    if (!tq) return scopedTree;
+    return scopedTree
       .map((r) => {
         const regionHit = String(r.label || '')
           .toLowerCase()
@@ -420,11 +431,11 @@ export default function CatalogTerritorio({ session }) {
         return { ...r, zones };
       })
       .filter(Boolean);
-  }, [orderedTree, tq]);
+  }, [scopedTree, tq]);
 
   const flatUnits = useMemo(
-    () => orderedTree.flatMap((r) => r.zones.flatMap((z) => z.units)),
-    [orderedTree]
+    () => scopedTree.flatMap((r) => r.zones.flatMap((z) => z.units)),
+    [scopedTree]
   );
 
   function regionIdFromPoint(clientX, clientY) {
@@ -562,6 +573,14 @@ export default function CatalogTerritorio({ session }) {
     return map;
   }, [rows, selected, estado]);
 
+  const regionEstadoOptions = useMemo(() => {
+    if (!selected || !regionStates) return [];
+    return regionStates
+      .filter((s) => String(s.regionId) === String(selected.regionId))
+      .map((s) => s.name)
+      .sort((a, b) => a.localeCompare(b, 'es'));
+  }, [selected, regionStates]);
+
   const estadoAssignedCount = useMemo(() => {
     const map = new Map();
     if (!selected) return map;
@@ -585,6 +604,12 @@ export default function CatalogTerritorio({ session }) {
       )?.estado || '';
     if (first) setEstado(first);
   }, [selectedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!regionEstadoOptions.length) return;
+    if (regionEstadoOptions.includes(estado)) return;
+    setEstado(regionEstadoOptions[0]);
+  }, [regionEstadoOptions, estado]);
 
   useEffect(() => {
     if (!estado) {
@@ -710,7 +735,7 @@ export default function CatalogTerritorio({ session }) {
 
   function openUnitColorPicker(u, e) {
     e?.stopPropagation?.();
-    if (!canEdit) return;
+    if (!canSee) return;
     colorTargetRef.current = u;
     const input = colorInputRef.current;
     if (!input) return;
@@ -738,14 +763,13 @@ export default function CatalogTerritorio({ session }) {
   async function onColorPicked(e) {
     const u = colorTargetRef.current;
     const color = String(e.target.value || '').toLowerCase();
-    if (!u || !canEdit || !/^#[0-9a-f]{6}$/.test(color)) return;
+    if (!u || !canSee || !/^#[0-9a-f]{6}$/.test(color)) return;
     try {
-      const data = await putCatalogTerritorioUnitColor(session.token, {
-        unidadName: u.unidadName,
-        zonaKey: u.zonaKey,
-        color,
+      const saved = await patchUiPrefs(session.token, {
+        territorioUnitColors: { [unitKey(u)]: color },
       });
-      const next = data.unitColors || {};
+      const personal = saved?.prefs?.territorioUnitColors || { [unitKey(u)]: color };
+      const next = { ...unitColors, ...personal };
       setUnitColors(next);
       setOrgUnitColorOverrides(next);
       window.dispatchEvent(new Event(IV_RM_COVERAGE_EVENT));
@@ -779,7 +803,8 @@ export default function CatalogTerritorio({ session }) {
   return (
     <div className="cc-cat-grades-wrap cc-territorio-cat">
       <p className="cc-cat-hint">
-        Aquí solo se asignan municipios; alta de región/zona/unidad en Catálogos → Dependencias.
+        Aquí solo se asignan municipios de los estados de la región. Esos estados se eligen en
+        Configuración → Estados. Alta de región/zona/unidad en Catálogos → Dependencias.
         Editar cobertura: Configuración → editar + pestaña Territorio.
       </p>
       {saveFlash ? (
@@ -810,7 +835,11 @@ export default function CatalogTerritorio({ session }) {
             aria-label="Buscar en el árbol"
           />
           {filteredTree.length === 0 ? (
-            <span className="cc-hint">Sin unidades. Revise Catálogos → Dependencias.</span>
+            <span className="cc-hint">
+              {regionStates && !treeQuery.trim()
+                ? 'Ninguna región tiene estados. Asígnelos en Configuración → Estados.'
+                : 'Sin unidades. Revise Catálogos → Dependencias.'}
+            </span>
           ) : (
             filteredTree.map((r) => {
               const forceOpen = Boolean(tq);
@@ -950,7 +979,7 @@ export default function CatalogTerritorio({ session }) {
                 <span className="cc-territorio-assign-key">
                   Clave <code>{unitKey(selected)}</code>
                 </span>
-                {canEdit ? (
+                {canSee ? (
                   <button
                     type="button"
                     className="cc-territorio-color-btn"
@@ -983,11 +1012,11 @@ export default function CatalogTerritorio({ session }) {
                   aria-label="Estado"
                 >
                   <option value="">Seleccione…</option>
-                  {estados.map((e) => {
-                    const n = estadoAssignedCount.get(String(e.name || '').trim().toLowerCase()) || 0;
+                  {regionEstadoOptions.map((name) => {
+                    const n = estadoAssignedCount.get(String(name).trim().toLowerCase()) || 0;
                     return (
-                      <option key={e.code || e.name} value={e.name}>
-                        {n > 0 ? `${e.name} · ${n}` : e.name}
+                      <option key={name} value={name}>
+                        {n > 0 ? `${name} · ${n}` : name}
                       </option>
                     );
                   })}

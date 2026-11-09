@@ -1,3 +1,59 @@
+## 2026-11-09 — ExploNova: APK 2.0.0-alpha102
+
+- **Tipo:** otro
+- **Área:** mobile
+- **Qué:** Se generó el APK firmado `ExploNova-2.0.0-alpha102.apk` (código 322). Incluye la estrella completa, las ventanas de pestañas y la completa del sitio.
+- **Por qué / notas:** No se instaló en el teléfono. Los APK anteriores no se tocaron.
+- **Archivos / refs:** `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha102.apk`
+
+## 2026-11-09 — ExploNova: la estrella con el pico de abajo
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:** La estrella del inicio se dibuja con cuatro picos iguales. Ya no se corta el de abajo.
+- **Por qué / notas:** El signo de texto no cabía en la línea y perdía la punta. Código 322, `2.0.0-alpha102`. No se generó APK.
+- **Archivos / refs:** `ui/AstroScreen.kt` · `app/build.gradle.kts`
+
+## 2026-11-09 — ExploNova: pestañas como ventanas
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:** Cada pestaña es una ventanita: cabeza con el sitio, vista de la página y borde redondeado. En la pila se ve dónde empieza cada una y la de enfrente se ve completa. Si la página ya se mostró, la tarjeta enseña esa vista.
+- **Por qué / notas:** Antes la pila era una barra sobre otra y no se distinguía el borde. El video no se toca al sacar la vista. Código 321, `2.0.0-alpha101`. No se generó APK.
+- **Archivos / refs:** `ui/AstroScreen.kt` · `browser/AstroActivity.kt` · `browser/BrowserTab.kt` · `app/build.gradle.kts`
+
+## 2026-11-09 — ExploNova: la estrella de inicio sin círculo
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:** Se quitó el círculo detrás de la estrella del inicio. El signo queda en su tamaño de siempre y solo crece un poco y vuelve.
+- **Por qué / notas:** El círculo la hacía ver más gruesa. Código 320, `2.0.0-alpha100`. No se generó APK.
+- **Archivos / refs:** `ui/AstroScreen.kt` · `app/build.gradle.kts`
+
+## 2026-11-09 — ExploNova: ventanas, listas y la estrella de inicio
+
+- **Tipo:** ux
+- **Área:** mobile
+- **Qué:** Las ventanas (pestañas, historial, favoritos, descargas, calidad, protección y ajustes) entran desde abajo con el borde violeta y la franja de arriba. Cada fila es una tarjeta; el historial se agrupa en Hoy, Ayer y Antes. La barra enfocada se ilumina en violeta, las sugerencias son tarjetas y la carga es una línea de 2 dp bajo la dirección. La estrella del inicio respira, el escudo pulsa una vez si la página bloqueó algo y el icono de pestañas muestra cuántas hay abiertas.
+- **Por qué / notas:** El reproductor, YouTube, la completa y la ventana flotante no cambian. En el emulador se revisaron inicio, pestañas, historial, sugerencias, ajustes en oscuro y claro, y una página normal. Código 319, `2.0.0-alpha99`. No se generó APK.
+- **Archivos / refs:** `ui/AstroChrome.kt` · `ui/AstroScreen.kt` · `ui/DownloadsSheet.kt` · `ui/SettingsSheet.kt` · `app/build.gradle.kts`
+
+## 2026-11-09 — Estados por región y colores por usuario
+
+- **Tipo:** feature
+- **Área:** web | backend | database
+- **Qué:** En Configuración → Estados se asignan estados a la región. Un estado solo está en una; si ya es de otra, pregunta si se sustituye. Territorio solo lista regiones con estados y el select solo trae esos. IV R.M. empieza con Nuevo León, Tamaulipas y San Luis Potosí. El color del estado, el de la unidad y en qué mapas se dibuja se guardan en la cuenta.
+- **Por qué / notas:** Quitar un estado de la región no borra los municipios ya guardados.
+- **Archivos / refs:** `054_region_states.sql` · `regionStates.js` · `ConfigStates.jsx` · `CatalogTerritorio.jsx`
+
+## 2026-11-09 — Pruebas: se quitaron los vínculos 23 y 29 de la 8/a.
+
+- **Tipo:** ops
+- **Área:** database
+- **Qué:** En tacticalptx_pruebas se borraron las dos fichas de vínculo que metían la 23/a. y la 29/a. Coord. Unidad dentro de la 8/a. Z.M. Las zonas, sus compañías, los 18 usuarios y los 3 canales siguen igual.
+- **Por qué / notas:** Respaldo para regresar solo esas fichas: `C:\pulsanet_soporte\Respaldos\2026-11-09_quitar_vinculos_8a\`. Producción no se tocó. Si se refresca la base de pruebas desde producción, las fichas vuelven.
+- **Archivos / refs:** `org_unit_scope_links` · `RESTAURAR.sql`
+
 ## 2026-11-09 — Territorio: el árbol sigue a Dependencias
 
 - **Tipo:** fix
@@ -5,6 +61,14 @@
 - **Qué:** «48/a.» ya no se lee como «8/a.». El 15/o. B.I. queda solo en la 48/a. Z.M. 8/a. Z.M. y 8/a. Z.A.M. van en carpetas distintas. La zona guardada en la cobertura se corrige con la zona real de la unidad.
 - **Por qué / notas:** El catálogo no tiene 15/o. B.I. en la 8/a. Esa fila salía vacía y los municipios no se veían marcados.
 - **Archivos / refs:** `CatalogTerritorio.jsx` · `ivRmTerritoryConfig.js` · `territoryCoverage.js`
+
+## 2026-11-09 — ExploNova: la completa del sitio abre la nuestra
+
+- **Tipo:** mejora
+- **Área:** mobile
+- **Qué:** En HentaiLA y HQPorner, el botón de completa que está dentro del marco abre nuestro reproductor; la de ellos no llega a verse y el video sigue. En Pornhub y Eporner pasa lo mismo con el botón de la página. Mientras el video se ve no hay botones: un toque muestra Atrás, Flotante, play y Más, y a los pocos segundos se ocultan. Ese toque no pausa.
+- **Por qué / notas:** YouTube, la ventana flotante y el cierre al salir de la página no cambian. En el emulador los cuatro sitios llenan la pantalla y el video sigue sonando. Código 318, `2.0.0-alpha98`. No se generó APK.
+- **Archivos / refs:** `browser/BrowserEngine.kt` · `browser/AstroActivity.kt` · `media/FullscreenControlBar.kt` · `app/build.gradle.kts`
 
 ## 2026-11-09 — Mapa: los municipios asignados sí se pintan
 

@@ -15709,6 +15709,9 @@ li.cc-states-row {
 .cc-states-row .channel-dual-name {
   font-weight: 600;
 }
+.cc-states-row.is-taken .channel-dual-name {
+  color: var(--cc-muted);
+}
 .cc-states-row .channel-dual-meta {
   font-size: 0.66rem;
   font-weight: 700;

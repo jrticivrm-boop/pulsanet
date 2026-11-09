@@ -73,6 +73,7 @@ import {
   isSurfaceEnabled,
   useIvRmStatesConfig,
 } from './ivRmStatesConfig.js';
+import { syncEstadoMapa } from './estadoMapaSync.js';
 import { useIsPhone } from '../useMediaQuery.js';
 
 delete L.Icon.Default.prototype._getIconUrl;
@@ -238,6 +239,11 @@ export default function LiveTrackMap({ session, dispatchEmbed = null, embed = nu
     session.token
   );
   const [ivRmConfig] = useIvRmStatesConfig();
+  useEffect(() => {
+    if (!session?.token) return undefined;
+    syncEstadoMapa(session.token).catch(() => {});
+    return undefined;
+  }, [session?.token]);
   const ivRmSurface = embedRadio ? 'radio' : 'seguimiento';
   const ivRmLegend = useMemo(() => {
     if (!isSurfaceEnabled(ivRmConfig, ivRmSurface)) return [];

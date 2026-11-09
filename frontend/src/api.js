@@ -658,6 +658,14 @@ export function fetchCatalogTerritorio(token) {
   return api('/api/catalogs/territorio', { token });
 }
 
+export function fetchRegionStates(token) {
+  return api('/api/geo/region-states', { token });
+}
+
+export function putRegionState(token, body) {
+  return api('/api/catalogs/region-states', { token, method: 'PUT', body });
+}
+
 export function putCatalogTerritorio(token, body) {
   return api('/api/catalogs/territorio', { token, method: 'PUT', body });
 }

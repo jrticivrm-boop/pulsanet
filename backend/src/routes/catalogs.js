@@ -26,6 +26,7 @@ import {
   replaceCoverageForEstado,
   upsertUnitColor,
 } from '../services/territoryCoverage.js';
+import { listRegionStates, setRegionState } from '../services/regionStates.js';
 import { logActivity } from '../services/activity.js';
 
 export const catalogsRouter = Router();
@@ -201,6 +202,8 @@ catalogsRouter.delete('/empleos/:id', requireDelete, async (req, res) => {
 
 const requireTerritorioView = requireModuleTab('configuracion', 'territorio');
 const requireTerritorioEdit = requireModuleAction('configuracion', 'editar');
+const requireEstadosView = requireModuleTab('configuracion', 'estados');
+const requireEstadosEdit = requireModuleAction('configuracion', 'editar');
 
 catalogsRouter.get('/territorio', requireTerritorioView, async (req, res) => {
   try {
@@ -255,3 +258,34 @@ async function handleTerritorioUnitColor(req, res) {
 /** Preferir ruta plana (proxy/caches a veces fallan con /territorio/…). */
 catalogsRouter.put('/territorio-unit-color', requireTerritorioView, requireTerritorioEdit, handleTerritorioUnitColor);
 catalogsRouter.put('/territorio/unit-color', requireTerritorioView, requireTerritorioEdit, handleTerritorioUnitColor);
+
+catalogsRouter.get('/region-states', requireEstadosView, async (req, res) => {
+  try {
+    const states = await listRegionStates(req.user.orgId);
+    res.json({ ok: true, states });
+  } catch (err) {
+    sendErr(res, err);
+  }
+});
+
+catalogsRouter.put('/region-states', requireEstadosView, requireEstadosEdit, async (req, res) => {
+  try {
+    const data = await setRegionState(req.user.orgId, req.body || {});
+    await logActivity({
+      organizationId: req.user.orgId,
+      actorId: req.user.id,
+      action: 'region_state_set',
+      entityType: 'cat_region_states',
+      meta: {
+        regionId: req.body?.regionId,
+        estadoId: req.body?.estadoId,
+        assign: Boolean(req.body?.assign),
+        transfer: Boolean(req.body?.transfer),
+        conflict: Boolean(data.conflict),
+      },
+    });
+    res.json({ ok: true, ...data });
+  } catch (err) {
+    sendErr(res, err);
+  }
+});

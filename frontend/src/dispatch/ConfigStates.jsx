@@ -1,18 +1,20 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  IV_RM_IDS,
   IV_RM_STATE_DEFS,
   IV_RM_SURFACES,
-  defaultIvRmStatesConfig,
+  applyEstadoMapa,
   defaultSurfaces,
-  isStateEnabled,
+  getEstadoMapaView,
   isSurfaceEnabled,
   stateColor,
   useIvRmStatesConfig,
 } from './ivRmStatesConfig.js';
+import { fetchDependencias, fetchRegionStates, patchUiPrefs, putRegionState } from '../api';
+import { canModuleAction, canViewTab } from './modulePermissions.js';
+import { syncEstadoMapa } from './estadoMapaSync.js';
+import AppDialog from '../AppDialog.jsx';
 import ConfigTerritory from './ConfigTerritory.jsx';
 
-/** Búsqueda insensible a acentos y mayúsculas ("michoacan" → Michoacán). */
 function normalizeText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -26,16 +28,43 @@ const SEARCH_INDEX = new Map(
 );
 
 /**
- * Configuración → Estados: qué delimitaciones estatales se muestran en mapas
- * (Consola / Seguimiento / Radio) y con qué color.
- * Mismo patrón de lista + buscador que Configuración → Canales (Escuchar / Hablar).
+ * Configuración → Estados: qué estados tiene cada región (compartido)
+ * y, por usuario, el color y en qué mapas se dibuja.
  */
-export default function ConfigStates() {
-  const [config, update] = useIvRmStatesConfig();
+export default function ConfigStates({ session }) {
+  const canEdit =
+    canViewTab(session?.user, 'configuracion', 'estados') &&
+    canModuleAction(session?.user, 'configuracion', 'editar');
+  const [config] = useIvRmStatesConfig();
   const colorInputRef = useRef(null);
   const editingIdRef = useRef('');
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState('asc');
+  const [regions, setRegions] = useState([]);
+  const [regionId, setRegionId] = useState('');
+  const [states, setStates] = useState([]);
+  const [err, setErr] = useState('');
+  const [dialog, setDialog] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!session?.token) return undefined;
+    let alive = true;
+    Promise.all([
+      fetchDependencias(session.token).catch(() => ({ tree: [] })),
+      syncEstadoMapa(session.token),
+      fetchRegionStates(session.token).catch(() => ({ states: [] })),
+    ]).then(([deps, synced]) => {
+      if (!alive) return;
+      const list = (deps.tree || []).map((r) => ({ id: r.id, name: r.name || r.label || 'Región' }));
+      setRegions(list);
+      setStates(synced?.states || []);
+      setRegionId((prev) => prev || list[0]?.id || '');
+    });
+    return () => {
+      alive = false;
+    };
+  }, [session?.token]);
 
   const visible = useMemo(() => {
     const needle = normalizeText(query);
@@ -49,61 +78,107 @@ export default function ConfigStates() {
     return list;
   }, [query, sortDir]);
 
-  const selectedCount = useMemo(
-    () => IV_RM_STATE_DEFS.filter((d) => isStateEnabled(config, d.id)).length,
-    [config]
-  );
+  const ownedIds = useMemo(() => {
+    const set = new Set();
+    for (const row of states) {
+      if (String(row.regionId) === String(regionId)) set.add(row.estadoId);
+    }
+    return set;
+  }, [states, regionId]);
 
-  function setEnabled(ids, enabled) {
-    const wanted = new Set(ids);
-    update((prev) => {
-      const next = { ...prev };
-      for (const d of IV_RM_STATE_DEFS) {
-        if (!wanted.has(d.id)) continue;
-        next[d.id] = {
-          enabled,
-          color: stateColor(prev, d.id),
-        };
-      }
-      return next;
+  const holderById = useMemo(() => {
+    const map = new Map();
+    for (const row of states) {
+      if (String(row.regionId) === String(regionId)) continue;
+      map.set(row.estadoId, row.regionName || 'otra región');
+    }
+    return map;
+  }, [states, regionId]);
+
+  const regionCounts = useMemo(() => {
+    const map = new Map();
+    for (const row of states) {
+      const id = String(row.regionId);
+      map.set(id, (map.get(id) || 0) + 1);
+    }
+    return map;
+  }, [states]);
+
+  async function savePersonal(partial) {
+    const current = getEstadoMapaView();
+    const colors = {};
+    for (const d of IV_RM_STATE_DEFS) colors[d.id] = stateColor(current, d.id);
+    if (partial.colorId && partial.color) colors[partial.colorId] = partial.color;
+    const surfaces = partial.surfaces || current.surfaces || defaultSurfaces();
+    const saved = await patchUiPrefs(session.token, {
+      estadoMapaColors: colors,
+      estadoMapaSurfaces: surfaces,
+    });
+    const prefs = saved?.prefs || {};
+    applyEstadoMapa({
+      colors: prefs.estadoMapaColors || colors,
+      surfaces: prefs.estadoMapaSurfaces || surfaces,
     });
   }
 
-  function toggleEnabled(id) {
-    setEnabled([id], !isStateEnabled(config, id));
-  }
-
-  /** Marca / desmarca lo que se está viendo (respeta el filtro activo). */
-  function toggleMarkVisible() {
-    const ids = visible.map((d) => d.id);
-    if (!ids.length) return;
-    const allOn = ids.every((id) => isStateEnabled(config, id));
-    setEnabled(ids, !allOn);
-  }
-
-  function onlyIvRm() {
-    update((prev) => {
-      const next = { ...prev };
-      for (const d of IV_RM_STATE_DEFS) {
-        next[d.id] = {
-          enabled: IV_RM_IDS.includes(d.id),
-          color: stateColor(prev, d.id),
-        };
+  async function applyAssign(estadoId, assign, transfer) {
+    setBusy(true);
+    setErr('');
+    try {
+      const data = await putRegionState(session.token, {
+        regionId,
+        estadoId,
+        assign,
+        transfer,
+      });
+      if (data.conflict) {
+        const who = data.holderName || 'otra región';
+        const name = data.estado || estadoId;
+        setDialog({
+          title: 'Sustituir estado',
+          message: `${name} está en ${who}. ¿Sustituirlo? ${who} se queda sin este estado.`,
+          confirmLabel: 'Sustituir',
+          onConfirm: () => applyAssign(estadoId, true, true),
+        });
+        return;
       }
-      return next;
-    });
+      const next = data.states || [];
+      setStates(next);
+      applyEstadoMapa({ assignedIds: next.map((s) => s.estadoId) });
+    } catch (e) {
+      setErr(e.message || 'No se pudo guardar el estado.');
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function setColor(id, hex) {
-    const color = String(hex || '').toLowerCase();
-    if (!/^#[0-9a-f]{6}$/.test(color)) return;
-    update((prev) => ({
-      ...prev,
-      [id]: {
-        enabled: isStateEnabled(prev, id),
-        color,
-      },
-    }));
+  function toggleState(def) {
+    if (!canEdit || !regionId || busy) return;
+    const on = ownedIds.has(def.id);
+    if (on) {
+      applyAssign(def.id, false, false);
+      return;
+    }
+    if (holderById.has(def.id)) {
+      const who = holderById.get(def.id);
+      setDialog({
+        title: 'Sustituir estado',
+        message: `${def.name} está en ${who}. ¿Sustituirlo? ${who} se queda sin este estado.`,
+        confirmLabel: 'Sustituir',
+        onConfirm: () => applyAssign(def.id, true, true),
+      });
+      return;
+    }
+    applyAssign(def.id, true, false);
+  }
+
+  function setSurface(id, enabled) {
+    const surfaces = {
+      ...defaultSurfaces(),
+      ...(config?.surfaces || {}),
+      [id]: Boolean(enabled),
+    };
+    savePersonal({ surfaces }).catch((e) => setErr(e.message || 'No se pudo guardar.'));
   }
 
   function openColorPicker(id) {
@@ -117,38 +192,33 @@ export default function ConfigStates() {
   function onNativeColor(e) {
     const id = editingIdRef.current;
     if (!id) return;
-    setColor(id, e.target.value);
+    const color = String(e.target.value || '').toLowerCase();
+    if (!/^#[0-9a-f]{6}$/.test(color)) return;
+    savePersonal({ colorId: id, color }).catch((err) => setErr(err.message || 'No se pudo guardar el color.'));
   }
 
-  function resetDefaults() {
-    update(defaultIvRmStatesConfig());
-    setQuery('');
+  function resetPersonal() {
+    const colors = {};
+    for (const d of IV_RM_STATE_DEFS) colors[d.id] = d.defaultColor;
+    const surfaces = defaultSurfaces();
+    patchUiPrefs(session.token, {
+      estadoMapaColors: colors,
+      estadoMapaSurfaces: surfaces,
+    })
+      .then(() => applyEstadoMapa({ colors, surfaces }))
+      .catch((e) => setErr(e.message || 'No se pudo restaurar.'));
   }
 
-  function setSurface(id, enabled) {
-    update((prev) => ({
-      ...prev,
-      surfaces: {
-        ...defaultSurfaces(),
-        ...(prev?.surfaces && typeof prev.surfaces === 'object' ? prev.surfaces : {}),
-        [id]: Boolean(enabled),
-      },
-    }));
-  }
-
-  const allVisibleOn =
-    visible.length > 0 && visible.every((d) => isStateEnabled(config, d.id));
-  const filtering = Boolean(query.trim());
   const surfacesOn = IV_RM_SURFACES.filter((s) => isSurfaceEnabled(config, s.id)).length;
 
   return (
     <div className="cc-states-cfg">
       <header className="cc-units-head cc-cat-compact-head">
         <div>
-          <h2>Estados y territorio</h2>
+          <h2>Estados</h2>
           <p className="cc-hint">
-            Marca los estados y el color de cada delimitación. Más abajo configuras las Zonas
-            Militares y municipios de la IV R.M. Se aplica de inmediato en este navegador.
+            Elija la región y marque sus estados. Un estado solo puede estar en una región. El
+            color y en qué mapas se dibuja son de su cuenta.
           </p>
         </div>
       </header>
@@ -164,11 +234,28 @@ export default function ConfigStates() {
           onChange={onNativeColor}
         />
 
-        <div
-          className="cc-states-surfaces"
-          role="group"
-          aria-label="Mapas donde aplicar las delimitaciones"
-        >
+        <label className="cc-territorio-estado">
+          Región
+          <select
+            value={regionId}
+            onChange={(e) => setRegionId(e.target.value)}
+            aria-label="Región"
+          >
+            {regions.length === 0 ? <option value="">Sin regiones</option> : null}
+            {regions.map((r) => {
+              const n = regionCounts.get(String(r.id)) || 0;
+              return (
+                <option key={r.id} value={r.id}>
+                  {n > 0 ? `${r.name} · ${n}` : r.name}
+                </option>
+              );
+            })}
+          </select>
+        </label>
+
+        {err ? <p className="cc-hint">{err}</p> : null}
+
+        <div className="cc-states-surfaces" role="group" aria-label="Mapas donde aplicar las delimitaciones">
           <div className="cc-states-surfaces-head">
             <span className="cc-states-surfaces-title">Mostrar en mapas</span>
             <span className="cc-states-surfaces-count">
@@ -179,16 +266,8 @@ export default function ConfigStates() {
             {IV_RM_SURFACES.map((s) => {
               const on = isSurfaceEnabled(config, s.id);
               return (
-                <label
-                  key={s.id}
-                  className={`cc-states-surface-item${on ? ' on' : ''}`}
-                  title={s.hint}
-                >
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => setSurface(s.id, !on)}
-                  />
+                <label key={s.id} className={`cc-states-surface-item${on ? ' on' : ''}`} title={s.hint}>
+                  <input type="checkbox" checked={on} onChange={() => setSurface(s.id, !on)} />
                   <span className="cc-states-surface-text">
                     <span className="cc-states-surface-name">{s.label}</span>
                     <span className="cc-states-surface-hint">{s.hint}</span>
@@ -209,26 +288,13 @@ export default function ConfigStates() {
               >
                 {sortDir === 'desc' ? 'Descendente' : 'Ascendente'}
               </button>
-              <button
-                type="button"
-                className="channel-col-tool-link"
-                onClick={toggleMarkVisible}
-                disabled={!visible.length}
-              >
-                {allVisibleOn ? 'Desmarcar' : 'Marcar'}
-              </button>
-              <button type="button" className="channel-col-tool-link" onClick={onlyIvRm}>
-                Solo IV R.M.
-              </button>
               <span className="channel-col-count">
-                {selectedCount} de {IV_RM_STATE_DEFS.length} seleccionados
-                {filtering && visible.length !== IV_RM_STATE_DEFS.length
-                  ? ` · ${visible.length} visibles`
-                  : ''}
+                {ownedIds.size} de esta región
+                {query.trim() ? ` · ${visible.length} visibles` : ''}
               </span>
               <span
                 className="channel-col-help"
-                title="Ascendente/Descendente ordena la lista. Marcar/Desmarcar alterna los estados visibles. Solo IV R.M. deja Nuevo León, Tamaulipas y San Luis Potosí. El círculo abre el selector de color. Los checks de mapas definen dónde se dibuja."
+                title="El check asigna el estado a la región. Si ya es de otra, pregunta si se sustituye. El círculo es el color de su cuenta. Mostrar en mapas también es de su cuenta."
               >
                 ?
               </span>
@@ -246,32 +312,35 @@ export default function ConfigStates() {
 
           <ul className="channel-dual-list cc-states-list" aria-label="Estados de México">
             {visible.map((d) => {
-              const enabled = isStateEnabled(config, d.id);
+              const on = ownedIds.has(d.id);
+              const taken = !on && holderById.has(d.id);
               const color = stateColor(config, d.id);
               return (
                 <li
                   key={d.id}
-                  className={`channel-dual-row cc-states-row${enabled ? ' on' : ''}`}
+                  className={`channel-dual-row cc-states-row${on ? ' on' : ''}${taken ? ' is-taken' : ''}`}
                 >
-                  <label className="channel-dual-item">
+                  <div className="channel-dual-item">
                     <input
                       type="checkbox"
-                      checked={enabled}
-                      onChange={() => toggleEnabled(d.id)}
+                      checked={on}
+                      disabled={!canEdit || !regionId || busy}
+                      aria-label={d.name}
+                      onChange={() => toggleState(d)}
                     />
                     <span className="channel-dual-text">
                       <span className="channel-dual-name">{d.name}</span>
-                      <span className="channel-dual-meta">{d.id}</span>
+                      <span className="channel-dual-meta">
+                        {taken ? holderById.get(d.id) : d.id}
+                      </span>
                     </span>
-                  </label>
-                  {d.ivRm ? <span className="channel-multi-badge listen">IV R.M.</span> : null}
+                  </div>
                   <button
                     type="button"
                     className="cc-states-swatch"
                     style={{ background: color }}
-                    title={`${color} — clic para cambiar el color de ${d.name}`}
+                    title={`${color} — color de su cuenta para ${d.name}`}
                     aria-label={`Color de ${d.name}`}
-                    disabled={!enabled}
                     onClick={() => openColorPicker(d.id)}
                   />
                 </li>
@@ -286,13 +355,25 @@ export default function ConfigStates() {
         </div>
 
         <div className="cc-states-actions">
-          <button type="button" className="cc-btn ghost" onClick={resetDefaults}>
-            Restaurar valores por defecto
+          <button type="button" className="cc-btn ghost" onClick={resetPersonal}>
+            Restaurar mis colores y mapas
           </button>
         </div>
       </section>
 
       <ConfigTerritory />
+      <AppDialog
+        open={Boolean(dialog)}
+        title={dialog?.title}
+        message={dialog?.message}
+        confirmLabel={dialog?.confirmLabel || 'Aceptar'}
+        onCancel={() => setDialog(null)}
+        onConfirm={() => {
+          const run = dialog?.onConfirm;
+          setDialog(null);
+          if (typeof run === 'function') run();
+        }}
+      />
     </div>
   );
 }

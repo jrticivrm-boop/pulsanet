@@ -421,7 +421,7 @@ export default function App() {
             path="grabaciones"
             element={<Navigate to="/despacho/video/grabaciones" replace />}
           />
-          <Route path="estados" element={<ConfigStates />} />
+          <Route path="estados" element={<ConfigStates session={session} />} />
           <Route
             path="respaldos"
             element={
