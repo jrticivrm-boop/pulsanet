@@ -1,3 +1,11 @@
+## 2026-11-09 — Territorio: el orden sigue el nivel abierto
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** En Estado / Municipio, Ascendente/Descendente ordena los estados si todos están plegados. Si hay al menos uno desplegado, ordena los municipios y deja los estados en su lugar. Cada nivel guarda su propio orden. Los estados arrancan plegados, como los grupos de Asignación.
+- **Por qué / notas:** En Parque Vehicular la columna Asignación cambia el nivel (año, mes o día) según qué grupo esté abierto. El clic anterior movía estados y municipios a la vez.
+- **Archivos / refs:** `MapCheckSelect.jsx` · `TerritoryOpsPanel.jsx`
+
 ## 2026-11-09 — Territorio: Marcar y el orden como Parque Vehicular
 
 - **Tipo:** fix

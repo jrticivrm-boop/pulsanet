@@ -10,7 +10,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
-- **Territorio — Estado / Municipio:** Marcar y Desmarcar valen con el estado plegado. Descendente ordena estados y municipios.
+- **Territorio — Estado / Municipio:** Marcar y Desmarcar valen con el estado plegado. Con todo plegado, Ascendente/Descendente ordena los estados; con uno desplegado, ordena los municipios.
 ### Changed
 - **Mapa — zoom:** los botones + y − saltan un nivel. La rueda del mouse avanza un cuarto de nivel por muesca.
 ### Fixed

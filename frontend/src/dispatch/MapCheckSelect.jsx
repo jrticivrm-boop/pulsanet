@@ -29,14 +29,15 @@ export default function MapCheckSelect({
   onChange,
   fieldLabel = 'Lista',
   ariaLabel,
-  hintTitle = 'Ascendente/Descendente ordena la lista. Marcar/Desmarcar alterna los visibles.',
+  hintTitle = 'Con los grupos plegados, Ascendente/Descendente ordena los grupos. Con al menos uno desplegado, ordena lo de adentro. Marcar/Desmarcar alterna toda la lista.',
   emptyMessage = 'Sin opciones',
   allWord = 'Todas',
   searchPlaceholder = 'Buscar en lista…',
 }) {
   const [open, setOpen] = useState(false);
   const [panelStyle, setPanelStyle] = useState(null);
-  const [sortDir, setSortDir] = useState('asc');
+  const [groupSort, setGroupSort] = useState('asc');
+  const [itemSort, setItemSort] = useState('asc');
   const [query, setQuery] = useState('');
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
@@ -44,26 +45,37 @@ export default function MapCheckSelect({
   const panelIdRef = useRef(createMsPanelId('chk'));
   const selectedSet = useMemo(() => new Set(selectedIds.map(String)), [selectedIds]);
 
-  const [collapsed, setCollapsed] = useState(() => new Set());
+  const knownGroupsRef = useRef(new Set());
+  const [collapsed, setCollapsed] = useState(() => {
+    const names = new Set();
+    for (const it of items || []) {
+      const name = String(it?.group || '');
+      if (!name) continue;
+      names.add(name);
+      knownGroupsRef.current.add(name);
+    }
+    return names;
+  });
 
   const sorted = useMemo(() => {
     const list = [...(items || [])];
     const hasGroups = list.some((it) => it?.group);
+    const gDir = groupSort === 'desc' ? -1 : 1;
+    const iDir = itemSort === 'desc' ? -1 : 1;
     list.sort((a, b) => {
-      const dir = sortDir === 'desc' ? -1 : 1;
       if (hasGroups) {
         const gcmp = String(a?.group || '').localeCompare(String(b?.group || ''), 'es', {
           sensitivity: 'base',
         });
-        if (gcmp !== 0) return gcmp * dir;
+        if (gcmp !== 0) return gcmp * gDir;
       }
       const cmp = String(a?.label || '').localeCompare(String(b?.label || ''), 'es', {
         sensitivity: 'base',
       });
-      return cmp * dir;
+      return cmp * iDir;
     });
     return list;
-  }, [items, sortDir]);
+  }, [items, groupSort, itemSort]);
 
   const q = query.trim().toLowerCase();
   const visible = useMemo(() => {
@@ -135,7 +147,7 @@ export default function MapCheckSelect({
       fitMsPanelHeight(panelRef.current, { preferred: 280, maxCap: 400 });
     });
     return () => cancelAnimationFrame(id);
-  }, [open, placePanel, items.length, visible.length, query, sortDir, collapsed.size]);
+  }, [open, placePanel, items.length, visible.length, query, groupSort, itemSort, collapsed.size]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -172,6 +184,22 @@ export default function MapCheckSelect({
   useEffect(() => {
     if (!open) setQuery('');
   }, [open]);
+
+  useEffect(() => {
+    const fresh = [];
+    for (const it of items || []) {
+      const name = String(it?.group || '');
+      if (!name || knownGroupsRef.current.has(name)) continue;
+      knownGroupsRef.current.add(name);
+      fresh.push(name);
+    }
+    if (!fresh.length) return;
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      fresh.forEach((name) => next.add(name));
+      return next;
+    });
+  }, [items]);
 
   function toggle(itemId) {
     const id = String(itemId);
@@ -221,6 +249,16 @@ export default function MapCheckSelect({
     toggleIds(ids, allOn);
   }
 
+  const hasGroups = grouped.some((g) => g.name);
+  const anyExpanded = hasGroups && grouped.some((g) => g.name && !isGroupCollapsed(g.name));
+  const sortLevel = hasGroups && !anyExpanded ? 'groups' : 'items';
+  const sortDir = sortLevel === 'groups' ? groupSort : itemSort;
+
+  function toggleSort() {
+    if (sortLevel === 'groups') setGroupSort((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else setItemSort((d) => (d === 'asc' ? 'desc' : 'asc'));
+  }
+
   const total = items.length;
   const nSel = selectedIds.length;
   const label = summaryLabel(items, selectedIds.map(String), allWord);
@@ -242,7 +280,7 @@ export default function MapCheckSelect({
                 <button
                   type="button"
                   className="cc-ms-link"
-                  onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                  onClick={toggleSort}
                 >
                   {sortDir === 'desc' ? 'Descendente' : 'Ascendente'}
                 </button>
