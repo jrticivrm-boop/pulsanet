@@ -1,3 +1,11 @@
+## 2026-11-09 — Mapa: los municipios asignados sí se pintan
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** La cobertura usa el nombre del polígono (Cd. Madero queda como Ciudad Madero). En el mapa, si el estado y la unidad están elegidos, se pintan todos sus municipios, no solo los que ya traía el filtro.
+- **Por qué / notas:** Tampico del 15/o. B.I. seguía en la base y no se veía en la costa de Tamaulipas. Los datos no se habían borrado.
+- **Archivos / refs:** `mxMunicipiosGeo.js` · `IvRmTerritoryLayer.jsx` · `territoryCoverage.js`
+
 ## 2026-11-09 — Territorio: sustituir municipio y conteo por estado
 
 - **Tipo:** ux

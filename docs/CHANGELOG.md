@@ -9,6 +9,8 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **Mapa — Territorio:** un municipio asignado se pinta aunque el nombre corto no coincida con el polígono («Cd. Madero» = «Ciudad Madero»). Si el estado está elegido, entran el resto de municipios de esa unidad, como Tampico junto con Aldama.
 ### Changed
 - **Territorio:** la pestaña de asignación de municipios pasó de Catálogos a Configuración. La dirección anterior redirige. El permiso queda en Perfiles → Configuración → Territorio.
 - **Configuración → Territorio:** se quitó «Marcar visibles». El estado muestra cuántos municipios tiene esa unidad. Un municipio de otra unidad se ve en gris; el check pregunta si se sustituye y, al aceptar, la otra unidad lo pierde.

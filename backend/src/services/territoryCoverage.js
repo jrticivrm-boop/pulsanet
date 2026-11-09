@@ -8,6 +8,10 @@ const catalogPath = path.resolve(
   __dirname,
   '../../../frontend/src/dispatch/ivRmTerritoryCatalog.json'
 );
+const municipiosGeoPath = path.resolve(
+  __dirname,
+  '../../../frontend/public/geo/ivRmMunicipios.json'
+);
 
 function loadSeedCatalog() {
   try {
@@ -196,8 +200,56 @@ function buildRegionsTree(orgs, mapped) {
     .filter((r) => r.children.length > 0);
 }
 
+let officialByAlias = null;
+
+function loadOfficialAliases() {
+  if (officialByAlias) return officialByAlias;
+  officialByAlias = new Map();
+  try {
+    const fc = JSON.parse(fs.readFileSync(municipiosGeoPath, 'utf8'));
+    for (const f of fc.features || []) {
+      const p = f.properties || {};
+      const estado = String(p.estado || '').trim();
+      const official = String(p.municipio || p.shapeName || '').trim();
+      if (!estado || !official) continue;
+      for (const name of [official, p.shapeName, p.municipioXls]) {
+        const key = `${norm(estado)}|${norm(name)}`;
+        if (norm(name) && !officialByAlias.has(key)) officialByAlias.set(key, official);
+      }
+    }
+  } catch {
+    officialByAlias = new Map();
+  }
+  return officialByAlias;
+}
+
+/** «Cd. Madero» pasa a «Ciudad Madero», el nombre del polígono. */
+async function canonicalizeCoverageNames(orgId) {
+  const aliases = loadOfficialAliases();
+  if (!aliases.size) return;
+  const { rows } = await query(
+    `SELECT id, estado, municipio
+     FROM cat_territory_coverage
+     WHERE organization_id = $1`,
+    [orgId]
+  );
+  for (const r of rows) {
+    const official = aliases.get(`${norm(r.estado)}|${norm(r.municipio)}`);
+    if (!official || official === r.municipio) continue;
+    try {
+      await query(`UPDATE cat_territory_coverage SET municipio = $1 WHERE id = $2`, [
+        official,
+        r.id,
+      ]);
+    } catch (err) {
+      if (err?.code !== '23505') throw err;
+    }
+  }
+}
+
 export async function listTerritoryCoverage(orgId) {
   await ensureTerritoryCoverage(orgId);
+  await canonicalizeCoverageNames(orgId);
   const { rows } = await query(
     `SELECT id, region_id, zone_id, unit_id, region_label, zona_key, zona_short,
             unidad_name, estado, municipio, shape_id

@@ -61,6 +61,7 @@ Esta lista es la parte **manual**. Revisa siempre la sección *Base* y, además,
 
 - [ ] Consola → Territorio: solo 2 selects (Región/Zona/Unidad y Estado/Municipio) + Colores; sin Limpiar, Encuadrar ni Usuarios.
 - [ ] Región/Zona/Unidad: aparece IV R.M. (u otras) solo si tienen municipios en Configuración → Territorio; check de región/zona marca hijos; el mapa filtra al marcar.
+- [ ] Mapa: Tampico, Ciudad Madero y el resto de Tamaulipas y San Luis del 15/o. B.I. (y las demás unidades) se pintan si el estado y la unidad están elegidos. Aldama y Tampico, mismo color.
 - [ ] Estado/Municipio: estados plegables con municipios; Abasolo Tamps. vs Abasolo N.L. en grupos distintos; el check del estado marca el grupo.
 - [ ] Configuración → Territorio: árbol Región→Zona→Unidad plegable (PRUEBA_ZONA bajo su región de Dependencias); búsqueda en el árbol; contadores; unidades (0) en gris «sin municipios». Ya no está en Catálogos.
 - [ ] Al marcar/desmarcar municipios aparece el resumen arriba del panel. Ya no está «Marcar visibles».

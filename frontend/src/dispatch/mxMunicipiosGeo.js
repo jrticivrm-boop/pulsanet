@@ -103,8 +103,14 @@ function normName(value) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+    .replace(/\./g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function featureNameKeys(props) {
+  const p = props || {};
+  return [p.municipio, p.shapeName, p.municipioXls].map(normName).filter(Boolean);
 }
 
 /**
@@ -113,11 +119,22 @@ function normName(value) {
  */
 export function applyTerritoryCoverage(features, rows) {
   if (!features?.length || !rows?.length) return features || [];
+  const aliasToOfficial = new Map();
+  for (const f of features) {
+    const p = f.properties || {};
+    const official = `${normName(p.estado)}|${normName(p.municipio || p.shapeName)}`;
+    if (!official || official.endsWith('|')) continue;
+    for (const name of featureNameKeys(p)) {
+      const key = `${normName(p.estado)}|${name}`;
+      if (!aliasToOfficial.has(key)) aliasToOfficial.set(key, official);
+    }
+  }
   const byMuni = new Map();
   for (const r of rows) {
     const estado = r.estado || r.estadoName;
     const municipio = r.municipio || r.municipioName;
-    const key = `${normName(estado)}|${normName(municipio)}`;
+    const raw = `${normName(estado)}|${normName(municipio)}`;
+    const key = aliasToOfficial.get(raw) || raw;
     let bucket = byMuni.get(key);
     if (!bucket) {
       bucket = {
@@ -185,4 +202,29 @@ export function filterTerritoryFeatures(features, filter = {}) {
     );
   }
   return list;
+}
+
+/**
+ * Si un estado ya tiene municipios de la unidad seleccionada, entran también
+ * los demás de ese estado. Así Tampico no se queda fuera cuando Aldama sí se pinta.
+ */
+export function includeAssignedStateMates(list, pool, filter = {}) {
+  const estadoIds = idList(filter, 'estadoIds', 'estado');
+  const unidadIds = idList(filter, 'unidadIds', 'unidad');
+  const zonaIds = idList(filter, 'zonaIds', 'zonaId');
+  const estados = new Set((estadoIds || []).map(normName));
+  for (const f of list || []) estados.add(normName(f?.properties?.estado));
+  if (!estados.size) return list || [];
+  const have = new Set((list || []).map((f) => String(f?.properties?.shapeID || '')));
+  const extra = [];
+  for (const f of pool || []) {
+    const id = String(f?.properties?.shapeID || '');
+    if (!id || have.has(id)) continue;
+    if (!estados.has(normName(f?.properties?.estado))) continue;
+    if (zonaIds && !zonaIds.includes(String(f?.properties?.zonaId || ''))) continue;
+    if (unidadIds && !featureUnitNames(f).some((u) => unidadIds.includes(String(u)))) continue;
+    extra.push(f);
+    have.add(id);
+  }
+  return extra.length ? [...(list || []), ...extra] : list || [];
 }

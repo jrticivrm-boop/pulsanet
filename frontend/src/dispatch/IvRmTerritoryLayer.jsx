@@ -13,6 +13,7 @@ import {
 import {
   applyTerritoryCoverage,
   filterTerritoryFeatures,
+  includeAssignedStateMates,
   loadIvRmMunicipios,
   loadedIvRmMunicipios,
 } from './mxMunicipiosGeo.js';
@@ -237,9 +238,16 @@ export default function IvRmTerritoryLayer({
     if (!features?.length) return [];
     const cfg = config || loadIvRmTerritoryConfig();
     const overlaid = applyTerritoryCoverage(features, coverageRows);
-    let list = overlaid.filter((f) => isZonaEnabled(cfg, f.properties?.zonaId));
-    if (filter) list = filterTerritoryFeatures(list, filter);
-    return list;
+    const selectedZones = Array.isArray(filter?.zonaIds) ? filter.zonaIds.map(String) : null;
+    const zoneOn = (f) => {
+      const zid = String(f.properties?.zonaId || '');
+      if (selectedZones) return selectedZones.includes(zid);
+      return isZonaEnabled(cfg, zid);
+    };
+    const pool = overlaid.filter(zoneOn);
+    let list = pool;
+    if (filter) list = filterTerritoryFeatures(pool, { ...filter, zonaIds: undefined, zonaId: undefined });
+    return includeAssignedStateMates(list, pool, filter || {});
   }, [features, configKey, filterKey, coverageKey]);
 
   /** Selección actual + municipios del hover del árbol (aunque no estén marcados). */
@@ -250,7 +258,12 @@ export default function IvRmTerritoryLayer({
     if (!features?.length) return baseVisible;
     const cfg = config || loadIvRmTerritoryConfig();
     const overlaid = applyTerritoryCoverage(features, coverageRows);
-    const pool = overlaid.filter((f) => isZonaEnabled(cfg, f.properties?.zonaId));
+    const selectedZones = Array.isArray(filter?.zonaIds) ? filter.zonaIds.map(String) : null;
+    const pool = overlaid.filter((f) => {
+      const zid = String(f.properties?.zonaId || '');
+      if (selectedZones) return selectedZones.includes(zid);
+      return isZonaEnabled(cfg, zid);
+    });
     const preview = filterTerritoryFeatures(pool, {
       zonaIds: hoverPreview.zonaIds?.length ? hoverPreview.zonaIds : undefined,
       unidadIds: hoverPreview.unidadIds?.length ? hoverPreview.unidadIds : undefined,
@@ -267,7 +280,7 @@ export default function IvRmTerritoryLayer({
       else byId.set(`p:${byId.size}`, f);
     }
     return [...byId.values()];
-  }, [baseVisible, features, configKey, coverageKey, hoverKey]);
+  }, [baseVisible, features, configKey, coverageKey, hoverKey, filterKey]);
 
   useEffect(() => {
     if (typeof onFeaturesReady === 'function') onFeaturesReady(baseVisible);
