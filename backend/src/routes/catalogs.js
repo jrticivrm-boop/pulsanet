@@ -20,7 +20,7 @@ import {
   reorderGrades,
 } from '../services/catalogs.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { requireModuleAction } from '../services/moduleAccess.js';
+import { requireModuleAction, requireModuleTab } from '../services/moduleAccess.js';
 import {
   listTerritoryCoverage,
   replaceCoverageForEstado,
@@ -199,7 +199,10 @@ catalogsRouter.delete('/empleos/:id', requireDelete, async (req, res) => {
   }
 });
 
-catalogsRouter.get('/territorio', requireView, async (req, res) => {
+const requireTerritorioView = requireModuleTab('configuracion', 'territorio');
+const requireTerritorioEdit = requireModuleAction('configuracion', 'editar');
+
+catalogsRouter.get('/territorio', requireTerritorioView, async (req, res) => {
   try {
     const data = await listTerritoryCoverage(req.user.orgId);
     res.json({ ok: true, ...data });
@@ -208,7 +211,7 @@ catalogsRouter.get('/territorio', requireView, async (req, res) => {
   }
 });
 
-catalogsRouter.put('/territorio', requireEdit, async (req, res) => {
+catalogsRouter.put('/territorio', requireTerritorioView, requireTerritorioEdit, async (req, res) => {
   try {
     const data = await replaceCoverageForEstado(req.user.orgId, req.body || {});
     await logActivity({
@@ -249,5 +252,5 @@ async function handleTerritorioUnitColor(req, res) {
 }
 
 /** Preferir ruta plana (proxy/caches a veces fallan con /territorio/…). */
-catalogsRouter.put('/territorio-unit-color', requireEdit, handleTerritorioUnitColor);
-catalogsRouter.put('/territorio/unit-color', requireEdit, handleTerritorioUnitColor);
+catalogsRouter.put('/territorio-unit-color', requireTerritorioView, requireTerritorioEdit, handleTerritorioUnitColor);
+catalogsRouter.put('/territorio/unit-color', requireTerritorioView, requireTerritorioEdit, handleTerritorioUnitColor);

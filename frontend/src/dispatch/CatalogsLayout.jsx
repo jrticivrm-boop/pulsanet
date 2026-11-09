@@ -17,7 +17,6 @@ const ALL_TABS = [
   { to: `${BASE}/empleos`, label: 'Empleos', permKey: 'empleos' },
   { to: `${BASE}/servicios`, label: 'Servicios', permKey: 'servicios' },
   { to: `${BASE}/dependencias`, label: 'Dependencias', permKey: 'dependencias' },
-  { to: `${BASE}/territorio`, label: 'Territorio', permKey: 'territorio' },
 ];
 
 export default function CatalogsLayout() {
@@ -36,6 +35,10 @@ export default function CatalogsLayout() {
     const matched = matchTabPath(pathname, tabs);
     if (matched) writeRememberedTab(MODULE_ID, matched);
   }, [pathname, tabs]);
+
+  if (pathname.startsWith(`${BASE}/territorio`)) {
+    return <Navigate to="/despacho/configuracion/territorio" replace />;
+  }
 
   if (session?.user && !canViewModule(session.user, 'catalogos')) {
     return <Navigate to="/despacho" replace />;

@@ -97,8 +97,8 @@ function countAssigned(rows, u) {
 }
 
 export default function CatalogTerritorio({ session }) {
-  const canSee = canViewTab(session.user, 'catalogos', 'territorio');
-  const canEdit = canSee && canModuleAction(session.user, 'catalogos', 'editar');
+  const canSee = canViewTab(session.user, 'configuracion', 'territorio');
+  const canEdit = canSee && canModuleAction(session.user, 'configuracion', 'editar');
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [units, setUnits] = useState([]);
@@ -719,7 +719,7 @@ export default function CatalogTerritorio({ session }) {
     return (
       <p className="cc-error">
         Sin permiso para la pestaña Territorio. Un administrador puede habilitarla en Perfiles →
-        Catálogos → Territorio (independiente de Dependencias).
+        Configuración → Territorio.
       </p>
     );
   }
@@ -729,8 +729,8 @@ export default function CatalogTerritorio({ session }) {
   return (
     <div className="cc-cat-grades-wrap cc-territorio-cat">
       <p className="cc-cat-hint">
-        Aquí solo se asignan municipios; alta de región/zona/unidad en Dependencias. Editar
-        cobertura: Catálogos → editar + pestaña Territorio.
+        Aquí solo se asignan municipios; alta de región/zona/unidad en Catálogos → Dependencias.
+        Editar cobertura: Configuración → editar + pestaña Territorio.
       </p>
       {saveFlash ? (
         <div className="cc-territorio-flash" role="status">

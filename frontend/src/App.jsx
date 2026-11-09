@@ -392,7 +392,10 @@ export default function App() {
           <Route path="servicios" element={<CatalogServicios session={session} />} />
           <Route path="grados-empleos" element={<Navigate to="/despacho/catalogos/grados" replace />} />
           <Route path="dependencias" element={<DispatchDependencias session={session} />} />
-          <Route path="territorio" element={<CatalogTerritorio session={session} />} />
+          <Route
+            path="territorio"
+            element={<Navigate to="/despacho/configuracion/territorio" replace />}
+          />
           <Route
             path="sitios-tacticos"
             element={<Navigate to="/despacho/administracion/sitios-tacticos" replace />}
@@ -449,6 +452,7 @@ export default function App() {
               )
             }
           />
+          <Route path="territorio" element={<CatalogTerritorio session={session} />} />
           <Route
             path="presencia"
             element={

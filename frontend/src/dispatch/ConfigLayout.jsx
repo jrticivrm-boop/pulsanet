@@ -25,6 +25,7 @@ export default function ConfigLayout({ session }) {
       { to: `${BASE}/presencia`, label: 'Presencia', permKey: 'presencia' },
       { to: `${BASE}/eventos`, label: 'Eventos', permKey: 'eventos' },
       { to: `${BASE}/auditoria`, label: 'Historial / Auditoría', permKey: 'auditoria' },
+      { to: `${BASE}/territorio`, label: 'Territorio', permKey: 'territorio' },
     ],
     []
   );

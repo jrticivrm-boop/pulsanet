@@ -184,7 +184,7 @@ export default function DispatchDependencias({ session }) {
             <br />
             Solo se pueden eliminar entradas que <strong>no estén en uso</strong> ni tengan elementos hijos.
             <br />
-            Asignación de municipios y colores del mapa: Catálogos → Territorio (permiso de pestaña aparte).
+            Asignación de municipios y colores del mapa: Configuración → Territorio.
           </p>
         </div>
         <p className="cc-units-summary">

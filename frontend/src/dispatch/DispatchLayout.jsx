@@ -529,7 +529,6 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
         { to: '/despacho/catalogos/empleos', permKey: 'empleos' },
         { to: '/despacho/catalogos/servicios', permKey: 'servicios' },
         { to: '/despacho/catalogos/dependencias', permKey: 'dependencias' },
-        { to: '/despacho/catalogos/territorio', permKey: 'territorio' },
       ];
       const allowed = filterTabsByPermission(session.user, 'catalogos', catalogTabDefs).map(
         (t) => t.to
@@ -639,6 +638,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
         { to: '/despacho/configuracion/presencia', permKey: 'presencia' },
         { to: '/despacho/configuracion/eventos', permKey: 'eventos' },
         { to: '/despacho/configuracion/auditoria', permKey: 'auditoria' },
+        { to: '/despacho/configuracion/territorio', permKey: 'territorio' },
       ];
       const allowedConfig = filterTabsByPermission(session.user, 'configuracion', configDefs).map(
         (t) => t.to
@@ -661,7 +661,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
             </span>
             <span className="cc-mod-link-text">
               <span className="cc-mod-link-title">Configuración</span>
-              <span className="cc-mod-link-hint">Canales, estados y sistema</span>
+              <span className="cc-mod-link-hint">Canales, estados y territorio</span>
             </span>
           </NavLink>
         </div>
@@ -1412,7 +1412,6 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                       { to: '/despacho/catalogos/empleos', permKey: 'empleos' },
                       { to: '/despacho/catalogos/servicios', permKey: 'servicios' },
                       { to: '/despacho/catalogos/dependencias', permKey: 'dependencias' },
-                      { to: '/despacho/catalogos/territorio', permKey: 'territorio' },
                     ]).map((t) => t.to),
                     '/despacho/catalogos/jerarquias'
                   )}
@@ -1512,6 +1511,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                       { to: '/despacho/configuracion/presencia', permKey: 'presencia' },
                       { to: '/despacho/configuracion/eventos', permKey: 'eventos' },
                       { to: '/despacho/configuracion/auditoria', permKey: 'auditoria' },
+                      { to: '/despacho/configuracion/territorio', permKey: 'territorio' },
                     ]).map((t) => t.to),
                     '/despacho/configuracion/canales'
                   )}
@@ -1523,7 +1523,7 @@ export default function DispatchLayout({ session, onLogout, onSession }) {
                   </span>
                   <span>
                     <strong>Configuración</strong>
-                    <small>Canales, estados y sistema</small>
+                    <small>Canales, estados y territorio</small>
                   </span>
                 </NavLink>
               )}

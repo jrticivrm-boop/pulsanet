@@ -1,3 +1,10 @@
+## 2026-11-09 — Territorio pasa a Configuración
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** La pestaña Territorio (árbol de región/zona/unidad, municipios y color) sale de Catálogos y queda en Configuración. `/despacho/catalogos/territorio` abre la nueva dirección. El permiso de perfil se mueve con ella; quien ya la tenía la conserva.
+- **Archivos / refs:** `ConfigLayout.jsx` · `CatalogsLayout.jsx` · `CatalogTerritorio.jsx` · `profiles.js` · `catalogs.js`
+
 ## 2026-11-09 — Territorio: el orden sigue el nivel abierto
 
 - **Tipo:** fix
@@ -12,6 +19,14 @@
 - **Área:** web
 - **Qué:** En Estado / Municipio, Marcar y Desmarcar miran los 152 aunque el estado esté plegado. Descendente también mueve los estados, no solo los municipios.
 - **Archivos / refs:** `MapCheckSelect.jsx` · `TerritoryOpsPanel.jsx`
+
+## 2026-11-09 — ExploNova: HentaiLA en completa llena la pantalla
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En completa, el marco del video (HentaiLA y los que se amplían igual) cubre toda la pantalla. La franja de abajo del marco sigue oculta. La ventana flotante no cambia.
+- **Por qué / notas:** El marco quedaba centrado y ocupaba cerca del 75% del ancho. En el emulador, después del cambio, la parte visible cubre el 100% del ancho y del alto. versionCode 317, `2.0.0-alpha97`. Aún no hay APK.
+- **Archivos / refs:** `browser/BrowserEngine.kt` · `app/build.gradle.kts`
 
 ## 2026-11-09 — ExploNova: el encabezado ya no tapa el video
 

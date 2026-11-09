@@ -9,6 +9,8 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- **Territorio:** la pestaña de asignación de municipios pasó de Catálogos a Configuración. La dirección anterior redirige. El permiso queda en Perfiles → Configuración → Territorio.
 ### Fixed
 - **Territorio — Estado / Municipio:** Marcar y Desmarcar valen con el estado plegado. Con todo plegado, Ascendente/Descendente ordena los estados; con uno desplegado, ordena los municipios.
 ### Changed

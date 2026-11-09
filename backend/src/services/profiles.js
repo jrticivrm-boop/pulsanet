@@ -124,7 +124,7 @@ export const MODULES = [
   {
     key: 'catalogos',
     label: 'Catálogos',
-    hint: 'Dependencias = estructura; Territorio = municipios. Permisos de pestaña independientes.',
+    hint: 'Jerarquías, grados, empleos, servicios y dependencias.',
     group: 'sistema',
     groupLabel: 'Sistema',
     actions: ['ver', 'agregar', 'editar', 'eliminar'],
@@ -134,13 +134,12 @@ export const MODULES = [
       { key: 'empleos', label: 'Empleos' },
       { key: 'servicios', label: 'Servicios' },
       { key: 'dependencias', label: 'Dependencias' },
-      { key: 'territorio', label: 'Territorio' },
     ],
   },
   {
     key: 'configuracion',
     label: 'Configuración',
-    hint: 'Canales, estados y sistema',
+    hint: 'Canales, estados, territorio y sistema',
     group: 'sistema',
     groupLabel: 'Sistema',
     actions: ['ver', 'editar'],
@@ -151,6 +150,7 @@ export const MODULES = [
       { key: 'presencia', label: 'Presencia' },
       { key: 'eventos', label: 'Eventos' },
       { key: 'auditoria', label: 'Historial / Auditoría' },
+      { key: 'territorio', label: 'Territorio' },
     ],
   },
 ];
@@ -185,23 +185,47 @@ function defaultTabs(m, enabled) {
  */
 export function normalizeModules(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
+  const oldCat = src.catalogos && typeof src.catalogos === 'object' ? src.catalogos : {};
+  const oldCatTabs = oldCat.tabs && typeof oldCat.tabs === 'object' ? oldCat.tabs : null;
+  const inheritedTerritorio =
+    oldCatTabs && Object.prototype.hasOwnProperty.call(oldCatTabs, 'territorio')
+      ? Boolean(oldCatTabs.territorio)
+      : null;
   const out = {};
   for (const m of MODULES) {
     const cur = src[m.key] && typeof src[m.key] === 'object' ? src[m.key] : {};
-    const ver = Boolean(cur.ver);
+    let ver = Boolean(cur.ver);
+    // Territorio pasó de Catálogos a Configuración. Quien ya la tenía y no veía
+    // Configuración conserva solo esa pestaña.
+    const liftTerritorio = m.key === 'configuracion' && !ver && inheritedTerritorio === true;
+    if (liftTerritorio) ver = true;
     const entry = { ver };
     for (const act of m.actions || []) {
       if (act === 'ver') continue;
-      entry[act] = ver ? Boolean(cur[act]) : false;
+      if (liftTerritorio) {
+        entry[act] = act === 'editar' ? Boolean(oldCat.editar) : false;
+      } else {
+        entry[act] = ver ? Boolean(cur[act]) : false;
+      }
     }
     if (m.tabs?.length) {
       const prevTabs = cur.tabs && typeof cur.tabs === 'object' ? cur.tabs : null;
       const tabs = {};
       for (const t of m.tabs) {
+        if (liftTerritorio) {
+          tabs[t.key] = t.key === 'territorio';
+          continue;
+        }
         if (!ver) {
           tabs[t.key] = false;
         } else if (prevTabs && Object.prototype.hasOwnProperty.call(prevTabs, t.key)) {
           tabs[t.key] = Boolean(prevTabs[t.key]);
+        } else if (
+          m.key === 'configuracion' &&
+          t.key === 'territorio' &&
+          inheritedTerritorio !== null
+        ) {
+          tabs[t.key] = inheritedTerritorio;
         } else {
           // Perfiles antiguos sin tabs: si el módulo es visible, todas las pestañas on
           tabs[t.key] = true;

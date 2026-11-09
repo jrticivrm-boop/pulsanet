@@ -92,7 +92,7 @@ export default function MapTreeCheckSelect({
   onHoverPreview = null,
   fieldLabel = 'Adscripción',
   ariaLabel,
-  hintTitle = 'Región → Zona → Unidad. Solo regiones con municipios asignados en Catálogos → Territorio. Bolita = color del mapa; al pasar el mouse se resaltan esos municipios.',
+  hintTitle = 'Región → Zona → Unidad. Solo regiones con municipios asignados en Configuración → Territorio. Bolita = color del mapa; al pasar el mouse se resaltan esos municipios.',
   emptyMessage = 'Sin regiones con cobertura',
   searchPlaceholder = 'Buscar región, zona o unidad…',
 }) {

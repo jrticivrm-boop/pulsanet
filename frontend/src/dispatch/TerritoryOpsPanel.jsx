@@ -233,9 +233,9 @@ export default function TerritoryOpsPanel({
         emptyMessage={
           allZonas.length || allUnidades.length
             ? 'Sin coincidencias'
-            : 'Sin regiones con cobertura. Configure Catálogos → Territorio.'
+            : 'Sin regiones con cobertura. Configure Configuración → Territorio.'
         }
-        hintTitle="Bolita = color del mapa. Al pasar el mouse se resaltan esos municipios. Solo regiones con cobertura en Catálogos → Territorio."
+        hintTitle="Bolita = color del mapa. Al pasar el mouse se resaltan esos municipios. Solo regiones con cobertura en Configuración → Territorio."
         searchPlaceholder="Buscar región, zona o unidad…"
       />
 
