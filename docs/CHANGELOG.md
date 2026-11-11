@@ -10,6 +10,12 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Changed
+- **Selects:** la flecha de los selects nativos usa el tamaño de Operadores (Por operador).
+- **Configuración → Estados:** junto a Consola hay un desplegable por región para elegir qué estados se pintan en el mapa. No cambia la asignación. Radio salió de esa fila. La misma selección vale en Seguimiento.
+- **Dependencias y Estados:** se agregaron II, VII, VIII, IX, XI y XII R.M., vacías. Cada región militar quedó con sus estados (32 en total). IV R.M. sigue con Nuevo León, San Luis Potosí y Tamaulipas. Las zonas y unidades que ya existían no se tocaron.
+- **Mapa — Región / Zona / Unidad:** el select tiene Ascendente/Descendente, igual que Estado / Municipio. Todo plegado ordena regiones; una región abierta ordena sus zonas; una zona abierta ordena las unidades.
+- **Configuración → Estados:** se quitó «Restaurar mis colores y mapas».
+- **Configuración → Estados:** se quitó el bloque de municipios (mostrar municipios, colores de zona y las cuatro zonas militares). Ahí queda asignar estados a la región, el color y en qué mapas se ve la capa de estados. Los municipios se siguen controlando en Territorio y en el filtro del mapa.
 - **Estados y Territorio:** cada región tiene sus estados y un estado no se repite. Si ya es de otra región, el check pregunta si se sustituye. Territorio solo muestra regiones con estados y, dentro, solo esos estados. IV R.M. arranca con Nuevo León, Tamaulipas y San Luis Potosí. El color del estado, el color de la unidad y «mostrar en mapas» quedan en la cuenta de cada usuario.
 ### Fixed
 - **Mapa — Territorio:** un municipio asignado se pinta aunque el nombre corto no coincida con el polígono («Cd. Madero» = «Ciudad Madero»). Si el estado está elegido, entran el resto de municipios de esa unidad, como Tampico junto con Aldama.
@@ -20,7 +26,7 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 - **Territorio — Estado / Municipio:** Marcar y Desmarcar valen con el estado plegado. Con todo plegado, Ascendente/Descendente ordena los estados; con uno desplegado, ordena los municipios.
 ### Changed
-- **Mapa — zoom:** los botones + y − saltan un nivel. La rueda del mouse avanza un cuarto de nivel por muesca.
+- **Mapa — zoom:** la rueda se desliza seguido (un cuarto de nivel por muesca). Los mosaicos se recargan al soltar. Los botones + y − siguen un nivel.
 ### Fixed
 - **RESERVADO — ZIP del hilo:** el archivo trae `conversacion.html` y la carpeta `media` en la raíz. La descarga ya no se corta antes de guardarse.
 ### Added

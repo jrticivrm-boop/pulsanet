@@ -471,6 +471,48 @@ export const PV_DEPENDENCIAS = {
           "organisms": []
         }
       ]
+    },
+    {
+      "externalId": 68,
+      "name": "II R.M.",
+      "code": "PV-R-68",
+      "sortOrder": 70,
+      "zones": []
+    },
+    {
+      "externalId": 69,
+      "name": "VII R.M.",
+      "code": "PV-R-69",
+      "sortOrder": 80,
+      "zones": []
+    },
+    {
+      "externalId": 70,
+      "name": "VIII R.M.",
+      "code": "PV-R-70",
+      "sortOrder": 90,
+      "zones": []
+    },
+    {
+      "externalId": 71,
+      "name": "IX R.M.",
+      "code": "PV-R-71",
+      "sortOrder": 100,
+      "zones": []
+    },
+    {
+      "externalId": 72,
+      "name": "XI R.M.",
+      "code": "PV-R-72",
+      "sortOrder": 110,
+      "zones": []
+    },
+    {
+      "externalId": 73,
+      "name": "XII R.M.",
+      "code": "PV-R-73",
+      "sortOrder": 120,
+      "zones": []
     }
   ]
 };

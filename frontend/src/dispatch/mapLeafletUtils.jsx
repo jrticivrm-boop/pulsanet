@@ -346,29 +346,40 @@ export function MapCursorFix() {
 }
 
 /**
- * Zoom con la rueda estilo Google Maps: la rueda acumula un zoom objetivo (nada
- * se descarta) y el mapa se desliza hacia él frame a frame, fijo bajo el cursor.
- * Tiles se recargan al terminar.
- * Los botones +/- saltan un nivel entero (zoomDelta=1). La rueda es más fina:
- * una muesca ≈ un cuarto de nivel, para acercar sin pegar el mismo brinco.
- * Usa `_move/_moveStart/_moveEnd` de Leaflet 1.9 (igual que Leaflet.SmoothWheelZoom).
+ * Zoom con la rueda. Los botones +/− siguen un nivel entero (zoomDelta=1) con la
+ * animación CSS de Leaflet. La rueda avanza un cuarto de nivel por muesca y se
+ * desliza igual: el dibujo se escala frame a frame y los mosaicos se recargan
+ * una sola vez, al soltar. Sin eso, cada frame rearma la grilla y el mapa brinca.
  */
 export function CursorZoom() {
   const map = useMap();
   useEffect(() => {
     const el = map.getContainer();
     const PX_PER_LEVEL = 480; // ~1 muesca (deltaY 120) = 0.25 niveles
-    const MAX_PER_EVENT = 0.5; // un giro rápido no iguala el salto del botón
-    const EASE = 0.3; // fracción del recorrido restante por frame
+    const MAX_PER_EVENT = 0.5;
+    const TAU = 0.06; // segundos; el recorrido se reparte en el tiempo, no en un salto por frame
 
     map.options.zoomSnap = 0.25;
     map.options.zoomDelta = 1;
     map.scrollWheelZoom?.disable?.();
     L.DomEvent.disableScrollPropagation(el);
 
+    let goal = null;
     let target = null;
     let anchor = null;
     let raf = 0;
+    let idle = 0;
+    let lastTs = 0;
+    let gliding = false;
+    let ownStart = false;
+    const grids = [];
+
+    const clampZ = (z) => Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), z));
+    const snapOf = (z) => {
+      const snap = map.options.zoomSnap || 0;
+      if (!snap) return z;
+      return Math.round(z / snap) * snap;
+    };
 
     const centerFor = (z) => {
       const scale = map.getZoomScale(z, map.getZoom());
@@ -377,25 +388,97 @@ export function CursorZoom() {
       return map.containerPointToLatLng(half.add(offset));
     };
 
-    const finish = () => {
-      raf = 0;
+    const lockTiles = () => {
+      map.eachLayer((layer) => {
+        if (!layer?.options || typeof layer._setZoomTransforms !== 'function') return;
+        if (grids.some((g) => g.layer === layer)) return;
+        grids.push({ layer, updateWhenZooming: layer.options.updateWhenZooming });
+        layer.options.updateWhenZooming = false;
+      });
+    };
+
+    const unlockTiles = () => {
+      while (grids.length) {
+        const g = grids.pop();
+        g.layer.options.updateWhenZooming = g.updateWhenZooming;
+      }
+    };
+
+    const cancelCssZoom = () => {
+      map._stop?.();
+      if (!map._animatingZoom) return;
+      map._animatingZoom = false;
+      map._mapPane?.classList.remove('leaflet-zoom-anim');
+    };
+
+    const commit = () => {
+      if (!gliding) return;
+      const zoom = map.getZoom();
+      const center = map.getCenter();
+      gliding = false;
       target = null;
+      goal = null;
+      lastTs = 0;
+      unlockTiles();
+      map._move(center, zoom, undefined, true);
+      map.fire('zoom');
+      map.fire('move');
       map._moveEnd(true);
     };
 
-    const frame = () => {
+    const armIdle = () => {
+      window.clearTimeout(idle);
+      idle = window.setTimeout(() => {
+        idle = 0;
+        if (target != null && Math.abs(target - map.getZoom()) > 0.002) return;
+        commit();
+      }, 140);
+    };
+
+    const frame = (ts) => {
       raf = 0;
-      if (target == null) return;
+      if (target == null || !anchor) return;
       const cur = map.getZoom();
       const diff = target - cur;
-      if (Math.abs(diff) < 0.01) {
-        map._move(centerFor(target), target);
-        finish();
-        return;
+      const dt = lastTs ? Math.min(0.032, (ts - lastTs) / 1000) : 0.016;
+      lastTs = ts;
+      const k = 1 - Math.exp(-dt / TAU);
+      let z = cur + diff * k;
+      if (Math.abs(target - z) < 0.004) z = target;
+      const center = centerFor(z);
+      if (!gliding) {
+        cancelCssZoom();
+        ownStart = true;
+        map._moveStart(true, false);
+        ownStart = false;
+        lockTiles();
+        gliding = true;
       }
-      const z = cur + diff * EASE;
-      map._move(centerFor(z), z);
-      raf = requestAnimationFrame(frame);
+      map._move(center, z, undefined, true);
+      map.fire('zoomanim', { center, zoom: z, noUpdate: true });
+      if (z !== target) {
+        raf = requestAnimationFrame(frame);
+      } else {
+        lastTs = 0;
+        armIdle();
+      }
+    };
+
+    const onZoomEnd = () => {
+      if (!gliding) goal = null;
+    };
+
+    const onZoomStart = () => {
+      if (ownStart || (!gliding && !raf)) return;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      window.clearTimeout(idle);
+      idle = 0;
+      gliding = false;
+      target = null;
+      goal = null;
+      lastTs = 0;
+      unlockTiles();
     };
 
     const onWheel = (e) => {
@@ -408,27 +491,32 @@ export function CursorZoom() {
       else if (e.deltaMode === 2) dy *= 800;
 
       const delta = Math.max(-MAX_PER_EVENT, Math.min(MAX_PER_EVENT, -dy / PX_PER_LEVEL));
-      const base = target ?? map.getZoom();
-      const next = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), base + delta));
-      if (target == null && Math.abs(next - map.getZoom()) < 0.001) return;
-      target = next;
+      const base = goal ?? map.getZoom();
+      goal = clampZ(base + delta);
+      const next = clampZ(snapOf(goal));
       anchor = map.mouseEventToContainerPoint(e);
-
-      if (!raf) {
-        map.stop();
-        map._moveStart(true, false);
-        raf = requestAnimationFrame(frame);
+      window.clearTimeout(idle);
+      idle = 0;
+      if (Math.abs(next - (target ?? map.getZoom())) < 0.001) {
+        if (gliding && !raf) armIdle();
+        return;
       }
+      target = next;
+      if (!raf) raf = requestAnimationFrame(frame);
     };
 
     el.addEventListener('wheel', onWheel, { passive: false });
+    map.on('zoomend', onZoomEnd);
+    map.on('zoomstart', onZoomStart);
 
     return () => {
       el.removeEventListener('wheel', onWheel);
-      if (raf) {
-        cancelAnimationFrame(raf);
-        raf = 0;
-      }
+      map.off('zoomend', onZoomEnd);
+      map.off('zoomstart', onZoomStart);
+      if (raf) cancelAnimationFrame(raf);
+      window.clearTimeout(idle);
+      if (gliding) commit();
+      else unlockTiles();
       map.scrollWheelZoom?.enable?.();
     };
   }, [map]);

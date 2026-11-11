@@ -1,5 +1,5 @@
 import { pool, query } from '../db.js';
-import { IV_RM_STATE_IDS, MX_STATE_BY_ID } from '../data/mxStateCatalog.js';
+import { MX_MILITARY_REGIONS, MX_STATE_BY_ID } from '../data/mxStateCatalog.js';
 
 function mapRow(r) {
   return {
@@ -22,33 +22,76 @@ async function selectStates(orgId) {
   return rows.map(mapRow);
 }
 
-/** La primera vez, IV R.M. recibe Nuevo León, Tamaulipas y San Luis Potosí. */
+async function ensureMilitaryRegions(orgId) {
+  for (const region of MX_MILITARY_REGIONS) {
+    const { rows } = await query(
+      `SELECT id FROM org_units
+       WHERE organization_id = $1 AND kind = 'region' AND is_active
+         AND (LOWER(name) = LOWER($2) OR code = $3)
+       LIMIT 1`,
+      [orgId, region.name, region.code]
+    );
+    if (rows[0]) continue;
+    await query(
+      `INSERT INTO org_units (
+         organization_id, parent_id, kind, name, code, external_id, sort_order, is_active
+       ) VALUES ($1, NULL, 'region', $2, $3, $4, $5, TRUE)
+       ON CONFLICT (organization_id, code) DO UPDATE SET
+         name = EXCLUDED.name,
+         is_active = TRUE,
+         updated_at = NOW()`,
+      [orgId, region.name, region.code, region.externalId, region.sortOrder]
+    );
+  }
+}
+
+/** Crea las regiones que faltan y deja cada estado en la suya. No borra zonas ni unidades. */
+export async function assignMilitaryRegionStates(orgId) {
+  await ensureMilitaryRegions(orgId);
+  const { rows } = await query(
+    `SELECT id, name, code FROM org_units
+     WHERE organization_id = $1 AND kind = 'region' AND is_active`,
+    [orgId]
+  );
+  const byName = new Map(rows.map((r) => [String(r.name || '').toLowerCase(), r]));
+  const byCode = new Map(rows.map((r) => [String(r.code || ''), r]));
+  for (const region of MX_MILITARY_REGIONS) {
+    const row = byName.get(region.name.toLowerCase()) || byCode.get(region.code);
+    if (!row) continue;
+    for (const estadoId of region.states) {
+      const def = MX_STATE_BY_ID.get(estadoId);
+      if (!def) continue;
+      await query(
+        `DELETE FROM cat_region_states
+         WHERE organization_id = $1 AND estado_id = $2 AND region_id <> $3`,
+        [orgId, def.id, row.id]
+      );
+      await query(
+        `INSERT INTO cat_region_states (organization_id, region_id, estado_id, estado)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (organization_id, estado_id) DO NOTHING`,
+        [orgId, row.id, def.id, def.name]
+      );
+    }
+  }
+}
+
+/** La primera vez que una organización militar abre Estados, asigna las 12 regiones. */
 async function ensureSeed(orgId) {
   const { rows: countRows } = await query(
     `SELECT COUNT(*)::int AS n FROM cat_region_states WHERE organization_id = $1`,
     [orgId]
   );
   if ((countRows[0]?.n || 0) > 0) return;
-  const { rows: regions } = await query(
-    `SELECT id, name FROM org_units
+  const { rows: military } = await query(
+    `SELECT 1 FROM org_units
      WHERE organization_id = $1 AND kind = 'region' AND is_active
-       AND (name ILIKE '%IV R.M%' OR name ILIKE '%IV RM%')
-     ORDER BY name
+       AND name ILIKE '%R.M%'
      LIMIT 1`,
     [orgId]
   );
-  const region = regions[0];
-  if (!region) return;
-  for (const id of IV_RM_STATE_IDS) {
-    const def = MX_STATE_BY_ID.get(id);
-    if (!def) continue;
-    await query(
-      `INSERT INTO cat_region_states (organization_id, region_id, estado_id, estado)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (organization_id, estado_id) DO NOTHING`,
-      [orgId, region.id, def.id, def.name]
-    );
-  }
+  if (!military[0]) return;
+  await assignMilitaryRegionStates(orgId);
 }
 
 export async function listRegionStates(orgId) {

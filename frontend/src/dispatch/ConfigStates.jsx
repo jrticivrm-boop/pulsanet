@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   IV_RM_STATE_DEFS,
-  IV_RM_SURFACES,
   applyEstadoMapa,
   defaultSurfaces,
   getEstadoMapaView,
@@ -9,11 +8,11 @@ import {
   stateColor,
   useIvRmStatesConfig,
 } from './ivRmStatesConfig.js';
+import MapCheckSelect from './MapCheckSelect.jsx';
 import { fetchDependencias, fetchRegionStates, patchUiPrefs, putRegionState } from '../api';
 import { canModuleAction, canViewTab } from './modulePermissions.js';
 import { syncEstadoMapa } from './estadoMapaSync.js';
 import AppDialog from '../AppDialog.jsx';
-import ConfigTerritory from './ConfigTerritory.jsx';
 
 function normalizeText(value) {
   return String(value || '')
@@ -110,14 +109,17 @@ export default function ConfigStates({ session }) {
     for (const d of IV_RM_STATE_DEFS) colors[d.id] = stateColor(current, d.id);
     if (partial.colorId && partial.color) colors[partial.colorId] = partial.color;
     const surfaces = partial.surfaces || current.surfaces || defaultSurfaces();
-    const saved = await patchUiPrefs(session.token, {
+    const patch = {
       estadoMapaColors: colors,
       estadoMapaSurfaces: surfaces,
-    });
+    };
+    if (partial.visible) patch.estadoMapaVisible = partial.visible;
+    const saved = await patchUiPrefs(session.token, patch);
     const prefs = saved?.prefs || {};
     applyEstadoMapa({
       colors: prefs.estadoMapaColors || colors,
       surfaces: prefs.estadoMapaSurfaces || surfaces,
+      visible: prefs.estadoMapaVisible || partial.visible || null,
     });
   }
 
@@ -197,19 +199,35 @@ export default function ConfigStates({ session }) {
     savePersonal({ colorId: id, color }).catch((err) => setErr(err.message || 'No se pudo guardar el color.'));
   }
 
-  function resetPersonal() {
-    const colors = {};
-    for (const d of IV_RM_STATE_DEFS) colors[d.id] = d.defaultColor;
-    const surfaces = defaultSurfaces();
-    patchUiPrefs(session.token, {
-      estadoMapaColors: colors,
-      estadoMapaSurfaces: surfaces,
-    })
-      .then(() => applyEstadoMapa({ colors, surfaces }))
-      .catch((e) => setErr(e.message || 'No se pudo restaurar.'));
+  const mapItems = useMemo(
+    () =>
+      states.map((row) => ({
+        id: row.estadoId,
+        label: row.name || row.estadoId,
+        group: row.regionName || 'Región',
+      })),
+    [states]
+  );
+
+  const shownIds = useMemo(
+    () =>
+      states
+        .filter((row) => {
+          const flag = config?.visible?.[row.estadoId];
+          return typeof flag === 'boolean' ? flag : true;
+        })
+        .map((row) => row.estadoId),
+    [states, config]
+  );
+
+  function setVisibleIds(ids) {
+    const chosen = new Set((ids || []).map(String));
+    const visible = {};
+    for (const row of states) visible[row.estadoId] = chosen.has(String(row.estadoId));
+    savePersonal({ visible }).catch((e) => setErr(e.message || 'No se pudo guardar.'));
   }
 
-  const surfacesOn = IV_RM_SURFACES.filter((s) => isSurfaceEnabled(config, s.id)).length;
+  const consoleOn = isSurfaceEnabled(config, 'consola');
 
   return (
     <div className="cc-states-cfg">
@@ -218,7 +236,7 @@ export default function ConfigStates({ session }) {
           <h2>Estados</h2>
           <p className="cc-hint">
             Elija la región y marque sus estados. Un estado solo puede estar en una región. El
-            color y en qué mapas se dibuja son de su cuenta.
+            color y qué estados se pintan en el mapa son de su cuenta.
           </p>
         </div>
       </header>
@@ -255,27 +273,28 @@ export default function ConfigStates({ session }) {
 
         {err ? <p className="cc-hint">{err}</p> : null}
 
-        <div className="cc-states-surfaces" role="group" aria-label="Mapas donde aplicar las delimitaciones">
-          <div className="cc-states-surfaces-head">
-            <span className="cc-states-surfaces-title">Mostrar en mapas</span>
-            <span className="cc-states-surfaces-count">
-              {surfacesOn} de {IV_RM_SURFACES.length}
+        <div className="cc-states-map-row">
+          <label className={`cc-states-console-check${consoleOn ? ' on' : ''}`}>
+            <input
+              type="checkbox"
+              checked={consoleOn}
+              onChange={() => setSurface('consola', !consoleOn)}
+            />
+            <span className="cc-states-console-text">
+              <span className="cc-states-surface-name">Consola</span>
+              <span className="cc-states-surface-hint">Mapa de Operaciones</span>
             </span>
-          </div>
-          <div className="cc-states-surfaces-checks">
-            {IV_RM_SURFACES.map((s) => {
-              const on = isSurfaceEnabled(config, s.id);
-              return (
-                <label key={s.id} className={`cc-states-surface-item${on ? ' on' : ''}`} title={s.hint}>
-                  <input type="checkbox" checked={on} onChange={() => setSurface(s.id, !on)} />
-                  <span className="cc-states-surface-text">
-                    <span className="cc-states-surface-name">{s.label}</span>
-                    <span className="cc-states-surface-hint">{s.hint}</span>
-                  </span>
-                </label>
-              );
-            })}
-          </div>
+          </label>
+          <MapCheckSelect
+            fieldLabel="Estados en el mapa"
+            items={mapItems}
+            selectedIds={shownIds}
+            onChange={setVisibleIds}
+            emptyMessage="Ninguna región tiene estados."
+            allWord="Todos"
+            searchPlaceholder="Buscar región o estado…"
+            hintTitle="Elige qué estados se pintan en tu mapa. No cambia de región. Con la región marcada entran todos sus estados. La misma selección vale en Seguimiento."
+          />
         </div>
 
         <div className="channel-col cc-states-col">
@@ -294,7 +313,7 @@ export default function ConfigStates({ session }) {
               </span>
               <span
                 className="channel-col-help"
-                title="El check asigna el estado a la región. Si ya es de otra, pregunta si se sustituye. El círculo es el color de su cuenta. Mostrar en mapas también es de su cuenta."
+                title="El check asigna el estado a la región. Si ya es de otra, pregunta si se sustituye. El círculo es el color de su cuenta. Qué estados se pintan se elige arriba."
               >
                 ?
               </span>
@@ -353,15 +372,8 @@ export default function ConfigStates({ session }) {
             ) : null}
           </ul>
         </div>
-
-        <div className="cc-states-actions">
-          <button type="button" className="cc-btn ghost" onClick={resetPersonal}>
-            Restaurar mis colores y mapas
-          </button>
-        </div>
       </section>
 
-      <ConfigTerritory />
       <AppDialog
         open={Boolean(dialog)}
         title={dialog?.title}

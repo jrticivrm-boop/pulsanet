@@ -80,6 +80,24 @@ function walkZones(nodes, out = []) {
   return out;
 }
 
+function cmpEs(a, b) {
+  return String(a || '').localeCompare(String(b || ''), 'es', { sensitivity: 'base' });
+}
+
+function sortByLabel(list, dir) {
+  return [...(list || [])].sort((a, b) => cmpEs(a?.label, b?.label) * dir);
+}
+
+function sortAdscriptionTree(nodes, regionDir, zoneDir, unitDir) {
+  return sortByLabel(nodes, regionDir).map((region) => ({
+    ...region,
+    children: sortByLabel(region.children, zoneDir).map((zone) => ({
+      ...zone,
+      children: sortByLabel(zone.children, unitDir),
+    })),
+  }));
+}
+
 /**
  * Multi-check en árbol Región → Zona → Unidad (misma cáscara que MapCheckSelect).
  * onChange({ zonaIds, unidadIds }).
@@ -92,7 +110,7 @@ export default function MapTreeCheckSelect({
   onHoverPreview = null,
   fieldLabel = 'Adscripción',
   ariaLabel,
-  hintTitle = 'Región → Zona → Unidad. Solo regiones con municipios asignados en Configuración → Territorio. Bolita = color del mapa; al pasar el mouse se resaltan esos municipios.',
+  hintTitle = 'Con todo plegado, Ascendente/Descendente ordena las regiones. Si una región está abierta y sus zonas siguen plegadas, ordena las zonas. Si una zona está abierta, ordena las unidades y los encabezados se quedan. Cada nivel guarda su sentido. Marcar/Desmarcar vale aunque esté plegado.',
   emptyMessage = 'Sin regiones con cobertura',
   searchPlaceholder = 'Buscar región, zona o unidad…',
 }) {
@@ -100,6 +118,9 @@ export default function MapTreeCheckSelect({
   const [panelStyle, setPanelStyle] = useState(null);
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState(() => new Set());
+  const [regionSort, setRegionSort] = useState('asc');
+  const [zoneSort, setZoneSort] = useState('asc');
+  const [unitSort, setUnitSort] = useState('asc');
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const panelRef = useRef(null);
@@ -109,11 +130,18 @@ export default function MapTreeCheckSelect({
 
   const q = query.trim().toLowerCase();
 
+  const sortedNodes = useMemo(() => {
+    const regionDir = regionSort === 'desc' ? -1 : 1;
+    const zoneDir = zoneSort === 'desc' ? -1 : 1;
+    const unitDir = unitSort === 'desc' ? -1 : 1;
+    return sortAdscriptionTree(nodes, regionDir, zoneDir, unitDir);
+  }, [nodes, regionSort, zoneSort, unitSort]);
+
   const visibleNodes = useMemo(() => {
-    if (!q) return nodes || [];
+    if (!q) return sortedNodes || [];
     const match = (text) => String(text || '').toLowerCase().includes(q);
     const out = [];
-    for (const region of nodes || []) {
+    for (const region of sortedNodes || []) {
       const zones = [];
       for (const zone of region.children || []) {
         const units = (zone.children || []).filter(
@@ -131,7 +159,7 @@ export default function MapTreeCheckSelect({
       }
     }
     return out;
-  }, [nodes, q]);
+  }, [sortedNodes, q]);
 
   const placePanel = useCallback(() => {
     const el = triggerRef.current;
@@ -296,6 +324,28 @@ export default function MapTreeCheckSelect({
     emit([...nextZ], [...nextU]);
   }
 
+  function sortLevel() {
+    const regions = visibleNodes;
+    if (!regions.length) return 'region';
+    const regionOpen = regions.some((region) => !isCollapsed(`r:${region.id}`));
+    if (!regionOpen) return 'region';
+    const zoneOpen = regions.some((region) => {
+      if (isCollapsed(`r:${region.id}`)) return false;
+      return (region.children || []).some((zone) => !isCollapsed(`z:${zone.id}`));
+    });
+    return zoneOpen ? 'unit' : 'zone';
+  }
+
+  const level = sortLevel();
+  const sortDir = level === 'region' ? regionSort : level === 'zone' ? zoneSort : unitSort;
+
+  function toggleSort() {
+    const flip = (dir) => (dir === 'asc' ? 'desc' : 'asc');
+    if (level === 'region') setRegionSort(flip);
+    else if (level === 'zone') setZoneSort(flip);
+    else setUnitSort(flip);
+  }
+
   function toggleMarkAll() {
     const allZ = walkZones(visibleNodes).map((z) => String(z.id));
     const allU = walkLeaves(visibleNodes).map((u) => String(u.id));
@@ -343,6 +393,12 @@ export default function MapTreeCheckSelect({
           >
             <div className="cc-ms-head">
               <div className="cc-ms-actions">
+                <button type="button" className="cc-ms-link" onClick={toggleSort}>
+                  {sortDir === 'desc' ? 'Descendente' : 'Ascendente'}
+                </button>
+                <span className="cc-ms-sep" aria-hidden>
+                  ·
+                </span>
                 <button
                   type="button"
                   className="cc-ms-link"

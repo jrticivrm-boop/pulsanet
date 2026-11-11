@@ -235,7 +235,7 @@ export default function TerritoryOpsPanel({
             ? 'Sin coincidencias'
             : 'Sin regiones con cobertura. Configure Configuración → Territorio.'
         }
-        hintTitle="Bolita = color del mapa. Al pasar el mouse se resaltan esos municipios. Solo regiones con cobertura en Configuración → Territorio."
+        hintTitle="Con todo plegado, Ascendente/Descendente ordena las regiones. Si una región está abierta y sus zonas siguen plegadas, ordena las zonas. Si una zona está abierta, ordena las unidades y los encabezados se quedan. Cada nivel guarda su sentido. Marcar/Desmarcar vale aunque esté plegado. Bolita = color del mapa."
         searchPlaceholder="Buscar región, zona o unidad…"
       />
 

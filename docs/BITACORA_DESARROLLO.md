@@ -1,3 +1,87 @@
+## 2026-11-10 — Selects: flecha del tamaño de Operadores
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** La flecha de todos los selects nativos queda del mismo tamaño que la de Operadores (Por operador).
+- **Archivos / refs:** `frontend/src/theme-contrast.css`
+
+## 2026-11-10 — Mapa: la rueda se desliza sin brincos
+
+- **Tipo:** fix
+- **Área:** web
+- **Qué:** La rueda del mapa escala el dibujo seguido, como los botones + y −. Los mosaicos se recargan al soltar la rueda, no en cada paso.
+- **Por qué / notas:** Antes cada frame rearmaba la grilla y el zoom pegaba saltos. Los botones siguen un nivel; la rueda, un cuarto.
+- **Archivos / refs:** `frontend/src/dispatch/mapLeafletUtils.jsx`
+
+## 2026-11-09 — ExploNova: barra y bolita propias
+
+- **Tipo:** feature
+- **Área:** mobile
+- **Qué:** En completa, también en YouTube, los botones de arriba y nuestra línea salen y se ocultan juntos. Un toque los muestra y no pausa el video. La bolita sigue el dedo y el video salta al soltar. La línea cubre la imagen, no las franjas negras. APK firmado `ExploNova-2.0.0-alpha104.apk` (código 324).
+- **Por qué / notas:** La bolita del sitio no se podía arrastrar. No se instaló en el teléfono. Los APK anteriores no se tocaron.
+- **Archivos / refs:** `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha104.apk`
+
+## 2026-11-09 — ExploNova: APK 2.0.0-alpha103
+
+- **Tipo:** otro
+- **Área:** mobile
+- **Qué:** Se generó el APK firmado `ExploNova-2.0.0-alpha103.apk` (código 323). En completa el video se ve entero y atrasar o adelantar sí mueven la reproducción.
+- **Por qué / notas:** No se instaló en el teléfono. Los APK anteriores no se tocaron.
+- **Archivos / refs:** `ExploNova_Soporte/APK/ExploNova-2.0.0-alpha103.apk`
+
+## 2026-11-09 — Estados: qué se pinta en el mapa
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En Configuración → Estados, junto a Consola, un desplegable lista las regiones y sus estados para elegir cuáles se dibujan. La lista de abajo sigue asignando el estado a la región. Se quitó el check de Radio. La misma selección vale en Seguimiento.
+- **Archivos / refs:** `frontend/src/dispatch/ConfigStates.jsx`, `frontend/src/dispatch/ivRmStatesConfig.js`
+
+## 2026-11-09 — Regiones militares y sus estados
+
+- **Tipo:** feature
+- **Área:** database
+- **Qué:** En la base de desarrollo se crearon II, VII, VIII, IX, XI y XII R.M., sin zonas. Las 12 regiones quedaron con sus estados. IV R.M. sigue con Nuevo León, San Luis Potosí y Tamaulipas.
+- **Por qué / notas:** No se tocaron zonas ni unidades existentes. Pruebas y producción no se modificaron.
+- **Archivos / refs:** `backend/src/data/mxStateCatalog.js`, `backend/src/scripts/assign-military-regions.js`
+
+## 2026-11-09 — Territorio: orden en Región / Zona / Unidad
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** El select Región / Zona / Unidad tiene Ascendente/Descendente. Todo plegado ordena regiones; una región abierta ordena sus zonas; una zona abierta ordena las unidades y deja los encabezados. Cada nivel guarda su sentido.
+- **Archivos / refs:** `frontend/src/dispatch/MapTreeCheckSelect.jsx`
+
+## 2026-11-09 — Estados: se quita restaurar colores
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En Configuración → Estados se quitó el botón «Restaurar mis colores y mapas».
+- **Archivos / refs:** `frontend/src/dispatch/ConfigStates.jsx`
+
+## 2026-11-09 — Estados: se quita la capa de municipios
+
+- **Tipo:** ux
+- **Área:** web
+- **Qué:** En Configuración → Estados ya no está el bloque de municipios ni las cuatro zonas militares. Sigue la asignación de estados, el color y «mostrar en mapas» de la capa de estados.
+- **Por qué / notas:** Esos controles repetían Territorio y el filtro del mapa. El color de esas zonas no pintaba el mapa.
+- **Archivos / refs:** `frontend/src/dispatch/ConfigStates.jsx`, `frontend/src/dispatch/IvRmTerritoryLayer.jsx`
+
+## 2026-11-09 — ExploNova: ajuste al salir de completa
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** Al salir de completa el video recupera su ajuste anterior. El salto usa el video grande del marco, no el primero de la página, y también mueve el reproductor de la página.
+- **Por qué / notas:** El cierre devolvía el control antes de restaurar el ajuste, así que esa parte no corría. Sigue en el código 323, `2.0.0-alpha103`.
+- **Archivos / refs:** `browser/BrowserEngine.kt`
+
+## 2026-11-09 — ExploNova: video entero y avance en completa
+
+- **Tipo:** fix
+- **Área:** mobile
+- **Qué:** En completa el video se ve entero, sin corte arriba ni abajo. Atrasar y adelantar mueven la reproducción también cuando el video está en un marco de otro sitio.
+- **Por qué / notas:** El marco se agrandaba hasta recortar la imagen y el gesto no llegaba a ese video. Código 323, `2.0.0-alpha103`. Probado en el emulador. No se generó APK ni se instaló en el teléfono.
+- **Archivos / refs:** `browser/BrowserEngine.kt` · `app/build.gradle.kts`
+
 ## 2026-11-09 — ExploNova: APK 2.0.0-alpha102
 
 - **Tipo:** otro

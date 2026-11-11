@@ -115,22 +115,32 @@ export function stateColor(config, id) {
   return normalizeHex(config?.[id]?.color) || def?.defaultColor || '#355c2e';
 }
 
-/** Vista vigente: estados asignados a alguna región + colores y mapas de este usuario. */
+/** Vista vigente: estados asignados a alguna región + colores, mapas y visibilidad de este usuario. */
 let estadoMapaView = defaultIvRmStatesConfig();
 let estadoMapaAssigned = null;
+/** null = todos los asignados se ven. Clave en false = este usuario no lo pinta. */
+let estadoMapaVisible = null;
 
 export function getEstadoMapaView() {
   return estadoMapaView;
 }
 
+function stateIsVisible(id) {
+  const flag = estadoMapaVisible?.[id];
+  if (typeof flag === 'boolean') return flag;
+  return true;
+}
+
 function paintEstadoMapa() {
   const next = defaultIvRmStatesConfig();
   next.surfaces = normalizeSurfaces(estadoMapaView.surfaces);
+  next.visible = { ...(estadoMapaVisible || {}) };
   const assigned = estadoMapaAssigned;
   for (const d of IV_RM_STATE_DEFS) {
     const prev = estadoMapaView[d.id];
+    const owned = assigned ? assigned.has(d.id) : defaultStateEnabled(d.id);
     next[d.id] = {
-      enabled: assigned ? assigned.has(d.id) : defaultStateEnabled(d.id),
+      enabled: owned && stateIsVisible(d.id),
       color: normalizeHex(prev?.color) || d.defaultColor,
     };
   }
@@ -143,9 +153,12 @@ function paintEstadoMapa() {
   return next;
 }
 
-/** assignedIds: ids de estados que alguna región tiene. colors/surfaces son de la cuenta. */
-export function applyEstadoMapa({ assignedIds, colors, surfaces } = {}) {
+/** assignedIds: ids de estados que alguna región tiene. colors/surfaces/visible son de la cuenta. */
+export function applyEstadoMapa({ assignedIds, colors, surfaces, visible } = {}) {
   if (Array.isArray(assignedIds)) estadoMapaAssigned = new Set(assignedIds);
+  if (visible && typeof visible === 'object') {
+    estadoMapaVisible = { ...(estadoMapaVisible || {}), ...visible };
+  }
   if (surfaces && typeof surfaces === 'object') {
     estadoMapaView = { ...estadoMapaView, surfaces: normalizeSurfaces(surfaces) };
   }

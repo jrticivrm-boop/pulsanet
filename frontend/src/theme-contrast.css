@@ -587,3 +587,33 @@ select option,
   background: color-mix(in srgb, var(--accent, #3b82f6) 18%, transparent) !important;
   color: #93c5fd !important;
 }
+
+/*
+ * Flecha de todo <select> = la de Operadores (Por operador / Por grupo):
+ * dos triángulos de 0.28rem. Solo el dibujo de la flecha; no toca alto, letra ni borde.
+ */
+select:not([multiple]):not([size]),
+select[size='1'] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: linear-gradient(
+      45deg,
+      transparent 50%,
+      color-mix(in srgb, currentColor 65%, transparent) 50%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, currentColor 65%, transparent) 50%,
+      transparent 50%
+    );
+  background-position:
+    calc(100% - 0.72rem) calc(50% - 0.08rem),
+    calc(100% - 0.48rem) calc(50% - 0.08rem);
+  background-size: 0.28rem 0.28rem, 0.28rem 0.28rem;
+  background-repeat: no-repeat;
+}
+select:not([multiple]):not([size])::-ms-expand,
+select[size='1']::-ms-expand {
+  display: none;
+}

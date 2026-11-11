@@ -1,15 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
-import {
-  isTerritorySurfaceEnabled,
-  isZonaEnabled,
-  loadIvRmTerritoryConfig,
-  primaryUnidad,
-  UNIT_COLOR_EVENT,
-  unidadColor,
-  useIvRmTerritoryConfig,
-} from './ivRmTerritoryConfig.js';
+import { primaryUnidad, UNIT_COLOR_EVENT, unidadColor } from './ivRmTerritoryConfig.js';
 import {
   applyTerritoryCoverage,
   filterTerritoryFeatures,
@@ -183,8 +175,14 @@ function styleWithHover(feature, showColors, hoverPreview) {
  * Municipios IV R.M. coloreados por Unidad (tonos tenues).
  * Hover: resalta la porción y muestra globo al lado del municipio, sin taparlo.
  */
+function poolForFilter(features, coverageRows, filter) {
+  const overlaid = applyTerritoryCoverage(features, coverageRows);
+  const selectedZones = Array.isArray(filter?.zonaIds) ? filter.zonaIds.map(String) : null;
+  if (!selectedZones) return overlaid;
+  return overlaid.filter((f) => selectedZones.includes(String(f.properties?.zonaId || '')));
+}
+
 export default function IvRmTerritoryLayer({
-  surface = 'consola',
   filter = null,
   showColors: showColorsProp = null,
   onFeaturesReady = null,
@@ -192,12 +190,7 @@ export default function IvRmTerritoryLayer({
   hoverPreview = null,
 }) {
   const map = useMap();
-  const [config] = useIvRmTerritoryConfig();
-  const surfaceOn = isTerritorySurfaceEnabled(config, surface);
-  const layerOn = config.layerEnabled !== false && surfaceOn;
-  const showColors =
-    showColorsProp == null ? config.showColors !== false : Boolean(showColorsProp);
-  const configKey = JSON.stringify(config);
+  const showColors = showColorsProp == null ? true : Boolean(showColorsProp);
   const filterKey = JSON.stringify(filter || {});
   const hoverKey = JSON.stringify(hoverPreview || null);
   const [features, setFeatures] = useState(() => loadedIvRmMunicipios());
@@ -214,7 +207,7 @@ export default function IvRmTerritoryLayer({
   }, []);
 
   useEffect(() => {
-    if (!layerOn || features != null) return undefined;
+    if (features != null) return undefined;
     let alive = true;
     loadIvRmMunicipios().then((list) => {
       if (!alive) return;
@@ -223,7 +216,7 @@ export default function IvRmTerritoryLayer({
     return () => {
       alive = false;
     };
-  }, [layerOn, features]);
+  }, [features]);
 
   const coverageKey = JSON.stringify(
     (coverageRows || []).map((r) => [
@@ -236,19 +229,11 @@ export default function IvRmTerritoryLayer({
 
   const baseVisible = useMemo(() => {
     if (!features?.length) return [];
-    const cfg = config || loadIvRmTerritoryConfig();
-    const overlaid = applyTerritoryCoverage(features, coverageRows);
-    const selectedZones = Array.isArray(filter?.zonaIds) ? filter.zonaIds.map(String) : null;
-    const zoneOn = (f) => {
-      const zid = String(f.properties?.zonaId || '');
-      if (selectedZones) return selectedZones.includes(zid);
-      return isZonaEnabled(cfg, zid);
-    };
-    const pool = overlaid.filter(zoneOn);
+    const pool = poolForFilter(features, coverageRows, filter);
     let list = pool;
     if (filter) list = filterTerritoryFeatures(pool, { ...filter, zonaIds: undefined, zonaId: undefined });
     return includeAssignedStateMates(list, pool, filter || {});
-  }, [features, configKey, filterKey, coverageKey]);
+  }, [features, filterKey, coverageKey]);
 
   /** Selección actual + municipios del hover del árbol (aunque no estén marcados). */
   const visible = useMemo(() => {
@@ -256,14 +241,7 @@ export default function IvRmTerritoryLayer({
       return baseVisible;
     }
     if (!features?.length) return baseVisible;
-    const cfg = config || loadIvRmTerritoryConfig();
-    const overlaid = applyTerritoryCoverage(features, coverageRows);
-    const selectedZones = Array.isArray(filter?.zonaIds) ? filter.zonaIds.map(String) : null;
-    const pool = overlaid.filter((f) => {
-      const zid = String(f.properties?.zonaId || '');
-      if (selectedZones) return selectedZones.includes(zid);
-      return isZonaEnabled(cfg, zid);
-    });
+    const pool = poolForFilter(features, coverageRows, filter);
     const preview = filterTerritoryFeatures(pool, {
       zonaIds: hoverPreview.zonaIds?.length ? hoverPreview.zonaIds : undefined,
       unidadIds: hoverPreview.unidadIds?.length ? hoverPreview.unidadIds : undefined,
@@ -280,21 +258,13 @@ export default function IvRmTerritoryLayer({
       else byId.set(`p:${byId.size}`, f);
     }
     return [...byId.values()];
-  }, [baseVisible, features, configKey, coverageKey, hoverKey, filterKey]);
+  }, [baseVisible, features, coverageKey, hoverKey, filterKey]);
 
   useEffect(() => {
     if (typeof onFeaturesReady === 'function') onFeaturesReady(baseVisible);
   }, [baseVisible, onFeaturesReady]);
 
   useEffect(() => {
-    if (!layerOn) {
-      if (layerRef.current) {
-        map.removeLayer(layerRef.current);
-        layerRef.current = null;
-      }
-      return undefined;
-    }
-
     if (!map.getPane('ivRmTerritoryPane')) {
       const pane = map.createPane('ivRmTerritoryPane');
       pane.style.zIndex = 360;
@@ -357,7 +327,7 @@ export default function IvRmTerritoryLayer({
         layerRef.current = null;
       }
     };
-  }, [map, configKey, filterKey, layerOn, showColors, visible, colorRev]);
+  }, [map, filterKey, showColors, visible, colorRev]);
 
   useEffect(() => {
     const layer = layerRef.current;

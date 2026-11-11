@@ -15,6 +15,7 @@ export async function syncEstadoMapa(token) {
     assignedIds: states.map((s) => s.estadoId),
     colors: prefs.estadoMapaColors || {},
     surfaces: prefs.estadoMapaSurfaces || null,
+    visible: prefs.estadoMapaVisible || null,
   });
   const personal = prefs.territorioUnitColors;
   if (personal && typeof personal === 'object') {

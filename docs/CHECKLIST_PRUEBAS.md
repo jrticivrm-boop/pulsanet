@@ -60,10 +60,10 @@ Esta lista es la parte **manual**. Revisa siempre la sección *Base* y, además,
 ## Si toca Territorio / catálogo de cobertura
 
 - [ ] Consola → Territorio: solo 2 selects (Región/Zona/Unidad y Estado/Municipio) + Colores; sin Limpiar, Encuadrar ni Usuarios.
-- [ ] Región/Zona/Unidad: aparece IV R.M. (u otras) solo si tienen municipios en Configuración → Territorio; check de región/zona marca hijos; el mapa filtra al marcar.
+- [ ] Región/Zona/Unidad: aparece IV R.M. (u otras) solo si tienen municipios en Configuración → Territorio; check de región/zona marca hijos; el mapa filtra al marcar. Ascendente/Descendente: todo plegado ordena regiones; una región abierta ordena sus zonas; una zona abierta ordena las unidades y los encabezados se quedan.
 - [ ] Mapa: Tampico, Ciudad Madero y el resto de Tamaulipas y San Luis del 15/o. B.I. (y las demás unidades) se pintan si el estado y la unidad están elegidos. Aldama y Tampico, mismo color.
 - [ ] Estado/Municipio: estados plegables con municipios; Abasolo Tamps. vs Abasolo N.L. en grupos distintos; el check del estado marca el grupo.
-- [ ] Configuración → Estados: IV R.M. trae Nuevo León, Tamaulipas y San Luis Potosí. Un estado de otra región se ve en gris y el check pregunta si se sustituye. El color y «mostrar en mapas» son de la cuenta.
+- [ ] Configuración → Estados: las 12 regiones tienen sus estados. Junto a Consola, «Estados en el mapa» lista regiones y, adentro, sus estados. Quitar uno ahí no lo saca de la región; solo deja de pintarse. No está el check de Radio.
 - [ ] Configuración → Territorio: solo aparecen regiones con estados. El select de estado solo lista los de esa región. Una región sin estados no sale.
 - [ ] Configuración → Territorio: árbol Región→Zona→Unidad plegable (PRUEBA_ZONA bajo su región de Dependencias, si esa región tiene estados); búsqueda en el árbol; contadores; unidades (0) en gris «sin municipios». Ya no está en Catálogos.
 - [ ] El 15/o. B.I. solo aparece en 48/a. Z.M., igual que en Catálogos → Dependencias. En 8/a. Z.M. no está. Al abrirlo, Tamaulipas muestra sus municipios marcados (Tampico, Ciudad Madero, Aldama).
