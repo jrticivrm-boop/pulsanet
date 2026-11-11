@@ -9,6 +9,8 @@ Formato inspirado en [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+> Desplegado en producción el 2026-11-10 (`prod-v1.8.107-20261110-1928`, API + web, migraciones 053–054). Incluye Territorio/Estados, RESERVADO, mapa y selects desde el 22 de octubre. Las 12 regiones militares con sus 32 estados quedaron aplicadas en la BD.
+
 ### Changed
 - **Selects:** la flecha de los selects nativos usa el tamaño de Operadores (Por operador).
 - **Configuración → Estados:** junto a Consola hay un desplegable por región para elegir qué estados se pintan en el mapa. No cambia la asignación. Radio salió de esa fila. La misma selección vale en Seguimiento.

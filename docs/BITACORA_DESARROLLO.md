@@ -1,3 +1,11 @@
+## 2026-11-10 — Producción: desde el 22 de octubre
+
+- **Tipo:** ops
+- **Área:** infra
+- **Qué:** Se subieron 35 commits a la VM (`1b26bfc`, etiqueta `prod-v1.8.107-20261110-1928`). Migraciones 053 y 054. En la BD de producción quedaron las 12 regiones militares con sus 32 estados.
+- **Por qué / notas:** Orden explícita. Fuera de ventana 21:00–07:00. Health OK. Punto de regreso: `REVERTIR-PRODUCCION.ps1`.
+- **Archivos / refs:** `infra/PROMOVER.ps1` · `backend/src/scripts/assign-military-regions.js`
+
 ## 2026-11-10 — Selects: flecha del tamaño de Operadores
 
 - **Tipo:** ux
